@@ -1321,9 +1321,55 @@ async def before_status_embed():
     await asyncio.sleep(20)
 
 
+# Cache fuer automatisch erstellte Voice-Channels {key: channel_id}
+_voice_channel_cache: dict[str, int] = {}
+
+
+async def _get_or_create_voice_channel(
+    category: discord.CategoryChannel, key: str, initial_name: str
+) -> Optional[discord.VoiceChannel]:
+    """Voice-Channel in Kategorie finden oder neu erstellen. Cached die ID."""
+    global _voice_channel_cache
+
+    # Aus Cache laden
+    cached_id = _voice_channel_cache.get(key)
+    if cached_id:
+        ch = category.guild.get_channel(cached_id)
+        if ch:
+            return ch
+
+    # In Kategorie suchen (nach Key im Namen)
+    for vc in category.voice_channels:
+        if key.upper() in vc.name.upper():
+            _voice_channel_cache[key] = vc.id
+            return vc
+
+    # Nicht gefunden — neu erstellen
+    try:
+        # Keine Verbindung erlauben (nur Anzeige)
+        overwrites = {
+            category.guild.default_role: discord.PermissionOverwrite(connect=False),
+            category.guild.me: discord.PermissionOverwrite(
+                connect=True, manage_channels=True
+            ),
+        }
+        vc = await category.create_voice_channel(
+            name=initial_name, overwrites=overwrites
+        )
+        _voice_channel_cache[key] = vc.id
+        logger.info(f"Voice-Channel erstellt: {initial_name} (ID: {vc.id})")
+        return vc
+    except discord.Forbidden:
+        logger.warning(f"Keine Berechtigung zum Erstellen von Voice-Channel: {initial_name}")
+        return None
+    except Exception as e:
+        logger.error(f"Voice-Channel erstellen fehlgeschlagen: {e}")
+        return None
+
+
 @tasks.loop(seconds=300)
 async def update_voice_stats():
-    """Update voice channel stats every 5 minutes"""
+    """Update voice channel stats every 5 minutes — erstellt Channels automatisch"""
     if not VOICE_STATS_CATEGORY_ID or not GUILD_ID:
         return
 
@@ -1331,57 +1377,79 @@ async def update_voice_stats():
     if not guild:
         return
 
-    # Use direct server check for most reliable status
+    category = guild.get_channel(VOICE_STATS_CATEGORY_ID)
+    if not category or not isinstance(category, discord.CategoryChannel):
+        return
+
+    # --- Satisfactory Status ---
     try:
-        running = await sat_server.is_running()
+        sat_running = await sat_server.is_running()
     except Exception:
-        running = False
+        sat_running = False
 
-    # Get player info from health checker or API
-    players_online = 0
-    player_limit = 0
-    if running:
+    sat_players = 0
+    sat_limit = 0
+    if sat_running:
         status = health_checker.status
-        players_online = status.players_online
-        player_limit = status.player_limit
-
-        # Try API for more accurate data
+        sat_players = status.players_online
+        sat_limit = status.player_limit
         try:
             api_state = await sat_api.query_server_state()
             if api_state:
                 if api_state.num_players >= 0:
-                    players_online = api_state.num_players
+                    sat_players = api_state.num_players
                 if api_state.player_limit > 0:
-                    player_limit = api_state.player_limit
+                    sat_limit = api_state.player_limit
         except Exception:
             pass
 
-    channel = guild.get_channel(VOICE_STATS_CATEGORY_ID)
-    if not channel:
-        return
-
-    # Collect voice channels to update
-    if isinstance(channel, discord.CategoryChannel):
-        voice_channels = channel.voice_channels
-    elif isinstance(channel, discord.VoiceChannel):
-        voice_channels = [channel]
-    else:
-        return
-
-    for vc in voice_channels:
+    # SAT Voice-Channel
+    sat_vc = await _get_or_create_voice_channel(
+        category, "SAT", "SAT-1 | 🔴 Offline"
+    )
+    if sat_vc:
+        if sat_running:
+            new_name = f"SAT-1 | 🟢 {sat_players}/{sat_limit}"
+        else:
+            new_name = "SAT-1 | 🔴 Offline"
         try:
-            if "SAT" in vc.name.upper() or vc.id == VOICE_STATS_CATEGORY_ID:
-                if running:
-                    new_name = f"SAT-1 | 🟢 {players_online}/{player_limit}"
-                else:
-                    new_name = "SAT-1 | 🔴 Offline"
-                if vc.name != new_name:
-                    await vc.edit(name=new_name)
-
+            if sat_vc.name != new_name:
+                await sat_vc.edit(name=new_name)
         except discord.Forbidden:
-            logger.warning(f"No permission to edit voice channel: {vc.name}")
+            logger.warning(f"Keine Berechtigung fuer Voice-Channel: {sat_vc.name}")
         except Exception as e:
-            logger.error(f"Voice stats error: {e}")
+            logger.error(f"Voice stats SAT error: {e}")
+
+    # --- Minecraft Voice-Channels ---
+    if hasattr(bot, 'mc_servers'):
+        for sid, srv in bot.mc_servers.items():
+            try:
+                mc_running = await srv.is_running()
+                mc_players = 0
+                mc_max = 0
+                if mc_running:
+                    mc_players, mc_max = await srv.get_player_count()
+            except Exception:
+                mc_running = False
+                mc_players = 0
+                mc_max = 0
+
+            vc_key = f"MC-{sid}"
+            mc_vc = await _get_or_create_voice_channel(
+                category, vc_key, f"MC-{sid} | 🔴 Offline"
+            )
+            if mc_vc:
+                if mc_running:
+                    new_name = f"MC-{sid} | 🟢 {mc_players}/{mc_max}"
+                else:
+                    new_name = f"MC-{sid} | 🔴 Offline"
+                try:
+                    if mc_vc.name != new_name:
+                        await mc_vc.edit(name=new_name)
+                except discord.Forbidden:
+                    logger.warning(f"Keine Berechtigung fuer Voice-Channel: {mc_vc.name}")
+                except Exception as e:
+                    logger.error(f"Voice stats MC-{sid} error: {e}")
 
 
 @update_voice_stats.before_loop

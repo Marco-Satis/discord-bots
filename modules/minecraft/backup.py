@@ -35,7 +35,13 @@ class MinecraftBackupManager:
         self.server_id = server_id.upper()
 
         # Backup-Verzeichnis erstellen falls noetig
-        self.backup_path.mkdir(parents=True, exist_ok=True)
+        try:
+            self.backup_path.mkdir(parents=True, exist_ok=True)
+        except PermissionError:
+            logger.warning(
+                f"[{self.server_id}] Backup-Pfad nicht erstellbar: {self.backup_path} "
+                f"(Berechtigungen pruefen!)"
+            )
 
     # ------------------------------------------------------------------
     # Backup erstellen
@@ -75,14 +81,40 @@ class MinecraftBackupManager:
         try:
             logger.info(f"[{self.server_id}] Backup erstellen: {name} (von {created_by})")
 
-            # World-Verzeichnis kopieren (im Thread-Pool, blockiert nicht)
+            # World-Verzeichnis kopieren (mit Fehlertoleranz fuer nicht-lesbare Dateien)
             def _copy_tree():
+                errors_list = []
+
+                def _error_handler(src, dst, exc_info):
+                    """Sammelt Fehler statt abzubrechen"""
+                    errors_list.append((src, str(exc_info[1])))
+
                 shutil.copytree(
                     self.world_path, backup_dest,
-                    ignore=shutil.ignore_patterns('*.lock', 'session.lock')
+                    ignore=shutil.ignore_patterns('*.lock', 'session.lock'),
+                    copy_function=_safe_copy2,
                 )
 
-            await loop.run_in_executor(None, _copy_tree)
+                if errors_list:
+                    logger.warning(
+                        f"[{self.server_id}] Backup teilweise: "
+                        f"{len(errors_list)} Dateien uebersprungen"
+                    )
+                    for src, err in errors_list[:5]:
+                        logger.debug(f"  Uebersprungen: {src} ({err})")
+
+                return errors_list
+
+            def _safe_copy2(src, dst):
+                """Kopiert eine Datei, ueberspringt bei PermissionError"""
+                try:
+                    shutil.copy2(src, dst)
+                except PermissionError:
+                    # Datei nicht lesbar — leere Kopie erstellen mit Warnung
+                    logger.debug(f"[{self.server_id}] Nicht lesbar, uebersprungen: {src}")
+                    pass
+
+            copy_errors = await loop.run_in_executor(None, _copy_tree)
 
             # Metadaten-Datei erstellen (async via Executor)
             metadata_content = (
@@ -99,7 +131,13 @@ class MinecraftBackupManager:
             await loop.run_in_executor(None, _write_metadata)
 
             size_mb = await self._get_path_size_mb_async(backup_dest)
-            msg = f"Backup erstellt: {name} ({size_mb:.1f} MB)"
+            if copy_errors:
+                msg = (
+                    f"Backup erstellt (teilweise): {name} ({size_mb:.1f} MB) "
+                    f"— {len(copy_errors)} Dateien uebersprungen"
+                )
+            else:
+                msg = f"Backup erstellt: {name} ({size_mb:.1f} MB)"
             logger.info(f"[{self.server_id}] {msg}")
 
             # Alte Backups aufraeumen

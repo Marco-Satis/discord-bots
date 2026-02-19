@@ -144,11 +144,14 @@ bot.sat_mod_mgr = ModManager("satisfactory",
                              mods_dir=DATA_DIR / "mods" / "satisfactory")
 bot.mc_mod_mgrs: dict[str, ModManager] = {}
 for _sid, _srv in bot.mc_servers.items():
-    bot.mc_mod_mgrs[_sid] = ModManager(
-        f"minecraft_{_sid.lower()}",
-        server_path=_srv.server_path,
-        mods_dir=DATA_DIR / "mods" / f"minecraft_{_sid.lower()}"
-    )
+    try:
+        bot.mc_mod_mgrs[_sid] = ModManager(
+            "minecraft",
+            server_path=_srv.server_path,
+            mods_dir=_srv.server_path / "mods"
+        )
+    except Exception as _e:
+        logger.warning(f"ModManager fuer MC-{_sid} nicht initialisiert: {_e}")
 
 # Maintenance
 bot.maintenance = BotMaintenance()
@@ -209,7 +212,7 @@ async def on_ready():
 
 
 @bot.event
-async def on_app_command_completion(interaction: discord.Interaction):
+async def on_app_command_completion(interaction: discord.Interaction, command):
     """Log every successful slash command execution"""
     try:
         params = {}

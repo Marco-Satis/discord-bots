@@ -253,13 +253,21 @@ class ConfigValidator:
 
             # Server-Pfad pruefen (nur Warnung — MC evtl. noch nicht installiert)
             server_path = get_env(f"MC_{sid}_PATH", "")
-            if server_path and not Path(server_path).exists():
-                errors.append(ConfigValidationError(
-                    f"MC_{sid}_PATH",
-                    f"Server-Pfad nicht gefunden: {server_path} "
-                    f"(normal wenn MC noch nicht installiert)",
-                    "warning"
-                ))
+            if server_path:
+                try:
+                    if not Path(server_path).exists():
+                        errors.append(ConfigValidationError(
+                            f"MC_{sid}_PATH",
+                            f"Server-Pfad nicht gefunden: {server_path} "
+                            f"(normal wenn MC noch nicht installiert)",
+                            "warning"
+                        ))
+                except PermissionError:
+                    errors.append(ConfigValidationError(
+                        f"MC_{sid}_PATH",
+                        f"Keine Leseberechtigung fuer: {server_path}",
+                        "warning"
+                    ))
 
         if not any_enabled:
             logger.debug("Keine Minecraft-Server konfiguriert — MC-Checks uebersprungen")
