@@ -839,6 +839,86 @@ async def before_mc_chat_bridge():
         logger.info(f"Minecraft Chat-Bridges gestartet: {list(mc_chat_bridges.keys())}")
 
 
+# ------------------------------------------------------------------
+# Minecraft Health-Check Task
+# ------------------------------------------------------------------
+
+# Tracking pro Server: Anzahl aufeinanderfolgende Offline-Checks
+_mc_consecutive_offline: dict[str, int] = {sid: 0 for sid in mc_servers}
+_mc_downtime_notified: dict[str, bool] = {sid: False for sid in mc_servers}
+
+
+@tasks.loop(seconds=120)
+async def mc_health_check_task():
+    """Minecraft Server Health-Check alle 2 Minuten"""
+    for sid, srv in mc_servers.items():
+        try:
+            running = await srv.is_running()
+
+            if not running:
+                _mc_consecutive_offline[sid] = _mc_consecutive_offline.get(sid, 0) + 1
+                count = _mc_consecutive_offline[sid]
+
+                # Nach 3 aufeinanderfolgenden Checks (6 Min) benachrichtigen
+                if count >= 3 and not _mc_downtime_notified.get(sid, False):
+                    _mc_downtime_notified[sid] = True
+                    admin_ch = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
+                    if admin_ch:
+                        try:
+                            embed = discord.Embed(
+                                title=f"Minecraft {srv.display_name} offline",
+                                description=(
+                                    f"{srv.display_name} ist seit {count * 2} Minuten "
+                                    f"nicht erreichbar.\n"
+                                    f"Service: `{srv.service_name}`"
+                                ),
+                                color=0xff0000,
+                                timestamp=datetime.now(),
+                            )
+                            await admin_ch.send(embed=embed)
+                        except Exception as e:
+                            logger.debug(f"[{sid}] Downtime-Notification Fehler: {e}")
+
+            else:
+                # Server online — Recovery-Notification
+                if _mc_consecutive_offline.get(sid, 0) > 0:
+                    if _mc_downtime_notified.get(sid, False):
+                        _mc_downtime_notified[sid] = False
+                        admin_ch = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
+                        if admin_ch:
+                            try:
+                                embed = discord.Embed(
+                                    title=f"Minecraft {srv.display_name} wieder online",
+                                    description=(
+                                        f"Server ist wieder erreichbar.\n"
+                                        f"War {_mc_consecutive_offline[sid] * 2} Minuten offline."
+                                    ),
+                                    color=0x00ff00,
+                                    timestamp=datetime.now(),
+                                )
+                                await admin_ch.send(embed=embed)
+                            except Exception as e:
+                                logger.debug(f"[{sid}] Recovery-Notification Fehler: {e}")
+
+                _mc_consecutive_offline[sid] = 0
+
+                # Spielerzahl fuer Stats tracken
+                try:
+                    online, max_p = await srv.get_player_count()
+                    stats_tracker.record_player_count(online)
+                except Exception:
+                    pass
+
+        except Exception as e:
+            logger.debug(f"[{sid}] MC Health-Check Fehler: {e}")
+
+
+@mc_health_check_task.before_loop
+async def before_mc_health_check():
+    await bot.wait_until_ready()
+    await asyncio.sleep(30)  # Nach anderen Tasks starten
+
+
 @tasks.loop(seconds=60)
 async def login_audit_task():
     """Check auth.log for SSH login events every 60 seconds"""
@@ -1347,7 +1427,7 @@ async def on_ready():
     )
 
     # Start background tasks (is_running guard prevents duplicates)
-    for task in [health_check_task, player_log_task, mc_chat_bridge_task, update_status_embed, update_voice_stats, optimize_task, login_audit_task, weekly_snapshot_task]:
+    for task in [health_check_task, player_log_task, mc_chat_bridge_task, mc_health_check_task, update_status_embed, update_voice_stats, optimize_task, login_audit_task, weekly_snapshot_task]:
         if not task.is_running():
             task.start()
 
