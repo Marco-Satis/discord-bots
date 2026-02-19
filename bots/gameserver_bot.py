@@ -116,25 +116,39 @@ bot.settings_backup = SettingsBackup(
 )
 
 # Phase 4: Mod Management & Maintenance
-# Minecraft (conditional)
-if os.getenv("MINECRAFT_SERVICE"):
-    from modules.minecraft.server import MinecraftServer
+# Minecraft Multi-Server (conditional per Server-ID)
+from modules.minecraft.server import MinecraftServer
+bot.mc_servers: dict[str, MinecraftServer] = {}
+
+MC_SERVER_IDS = ["BMC", "VANILLA"]
+for _sid in MC_SERVER_IDS:
+    _srv = MinecraftServer(_sid)
+    if _srv.enabled:
+        bot.mc_servers[_sid] = _srv
+        logger.info(f"Minecraft-Server aktiviert: {_srv.display_name} ({_sid})")
+
+if bot.mc_servers:
     from modules.minecraft.backup import MinecraftBackupManager
-    bot.mc_server = MinecraftServer()
-    bot.mc_backup_mgr = MinecraftBackupManager(
-        savegame_path=bot.mc_server.world_path,
-        backup_path=Path(get_env("MINECRAFT_BACKUP_PATH", "/home/minecraft/backups")),
-        max_backups=bot.config.get("backup", {}).get("max_local", 20)
-    )
+    bot.mc_backup_mgrs: dict[str, MinecraftBackupManager] = {}
+    for _sid, _srv in bot.mc_servers.items():
+        bot.mc_backup_mgrs[_sid] = MinecraftBackupManager(
+            savegame_path=_srv.world_path,
+            backup_path=_srv.backup_path,
+            max_backups=bot.config.get("backup", {}).get("max_local", 20)
+        )
 
 # Mod management
 bot.sat_mod_mgr = ModManager("satisfactory",
                              server_path=bot.sat_server.server_path,
                              mods_dir=DATA_DIR / "mods" / "satisfactory")
-if os.getenv("MINECRAFT_SERVICE"):
-    bot.mc_mod_mgr = ModManager("minecraft",
-                                server_path=Path(get_env("MINECRAFT_SERVER_PATH", "/home/minecraft/server")),
-                                mods_dir=DATA_DIR / "mods" / "minecraft")
+for _sid, _srv in bot.mc_servers.items():
+    if not hasattr(bot, "mc_mod_mgrs"):
+        bot.mc_mod_mgrs: dict[str, ModManager] = {}
+    bot.mc_mod_mgrs[_sid] = ModManager(
+        f"minecraft_{_sid.lower()}",
+        server_path=_srv.server_path,
+        mods_dir=DATA_DIR / "mods" / f"minecraft_{_sid.lower()}"
+    )
 
 # Maintenance
 bot.maintenance = BotMaintenance()
@@ -157,11 +171,11 @@ INITIAL_COGS = [
 ]
 
 # Conditional cogs based on environment
-if os.getenv("MINECRAFT_SERVICE"):
+if bot.mc_servers:
     INITIAL_COGS.append("cogs.minecraft_cog")
-    logger.info("Feature enabled: minecraft")
+    logger.info(f"Feature enabled: minecraft ({len(bot.mc_servers)} Server)")
 else:
-    logger.info("Feature disabled: minecraft")
+    logger.info("Feature disabled: minecraft (kein MC_*_SERVICE konfiguriert)")
 
 
 # ------------------------------------------------------------------
