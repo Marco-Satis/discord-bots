@@ -41,6 +41,7 @@ class ConfigValidator:
         errors.extend(self._check_paths())
         errors.extend(self._check_config_json())
         errors.extend(self._check_tokens())
+        errors.extend(self._check_minecraft())
 
         has_critical = any(e.severity == "error" for e in errors)
         return (not has_critical, errors)
@@ -208,6 +209,60 @@ class ConfigValidator:
             errors.append(ConfigValidationError(
                 "GUILD_ID", f"Muss numerisch sein, ist: {guild[:20]}", "error"
             ))
+
+        return errors
+
+    def _check_minecraft(self) -> List[ConfigValidationError]:  # type: ignore
+        """Minecraft Multi-Server Konfiguration pruefen (nur wenn aktiviert)"""
+        errors = []
+        mc_server_ids = ["BMC", "VANILLA"]
+
+        any_enabled = False
+        for sid in mc_server_ids:
+            service = get_env(f"MC_{sid}_SERVICE", "")
+            if not service:
+                continue
+
+            any_enabled = True
+
+            # RCON-Passwort pruefen
+            rcon_pw = get_env(f"MC_{sid}_RCON_PASSWORD", "")
+            if not rcon_pw:
+                errors.append(ConfigValidationError(
+                    f"MC_{sid}_RCON_PASSWORD",
+                    f"RCON-Passwort fuer {sid} nicht gesetzt — RCON deaktiviert",
+                    "warning"
+                ))
+
+            # RCON-Port pruefen
+            rcon_port = get_env(f"MC_{sid}_RCON_PORT", "0")
+            try:
+                port_int = int(rcon_port)
+                if port_int < 1024 or port_int > 65535:
+                    errors.append(ConfigValidationError(
+                        f"MC_{sid}_RCON_PORT",
+                        f"Ungueltiger Port: {rcon_port}",
+                        "warning"
+                    ))
+            except ValueError:
+                errors.append(ConfigValidationError(
+                    f"MC_{sid}_RCON_PORT",
+                    f"Keine gueltige Zahl: {rcon_port}",
+                    "error"
+                ))
+
+            # Server-Pfad pruefen (nur Warnung — MC evtl. noch nicht installiert)
+            server_path = get_env(f"MC_{sid}_PATH", "")
+            if server_path and not Path(server_path).exists():
+                errors.append(ConfigValidationError(
+                    f"MC_{sid}_PATH",
+                    f"Server-Pfad nicht gefunden: {server_path} "
+                    f"(normal wenn MC noch nicht installiert)",
+                    "warning"
+                ))
+
+        if not any_enabled:
+            logger.debug("Keine Minecraft-Server konfiguriert — MC-Checks uebersprungen")
 
         return errors
 
