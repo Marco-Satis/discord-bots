@@ -4,6 +4,7 @@ Handles upload, validation, listing, download, and deletion of blueprints
 Blueprint path: /home/satisfactory/.config/Epic/FactoryGame/Saved/SaveGames/blueprints/
 """
 
+import io
 import json
 import shutil
 import zipfile
@@ -140,7 +141,6 @@ class BlueprintManager:
                            uploader_id: int, uploader_name: str) -> Tuple[int, List[str], List[str]]:
         """Extract and add blueprints from a ZIP file.
         Returns (count_added, added_names, errors)"""
-        import io
         added = []
         errors = []
 

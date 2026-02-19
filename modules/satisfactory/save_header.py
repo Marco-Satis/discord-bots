@@ -52,7 +52,7 @@ def read_length_prefixed_string(f: BinaryIO) -> str:
             return data.rstrip(b'\x00').decode("utf-8")
         except UnicodeDecodeError:
             return data.rstrip(b'\x00').decode("latin-1", errors="replace")
-    except (struct.error, ValueError, IOError) as e:
+    except (struct.error, ValueError, OSError) as e:
         logger.debug(f"Failed to read length-prefixed string: {e}")
         return ""
 

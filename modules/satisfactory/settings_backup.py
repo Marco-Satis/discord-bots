@@ -124,7 +124,7 @@ class SettingsBackup:
                         "session": data.get("session_name", "?"),
                         "options_count": len(data.get("server_options", {})),
                     })
-                except (json.JSONDecodeError, IOError, OSError, ValueError) as e:
+                except (json.JSONDecodeError, OSError, ValueError) as e:
                     logger.debug(f"Failed to read settings backup {f.name}: {e}")
                     backups.append({
                         "filename": f.name,

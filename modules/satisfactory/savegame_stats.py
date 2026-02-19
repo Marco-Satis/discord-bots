@@ -3,7 +3,6 @@ Savegame Statistics for Satisfactory
 Analyzes .sav files to extract game statistics
 """
 
-import os
 from pathlib import Path
 from typing import Dict, Optional, List, Any
 from datetime import datetime

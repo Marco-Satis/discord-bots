@@ -16,7 +16,7 @@ import json
 import time
 from pathlib import Path
 from typing import Dict, Optional, Tuple, Any
-from datetime import datetime, date, timedelta
+from datetime import datetime, timedelta
 from dataclasses import dataclass, field
 
 from utils.logger import get_logger
