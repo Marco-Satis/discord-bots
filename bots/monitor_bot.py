@@ -17,18 +17,14 @@ Features:
 Cogs: monitor_cog.py, scheduler_cog.py
 """
 
-import os
 import sys
 import json
-import time
 import re
-import psutil
 import asyncio
 import discord
-from discord import app_commands
 from discord.ext import commands, tasks
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -666,7 +662,7 @@ async def _poll_player_events():
                 content = f.read()
                 return content, f.tell()
 
-        new_content, new_pos = await asyncio.get_event_loop().run_in_executor(
+        new_content, new_pos = await asyncio.get_running_loop().run_in_executor(
             None, _read_new
         )
         _log_last_pos = new_pos
@@ -981,7 +977,6 @@ async def _update_status_embed_impl():
                     second=0, microsecond=0
                 )
                 if next_restart <= now:
-                    from datetime import timedelta
                     next_restart += timedelta(days=1)
 
                 delta = next_restart - now
