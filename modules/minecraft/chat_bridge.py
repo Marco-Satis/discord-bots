@@ -275,9 +275,11 @@ class MinecraftChatBridge:
 
         self._last_rcon_time = time.monotonic()
 
-        # Nachricht sanitisieren (keine RCON-Injection)
-        safe_msg = message.replace('"', "'").replace("\\", "")[:200]
-        safe_name = author_name.replace('"', "'")[:20]
+        # Nachricht sanitisieren (keine RCON-Injection, Zeilenumbrueche entfernen)
+        safe_msg = (message.replace('"', "'").replace("\\", "")
+                    .replace("\n", " ").replace("\r", ""))[:200]
+        safe_name = (author_name.replace('"', "'")
+                     .replace("\n", "").replace("\r", ""))[:20]
 
         try:
             # tellraw fuer farbige Nachrichten, Fallback auf say

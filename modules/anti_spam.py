@@ -194,11 +194,15 @@ class AntiSpam:
             "exempt_users": len(self._exempt_users),
         }
 
-    def cleanup(self) -> None:  # type: ignore
-        """Remove expired tracking data"""
+    def cleanup(self, inactive_threshold: int = 3600) -> None:
+        """Abgelaufene Tracking-Daten und inaktive User entfernen
+
+        Args:
+            inactive_threshold: Sekunden ohne Aktivitaet bevor User-Daten geloescht werden
+        """
         now = time.time()
 
-        # Remove expired cooldowns
+        # Abgelaufene Cooldowns entfernen
         expired = [
             uid for uid, until in self._cooldowns.items()
             if until < now
@@ -206,7 +210,7 @@ class AntiSpam:
         for uid in expired:
             del self._cooldowns[uid]
 
-        # Remove old message tracking
+        # Alte Message-Tracking-Daten entfernen
         for uid in list(self._messages.keys()):
             self._messages[uid] = [
                 t for t in self._messages[uid]
@@ -222,3 +226,8 @@ class AntiSpam:
             ]
             if not self._commands[uid]:
                 del self._commands[uid]
+
+        # Inaktive User komplett entfernen (kein Tracking-Eintrag mehr)
+        for uid in list(self._last_messages.keys()):
+            if uid not in self._messages and uid not in self._commands:
+                del self._last_messages[uid]

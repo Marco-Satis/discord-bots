@@ -20,9 +20,10 @@ def is_admin(interaction: Interaction) -> bool:
     """Check if user is owner or has admin role"""
     if is_owner(interaction):
         return True
-    if interaction.guild and interaction.guild.get_member(interaction.user.id):
+    if interaction.guild:
         member = interaction.guild.get_member(interaction.user.id)
-        return any(r.id == ADMIN_ROLE_ID for r in member.roles)
+        if member:
+            return any(r.id == ADMIN_ROLE_ID for r in member.roles)
     return False
 
 
@@ -30,9 +31,10 @@ def is_spieler(interaction: Interaction) -> bool:
     """Check if user is owner, admin, or has spieler role"""
     if is_admin(interaction):
         return True
-    if interaction.guild and interaction.guild.get_member(interaction.user.id):
+    if interaction.guild:
         member = interaction.guild.get_member(interaction.user.id)
-        return any(r.id == SATISFACTORY_ROLE_ID for r in member.roles)
+        if member:
+            return any(r.id == SATISFACTORY_ROLE_ID for r in member.roles)
     return False
 
 

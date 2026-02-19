@@ -84,7 +84,7 @@ class ConfigBackup:
                                 # Read via sudo for system files
                                 content = await self._read_with_sudo(source)
                                 if content is not None:
-                                    await self._add_bytes_to_tar(
+                                    self._add_bytes_to_tar(
                                         tar, archive_name, content
                                     )
                                     files_added += 1
@@ -163,9 +163,9 @@ class ConfigBackup:
             logger.debug(f"Failed to read {path} with sudo: {e}")
             return None
 
-    async def _add_bytes_to_tar(self, tar: tarfile.TarFile,
-                                 name: str, data: bytes) -> None:  # type: ignore
-        """Add raw bytes to a tar archive"""
+    def _add_bytes_to_tar(self, tar: tarfile.TarFile,
+                          name: str, data: bytes) -> None:
+        """Rohe Bytes zu einem tar-Archiv hinzufuegen"""
         import io
         info = tarfile.TarInfo(name=name)
         info.size = len(data)

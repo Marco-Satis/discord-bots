@@ -46,6 +46,8 @@ class SettingsBackup:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             if name:
                 safe_name = "".join(c for c in name if c.isalnum() or c in "-_")
+                if not safe_name:
+                    safe_name = "backup"
                 filename = f"settings_{safe_name}_{timestamp}.json"
             else:
                 filename = f"settings_{timestamp}.json"

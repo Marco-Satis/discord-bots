@@ -255,8 +255,8 @@ async def on_app_command_error(interaction: discord.Interaction, error):
             await interaction.response.send_message(
                 f"Ein Fehler ist aufgetreten: {error}", ephemeral=True
             )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Fehler-Antwort konnte nicht gesendet werden: {e}")
 
 
 # ------------------------------------------------------------------

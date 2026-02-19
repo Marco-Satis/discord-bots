@@ -274,13 +274,15 @@ class BackupManager:
                 if member.isfile():
                     f = tar.extractfile(member)
                     if f:
-                        # Read and discard to verify integrity
-                        while True:
-                            chunk = f.read(65536)
-                            if not chunk:
-                                break
-                            total_size += len(chunk)
-                        f.close()
+                        try:
+                            # Read and discard to verify integrity
+                            while True:
+                                chunk = f.read(65536)
+                                if not chunk:
+                                    break
+                                total_size += len(chunk)
+                        finally:
+                            f.close()
                     file_count += 1
         return file_count, total_size
 
