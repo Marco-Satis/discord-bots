@@ -300,6 +300,7 @@ class PlayerTracker:
     def close_all_sessions(self) -> None:
         """Close all open sessions (e.g. on shutdown/crash)"""
         now = datetime.now()
+        closed = 0
         for name, record in self.players.items():
             if record.is_online:
                 duration_min = 0
@@ -321,5 +322,11 @@ class PlayerTracker:
                 record.total_playtime_minutes += duration_min
                 record.is_online = False
                 record.current_session_start = None
+                closed += 1
 
-        self._save()
+        # Online-Set leeren (das fehlte — verursachte Endlos-Spam)
+        self._online_players.clear()
+
+        if closed > 0:
+            self._save()
+            logger.info(f"{closed} Stale-Sessions geschlossen")
