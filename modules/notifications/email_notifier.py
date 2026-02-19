@@ -62,16 +62,27 @@ class EmailNotifier:
             return False
         return True
 
-    async def _send_email(self, subject: str, body: str, event_type: str) -> bool:  # type: ignore
-        """Send an email via SMTP (runs in executor to not block)"""
+    async def _send_email(self, subject: str, body: str, event_type: str,
+                          server_label: Optional[str] = None) -> bool:  # type: ignore
+        """
+        Send an email via SMTP (runs in executor to not block).
+
+        Args:
+            subject: Email-Betreff (ohne Prefix)
+            body: Email-Inhalt
+            event_type: Fuer Rate-Limiting
+            server_label: Optionaler Prefix (Default: "SAT Server")
+        """
         if not self._can_send(event_type):
             return False
+
+        prefix = server_label or "SAT Server"
 
         try:
             msg = MIMEMultipart("alternative")
             msg["From"] = self.from_addr
             msg["To"] = self.to_addr
-            msg["Subject"] = f"[SAT Server] {subject}"
+            msg["Subject"] = f"[{prefix}] {subject}"
 
             # Plain text body
             msg.attach(MIMEText(body, "plain", "utf-8"))
@@ -115,7 +126,7 @@ class EmailNotifier:
                 </div>
                 <hr style="border-color: #333;">
                 <p style="color: #888; font-size: 12px;">
-                    Satisfactory Server Monitor<br>
+                    Server Monitor<br>
                     {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}
                 </p>
             </div>
@@ -128,11 +139,13 @@ class EmailNotifier:
     # ------------------------------------------------------------------
 
     async def send_crash_alert(self, crash_number: int,
-                                auto_restart: bool = True) -> bool:  # type: ignore
+                                auto_restart: bool = True,
+                                server_label: Optional[str] = None) -> bool:  # type: ignore
         """Send crash notification email"""
         subject = f"🚨 Server Crash #{crash_number}"
+        label = server_label or "SAT Server"
         body = (
-            f"Satisfactory Dedicated Server ist abgestuerzt!\n\n"
+            f"Server ist abgestuerzt!\n\n"
             f"Crash Nummer: {crash_number}\n"
             f"Zeitpunkt: {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}\n"
         )
@@ -141,10 +154,12 @@ class EmailNotifier:
         else:
             body += "\nKein Auto-Restart konfiguriert. Manuelles Eingreifen erforderlich!"
 
-        return await self._send_email(subject, body, "crash")
+        return await self._send_email(subject, body, f"crash_{label}", server_label=label)
 
-    async def send_restart_failed(self, crash_number: int, reason: str) -> bool:  # type: ignore
+    async def send_restart_failed(self, crash_number: int, reason: str,
+                                   server_label: Optional[str] = None) -> bool:  # type: ignore
         """Send email when auto-restart fails"""
+        label = server_label or "SAT Server"
         subject = f"❌ Auto-Restart fehlgeschlagen (Crash #{crash_number})"
         body = (
             f"Der automatische Neustart nach Crash #{crash_number} ist fehlgeschlagen!\n\n"
@@ -152,37 +167,45 @@ class EmailNotifier:
             f"Zeitpunkt: {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}\n\n"
             f"MANUELLES EINGREIFEN ERFORDERLICH!"
         )
-        return await self._send_email(subject, body, "restart_failed")
+        return await self._send_email(subject, body, f"restart_failed_{label}",
+                                       server_label=label)
 
-    async def send_performance_alert(self, warnings: List[str]) -> bool:  # type: ignore
+    async def send_performance_alert(self, warnings: List[str],
+                                      server_label: Optional[str] = None) -> bool:  # type: ignore
         """Send email for critical performance warnings"""
+        label = server_label or "SAT Server"
         subject = "⚠️ Kritische Performance-Warnung"
         body = (
             f"Performance-Schwellwerte ueberschritten:\n\n"
             + "\n".join(f"• {w}" for w in warnings) +
             f"\n\nZeitpunkt: {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}"
         )
-        return await self._send_email(subject, body, "performance")
+        return await self._send_email(subject, body, f"performance_{label}",
+                                       server_label=label)
 
-    async def send_update_available(self, installed: str, available: str) -> bool:  # type: ignore
+    async def send_update_available(self, installed: str, available: str,
+                                     server_label: Optional[str] = None) -> bool:  # type: ignore
         """Send email about available update"""
+        label = server_label or "SAT Server"
         subject = "📦 Server Update verfuegbar"
         body = (
-            f"Ein Update fuer den Satisfactory Dedicated Server ist verfuegbar.\n\n"
+            f"Ein Server-Update ist verfuegbar.\n\n"
             f"Installierte Version: Build {installed}\n"
             f"Verfuegbare Version: Build {available}\n\n"
-            f"Verwende /sat update im Discord um das Update durchzufuehren."
+            f"Verwende den Update-Befehl im Discord um das Update durchzufuehren."
         )
-        return await self._send_email(subject, body, "update")
+        return await self._send_email(subject, body, f"update_{label}",
+                                       server_label=label)
 
-    async def send_test(self) -> bool:  # type: ignore
+    async def send_test(self, server_label: Optional[str] = None) -> bool:  # type: ignore
         """Send a test email to verify configuration"""
+        label = server_label or "SAT Server"
         subject = "✅ Test-Email"
         body = (
-            f"Dies ist eine Test-Email vom Satisfactory Server Monitor.\n\n"
+            f"Dies ist eine Test-Email vom Server Monitor.\n\n"
             f"Zeitpunkt: {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}\n"
             f"Die Email-Konfiguration funktioniert korrekt!"
         )
         # Bypass rate limiting for test
         self._last_sent.pop("test", None)
-        return await self._send_email(subject, body, "test")
+        return await self._send_email(subject, body, "test", server_label=label)

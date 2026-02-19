@@ -5,8 +5,10 @@ Command-Struktur:
   /mc status [server]                        (Server-Status - Alle)
   /mc start|stop|restart|cancel [server]     (Server-Steuerung - Admin)
   /mc players list|kick|ban [server]         (Spieler-Verwaltung - Spieler/Admin)
-  /mc backup create|list|restore [server]    (Backup-Verwaltung - Spieler/Owner)
+  /mc backup create|list|restore|download    (Backup-Verwaltung - Spieler/Owner)
   /mc whitelist add|remove|list [server]     (Whitelist - Admin)
+  /mc config settings|set|backup|restore     (Server-Konfiguration)
+  /mc config update|stats                    (Update-Pruefer/Statistiken)
   /mc command <cmd> [server]                 (RCON ausfuehren - Owner)
   /mc say|difficulty|weather|time|gamemode   (Admin-Befehle)
 
@@ -15,6 +17,10 @@ Bei nur einem Server wird dieser automatisch gewaehlt.
 """
 
 import asyncio
+import shutil
+import tempfile
+import zipfile
+from pathlib import Path
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -25,12 +31,23 @@ from utils.permissions import admin_only, spieler_only, owner_only
 from modules.restart_timer import RestartTimer, TimerResult
 from modules.minecraft.server import MinecraftServer
 from modules.minecraft.backup import MinecraftBackupManager
+from modules.minecraft.settings_backup import MinecraftSettingsBackup
+from modules.minecraft.update_checker import MinecraftUpdateChecker
 
 logger = get_logger("cogs.minecraft")
 
 
 class MinecraftCog(commands.Cog):
     """Alle Minecraft-Server-Befehle unter /mc (Multi-Server)"""
+
+    # Erlaubte Keys fuer /mc config set (Sicherheits-Whitelist)
+    ALLOWED_CONFIG_KEYS = {
+        "difficulty", "pvp", "max-players", "view-distance",
+        "simulation-distance", "motd", "white-list", "spawn-protection",
+        "gamemode", "hardcore", "enable-command-block", "max-world-size",
+        "player-idle-timeout", "allow-flight", "level-name",
+        "spawn-npcs", "spawn-animals", "spawn-monsters",
+    }
 
     # ==================================================================
     # Group & Sub-Group Definitionen
@@ -48,6 +65,9 @@ class MinecraftCog(commands.Cog):
     whitelist_grp = app_commands.Group(
         name="whitelist", parent=mc, description="Whitelist-Verwaltung"
     )
+    config_grp = app_commands.Group(
+        name="config", parent=mc, description="Server-Konfiguration"
+    )
 
     # ==================================================================
     # Init
@@ -58,6 +78,12 @@ class MinecraftCog(commands.Cog):
         self.servers: Dict[str, MinecraftServer] = bot.mc_servers
         self.backup_mgrs: Dict[str, MinecraftBackupManager] = getattr(
             bot, 'mc_backup_mgrs', {}
+        )
+        self.settings_mgrs: Dict[str, MinecraftSettingsBackup] = getattr(
+            bot, 'mc_settings_mgrs', {}
+        )
+        self.update_checkers: Dict[str, MinecraftUpdateChecker] = getattr(
+            bot, 'mc_update_checkers', {}
         )
         self.timer_mgr = bot.timer_mgr
 
@@ -101,6 +127,26 @@ class MinecraftCog(commands.Cog):
         if len(self.backup_mgrs) == 1:
             return next(iter(self.backup_mgrs.values()))
 
+        return None
+
+    def _resolve_settings_mgr(self, server_id: Optional[str]) -> Optional[MinecraftSettingsBackup]:
+        """Settings-Backup-Manager fuer Server ermitteln"""
+        if not self.settings_mgrs:
+            return None
+        if server_id:
+            return self.settings_mgrs.get(server_id.upper())
+        if len(self.settings_mgrs) == 1:
+            return next(iter(self.settings_mgrs.values()))
+        return None
+
+    def _resolve_update_checker(self, server_id: Optional[str]) -> Optional[MinecraftUpdateChecker]:
+        """Update-Checker fuer Server ermitteln"""
+        if not self.update_checkers:
+            return None
+        if server_id:
+            return self.update_checkers.get(server_id.upper())
+        if len(self.update_checkers) == 1:
+            return next(iter(self.update_checkers.values()))
         return None
 
     async def _require_server(
@@ -927,6 +973,496 @@ class MinecraftCog(commands.Cog):
             await interaction.followup.send(embed=embed)
         except Exception as e:
             await interaction.followup.send(f"Fehler: {e}", ephemeral=True)
+
+    # ╔════════════════════════════════════════════════════════════════╗
+    # ║  CONFIG: /mc config settings | set | backup | restore | ...    ║
+    # ╚════════════════════════════════════════════════════════════════╝
+
+    @config_grp.command(name="settings", description="Server-Einstellungen anzeigen")
+    @app_commands.autocomplete(server=_server_autocomplete)
+    async def config_settings(self, interaction: discord.Interaction,
+                              server: Optional[str] = None):
+        """Zeigt die wichtigsten server.properties Werte"""
+        await interaction.response.defer()
+
+        srv = await self._require_server(interaction, server)
+        if not srv:
+            return
+
+        try:
+            props = await srv.get_properties()
+            if not props:
+                await interaction.followup.send(
+                    "server.properties nicht lesbar.", ephemeral=True
+                )
+                return
+
+            # Wichtigste Einstellungen gruppiert anzeigen
+            embed = discord.Embed(
+                title=f"Server-Einstellungen — {srv.display_name}",
+                color=0x0099ff,
+            )
+
+            # Spiel-Einstellungen
+            game_lines = []
+            for key in ["difficulty", "gamemode", "hardcore", "pvp",
+                        "max-players", "motd", "level-name"]:
+                if key in props:
+                    game_lines.append(f"**{key}:** {props[key]}")
+            if game_lines:
+                embed.add_field(
+                    name="Spiel",
+                    value="\n".join(game_lines),
+                    inline=True,
+                )
+
+            # Performance
+            perf_lines = []
+            for key in ["view-distance", "simulation-distance",
+                        "max-world-size", "player-idle-timeout"]:
+                if key in props:
+                    perf_lines.append(f"**{key}:** {props[key]}")
+            if perf_lines:
+                embed.add_field(
+                    name="Performance",
+                    value="\n".join(perf_lines),
+                    inline=True,
+                )
+
+            # Netzwerk/Sicherheit
+            net_lines = []
+            for key in ["server-port", "online-mode", "white-list",
+                        "spawn-protection", "enable-command-block",
+                        "allow-flight"]:
+                if key in props:
+                    net_lines.append(f"**{key}:** {props[key]}")
+            if net_lines:
+                embed.add_field(
+                    name="Netzwerk/Sicherheit",
+                    value="\n".join(net_lines),
+                    inline=False,
+                )
+
+            await interaction.followup.send(embed=embed)
+        except Exception as e:
+            await interaction.followup.send(
+                f"Fehler beim Lesen der Einstellungen: {e}", ephemeral=True
+            )
+
+    @config_grp.command(name="set", description="Server-Einstellung aendern")
+    @admin_only()
+    @app_commands.autocomplete(server=_server_autocomplete)
+    async def config_set(self, interaction: discord.Interaction,
+                         key: str, value: str,
+                         server: Optional[str] = None):
+        """Aendert einen Wert in server.properties (erfordert Neustart)"""
+        await interaction.response.defer()
+
+        srv = await self._require_server(interaction, server)
+        if not srv:
+            return
+
+        # Sicherheits-Whitelist pruefen
+        if key.lower() not in self.ALLOWED_CONFIG_KEYS:
+            allowed = ", ".join(sorted(self.ALLOWED_CONFIG_KEYS))
+            await interaction.followup.send(
+                f"Key `{key}` ist nicht erlaubt.\n"
+                f"Erlaubte Keys: `{allowed}`",
+                ephemeral=True
+            )
+            return
+
+        try:
+            success = await srv.set_property(key.lower(), value)
+            if success:
+                embed = discord.Embed(
+                    title=f"Einstellung geaendert — {srv.display_name}",
+                    description=(
+                        f"**{key}** = `{value}`\n\n"
+                        f"⚠️ Server-Neustart erforderlich!"
+                    ),
+                    color=0x00ff00,
+                )
+                embed.set_footer(text=f"von {interaction.user.display_name}")
+                await interaction.followup.send(embed=embed)
+                logger.info(
+                    f"[{srv.server_id}] Config geaendert: {key}={value} "
+                    f"von {interaction.user}"
+                )
+            else:
+                await interaction.followup.send(
+                    f"Fehler beim Setzen von `{key}`.", ephemeral=True
+                )
+        except Exception as e:
+            await interaction.followup.send(
+                f"Fehler: {e}", ephemeral=True
+            )
+
+    @config_set.autocomplete("key")
+    async def _config_key_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        """Autocomplete fuer Config-Keys"""
+        return [
+            app_commands.Choice(name=k, value=k)
+            for k in sorted(self.ALLOWED_CONFIG_KEYS)
+            if current.lower() in k.lower()
+        ][:25]
+
+    @config_grp.command(name="backup", description="Server-Einstellungen sichern")
+    @admin_only()
+    @app_commands.autocomplete(server=_server_autocomplete)
+    async def config_backup(self, interaction: discord.Interaction,
+                            name: Optional[str] = None,
+                            server: Optional[str] = None):
+        """Erstellt ein Backup der server.properties"""
+        await interaction.response.defer()
+
+        srv = await self._require_server(interaction, server)
+        if not srv:
+            return
+
+        mgr = self._resolve_settings_mgr(srv.server_id)
+        if not mgr:
+            await interaction.followup.send(
+                "Kein Settings-Manager fuer diesen Server.", ephemeral=True
+            )
+            return
+
+        success, msg, _ = await mgr.save_settings(
+            name=name, created_by=str(interaction.user)
+        )
+        embed = discord.Embed(
+            title=("Settings gesichert" if success else "Fehler"),
+            description=f"**{srv.display_name}**\n{msg}",
+            color=0x00ff00 if success else 0xff0000,
+        )
+        if success:
+            embed.set_footer(text=f"von {interaction.user.display_name}")
+        await interaction.followup.send(embed=embed)
+
+    @config_grp.command(name="restore", description="Server-Einstellungen wiederherstellen")
+    @owner_only()
+    @app_commands.autocomplete(server=_server_autocomplete)
+    async def config_restore(self, interaction: discord.Interaction,
+                             filename: str,
+                             server: Optional[str] = None):
+        """Stellt server.properties aus Backup wieder her"""
+        await interaction.response.defer()
+
+        srv = await self._require_server(interaction, server)
+        if not srv:
+            return
+
+        mgr = self._resolve_settings_mgr(srv.server_id)
+        if not mgr:
+            await interaction.followup.send(
+                "Kein Settings-Manager fuer diesen Server.", ephemeral=True
+            )
+            return
+
+        success, msg = await mgr.restore_settings(filename)
+        embed = discord.Embed(
+            title=("Settings wiederhergestellt" if success else "Fehler"),
+            description=f"**{srv.display_name}**\n{msg}",
+            color=0x00ff00 if success else 0xff0000,
+        )
+        if success:
+            embed.set_footer(text=f"von {interaction.user.display_name}")
+        await interaction.followup.send(embed=embed)
+
+    @config_restore.autocomplete("filename")
+    async def _config_restore_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        """Autocomplete fuer Settings-Backup-Dateien"""
+        # Server aus bisherigen Parametern ermitteln
+        server_id = None
+        if interaction.namespace and hasattr(interaction.namespace, 'server'):
+            server_id = interaction.namespace.server
+        mgr = self._resolve_settings_mgr(server_id)
+        if not mgr:
+            return []
+        backups = mgr.list_backups()
+        return [
+            app_commands.Choice(name=b["filename"][:100], value=b["filename"])
+            for b in backups
+            if current.lower() in b["filename"].lower()
+        ][:25]
+
+    @config_grp.command(name="update", description="Server-Update pruefen/installieren")
+    @owner_only()
+    @app_commands.autocomplete(server=_server_autocomplete)
+    async def config_update(self, interaction: discord.Interaction,
+                            install: bool = False,
+                            server: Optional[str] = None):
+        """Prueft auf Paper-Updates und installiert optional"""
+        await interaction.response.defer()
+
+        srv = await self._require_server(interaction, server)
+        if not srv:
+            return
+
+        checker = self._resolve_update_checker(srv.server_id)
+        if not checker:
+            await interaction.followup.send(
+                f"Kein Update-Checker fuer {srv.display_name} verfuegbar.\n"
+                "(Nur fuer Paper-Server, nicht fuer Fabric/Forge)",
+                ephemeral=True
+            )
+            return
+
+        # Update pruefen
+        available, info = await checker.check()
+
+        if not info.get("current_version"):
+            await interaction.followup.send(
+                "MC-Version konnte nicht ermittelt werden.", ephemeral=True
+            )
+            return
+
+        embed = discord.Embed(
+            title=f"Update-Status — {srv.display_name}",
+            color=0xff9900 if available else 0x00ff00,
+        )
+        embed.add_field(
+            name="MC-Version",
+            value=info["current_version"],
+            inline=True,
+        )
+        embed.add_field(
+            name="Aktueller Build",
+            value=str(info.get("current_build", "?")),
+            inline=True,
+        )
+        embed.add_field(
+            name="Neuester Build",
+            value=str(info.get("latest_build", "?")),
+            inline=True,
+        )
+
+        if available and install:
+            # Update installieren (Server muss gestoppt sein)
+            if await srv.is_running():
+                embed.add_field(
+                    name="Installation",
+                    value="⚠️ Server muss zuerst gestoppt werden!",
+                    inline=False,
+                )
+            else:
+                embed.add_field(
+                    name="Installation",
+                    value="Update wird heruntergeladen...",
+                    inline=False,
+                )
+                await interaction.followup.send(embed=embed)
+
+                success, msg = await checker.perform_update()
+                result_embed = discord.Embed(
+                    title=("Update installiert" if success else "Update fehlgeschlagen"),
+                    description=msg,
+                    color=0x00ff00 if success else 0xff0000,
+                )
+                result_embed.set_footer(text=f"von {interaction.user.display_name}")
+                await interaction.followup.send(embed=result_embed)
+                return
+        elif available:
+            embed.add_field(
+                name="Update verfuegbar!",
+                value="Nutze `/mc config update install:True` zum Installieren.",
+                inline=False,
+            )
+        else:
+            embed.description = "Server ist auf dem neuesten Stand."
+
+        await interaction.followup.send(embed=embed)
+
+    @config_grp.command(name="stats", description="World-Statistiken anzeigen")
+    @app_commands.autocomplete(server=_server_autocomplete)
+    async def config_stats(self, interaction: discord.Interaction,
+                           server: Optional[str] = None):
+        """Zeigt World-Groesse, Spielerzahl und Uptime"""
+        await interaction.response.defer()
+
+        srv = await self._require_server(interaction, server)
+        if not srv:
+            return
+
+        embed = discord.Embed(
+            title=f"Statistiken — {srv.display_name}",
+            color=0x0099ff,
+        )
+
+        # World-Groesse
+        try:
+            world_bytes = await srv.get_world_size()
+            embed.add_field(
+                name="World-Groesse",
+                value=format_bytes(world_bytes),
+                inline=True,
+            )
+        except Exception:
+            embed.add_field(name="World-Groesse", value="Nicht verfuegbar", inline=True)
+
+        # Server-Status
+        status = await srv.get_status()
+        if status["running"]:
+            embed.add_field(
+                name="Spieler",
+                value=f"{status['players_online']}/{status['players_max']}",
+                inline=True,
+            )
+            embed.add_field(
+                name="Uptime",
+                value=format_uptime(status["uptime"]),
+                inline=True,
+            )
+        else:
+            embed.add_field(name="Status", value="Offline", inline=True)
+
+        # Backup-Info
+        mgr = self._resolve_backup_mgr(srv.server_id)
+        if mgr:
+            backups = await mgr.list_backups(max_results=1)
+            if backups:
+                latest = backups[0]
+                embed.add_field(
+                    name="Letztes Backup",
+                    value=f"{latest['name']} ({latest['size_mb']:.1f} MB)",
+                    inline=False,
+                )
+
+        await interaction.followup.send(embed=embed)
+
+    # ╔════════════════════════════════════════════════════════════════╗
+    # ║  BACKUP DOWNLOAD: /mc backup download                          ║
+    # ╚════════════════════════════════════════════════════════════════╝
+
+    @backup_grp.command(name="download", description="Backup als ZIP herunterladen")
+    @spieler_only()
+    @app_commands.autocomplete(server=_server_autocomplete)
+    async def mc_backup_download(self, interaction: discord.Interaction,
+                                 name: Optional[str] = None,
+                                 server: Optional[str] = None):
+        """Sendet ein Backup als ZIP-Datei per Discord (max 25 MB)"""
+        await interaction.response.defer()
+
+        srv = await self._require_server(interaction, server)
+        if not srv:
+            return
+
+        mgr = self._resolve_backup_mgr(srv.server_id)
+        if not mgr:
+            await interaction.followup.send(
+                "Kein Backup-Manager fuer diesen Server.", ephemeral=True
+            )
+            return
+
+        # Backup ermitteln
+        backups = await mgr.list_backups(max_results=20)
+        if not backups:
+            await interaction.followup.send("Keine Backups verfuegbar.")
+            return
+
+        if name:
+            target = next((b for b in backups if b["name"] == name), None)
+            if not target:
+                await interaction.followup.send(
+                    f"Backup `{name}` nicht gefunden.", ephemeral=True
+                )
+                return
+        else:
+            target = backups[0]  # Neuestes Backup
+
+        # Groesse pruefen
+        size_mb = target["size_mb"]
+        if size_mb > 24:
+            await interaction.followup.send(
+                f"Backup `{target['name']}` ist zu gross ({size_mb:.1f} MB).\n"
+                "Discord-Limit: 25 MB. Bitte direkt vom Server herunterladen."
+            )
+            return
+
+        backup_path = target["path"]
+        if not backup_path or not Path(backup_path).exists():
+            await interaction.followup.send(
+                "Backup-Pfad nicht verfuegbar.", ephemeral=True
+            )
+            return
+
+        await interaction.followup.send(
+            f"Erstelle ZIP von `{target['name']}`..."
+        )
+
+        loop = asyncio.get_running_loop()
+
+        try:
+            # ZIP erstellen (im Executor)
+            def _create_zip() -> Path:
+                tmp = tempfile.NamedTemporaryFile(
+                    suffix=".zip", delete=False,
+                    prefix=f"mc_backup_{srv.server_id.lower()}_"
+                )
+                tmp.close()
+                zip_path = Path(tmp.name)
+                with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                    base = Path(backup_path)
+                    for entry in base.rglob("*"):
+                        if entry.is_file():
+                            arcname = entry.relative_to(base)
+                            zf.write(entry, arcname)
+                return zip_path
+
+            zip_path = await loop.run_in_executor(None, _create_zip)
+
+            # ZIP-Groesse pruefen
+            zip_size = zip_path.stat().st_size
+            if zip_size > 25 * 1024 * 1024:
+                zip_path.unlink()
+                await interaction.followup.send(
+                    f"ZIP-Datei ist zu gross ({zip_size / (1024*1024):.1f} MB)."
+                )
+                return
+
+            # Per Discord senden
+            await interaction.followup.send(
+                file=discord.File(
+                    zip_path,
+                    filename=f"{target['name']}.zip"
+                )
+            )
+
+            # Temporaere Datei aufraeumen
+            zip_path.unlink(missing_ok=True)
+
+        except Exception as e:
+            await interaction.followup.send(
+                f"Fehler beim Erstellen der ZIP-Datei: {e}", ephemeral=True
+            )
+            logger.error(f"[{srv.server_id}] Backup-Download fehlgeschlagen: {e}")
+
+    @mc_backup_download.autocomplete("name")
+    async def _backup_download_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        """Autocomplete fuer Backup-Namen"""
+        server_id = None
+        if interaction.namespace and hasattr(interaction.namespace, 'server'):
+            server_id = interaction.namespace.server
+        mgr = self._resolve_backup_mgr(server_id)
+        if not mgr:
+            return []
+        # Synchroner Wrapper — list_backups ist async
+        # Fuer Autocomplete muessen wir einen Workaround nutzen
+        try:
+            backups = await mgr.list_backups(max_results=10)
+            return [
+                app_commands.Choice(name=b["name"][:100], value=b["name"])
+                for b in backups
+                if current.lower() in b["name"].lower()
+            ][:25]
+        except Exception:
+            return []
 
     # ╔════════════════════════════════════════════════════════════════╗
     # ║  OWNER: RCON Raw Command                                       ║

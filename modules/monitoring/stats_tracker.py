@@ -25,10 +25,27 @@ class StatsTracker:
     - Crash timestamps
     """
 
-    def __init__(self, data_dir: Path) -> None:
+    def __init__(self, data_dir: Path,
+                 server_type: str = "sat",
+                 server_id: Optional[str] = None) -> None:
+        """
+        Args:
+            data_dir: Verzeichnis fuer Stats-Dateien
+            server_type: "sat", "mc" etc. (fuer Dateiname)
+            server_id: Optionale Server-ID (z.B. "vanilla", "bmc")
+        """
         self.data_dir: Path = data_dir
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        self.data_file: Path = data_dir / "stats_history.json"
+        self.server_type = server_type
+        self.server_id = server_id
+
+        # Dateiname: stats_history.json (SAT default) oder stats_history_mc_vanilla.json
+        if server_id:
+            self.data_file: Path = data_dir / f"stats_history_{server_type}_{server_id}.json"
+        elif server_type != "sat":
+            self.data_file: Path = data_dir / f"stats_history_{server_type}.json"
+        else:
+            self.data_file: Path = data_dir / "stats_history.json"
 
         self._data: Dict[str, Any] = {
             "uptime_checks": [],      # {"ts": iso, "online": bool}
@@ -95,12 +112,15 @@ class StatsTracker:
         self._save()
 
     def record_savegame_size(self, size_mb: float) -> None:
-        """Record savegame file size"""
+        """Record savegame/world file size"""
         self._data["savegame_sizes"].append({
             "ts": datetime.now().isoformat(),
             "size_mb": round(size_mb, 2),
         })
         self._save()
+
+    # Alias fuer MC-Nutzung (World-Groesse statt Savegame)
+    record_world_size = record_savegame_size
 
     def record_crash(self, crash_number: int) -> None:
         """Record a crash event"""

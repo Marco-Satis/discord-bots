@@ -59,6 +59,8 @@ from modules.monitoring.steam_changelog import SteamChangelog
 from modules.config_validator import ConfigValidator
 from modules.minecraft.server import MinecraftServer
 from modules.minecraft.chat_bridge import MinecraftChatBridge
+from modules.minecraft.settings_backup import MinecraftSettingsBackup
+from modules.minecraft.update_checker import MinecraftUpdateChecker
 
 load_env()
 
@@ -305,6 +307,61 @@ for _mc_sid in mc_servers:
     )
 
 bot.mc_player_trackers = mc_player_trackers
+
+# Minecraft Settings-Backup Manager (server.properties Sicherung)
+mc_settings_mgrs: dict[str, MinecraftSettingsBackup] = {}
+for _mc_sid, _mc_srv in mc_servers.items():
+    mc_settings_mgrs[_mc_sid] = MinecraftSettingsBackup(
+        server_path=Path(_mc_srv.server_path),
+        backup_dir=_mc_srv.backup_path / "settings",
+        server_id=_mc_sid,
+        max_backups=20,
+    )
+bot.mc_settings_mgrs = mc_settings_mgrs
+
+# Minecraft Update-Checker (nur Paper-basierte Server)
+mc_update_checkers: dict[str, MinecraftUpdateChecker] = {}
+for _mc_sid, _mc_srv in mc_servers.items():
+    # BMC ist Fabric/Forge-basiert — kein Paper-Update-Check
+    if _mc_sid.upper() == "BMC":
+        continue
+    mc_update_checkers[_mc_sid] = MinecraftUpdateChecker(
+        server_path=Path(_mc_srv.server_path),
+        server_id=_mc_sid,
+        jar_name=getattr(_mc_srv, 'jar_name', 'server.jar'),
+    )
+bot.mc_update_checkers = mc_update_checkers
+
+# Minecraft Stats-Tracker (separate Instanz pro Server)
+mc_stats_trackers: dict[str, StatsTracker] = {}
+for _mc_sid in mc_servers:
+    mc_stats_trackers[_mc_sid] = StatsTracker(
+        data_dir=PROJECT_ROOT / "data",
+        server_type="mc",
+        server_id=_mc_sid.lower(),
+    )
+bot.mc_stats_trackers = mc_stats_trackers
+
+# Minecraft Crash-Replay (Log-Kontext bei Crashes)
+mc_crash_replays: dict[str, CrashReplay] = {}
+for _mc_sid, _mc_srv in mc_servers.items():
+    mc_crash_replays[_mc_sid] = CrashReplay(
+        log_path=_mc_srv.log_path,
+        replay_dir=PROJECT_ROOT / "data" / f"crash_replays_mc_{_mc_sid.lower()}",
+        context_lines=50,
+        max_replays=20,
+    )
+bot.mc_crash_replays = mc_crash_replays
+
+# Minecraft IP-Tracker (Log-basiertes IP-Mapping + UFW-Bans)
+mc_ip_trackers: dict[str, PlayerIPTracker] = {}
+for _mc_sid in mc_servers:
+    mc_ip_trackers[_mc_sid] = PlayerIPTracker(
+        data_file=PROJECT_ROOT / "data" / f"player_ips_mc_{_mc_sid.lower()}.json",
+        game_type="mc",
+        game_ports=[25565],
+    )
+bot.mc_ip_trackers = mc_ip_trackers
 
 # Chat-Bridge Callbacks (werden in on_ready mit Channels verbunden)
 
@@ -895,6 +952,11 @@ async def mc_health_check_task():
                 _mc_consecutive_offline[sid] = _mc_consecutive_offline.get(sid, 0) + 1
                 count = _mc_consecutive_offline[sid]
 
+                # Offline-Stats tracken
+                mc_st = mc_stats_trackers.get(sid)
+                if mc_st:
+                    mc_st.record_uptime_check(False)
+
                 # Nach 3 aufeinanderfolgenden Checks (6 Min) benachrichtigen
                 if count >= 3 and not _mc_downtime_notified.get(sid, False):
                     _mc_downtime_notified[sid] = True
@@ -938,12 +1000,35 @@ async def mc_health_check_task():
 
                 _mc_consecutive_offline[sid] = 0
 
-                # Spielerzahl loggen (kein Eintrag in Satisfactory stats_tracker)
+                # MC Stats-Tracker: Uptime + Spielerzahl loggen
+                mc_st = mc_stats_trackers.get(sid)
+                if mc_st:
+                    mc_st.record_uptime_check(True)
+
                 try:
                     online, max_p = await srv.get_player_count()
                     logger.debug(f"[{sid}] Spieler: {online}/{max_p}")
+                    if mc_st:
+                        mc_st.record_player_count(online)
                 except Exception:
                     pass
+
+                # World-Groesse periodisch loggen (alle 5 Checks = ~10 Min)
+                if mc_health_check_task.current_loop % 5 == 0:
+                    try:
+                        world_bytes = await srv.get_world_size()
+                        if world_bytes > 0 and mc_st:
+                            mc_st.record_world_size(world_bytes / (1024 * 1024))
+                    except Exception:
+                        pass
+
+                # Crash-Replay Buffer aktualisieren
+                mc_cr = mc_crash_replays.get(sid)
+                if mc_cr:
+                    try:
+                        await mc_cr.update_buffer()
+                    except Exception:
+                        pass
 
         except Exception as e:
             logger.debug(f"[{sid}] MC Health-Check Fehler: {e}")
@@ -953,6 +1038,12 @@ async def mc_health_check_task():
 async def before_mc_health_check():
     await bot.wait_until_ready()
     await asyncio.sleep(30)  # Nach anderen Tasks starten
+    # Crash-Replay Positionen initialisieren
+    for sid, cr in mc_crash_replays.items():
+        cr.init_position()
+    # IP-Bans mit UFW synchronisieren
+    for sid, ipt in mc_ip_trackers.items():
+        await ipt.sync_bans()
 
 
 @tasks.loop(seconds=60)
@@ -1263,6 +1354,14 @@ async def _update_status_embed_impl():
                     except Exception:
                         lines.append(f"{mc_dot} {mc_state}")
 
+                    # Online-Spieler anzeigen
+                    mc_pt = mc_player_trackers.get(mc_sid)
+                    if mc_pt:
+                        mc_online_players = mc_pt.get_online_players()
+                        if mc_online_players:
+                            mc_player_list = ", ".join(sorted(mc_online_players))
+                            lines.append(f"  👤 {mc_player_list}")
+
                     # World-Groesse
                     try:
                         world_bytes = await mc_srv.get_world_size()
@@ -1271,6 +1370,11 @@ async def _update_status_embed_impl():
                             lines.append(f"  🌍 Welt: {world_mb:.1f} MB")
                     except Exception:
                         pass
+
+                    # Update verfuegbar?
+                    mc_uc = mc_update_checkers.get(mc_sid)
+                    if mc_uc and mc_uc.update_available:
+                        lines.append(f"  📦 **Paper-Update verfuegbar!**")
                 else:
                     lines.append(f"{mc_dot} {mc_state}")
 

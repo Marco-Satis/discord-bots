@@ -915,6 +915,302 @@ class MonitorCog(commands.Cog):
             )
 
     # ------------------------------------------------------------------
+    # /mcstats [server] — MC Server-Statistiken
+    # ------------------------------------------------------------------
+
+    @app_commands.command(name="mcstats",
+                          description="Minecraft Server-Statistiken anzeigen")
+    @app_commands.describe(server="Server-ID (VANILLA/BMC, Standard: alle)")
+    async def mcstats_cmd(self, interaction: discord.Interaction,
+                          server: Optional[str] = None):
+        await interaction.response.defer()
+
+        mc_servers = getattr(self.bot, "mc_servers", {})
+        if not mc_servers:
+            await interaction.followup.send("❌ Keine Minecraft-Server konfiguriert.")
+            return
+
+        # Server filtern
+        if server:
+            sid = server.upper()
+            if sid not in mc_servers:
+                await interaction.followup.send(
+                    f"❌ Server **{sid}** nicht gefunden. Verfuegbar: {', '.join(mc_servers.keys())}"
+                )
+                return
+            targets = {sid: mc_servers[sid]}
+        else:
+            targets = mc_servers
+
+        embed = discord.Embed(
+            title="⛏️ Minecraft Server-Statistiken",
+            color=0x5865F2,
+            timestamp=datetime.now(),
+        )
+
+        for sid, srv in targets.items():
+            try:
+                running = await srv.is_running()
+                dot = "🟢" if running else "🔴"
+                lines = [f"{dot} {'Online' if running else 'Offline'}"]
+
+                if running:
+                    try:
+                        online, max_p = await srv.get_player_count()
+                        lines.append(f"Spieler: {online}/{max_p}")
+                    except Exception:
+                        pass
+
+                # World-Groesse
+                try:
+                    world_bytes = await srv.get_world_size()
+                    if world_bytes > 0:
+                        lines.append(f"Welt: {world_bytes / (1024 * 1024):.1f} MB")
+                except Exception:
+                    pass
+
+                # Stats-Tracker Daten
+                mc_st = getattr(self.bot, "mc_stats_trackers", {}).get(sid)
+                if mc_st:
+                    uptime_pct = mc_st.get_uptime_percent(7)
+                    peak = mc_st.get_peak_players(7)
+                    lines.append(f"Uptime (7d): {uptime_pct}%")
+                    lines.append(f"Peak Spieler (7d): {peak}")
+
+                    growth = mc_st.get_savegame_growth(7)
+                    if growth:
+                        lines.append(
+                            f"Welt-Wachstum: {growth['growth_mb']:+.1f} MB"
+                        )
+
+                # Update-Checker
+                mc_uc = getattr(self.bot, "mc_update_checkers", {}).get(sid)
+                if mc_uc and mc_uc.update_available:
+                    lines.append(f"📦 Paper-Update: Build {mc_uc.current_build} → {mc_uc.latest_build}")
+
+                embed.add_field(
+                    name=f"⛏️ {srv.display_name}",
+                    value="\n".join(lines),
+                    inline=len(targets) > 1,
+                )
+
+            except Exception as e:
+                logger.debug(f"[{sid}] MC Stats Fehler: {e}")
+                embed.add_field(
+                    name=f"⛏️ {srv.display_name}",
+                    value=f"❌ Fehler: {str(e)[:100]}",
+                    inline=True,
+                )
+
+        await interaction.followup.send(embed=embed)
+
+    @mcstats_cmd.autocomplete("server")
+    async def mcstats_server_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list:
+        mc_servers = getattr(self.bot, "mc_servers", {})
+        return [
+            app_commands.Choice(name=f"{srv.display_name} ({sid})", value=sid)
+            for sid, srv in mc_servers.items()
+            if current.upper() in sid.upper() or current.lower() in srv.display_name.lower()
+        ][:25]
+
+    # ------------------------------------------------------------------
+    # /mcreport [zeitraum] [server] — MC Wochenbericht
+    # ------------------------------------------------------------------
+
+    @app_commands.command(name="mcreport",
+                          description="Minecraft Wochenbericht anzeigen")
+    @app_commands.describe(
+        zeitraum="Zeitraum in Tagen (Standard: 7)",
+        server="Server-ID (VANILLA/BMC, Standard: alle)"
+    )
+    async def mcreport_cmd(self, interaction: discord.Interaction,
+                           zeitraum: Optional[int] = 7,
+                           server: Optional[str] = None):
+        await interaction.response.defer()
+
+        mc_servers = getattr(self.bot, "mc_servers", {})
+        if not mc_servers:
+            await interaction.followup.send("❌ Keine Minecraft-Server konfiguriert.")
+            return
+
+        days = min(max(zeitraum or 7, 1), 90)
+        now = datetime.now()
+        start_date = (now - timedelta(days=days)).strftime("%d.%m.%Y")
+        end_date = now.strftime("%d.%m.%Y")
+
+        # Server filtern
+        if server:
+            sid = server.upper()
+            if sid not in mc_servers:
+                await interaction.followup.send(
+                    f"❌ Server **{sid}** nicht gefunden."
+                )
+                return
+            targets = {sid: mc_servers[sid]}
+        else:
+            targets = mc_servers
+
+        embed = discord.Embed(
+            title="📋 Minecraft Bericht",
+            description=f"{start_date} — {end_date} ({days} Tage)",
+            color=0x5865F2,
+            timestamp=now,
+        )
+
+        for sid, srv in targets.items():
+            mc_st = getattr(self.bot, "mc_stats_trackers", {}).get(sid)
+            if not mc_st:
+                continue
+
+            lines = []
+
+            # Uptime
+            uptime_pct = mc_st.get_uptime_percent(days)
+            uptime_bar = self._make_bar(uptime_pct)
+            lines.append(f"Uptime: {uptime_bar} **{uptime_pct}%**")
+
+            # Peak Spieler
+            peak = mc_st.get_peak_players(days)
+            lines.append(f"Peak Spieler: **{peak}**")
+
+            # Crashes
+            crashes = mc_st.get_crashes(days)
+            if crashes:
+                lines.append(f"Crashes: **{len(crashes)}**")
+            else:
+                lines.append("Crashes: ✅ Keine")
+
+            # World-Wachstum
+            growth = mc_st.get_savegame_growth(days)
+            if growth:
+                icon = "📈" if growth["growth_mb"] > 0 else "📉" if growth["growth_mb"] < 0 else "➡️"
+                lines.append(
+                    f"Welt: {growth['start_mb']} → {growth['end_mb']} MB "
+                    f"({icon} {growth['growth_mb']:+.1f} MB)"
+                )
+
+            # Spieler-Aktivitaet
+            mc_pt = getattr(self.bot, "mc_player_trackers", {}).get(sid)
+            if mc_pt:
+                cutoff_iso = (now - timedelta(days=days)).isoformat()
+                active_count = 0
+                total_time = 0
+                for name, record in mc_pt.players.items():
+                    ws = 0
+                    wt = 0
+                    for s in record.sessions:
+                        if s.get("join", "") >= cutoff_iso:
+                            ws += 1
+                            wt += s.get("duration_minutes", 0)
+                    if ws > 0:
+                        active_count += 1
+                        total_time += wt
+                lines.append(f"Aktive Spieler: **{active_count}** ({round(total_time / 60, 1)}h)")
+
+            embed.add_field(
+                name=f"⛏️ {srv.display_name}",
+                value="\n".join(lines) if lines else "Keine Daten",
+                inline=len(targets) > 1,
+            )
+
+        await interaction.followup.send(embed=embed)
+
+    @mcreport_cmd.autocomplete("server")
+    async def mcreport_server_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list:
+        mc_servers = getattr(self.bot, "mc_servers", {})
+        return [
+            app_commands.Choice(name=f"{srv.display_name} ({sid})", value=sid)
+            for sid, srv in mc_servers.items()
+            if current.upper() in sid.upper() or current.lower() in srv.display_name.lower()
+        ][:25]
+
+    # ------------------------------------------------------------------
+    # /mccrashlog [nummer] [server] — MC Crash-Replays
+    # ------------------------------------------------------------------
+
+    @app_commands.command(name="mccrashlog",
+                          description="Minecraft Crash-Replays anzeigen oder herunterladen")
+    @app_commands.describe(
+        nummer="Crash-Nummer zum Herunterladen (leer = Liste)",
+        server="Server-ID (VANILLA/BMC)"
+    )
+    @app_commands.check(is_admin)
+    async def mccrashlog_cmd(self, interaction: discord.Interaction,
+                              server: str = "VANILLA",
+                              nummer: Optional[int] = None):
+        await interaction.response.defer(ephemeral=True)
+
+        mc_crs = getattr(self.bot, "mc_crash_replays", {})
+        sid = server.upper()
+        cr = mc_crs.get(sid)
+        if not cr:
+            await interaction.followup.send(
+                f"❌ Kein Crash-Replay fuer Server **{sid}** verfuegbar.",
+                ephemeral=True,
+            )
+            return
+
+        replays = cr.list_replays()
+        if not replays:
+            await interaction.followup.send(
+                f"✅ Keine Crash-Replays fuer **{sid}** vorhanden.",
+                ephemeral=True,
+            )
+            return
+
+        if nummer is not None:
+            target = None
+            for r in replays:
+                if f"crash_{nummer:03d}_" in r["filename"]:
+                    target = r
+                    break
+
+            if not target:
+                await interaction.followup.send(
+                    f"❌ Kein Replay fuer Crash #{nummer} gefunden.",
+                    ephemeral=True,
+                )
+                return
+
+            file = discord.File(target["path"], filename=target["filename"])
+            await interaction.followup.send(
+                f"🔍 MC Crash Replay #{nummer} ({sid}):",
+                file=file, ephemeral=True,
+            )
+        else:
+            lines = []
+            for r in replays[:15]:
+                lines.append(
+                    f"`{r['filename']}` — {r['size_kb']} KB ({r['date']})"
+                )
+
+            embed = discord.Embed(
+                title=f"🔍 MC Crash Replays — {sid} ({len(replays)})",
+                description="\n".join(lines),
+                color=0xff6600,
+                timestamp=datetime.now(),
+            )
+            embed.set_footer(
+                text="Verwende /mccrashlog server:X nummer:N zum Herunterladen"
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @mccrashlog_cmd.autocomplete("server")
+    async def mccrashlog_server_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list:
+        mc_crs = getattr(self.bot, "mc_crash_replays", {})
+        return [
+            app_commands.Choice(name=sid, value=sid)
+            for sid in mc_crs
+            if current.upper() in sid.upper()
+        ][:25]
+
+    # ------------------------------------------------------------------
     # Error handler
     # ------------------------------------------------------------------
 

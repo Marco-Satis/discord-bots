@@ -23,7 +23,10 @@ def _validate_ip(ip: str) -> bool:  # Already typed
     """Validate IP address format to prevent command injection."""
     return bool(_IP_PATTERN.match(ip))
 
-# Regex patterns for log parsing
+# ======================================================================
+# Satisfactory Log-Regex Patterns
+# ======================================================================
+
 # Login request: ...RemoteAddr: 198.51.100.23:6786...?Name=SpielerName
 RE_LOGIN = re.compile(
     r"Login request:.*RemoteAddr:\s*(\d+\.\d+\.\d+\.\d+):\d+.*\?Name=(\S+?)(?:\s|$|\?)"
@@ -51,28 +54,62 @@ RE_LOGIN_COMBINED = re.compile(
     r"Login request:\s+\?ClientIdentity=\S+.*\?Name=(\S+?)\??"
 )
 
+# ======================================================================
+# Minecraft Log-Regex Patterns
+# ======================================================================
+
+# [Server thread/INFO]: PlayerName[/192.168.1.1:12345] logged in with entity id ...
+RE_MC_LOGIN = re.compile(
+    r"\[Server thread/INFO\].*?:\s*(\w+)\[/(\d+\.\d+\.\d+\.\d+):\d+\]\s+logged in"
+)
+
+# [Server thread/INFO]: PlayerName joined the game
+RE_MC_JOIN = re.compile(
+    r"\[Server thread/INFO\].*?:\s*(\w+) joined the game"
+)
+
+# [Server thread/INFO]: PlayerName left the game
+RE_MC_LEFT = re.compile(
+    r"\[Server thread/INFO\].*?:\s*(\w+) left the game"
+)
+
+# [User Authenticator #X/INFO]: UUID of player PlayerName is ...
+RE_MC_UUID = re.compile(
+    r"\[User Authenticator.*?/INFO\].*?UUID of player (\w+) is (\S+)"
+)
+
 
 class PlayerIPTracker:
     """
-    Tracks player IPs from Satisfactory server logs.
+    Tracks player IPs from server logs (Satisfactory und Minecraft).
     Manages UFW firewall rules for IP-based bans.
     """
 
-    def __init__(self, data_file: Path, game_ports: Optional[List[int]] = None) -> None:
+    def __init__(self, data_file: Path,
+                 game_type: str = "sat",
+                 game_ports: Optional[List[int]] = None) -> None:
         """
         Args:
             data_file: Path to JSON file storing IP mappings and bans
-            game_ports: Satisfactory server ports to block (default: 7777, 7778)
+            game_type: "sat" fuer Satisfactory, "mc" fuer Minecraft
+            game_ports: Server ports to block (default abhaengig von game_type)
         """
         self.data_file: Path = data_file
-        self.game_ports: List[int] = game_ports or [7777, 7778, 8888, 8889]
+        self.game_type: str = game_type
 
-        # ip_map: {player_name: {ip, last_seen, first_seen}}
+        if game_ports:
+            self.game_ports: List[int] = game_ports
+        elif game_type == "mc":
+            self.game_ports = [25565]  # Standard MC Port
+        else:
+            self.game_ports = [7777, 7778, 8888, 8889]
+
+        # ip_map: {player_name: {ip, last_seen, first_seen, uuid?}}
         # bans: {player_name: {ip, reason, banned_by, banned_at}}
         self._data: Dict[str, Any] = {"ip_map": {}, "bans": {}}
         self._load()
 
-        # Pending connection IP (from AddClientConnection before Login)
+        # Pending connection IP (from AddClientConnection before Login) — SAT only
         self._pending_ip: Optional[str] = None
 
     def _load(self) -> None:
@@ -104,7 +141,15 @@ class PlayerIPTracker:
         """
         Process a single log line to extract player IP mappings.
         Call this for each new log line during monitoring.
+        Wählt automatisch SAT- oder MC-Parser basierend auf game_type.
         """
+        if self.game_type == "mc":
+            self._process_mc_line(line)
+        else:
+            self._process_sat_line(line)
+
+    def _process_sat_line(self, line: str) -> None:
+        """Satisfactory-spezifisches Log-Parsing"""
         # Track pending IP from AddClientConnection
         m = RE_ADD_CONNECTION.search(line)
         if m:
@@ -138,6 +183,28 @@ class PlayerIPTracker:
             name = m.group(1).strip()
             self._update_mapping(name, self._pending_ip)
             self._pending_ip = None
+
+    def _process_mc_line(self, line: str) -> None:
+        """Minecraft-spezifisches Log-Parsing"""
+        # PlayerName[/IP:Port] logged in
+        m = RE_MC_LOGIN.search(line)
+        if m:
+            name = m.group(1)
+            ip = m.group(2)
+            self._update_mapping(name, ip)
+            return
+
+        # UUID of player PlayerName is UUID
+        m = RE_MC_UUID.search(line)
+        if m:
+            name = m.group(1)
+            uuid = m.group(2)
+            # UUID im Mapping speichern falls Spieler bekannt
+            existing = self._data["ip_map"].get(name)
+            if existing:
+                existing["uuid"] = uuid
+                self._save()
+            return
 
     def _update_mapping(self, name: str, ip: str) -> None:
         """Update IP mapping for a player"""

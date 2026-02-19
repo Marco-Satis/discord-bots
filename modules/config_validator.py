@@ -255,19 +255,73 @@ class ConfigValidator:
             server_path = get_env(f"MC_{sid}_PATH", "")
             if server_path:
                 try:
-                    if not Path(server_path).exists():
+                    sp = Path(server_path)
+                    if not sp.exists():
                         errors.append(ConfigValidationError(
                             f"MC_{sid}_PATH",
                             f"Server-Pfad nicht gefunden: {server_path} "
                             f"(normal wenn MC noch nicht installiert)",
                             "warning"
                         ))
+                    else:
+                        # Log-Pfad pruefen
+                        log_path = sp / "logs" / "latest.log"
+                        if not log_path.exists():
+                            errors.append(ConfigValidationError(
+                                f"MC_{sid}_LOG",
+                                f"Log-Datei nicht gefunden: {log_path} "
+                                f"(wird nach erstem Start erstellt)",
+                                "warning"
+                            ))
+
+                        # server.properties pruefen
+                        props_path = sp / "server.properties"
+                        if not props_path.exists():
+                            errors.append(ConfigValidationError(
+                                f"MC_{sid}_PROPERTIES",
+                                f"server.properties nicht gefunden: {props_path} "
+                                f"(wird nach erstem Start erstellt)",
+                                "warning"
+                            ))
                 except PermissionError:
                     errors.append(ConfigValidationError(
                         f"MC_{sid}_PATH",
                         f"Keine Leseberechtigung fuer: {server_path}",
                         "warning"
                     ))
+
+            # Backup-Pfad pruefen
+            backup_path = get_env(f"MC_{sid}_BACKUP_PATH", "")
+            if backup_path:
+                bp = Path(backup_path)
+                if not bp.exists():
+                    try:
+                        bp.mkdir(parents=True, exist_ok=True)
+                    except OSError:
+                        errors.append(ConfigValidationError(
+                            f"MC_{sid}_BACKUP_PATH",
+                            f"Backup-Pfad nicht erstellbar: {backup_path}",
+                            "warning"
+                        ))
+
+            # World-Pfad pruefen
+            world_path = get_env(f"MC_{sid}_WORLD_PATH", "")
+            if world_path and not Path(world_path).exists():
+                errors.append(ConfigValidationError(
+                    f"MC_{sid}_WORLD_PATH",
+                    f"World-Pfad nicht gefunden: {world_path} "
+                    f"(wird nach erstem Start erstellt)",
+                    "warning"
+                ))
+
+            # Chat-Channel pruefen
+            chat_ch = get_env(f"MC_{sid}_GAME_CHAT_CHANNEL_ID", "0")
+            if not chat_ch or chat_ch == "0":
+                errors.append(ConfigValidationError(
+                    f"MC_{sid}_GAME_CHAT_CHANNEL_ID",
+                    f"Chat-Channel fuer {sid} nicht gesetzt — Chat-Bridge deaktiviert",
+                    "warning"
+                ))
 
         if not any_enabled:
             logger.debug("Keine Minecraft-Server konfiguriert — MC-Checks uebersprungen")

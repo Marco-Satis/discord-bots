@@ -55,6 +55,11 @@ class SchedulerCog(commands.Cog):
         self._mc_daily_restart_enabled = mc_sched.get("daily_restart_enabled", True)
         self._mc_auto_backup_enabled = mc_sched.get("auto_backup_enabled", True)
         self._mc_auto_backup_interval_hours = mc_sched.get("auto_backup_interval_hours", 6)
+        self._mc_update_check_enabled = mc_sched.get("update_check_enabled", True)
+        self._mc_update_check_interval_hours = mc_sched.get("update_check_interval_hours", 6)
+        self._mc_config_backup_enabled = mc_sched.get("config_backup_enabled", True)
+        self._mc_config_backup_hour = mc_sched.get("config_backup_hour", 3)
+        self._mc_backup_before_restart = mc_sched.get("backup_before_restart", True)
 
         # State
         self._last_auto_backup: Optional[datetime] = None
@@ -68,6 +73,8 @@ class SchedulerCog(commands.Cog):
         # Minecraft State (pro Server)
         self._mc_last_restart: dict[str, Optional[datetime]] = {}
         self._mc_last_backup: dict[str, Optional[datetime]] = {}
+        self._mc_last_update_check: dict[str, Optional[datetime]] = {}
+        self._mc_last_config_backup: dict[str, Optional[datetime]] = {}
 
     # ------------------------------------------------------------------
     # Properties for accessing bot-level services
@@ -124,6 +131,14 @@ class SchedulerCog(commands.Cog):
     @property
     def mc_backup_mgrs(self):
         return getattr(self.bot, "mc_backup_mgrs", {})
+
+    @property
+    def mc_settings_mgrs(self):
+        return getattr(self.bot, "mc_settings_mgrs", {})
+
+    @property
+    def mc_update_checkers(self):
+        return getattr(self.bot, "mc_update_checkers", {})
 
     # ------------------------------------------------------------------
     # Cog lifecycle
@@ -182,6 +197,10 @@ class SchedulerCog(commands.Cog):
                     await self._check_mc_daily_restart(now, mc_sid)
                 if self._mc_auto_backup_enabled:
                     await self._check_mc_auto_backup(now, mc_sid)
+                if self._mc_update_check_enabled:
+                    await self._check_mc_update(now, mc_sid)
+                if self._mc_config_backup_enabled:
+                    await self._check_mc_config_backup(now, mc_sid)
 
         except Exception as e:
             logger.error(f"Scheduler tick error: {e}", exc_info=True)
@@ -590,6 +609,21 @@ class SchedulerCog(commands.Cog):
         self._mc_last_restart[server_id] = now
 
         try:
+            # Backup vor Restart
+            if self._mc_backup_before_restart:
+                mgr = self.mc_backup_mgrs.get(server_id)
+                if mgr:
+                    try:
+                        await srv.rcon_command("save-all")
+                        await asyncio.sleep(5)
+                    except Exception:
+                        pass
+                    success, msg, _ = await mgr.create_backup(
+                        name="pre-restart", created_by="scheduler"
+                    )
+                    if success:
+                        logger.info(f"[{server_id}] Pre-Restart Backup: {msg}")
+
             # In-Game Warnung
             try:
                 await srv.rcon_command("say Server wird in 2 Minuten neugestartet!")
@@ -676,6 +710,84 @@ class SchedulerCog(commands.Cog):
 
         except Exception as e:
             logger.error(f"[{server_id}] MC Auto-Backup Fehler: {e}")
+
+    # ------------------------------------------------------------------
+    # Minecraft: Update Check
+    # ------------------------------------------------------------------
+
+    async def _check_mc_update(self, now: datetime, server_id: str):
+        """Periodischer Update-Check fuer einen Minecraft-Server"""
+        checker = self.mc_update_checkers.get(server_id)
+        if not checker:
+            return
+
+        interval = timedelta(hours=self._mc_update_check_interval_hours)
+        last = self._mc_last_update_check.get(server_id)
+        if last and (now - last) < interval:
+            return
+
+        self._mc_last_update_check[server_id] = now
+
+        try:
+            available, info = await checker.check()
+
+            if available:
+                srv = self.mc_servers.get(server_id)
+                label = srv.display_name if srv else f"MC {server_id}"
+
+                if self.notifier:
+                    await self.notifier.send_admin(
+                        f"MC {label} — Paper-Update verfuegbar",
+                        f"Aktueller Build: {info.get('current_build', '?')}\n"
+                        f"Neuester Build: {info.get('latest_build', '?')}\n"
+                        f"Verwende `/mc config update` zum Installieren.",
+                        NotifyLevel.WARNING,
+                    )
+
+                if self.email_notifier:
+                    await self.email_notifier.send_update_available(
+                        str(info.get("current_build", "?")),
+                        str(info.get("latest_build", "?")),
+                        server_label=f"MC {label}",
+                    )
+
+        except Exception as e:
+            logger.debug(f"[{server_id}] MC Update-Check Fehler: {e}")
+
+    # ------------------------------------------------------------------
+    # Minecraft: Config Backup
+    # ------------------------------------------------------------------
+
+    async def _check_mc_config_backup(self, now: datetime, server_id: str):
+        """Taegliches Backup der server.properties"""
+        mgr = self.mc_settings_mgrs.get(server_id)
+        if not mgr:
+            return
+
+        # Nur zur konfigurierten Stunde
+        if now.hour != self._mc_config_backup_hour or now.minute > 1:
+            return
+
+        # Heute schon gesichert?
+        last = self._mc_last_config_backup.get(server_id)
+        if last and last.date() == now.date():
+            return
+
+        self._mc_last_config_backup[server_id] = now
+        logger.info(f"[{server_id}] MC Config-Backup startet...")
+
+        try:
+            success, msg, _ = await mgr.save_settings(
+                name="auto", created_by="scheduler"
+            )
+
+            if success:
+                logger.info(f"[{server_id}] MC Config-Backup: {msg}")
+            else:
+                logger.error(f"[{server_id}] MC Config-Backup fehlgeschlagen: {msg}")
+
+        except Exception as e:
+            logger.error(f"[{server_id}] MC Config-Backup Fehler: {e}")
 
     # ------------------------------------------------------------------
     # Daily Report
@@ -912,6 +1024,30 @@ class SchedulerCog(commands.Cog):
                     f"Max: {od['max_backups']}\n"
                     f"Letztes: {last_od}"
                 ),
+                inline=True,
+            )
+
+        # Minecraft Scheduler
+        if self.mc_servers:
+            mc_lines = []
+            mc_restart = "✅" if self._mc_daily_restart_enabled else "❌"
+            mc_backup = "✅" if self._mc_auto_backup_enabled else "❌"
+            mc_update = "✅" if self._mc_update_check_enabled else "❌"
+            mc_config = "✅" if self._mc_config_backup_enabled else "❌"
+            mc_lines.append(
+                f"Restart: {mc_restart} "
+                f"{self._mc_daily_restart_hour:02d}:{self._mc_daily_restart_minute:02d}"
+            )
+            mc_lines.append(
+                f"Backup: {mc_backup} "
+                f"alle {self._mc_auto_backup_interval_hours}h"
+            )
+            mc_lines.append(f"Update-Check: {mc_update}")
+            mc_lines.append(f"Config-Backup: {mc_config}")
+            mc_lines.append(f"Server: {', '.join(self.mc_servers.keys())}")
+            embed.add_field(
+                name="Minecraft",
+                value="\n".join(mc_lines),
                 inline=True,
             )
 
