@@ -187,6 +187,9 @@ else:
 
 @bot.event
 async def on_ready():
+    # Schutz gegen None-Zustand bei fehlgeschlagener Verbindung
+    if not bot.user:
+        return
     logger.info(f"GameServer Bot online: {bot.user} (ID: {bot.user.id})")
     logger.info(f"Guilds: {[g.name for g in bot.guilds]}")
 
@@ -321,14 +324,14 @@ def main():
         logger.info("Bot stopped by user")
         try:
             asyncio.run(shutdown())
-        except Exception:
-            pass
+        except (RuntimeError, Exception) as e:
+            logger.debug(f"Shutdown nach KeyboardInterrupt fehlgeschlagen: {e}")
     except Exception as e:
         logger.error(f"Fatal: {e}", exc_info=True)
         try:
             asyncio.run(shutdown())
-        except Exception:
-            pass
+        except (RuntimeError, Exception) as e:
+            logger.debug(f"Shutdown nach Fatal-Error fehlgeschlagen: {e}")
         sys.exit(1)
 
 

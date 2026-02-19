@@ -3,6 +3,7 @@ Blacklist Manager for Satisfactory Server
 JSON-based blacklist with add/remove/list operations
 """
 
+import asyncio
 import json
 import aiofiles
 from pathlib import Path
@@ -22,6 +23,7 @@ class BlacklistManager:
     def __init__(self, filepath: Optional[Path] = None) -> None:
         self.filepath = filepath or BLACKLIST_FILE
         self._data: Dict[str, Any] = {"players": []}
+        self._lock = asyncio.Lock()
 
     async def load(self) -> None:
         """Load blacklist from disk"""
@@ -50,33 +52,35 @@ class BlacklistManager:
 
     async def add(self, player_name: str, reason: str, banned_by: str) -> bool:
         """Add player to blacklist. Returns False if already banned."""
-        name_lower = player_name.strip().lower()
-        for p in self.players:
-            if p["name"].lower() == name_lower:
-                return False
+        async with self._lock:
+            name_lower = player_name.strip().lower()
+            for p in self.players:
+                if p["name"].lower() == name_lower:
+                    return False
 
-        self._data.setdefault("players", []).append({
-            "name": player_name.strip(),
-            "reason": reason,
-            "banned_by": banned_by,
-            "banned_at": datetime.now().isoformat()
-        })
-        await self.save()
-        logger.info(f"Blacklist: {player_name} banned by {banned_by} - {reason}")
-        return True
+            self._data.setdefault("players", []).append({
+                "name": player_name.strip(),
+                "reason": reason,
+                "banned_by": banned_by,
+                "banned_at": datetime.now().isoformat()
+            })
+            await self.save()
+            logger.info(f"Blacklist: {player_name} banned by {banned_by} - {reason}")
+            return True
 
     async def remove(self, player_name: str) -> bool:
         """Remove player from blacklist (unban). Returns False if not found."""
-        name_lower = player_name.strip().lower()
-        original_len = len(self.players)
-        self._data["players"] = [
-            p for p in self.players if p["name"].lower() != name_lower
-        ]
-        if len(self._data["players"]) < original_len:
-            await self.save()
-            logger.info(f"Blacklist: {player_name} unbanned")
-            return True
-        return False
+        async with self._lock:
+            name_lower = player_name.strip().lower()
+            original_len = len(self.players)
+            self._data["players"] = [
+                p for p in self.players if p["name"].lower() != name_lower
+            ]
+            if len(self._data["players"]) < original_len:
+                await self.save()
+                logger.info(f"Blacklist: {player_name} unbanned")
+                return True
+            return False
 
     def is_banned(self, player_name: str) -> bool:
         """Check if player is on blacklist"""

@@ -20,7 +20,7 @@ from typing import Optional, Dict
 from pathlib import Path
 
 from utils import get_logger, format_uptime, format_bytes, status_emoji
-from utils.permissions import admin_only, spieler_only, owner_only, is_admin, is_owner
+from utils.permissions import admin_only, spieler_only, owner_only, is_admin, is_owner, server_online_required
 from modules.restart_timer import TimerResult
 
 logger = get_logger("cogs.satisfactory")
@@ -66,7 +66,7 @@ class SatisfactoryCog(commands.Cog):
         "stop": 30,
     }
 
-    def __init__(self, bot):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.server = bot.sat_server
         self.api = bot.sat_api
@@ -352,12 +352,9 @@ class SatisfactoryCog(commands.Cog):
 
     @players_grp.command(name="online", description="Online-Spieler anzeigen")
     @spieler_only()
+    @server_online_required("server")
     async def players_online(self, interaction: discord.Interaction):
         await interaction.response.defer()
-
-        if not await self.server.is_running():
-            await interaction.followup.send("Server ist offline.")
-            return
 
         try:
             state = await self.api.query_server_state()
@@ -585,12 +582,9 @@ class SatisfactoryCog(commands.Cog):
 
     @backup_grp.command(name="save", description="Spiel speichern via API")
     @spieler_only()
+    @server_online_required("server")
     async def backup_save(self, interaction: discord.Interaction):
         await interaction.response.defer()
-
-        if not await self.server.is_running():
-            await interaction.followup.send("Server ist offline.")
-            return
 
         try:
             success = await self.api.save_game()
@@ -1796,8 +1790,10 @@ class LoadConfirmView(discord.ui.View):
 
         try:
             await self.cog.api.save_game()
+            import re as _re
+            safe_name = _re.sub(r'[^\w\-]', '', self.savename)
             result = await self.cog.api.run_command(
-                f"LoadGame {self.savename}"
+                f"LoadGame {safe_name}"
             )
 
             embed = discord.Embed(

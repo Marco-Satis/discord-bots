@@ -4,6 +4,8 @@ Timeout Cog
 Kicks player from game server AND sets Discord timeout simultaneously
 """
 
+import re as _re
+
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -11,13 +13,19 @@ from datetime import timedelta
 from typing import Optional
 from utils import get_logger, admin_only
 
+
+def _sanitize_input(text: str, max_length: int = 100) -> str:
+    """Sanitisiert User-Input fuer Server-Befehle. Erlaubt nur sichere Zeichen."""
+    sanitized = _re.sub(r'[^\w\s\-]', '', text, flags=_re.UNICODE)
+    return sanitized[:max_length].strip()
+
 logger = get_logger("cogs.timeout")
 
 
 class TimeoutCog(commands.Cog):
     """Cross-platform timeout: Game kick + Discord timeout"""
 
-    def __init__(self, bot):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.server = bot.sat_server
         self.api = bot.sat_api
@@ -54,7 +62,8 @@ class TimeoutCog(commands.Cog):
         # 1. Kick from game server
         if await self.server.is_running():
             try:
-                result = await self.api.run_command(f"KickPlayer {spieler}")
+                safe_spieler = _sanitize_input(spieler)
+                result = await self.api.run_command(f"KickPlayer {safe_spieler}")
                 if "Error" not in str(result):
                     results["game_kick"] = True
                 else:

@@ -42,6 +42,7 @@ class MinecraftRCON:
         self.writer: Optional[asyncio.StreamWriter] = None
         self._request_id_counter = 0
         self._authenticated = False
+        self._lock = asyncio.Lock()
 
     def _next_request_id(self) -> int:
         """Naechste Request-ID (einfacher Zaehler)"""
@@ -178,6 +179,11 @@ class MinecraftRCON:
         if not self._authenticated or not self.writer:
             raise RuntimeError("Nicht mit RCON-Server authentifiziert")
 
+        async with self._lock:
+            return await self._execute_command(cmd)
+
+    async def _execute_command(self, cmd: str) -> str:
+        """Interne Ausfuehrung eines RCON-Befehls (Lock wird vom Aufrufer gehalten)"""
         cmd_id = self._next_request_id()
         await self._send_packet(cmd_id, self.PACKET_TYPE_COMMAND, cmd)
 

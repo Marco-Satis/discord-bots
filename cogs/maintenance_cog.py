@@ -26,7 +26,7 @@ class MaintenanceCog(commands.Cog):
 
     maint = app_commands.Group(name="maint", description="Bot-Wartung")
 
-    def __init__(self, bot):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.maintenance = BotMaintenance()
 
@@ -135,7 +135,7 @@ class MaintenanceCog(commands.Cog):
                 inline=True
             )
 
-            embed.set_footer(text=f"Geprüft: {network_info.get('timestamp')[:19]}")
+            embed.set_footer(text=f"Geprüft: {(network_info.get('timestamp') or '')[:19]}")
 
             await interaction.followup.send(embed=embed)
             logger.info(f"Network check performed by {interaction.user}")
@@ -192,7 +192,7 @@ class MaintenanceCog(commands.Cog):
                 inline=False
             )
 
-            embed.set_footer(text=f"Geprüft: {port_info.get('timestamp')[:19]}")
+            embed.set_footer(text=f"Geprüft: {(port_info.get('timestamp') or '')[:19]}")
 
             await interaction.followup.send(embed=embed)
             logger.info(f"Port check performed by {interaction.user}")
@@ -246,7 +246,7 @@ class MaintenanceCog(commands.Cog):
                 inline=False
             )
 
-            embed.set_footer(text=f"Geprüft: {token_info.get('timestamp')[:19]}")
+            embed.set_footer(text=f"Geprüft: {(token_info.get('timestamp') or '')[:19]}")
 
             await interaction.followup.send(embed=embed)
             logger.info(f"Token status checked by {interaction.user}")

@@ -3,6 +3,7 @@ Whitelist Manager for Satisfactory Server
 JSON-based whitelist with add/remove/list operations
 """
 
+import asyncio
 import json
 import aiofiles
 from pathlib import Path
@@ -22,6 +23,7 @@ class WhitelistManager:
     def __init__(self, filepath: Optional[Path] = None) -> None:
         self.filepath = filepath or WHITELIST_FILE
         self._data: Dict[str, Any] = {"enabled": False, "players": []}
+        self._lock = asyncio.Lock()
 
     async def load(self) -> None:
         """Load whitelist from disk"""
@@ -58,32 +60,34 @@ class WhitelistManager:
 
     async def add(self, player_name: str, added_by: str) -> bool:
         """Add player to whitelist. Returns False if already exists."""
-        name_lower = player_name.strip().lower()
-        for p in self.players:
-            if p["name"].lower() == name_lower:
-                return False
+        async with self._lock:
+            name_lower = player_name.strip().lower()
+            for p in self.players:
+                if p["name"].lower() == name_lower:
+                    return False
 
-        self._data.setdefault("players", []).append({
-            "name": player_name.strip(),
-            "added_by": added_by,
-            "added_at": datetime.now().isoformat()
-        })
-        await self.save()
-        logger.info(f"Whitelist: {player_name} added by {added_by}")
-        return True
+            self._data.setdefault("players", []).append({
+                "name": player_name.strip(),
+                "added_by": added_by,
+                "added_at": datetime.now().isoformat()
+            })
+            await self.save()
+            logger.info(f"Whitelist: {player_name} added by {added_by}")
+            return True
 
     async def remove(self, player_name: str) -> bool:
         """Remove player from whitelist. Returns False if not found."""
-        name_lower = player_name.strip().lower()
-        original_len = len(self.players)
-        self._data["players"] = [
-            p for p in self.players if p["name"].lower() != name_lower
-        ]
-        if len(self._data["players"]) < original_len:
-            await self.save()
-            logger.info(f"Whitelist: {player_name} removed")
-            return True
-        return False
+        async with self._lock:
+            name_lower = player_name.strip().lower()
+            original_len = len(self.players)
+            self._data["players"] = [
+                p for p in self.players if p["name"].lower() != name_lower
+            ]
+            if len(self._data["players"]) < original_len:
+                await self.save()
+                logger.info(f"Whitelist: {player_name} removed")
+                return True
+            return False
 
     def is_whitelisted(self, player_name: str) -> bool:
         """Check if player is on whitelist"""

@@ -30,7 +30,7 @@ class ModCog(commands.Cog):
 
     mod = app_commands.Group(name="mod", description="Mod-Verwaltung")
 
-    def __init__(self, bot):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.mod_managers = {}  # Cache for ModManager instances
 
@@ -500,16 +500,21 @@ class ModCog(commands.Cog):
                 )
                 return
 
-            modpack_path = Path(modpack_file)
+            # Sicherheit: Nur Dateiname erlauben (kein Path-Traversal)
+            safe_filename = Path(modpack_file).name
+            data_dir = Path(__file__).parent.parent / "data"
+            modpack_path = (data_dir / safe_filename).resolve()
+            if not modpack_path.is_relative_to(data_dir.resolve()):
+                await interaction.followup.send(
+                    "Ungueltiger Dateipfad.", ephemeral=True
+                )
+                return
             if not modpack_path.exists():
-                # Try in data directory
-                modpack_path = Path(__file__).parent.parent / "data" / modpack_file
-                if not modpack_path.exists():
-                    await interaction.followup.send(
-                        f"Datei nicht gefunden: `{modpack_file}`",
-                        ephemeral=True
-                    )
-                    return
+                await interaction.followup.send(
+                    f"Datei nicht gefunden: `{safe_filename}`",
+                    ephemeral=True
+                )
+                return
 
             mod_mgr = self._get_mod_manager(game)
             success, message = await mod_mgr.import_modpack(modpack_path)

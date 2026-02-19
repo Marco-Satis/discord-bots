@@ -73,7 +73,7 @@ class RestartTimer:
         self,
         duration_minutes: int = 10,
         action_name: str = "Restart",
-        warnings: List[int] = None,
+        warnings: Optional[List[int]] = None,
         on_complete: Optional[Callable[[], Awaitable]] = None,
     ) -> TimerResult:
         """

@@ -17,7 +17,7 @@ Bei nur einem Server wird dieser automatisch gewaehlt.
 """
 
 import asyncio
-import shutil
+import re as _re
 import tempfile
 import zipfile
 from pathlib import Path
@@ -28,6 +28,12 @@ from typing import Optional, Dict
 
 from utils import get_logger, format_uptime, format_bytes, status_emoji
 from utils.permissions import admin_only, spieler_only, owner_only
+
+
+def _sanitize_rcon_input(text: str, max_length: int = 100) -> str:
+    """Sanitisiert User-Input fuer RCON-Befehle. Erlaubt nur sichere Zeichen."""
+    sanitized = _re.sub(r'[^\w\s\-]', '', text, flags=_re.UNICODE)
+    return sanitized[:max_length].strip()
 from modules.restart_timer import RestartTimer, TimerResult
 from modules.minecraft.server import MinecraftServer
 from modules.minecraft.backup import MinecraftBackupManager
@@ -73,7 +79,7 @@ class MinecraftCog(commands.Cog):
     # Init
     # ==================================================================
 
-    def __init__(self, bot):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.servers: Dict[str, MinecraftServer] = bot.mc_servers
         self.backup_mgrs: Dict[str, MinecraftBackupManager] = getattr(
@@ -476,10 +482,12 @@ class MinecraftCog(commands.Cog):
             return
 
         try:
-            await srv.rcon_command(f"kick {player} {reason}")
+            safe_player = _sanitize_rcon_input(player)
+            safe_reason = _sanitize_rcon_input(reason, 200)
+            await srv.rcon_command(f"kick {safe_player} {safe_reason}")
             embed = discord.Embed(
                 title="Spieler gekickt",
-                description=f"**{player}** wurde von {srv.display_name} gekickt.",
+                description=f"**{safe_player}** wurde von {srv.display_name} gekickt.",
                 color=0xff9900,
             )
             embed.set_footer(text=f"von {interaction.user.display_name}")
@@ -508,11 +516,13 @@ class MinecraftCog(commands.Cog):
             return
 
         try:
-            await srv.rcon_command(f"ban {player} {reason}")
+            safe_player = _sanitize_rcon_input(player)
+            safe_reason = _sanitize_rcon_input(reason, 200)
+            await srv.rcon_command(f"ban {safe_player} {safe_reason}")
             embed = discord.Embed(
                 title="Spieler gebannt",
-                description=f"**{player}** wurde auf {srv.display_name} gebannt.\n"
-                           f"Grund: {reason}",
+                description=f"**{safe_player}** wurde auf {srv.display_name} gebannt.\n"
+                           f"Grund: {safe_reason}",
                 color=0xff0000,
             )
             embed.set_footer(text=f"von {interaction.user.display_name}")
@@ -540,10 +550,11 @@ class MinecraftCog(commands.Cog):
             return
 
         try:
-            await srv.rcon_command(f"pardon {player}")
+            safe_player = _sanitize_rcon_input(player)
+            await srv.rcon_command(f"pardon {safe_player}")
             embed = discord.Embed(
                 title="Spieler entbannt",
-                description=f"**{player}** wurde auf {srv.display_name} entbannt.",
+                description=f"**{safe_player}** wurde auf {srv.display_name} entbannt.",
                 color=0x00ff00,
             )
             embed.set_footer(text=f"von {interaction.user.display_name}")
@@ -575,10 +586,11 @@ class MinecraftCog(commands.Cog):
             return
 
         try:
-            response = await srv.rcon_command(f"whitelist add {player}")
+            safe_player = _sanitize_rcon_input(player)
+            response = await srv.rcon_command(f"whitelist add {safe_player}")
             embed = discord.Embed(
                 title="Whitelist aktualisiert",
-                description=f"`{player}` hinzugefuegt.\nAntwort: {response}",
+                description=f"`{safe_player}` hinzugefuegt.\nAntwort: {response}",
                 color=0x00ff00,
             )
             embed.set_footer(text=f"von {interaction.user.display_name}")
@@ -606,7 +618,8 @@ class MinecraftCog(commands.Cog):
             return
 
         try:
-            response = await srv.rcon_command(f"whitelist remove {player}")
+            safe_player = _sanitize_rcon_input(player)
+            response = await srv.rcon_command(f"whitelist remove {safe_player}")
             embed = discord.Embed(
                 title="Whitelist aktualisiert",
                 description=f"`{player}` entfernt.\nAntwort: {response}",
@@ -808,7 +821,8 @@ class MinecraftCog(commands.Cog):
             return
 
         try:
-            await srv.rcon_command(f"say {message}")
+            safe_message = _sanitize_rcon_input(message, 200)
+            await srv.rcon_command(f"say {safe_message}")
             embed = discord.Embed(
                 title=f"Nachricht gesendet — {srv.display_name}",
                 description=message,
@@ -960,7 +974,11 @@ class MinecraftCog(commands.Cog):
             return
 
         try:
-            cmd = f"gamemode {mode.lower()} {player}" if player else f"gamemode {mode.lower()}"
+            if player:
+                safe_player = _sanitize_rcon_input(player)
+                cmd = f"gamemode {mode.lower()} {safe_player}"
+            else:
+                cmd = f"gamemode {mode.lower()}"
             await srv.rcon_command(cmd)
 
             target = player or "Alle"

@@ -35,12 +35,20 @@ class MinecraftServer:
         self.service_name = get_env(f"{prefix}SERVICE", "")
         self.server_path = Path(get_env(f"{prefix}PATH", f"/home/minecraft/{server_id.lower()}"))
         self.rcon_host = get_env(f"{prefix}RCON_HOST", "127.0.0.1")
-        self.rcon_port = int(get_env(f"{prefix}RCON_PORT", "25575"))
+        try:
+            self.rcon_port = int(get_env(f"{prefix}RCON_PORT", "25575"))
+        except (ValueError, TypeError):
+            self.rcon_port = 25575
+            logger.warning(f"[{self.server_id}] Ungueltiger RCON_PORT, verwende Default 25575")
         self.rcon_password = get_env(f"{prefix}RCON_PASSWORD", "")
         self.world_path = Path(get_env(f"{prefix}WORLD_PATH", str(self.server_path / "world")))
         self.backup_path = Path(get_env(f"{prefix}BACKUP_PATH", f"/home/minecraft/backups/{server_id.lower()}"))
         self.log_path = Path(get_env(f"{prefix}LOG_PATH", str(self.server_path / "logs" / "latest.log")))
-        self.game_chat_channel_id = int(get_env(f"{prefix}GAME_CHAT_CHANNEL_ID", "0"))
+        try:
+            self.game_chat_channel_id = int(get_env(f"{prefix}GAME_CHAT_CHANNEL_ID", "0"))
+        except (ValueError, TypeError):
+            self.game_chat_channel_id = 0
+            logger.warning(f"[{self.server_id}] Ungueltige GAME_CHAT_CHANNEL_ID, verwende 0")
 
     @property
     def enabled(self) -> bool:

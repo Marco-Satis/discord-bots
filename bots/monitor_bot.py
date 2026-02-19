@@ -375,7 +375,10 @@ async def _mc_on_chat(server_id: str, player: str, message: str):
         return
     channel = bot.get_channel(srv.game_chat_channel_id)
     if channel:
-        await channel.send(f"**<{player}>** {message}", allowed_mentions=_NO_MENTIONS)
+        # Markdown/Mention-Injection verhindern
+        safe_player = discord.utils.escape_markdown(player)
+        safe_message = discord.utils.escape_markdown(message)
+        await channel.send(f"**<{safe_player}>** {safe_message}", allowed_mentions=_NO_MENTIONS)
 
 
 async def _mc_on_join(server_id: str, player: str):
@@ -385,7 +388,8 @@ async def _mc_on_join(server_id: str, player: str):
         return
     channel = bot.get_channel(srv.game_chat_channel_id)
     if channel:
-        await channel.send(f"**{player}** ist dem Server beigetreten", allowed_mentions=_NO_MENTIONS)
+        safe_player = discord.utils.escape_markdown(player)
+        await channel.send(f"**{safe_player}** ist dem Server beigetreten", allowed_mentions=_NO_MENTIONS)
 
     # Player-Tracker aktualisieren
     tracker = mc_player_trackers.get(server_id)
@@ -401,7 +405,8 @@ async def _mc_on_leave(server_id: str, player: str):
         return
     channel = bot.get_channel(srv.game_chat_channel_id)
     if channel:
-        await channel.send(f"**{player}** hat den Server verlassen", allowed_mentions=_NO_MENTIONS)
+        safe_player = discord.utils.escape_markdown(player)
+        await channel.send(f"**{safe_player}** hat den Server verlassen", allowed_mentions=_NO_MENTIONS)
 
     # Player-Tracker aktualisieren
     tracker = mc_player_trackers.get(server_id)
@@ -417,7 +422,9 @@ async def _mc_on_advancement(server_id: str, player: str, advancement: str):
         return
     channel = bot.get_channel(srv.game_chat_channel_id)
     if channel:
-        await channel.send(f"**{player}** hat den Fortschritt **{advancement}** erreicht!", allowed_mentions=_NO_MENTIONS)
+        safe_player = discord.utils.escape_markdown(player)
+        safe_advancement = discord.utils.escape_markdown(advancement)
+        await channel.send(f"**{safe_player}** hat den Fortschritt **{safe_advancement}** erreicht!", allowed_mentions=_NO_MENTIONS)
 
 
 async def _mc_on_death(server_id: str, player: str, death_msg: str):
@@ -427,7 +434,8 @@ async def _mc_on_death(server_id: str, player: str, death_msg: str):
         return
     channel = bot.get_channel(srv.game_chat_channel_id)
     if channel:
-        await channel.send(f"{death_msg}", allowed_mentions=_NO_MENTIONS)
+        safe_death_msg = discord.utils.escape_markdown(death_msg)
+        await channel.send(f"{safe_death_msg}", allowed_mentions=_NO_MENTIONS)
 
 
 # Chat-Bridge Instanzen erstellen
@@ -1649,6 +1657,9 @@ async def setup_hook():
 async def on_ready():
     """Called on every (re)connection. Only idempotent operations here."""
     global _status_message_id, _first_ready
+    # Schutz gegen None-Zustand bei fehlgeschlagener Verbindung
+    if not bot.user:
+        return
     logger.info(f"Monitor Bot online: {bot.user} (ID: {bot.user.id})")
 
     # Load persisted status message ID
@@ -1771,14 +1782,14 @@ def main():
         logger.info("Bot stopped by user")
         try:
             asyncio.run(shutdown())
-        except Exception:
-            pass
+        except (RuntimeError, Exception) as e:
+            logger.debug(f"Shutdown nach KeyboardInterrupt fehlgeschlagen: {e}")
     except Exception as e:
         logger.error(f"Fatal: {e}", exc_info=True)
         try:
             asyncio.run(shutdown())
-        except Exception:
-            pass
+        except (RuntimeError, Exception) as e:
+            logger.debug(f"Shutdown nach Fatal-Error fehlgeschlagen: {e}")
         sys.exit(1)
 
 

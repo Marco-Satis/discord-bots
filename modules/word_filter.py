@@ -8,7 +8,7 @@ import re
 import json
 import aiofiles
 from pathlib import Path
-from typing import List, Tuple, Optional, Dict, Any, Pattern
+from typing import List, Tuple, Optional, Dict, Any
 from utils.logger import get_logger
 from utils.config import DATA_DIR
 
@@ -45,7 +45,7 @@ class WordFilter:
     def __init__(self, filepath: Optional[Path] = None) -> None:
         self.filepath = filepath or DEFAULT_FILTER_FILE
         self._words: List[Dict[str, Any]] = []
-        self._compiled_patterns: List[Pattern] = []
+        self._compiled: List[Tuple[re.Pattern, Dict[str, Any]]] = []
         self.enabled = True
 
     async def load(self) -> None:  # type: ignore
@@ -98,7 +98,7 @@ class WordFilter:
 
     def _compile_patterns(self) -> None:  # type: ignore
         """Compile word list into regex patterns for efficient matching"""
-        self._compiled_patterns = []
+        self._compiled = []
         for entry in self._words:
             word = entry.get("word", "")
             mode = entry.get("mode", "partial")
@@ -116,39 +116,38 @@ class WordFilter:
                 else:  # partial (default)
                     pattern = re.compile(re.escape(word), re.IGNORECASE)
 
-                self._compiled_patterns.append(pattern)
+                self._compiled.append((pattern, entry))
             except re.error as e:
                 logger.warning(f"Invalid filter pattern '{word}': {e}")
 
     def check(self, message: str) -> Tuple[bool, Optional[str]]:
         """
         Check if message contains filtered words.
-        
+
         Returns:
             (is_filtered, matched_word) - True if message should be blocked
         """
         if not self.enabled:
             return False, None
 
-        for i, pattern in enumerate(self._compiled_patterns):
+        for pattern, entry in self._compiled:
             match = pattern.search(message)
             if match:
-                word = self._words[i].get("word", "unknown")
-                return True, word
+                return True, entry.get("word", "unknown")
 
         return False, None
 
     def filter_message(self, message: str, replacement: str = "***") -> str:  # type: ignore
         """
         Replace filtered words with replacement string.
-        
+
         Returns the filtered message.
         """
         if not self.enabled:
             return message
 
         filtered = message
-        for pattern in self._compiled_patterns:
+        for pattern, _ in self._compiled:
             filtered = pattern.sub(replacement, filtered)
 
         return filtered

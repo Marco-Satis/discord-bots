@@ -5,7 +5,6 @@ Bot self-update, changelog, network monitoring, token rotation reminder.
 
 import json
 import asyncio
-import subprocess
 import socket
 import aiohttp
 from pathlib import Path
@@ -303,7 +302,7 @@ class BotMaintenance:
         """
         try:
             result = await self._run_command(
-                ["ping", "-c", "1", "-W", str(timeout * 1000), host],
+                ["ping", "-c", "1", "-W", str(timeout), host],
                 timeout=timeout + 1
             )
 

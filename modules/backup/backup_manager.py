@@ -237,12 +237,14 @@ class BackupManager:
     def _extract_archive(self, archive: Path, target_dir: Path) -> None:  # type: ignore
         """Extract tar.gz archive (runs in executor)"""
         with tarfile.open(archive, "r:gz") as tar:
-            # Validate all members to prevent path traversal
+            # Validate all members and filter to prevent path traversal
+            safe_members = []
             for member in tar.getmembers():
                 member_path = (target_dir / member.name).resolve()
                 if not str(member_path).startswith(str(target_dir.resolve())):
                     raise ValueError(f"Path traversal detected in archive: {member.name}")
-            tar.extractall(path=target_dir)
+                safe_members.append(member)
+            tar.extractall(path=target_dir, members=safe_members)
 
     async def verify_backup(self, backup_path: Path) -> Tuple[bool, str]:
         """

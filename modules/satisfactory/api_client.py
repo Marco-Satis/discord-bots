@@ -65,14 +65,16 @@ class SatisfactoryAPI:
             self._ssl.verify_mode = ssl.CERT_NONE
 
         self._session: Optional[aiohttp.ClientSession] = None
+        self._session_lock = asyncio.Lock()
 
     async def _get_session(self) -> aiohttp.ClientSession:
-        if self._session is None or self._session.closed:
-            conn = aiohttp.TCPConnector(ssl=self._ssl)
-            self._session = aiohttp.ClientSession(
-                timeout=self.timeout, connector=conn
-            )
-        return self._session
+        async with self._session_lock:
+            if self._session is None or self._session.closed:
+                conn = aiohttp.TCPConnector(ssl=self._ssl)
+                self._session = aiohttp.ClientSession(
+                    timeout=self.timeout, connector=conn
+                )
+            return self._session
 
     async def close(self) -> None:
         if self._session and not self._session.closed:
@@ -149,6 +151,9 @@ class SatisfactoryAPI:
                 is_paused=state.get("isGamePaused", False),
                 average_tick_rate=state.get("averageTickRate", 0.0)
             )
+        except SatisfactoryAPIError as e:
+            logger.error(f"Query state API error: {e}")
+            raise
         except Exception as e:
             logger.error(f"Query state failed: {e}")
             return ServerState()

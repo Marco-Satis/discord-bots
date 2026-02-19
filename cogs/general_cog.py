@@ -26,7 +26,7 @@ CLEAR_STATE_FILE = DATA_DIR / "clear_tasks.json"
 class GeneralCog(commands.Cog):
     """General bot commands"""
 
-    def __init__(self, bot):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
         # Aktive Clear-Vorgaenge: {channel_id: task_info}
         self._active_clears: dict[int, dict] = {}
@@ -542,11 +542,12 @@ class GeneralCog(commands.Cog):
             color=0x5865F2
         )
 
-        # System info
-        cpu = psutil.cpu_percent(interval=1)
-        mem = psutil.virtual_memory()
-        disk = psutil.disk_usage("/")
-        uptime = psutil.boot_time()
+        # System info (in Executor um Event-Loop nicht zu blockieren)
+        loop = asyncio.get_running_loop()
+        cpu = await loop.run_in_executor(None, psutil.cpu_percent, 1)
+        mem = await loop.run_in_executor(None, psutil.virtual_memory)
+        disk = await loop.run_in_executor(None, psutil.disk_usage, "/")
+        uptime = await loop.run_in_executor(None, psutil.boot_time)
         sys_uptime = int(time.time() - uptime)
 
         embed.add_field(
