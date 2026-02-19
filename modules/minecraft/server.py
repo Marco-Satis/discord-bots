@@ -51,9 +51,14 @@ class MinecraftServer:
     # systemctl Helfer
     # ------------------------------------------------------------------
 
+    _ALLOWED_ACTIONS = frozenset({"start", "stop", "restart", "is-active", "status"})
+
     async def _systemctl(self, action: str, timeout: int = 30,
                          use_sudo: bool = True) -> Tuple[int, str, str]:
         """Fuehrt systemctl-Befehl asynchron aus"""
+        if action not in self._ALLOWED_ACTIONS:
+            return -1, "", f"Aktion nicht erlaubt: {action}"
+
         try:
             cmd = ["sudo", "/usr/bin/systemctl", action, self.service_name] if use_sudo \
                 else ["/usr/bin/systemctl", action, self.service_name]
@@ -71,6 +76,11 @@ class MinecraftServer:
 
         except asyncio.TimeoutError:
             logger.error(f"[{self.server_id}] systemctl {action} Timeout ({timeout}s)")
+            try:
+                proc.kill()
+                await proc.wait()
+            except Exception:
+                pass
             return -1, "", "Timeout"
         except Exception as e:
             logger.error(f"[{self.server_id}] systemctl {action} Fehler: {e}")
@@ -78,6 +88,7 @@ class MinecraftServer:
 
     async def _get_main_pid(self) -> Optional[int]:
         """Liest die MainPID des Service aus systemd"""
+        proc = None
         try:
             proc = await asyncio.create_subprocess_exec(
                 "systemctl", "show", "--property=MainPID",
@@ -88,6 +99,14 @@ class MinecraftServer:
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
             pid = int(stdout.decode().strip())
             return pid if pid > 0 else None
+        except asyncio.TimeoutError:
+            if proc:
+                try:
+                    proc.kill()
+                    await proc.wait()
+                except Exception:
+                    pass
+            return None
         except Exception:
             return None
 
@@ -375,17 +394,19 @@ class MinecraftServer:
         """Pfad zum World-Save-Verzeichnis"""
         return self.world_path
 
-    def get_world_size(self) -> int:
-        """World-Ordner-Groesse in Bytes"""
-        if not self.world_path.exists():
-            return 0
+    async def get_world_size(self) -> int:
+        """World-Ordner-Groesse in Bytes (async via Executor)"""
+        def _calc() -> int:
+            if not self.world_path.exists():
+                return 0
+            total = 0
+            try:
+                for entry in self.world_path.rglob("*"):
+                    if entry.is_file():
+                        total += entry.stat().st_size
+            except Exception as e:
+                logger.debug(f"[{self.server_id}] Fehler bei World-Groessenberechnung: {e}")
+            return total
 
-        total = 0
-        try:
-            for entry in self.world_path.rglob("*"):
-                if entry.is_file():
-                    total += entry.stat().st_size
-        except Exception as e:
-            logger.debug(f"[{self.server_id}] Fehler bei World-Groessenberechnung: {e}")
-
-        return total
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, _calc)

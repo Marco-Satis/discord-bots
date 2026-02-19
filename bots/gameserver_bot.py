@@ -134,16 +134,16 @@ if bot.mc_servers:
         bot.mc_backup_mgrs[_sid] = MinecraftBackupManager(
             savegame_path=_srv.world_path,
             backup_path=_srv.backup_path,
-            max_backups=bot.config.get("backup", {}).get("max_local", 20)
+            max_backups=bot.config.get("backup", {}).get("max_local", 20),
+            server_id=_sid,
         )
 
 # Mod management
 bot.sat_mod_mgr = ModManager("satisfactory",
                              server_path=bot.sat_server.server_path,
                              mods_dir=DATA_DIR / "mods" / "satisfactory")
+bot.mc_mod_mgrs: dict[str, ModManager] = {}
 for _sid, _srv in bot.mc_servers.items():
-    if not hasattr(bot, "mc_mod_mgrs"):
-        bot.mc_mod_mgrs: dict[str, ModManager] = {}
     bot.mc_mod_mgrs[_sid] = ModManager(
         f"minecraft_{_sid.lower()}",
         server_path=_srv.server_path,

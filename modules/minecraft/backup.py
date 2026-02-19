@@ -110,10 +110,10 @@ class MinecraftBackupManager:
 
         except Exception as e:
             logger.error(f"[{self.server_id}] Backup fehlgeschlagen: {e}")
-            # Teilweises Backup aufraeumen
+            # Teilweises Backup aufraeumen (async)
             if backup_dest.exists():
                 try:
-                    shutil.rmtree(backup_dest)
+                    await loop.run_in_executor(None, shutil.rmtree, backup_dest)
                 except OSError as cleanup_err:
                     logger.debug(f"[{self.server_id}] Cleanup fehlgeschlagen: {cleanup_err}")
             return False, f"Backup fehlgeschlagen: {e}", None
@@ -204,7 +204,10 @@ class MinecraftBackupManager:
         Returns:
             (erfolg, nachricht)
         """
-        backup_source = self.backup_path / backup_name
+        # Path-Traversal Schutz
+        backup_source = (self.backup_path / backup_name).resolve()
+        if not str(backup_source).startswith(str(self.backup_path.resolve())):
+            return False, "Ungueltiger Backup-Name (Path-Traversal)"
 
         if not backup_source.exists():
             return False, f"Backup nicht gefunden: {backup_name}"
@@ -254,7 +257,10 @@ class MinecraftBackupManager:
 
     async def delete_backup(self, backup_name: str) -> Tuple[bool, str]:
         """Backup loeschen"""
-        backup_target = self.backup_path / backup_name
+        # Path-Traversal Schutz
+        backup_target = (self.backup_path / backup_name).resolve()
+        if not str(backup_target).startswith(str(self.backup_path.resolve())):
+            return False, "Ungueltiger Backup-Name (Path-Traversal)"
 
         if not backup_target.exists():
             return False, f"Backup nicht gefunden: {backup_name}"

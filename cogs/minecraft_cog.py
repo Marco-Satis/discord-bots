@@ -238,11 +238,13 @@ class MinecraftCog(commands.Cog):
             )
             return
 
-        # Timer fuer diesen Server pruefen
+        # Timer fuer diesen Server pruefen (nur eigenen Timer-Key)
         timer_key = f"mc_{srv.server_id.lower()}"
-        if self.timer_mgr.has_active:
+        existing_timer = self.timer_mgr._timers.get(timer_key)
+        if existing_timer and existing_timer.is_active:
             await interaction.followup.send(
-                "Ein Timer laeuft bereits. Nutze `/mc cancel` zum Abbrechen."
+                f"Ein Timer fuer {srv.display_name} laeuft bereits. "
+                "Nutze `/mc cancel` zum Abbrechen."
             )
             return
 
@@ -303,9 +305,11 @@ class MinecraftCog(commands.Cog):
             return
 
         timer_key = f"mc_{srv.server_id.lower()}"
-        if self.timer_mgr.has_active:
+        existing_timer = self.timer_mgr._timers.get(timer_key)
+        if existing_timer and existing_timer.is_active:
             await interaction.followup.send(
-                "Ein Timer laeuft bereits. Nutze `/mc cancel` zum Abbrechen."
+                f"Ein Timer fuer {srv.display_name} laeuft bereits. "
+                "Nutze `/mc cancel` zum Abbrechen."
             )
             return
 

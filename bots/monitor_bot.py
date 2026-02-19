@@ -284,6 +284,19 @@ for _mc_sid in MC_SERVER_IDS:
 
 bot.mc_servers = mc_servers
 
+# Minecraft Backup-Manager (fuer Scheduler Auto-Backups)
+if mc_servers:
+    from modules.minecraft.backup import MinecraftBackupManager
+    mc_backup_mgrs: dict[str, MinecraftBackupManager] = {}
+    for _mc_sid, _mc_srv in mc_servers.items():
+        mc_backup_mgrs[_mc_sid] = MinecraftBackupManager(
+            savegame_path=_mc_srv.world_path,
+            backup_path=_mc_srv.backup_path,
+            max_backups=config.get("backup", {}).get("max_local", 20),
+            server_id=_mc_sid,
+        )
+    bot.mc_backup_mgrs = mc_backup_mgrs
+
 # Minecraft Player-Tracker (separate Instanz pro Server)
 mc_player_trackers: dict[str, PlayerTracker] = {}
 for _mc_sid in mc_servers:
@@ -296,6 +309,9 @@ bot.mc_player_trackers = mc_player_trackers
 # Chat-Bridge Callbacks (werden in on_ready mit Channels verbunden)
 
 
+_NO_MENTIONS = discord.AllowedMentions.none()
+
+
 async def _mc_on_chat(server_id: str, player: str, message: str):
     """MC Chat → Discord Channel"""
     srv = mc_servers.get(server_id)
@@ -303,7 +319,7 @@ async def _mc_on_chat(server_id: str, player: str, message: str):
         return
     channel = bot.get_channel(srv.game_chat_channel_id)
     if channel:
-        await channel.send(f"**<{player}>** {message}")
+        await channel.send(f"**<{player}>** {message}", allowed_mentions=_NO_MENTIONS)
 
 
 async def _mc_on_join(server_id: str, player: str):
@@ -313,7 +329,7 @@ async def _mc_on_join(server_id: str, player: str):
         return
     channel = bot.get_channel(srv.game_chat_channel_id)
     if channel:
-        await channel.send(f"**{player}** ist dem Server beigetreten")
+        await channel.send(f"**{player}** ist dem Server beigetreten", allowed_mentions=_NO_MENTIONS)
 
     # Player-Tracker aktualisieren
     tracker = mc_player_trackers.get(server_id)
@@ -329,7 +345,7 @@ async def _mc_on_leave(server_id: str, player: str):
         return
     channel = bot.get_channel(srv.game_chat_channel_id)
     if channel:
-        await channel.send(f"**{player}** hat den Server verlassen")
+        await channel.send(f"**{player}** hat den Server verlassen", allowed_mentions=_NO_MENTIONS)
 
     # Player-Tracker aktualisieren
     tracker = mc_player_trackers.get(server_id)
@@ -345,7 +361,7 @@ async def _mc_on_advancement(server_id: str, player: str, advancement: str):
         return
     channel = bot.get_channel(srv.game_chat_channel_id)
     if channel:
-        await channel.send(f"**{player}** hat den Fortschritt **{advancement}** erreicht!")
+        await channel.send(f"**{player}** hat den Fortschritt **{advancement}** erreicht!", allowed_mentions=_NO_MENTIONS)
 
 
 async def _mc_on_death(server_id: str, player: str, death_msg: str):
@@ -355,7 +371,7 @@ async def _mc_on_death(server_id: str, player: str, death_msg: str):
         return
     channel = bot.get_channel(srv.game_chat_channel_id)
     if channel:
-        await channel.send(f"{death_msg}")
+        await channel.send(f"{death_msg}", allowed_mentions=_NO_MENTIONS)
 
 
 # Chat-Bridge Instanzen erstellen
@@ -922,10 +938,10 @@ async def mc_health_check_task():
 
                 _mc_consecutive_offline[sid] = 0
 
-                # Spielerzahl fuer Stats tracken
+                # Spielerzahl loggen (kein Eintrag in Satisfactory stats_tracker)
                 try:
                     online, max_p = await srv.get_player_count()
-                    stats_tracker.record_player_count(online)
+                    logger.debug(f"[{sid}] Spieler: {online}/{max_p}")
                 except Exception:
                     pass
 
@@ -1249,7 +1265,7 @@ async def _update_status_embed_impl():
 
                     # World-Groesse
                     try:
-                        world_bytes = mc_srv.get_world_size()
+                        world_bytes = await mc_srv.get_world_size()
                         if world_bytes > 0:
                             world_mb = world_bytes / (1024 * 1024)
                             lines.append(f"  🌍 Welt: {world_mb:.1f} MB")
@@ -1485,7 +1501,16 @@ async def on_ready():
     )
 
     # Start background tasks (is_running guard prevents duplicates)
-    for task in [health_check_task, player_log_task, mc_chat_bridge_task, mc_health_check_task, update_status_embed, update_voice_stats, optimize_task, login_audit_task, weekly_snapshot_task]:
+    core_tasks = [
+        health_check_task, player_log_task, update_status_embed,
+        update_voice_stats, optimize_task, login_audit_task,
+        weekly_snapshot_task,
+    ]
+    # MC-Tasks nur starten wenn MC-Server konfiguriert sind
+    if mc_servers:
+        core_tasks.extend([mc_chat_bridge_task, mc_health_check_task])
+
+    for task in core_tasks:
         if not task.is_running():
             task.start()
 
@@ -1520,31 +1545,23 @@ async def on_message(message: discord.Message):
     if message.author.bot:
         return
 
-    # Nur konfigurierte MC-Chat-Channels
-    if message.channel.id not in _mc_chat_channel_map:
-        return
+    # MC-Chat-Bridge: Nur konfigurierte Channels
+    if message.channel.id in _mc_chat_channel_map:
+        server_id = _mc_chat_channel_map[message.channel.id]
+        srv = mc_servers.get(server_id)
+        bridge = mc_chat_bridges.get(server_id)
 
-    server_id = _mc_chat_channel_map[message.channel.id]
-    srv = mc_servers.get(server_id)
-    bridge = mc_chat_bridges.get(server_id)
+        if srv and bridge:
+            try:
+                if await srv.is_running():
+                    author_name = message.author.display_name
+                    content = message.clean_content
+                    if content:
+                        await bridge.send_to_minecraft(srv, author_name, content)
+            except Exception:
+                pass
 
-    if not srv or not bridge:
-        return
-
-    # Nur weiterleiten wenn Server laeuft
-    try:
-        if not await srv.is_running():
-            return
-    except Exception:
-        return
-
-    # An Minecraft senden
-    author_name = message.author.display_name
-    content = message.clean_content
-    if content:
-        await bridge.send_to_minecraft(srv, author_name, content)
-
-    # Commands trotzdem verarbeiten
+    # Commands immer verarbeiten (auch fuer nicht-MC Channels)
     await bot.process_commands(message)
 
 
