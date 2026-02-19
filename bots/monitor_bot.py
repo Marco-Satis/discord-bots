@@ -72,7 +72,6 @@ TOKEN = get_env("DISCORD_TOKEN_WATCHDOG")
 GUILD_ID = get_env("GUILD_ID", cast=int)
 ADMIN_LOG_CHANNEL_ID = get_env("ADMIN_LOG_CHANNEL_ID", cast=int, default=0)
 STATUS_EMBED_CHANNEL_ID = get_env("STATUS_EMBED_CHANNEL_ID", cast=int, default=0)
-GAME_CHAT_CHANNEL_ID = get_env("GAME_CHAT_CHANNEL_ID", cast=int, default=0)
 VOICE_STATS_CATEGORY_ID = get_env("VOICE_STATS_CATEGORY_ID", cast=int, default=0)
 OWNER_ID = get_env("OWNER_ID", default=0, cast=int)
 NOTIFY_ROLE_ID = get_env("NOTIFY_ROLE_ID", cast=int, default=0)
@@ -1076,45 +1075,45 @@ async def health_check_task():
             _consecutive_offline_checks += 1
 
             # After 3 consecutive checks (6 minutes) offline and not yet notified
-            if _consecutive_offline_checks >= 3 and not _downtime_notified and GAME_CHAT_CHANNEL_ID:
+            if _consecutive_offline_checks >= 3 and not _downtime_notified and ADMIN_LOG_CHANNEL_ID:
                 _downtime_notified = True
-                channel = bot.get_channel(GAME_CHAT_CHANNEL_ID)
+                channel = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
                 if channel:
                     try:
                         embed = discord.Embed(
-                            title="🔴 Server ist offline",
+                            title="🔴 Satisfactory Server ist offline",
                             description=(
-                                f"Der Satisfactory-Server ist derzeit nicht erreichbar.\n"
-                                f"Dies wurde um {datetime.now().strftime('%H:%M:%S')} erkannt.\n\n"
-                                f"Status wird weiterhin überwacht..."
+                                f"Der Satisfactory-Server ist seit "
+                                f"{_consecutive_offline_checks * 2} Minuten nicht erreichbar.\n"
+                                f"Erkannt um {datetime.now().strftime('%H:%M:%S')}."
                             ),
                             color=0xff0000,
                             timestamp=datetime.now(),
                         )
                         await channel.send(embed=embed)
-                        logger.info(f"Downtime notification sent to {GAME_CHAT_CHANNEL_ID}")
+                        logger.info("SAT Downtime notification sent to admin channel")
                     except Exception as e:
                         logger.error(f"Failed to send downtime notification: {e}")
         else:
             # Server is online
             if _consecutive_offline_checks > 0:
                 # Server was offline, now back online
-                if _downtime_notified and GAME_CHAT_CHANNEL_ID:
+                if _downtime_notified and ADMIN_LOG_CHANNEL_ID:
                     _downtime_notified = False
-                    channel = bot.get_channel(GAME_CHAT_CHANNEL_ID)
+                    channel = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
                     if channel:
                         try:
                             embed = discord.Embed(
-                                title="🟢 Server ist wieder online",
+                                title="🟢 Satisfactory Server ist wieder online",
                                 description=(
-                                    f"Der Server ist um {datetime.now().strftime('%H:%M:%S')} wieder erreichbar.\n"
-                                    f"Der Server war {_consecutive_offline_checks * 2} Minuten offline."
+                                    f"Server ist um {datetime.now().strftime('%H:%M:%S')} wieder erreichbar.\n"
+                                    f"War {_consecutive_offline_checks * 2} Minuten offline."
                                 ),
                                 color=0x00ff00,
                                 timestamp=datetime.now(),
                             )
                             await channel.send(embed=embed)
-                            logger.info(f"Server recovery notification sent")
+                            logger.info("SAT Recovery notification sent to admin channel")
                         except Exception as e:
                             logger.error(f"Failed to send recovery notification: {e}")
 
@@ -1660,7 +1659,6 @@ async def on_ready():
     # Configure notifier channels (safe to re-run on reconnect)
     notifier.set_channels(
         admin_log=ADMIN_LOG_CHANNEL_ID,
-        game_chat=GAME_CHAT_CHANNEL_ID,
         notify_role=NOTIFY_ROLE_ID,
     )
 

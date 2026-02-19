@@ -35,16 +35,13 @@ class DiscordNotifier:
     def __init__(self, bot: discord.Client):
         self.bot = bot
         self._admin_channel_id: Optional[int] = None
-        self._game_channel_id: Optional[int] = None
         self._notify_role_id: Optional[int] = None
 
-    def set_channels(self, admin_log: Optional[int] = None, game_chat: Optional[int] = None,
+    def set_channels(self, admin_log: Optional[int] = None,
                      notify_role: Optional[int] = None) -> None:
         """Configure notification channels"""
         if admin_log:
             self._admin_channel_id = admin_log
-        if game_chat:
-            self._game_channel_id = game_chat
         if notify_role:
             self._notify_role_id = notify_role
 
@@ -56,10 +53,6 @@ class DiscordNotifier:
     @property
     def admin_channel(self) -> Optional[discord.TextChannel]:  # type: ignore
         return self._get_channel(self._admin_channel_id)
-
-    @property
-    def game_channel(self) -> Optional[discord.TextChannel]:  # type: ignore
-        return self._get_channel(self._game_channel_id)
 
     @property
     def role_ping(self) -> str:  # type: ignore
@@ -102,13 +95,6 @@ class DiscordNotifier:
         if self._admin_channel_id:
             await self.send(self._admin_channel_id, title, description,
                             level, ping_role, **kwargs)
-
-    async def send_game(self, title: str, description: str,
-                        level: NotifyLevel = NotifyLevel.INFO, **kwargs) -> None:  # type: ignore
-        """Send notification to game chat channel"""
-        if self._game_channel_id:
-            await self.send(self._game_channel_id, title, description,
-                            level, **kwargs)
 
     # ------------------------------------------------------------------
     # Server events
@@ -169,9 +155,9 @@ class DiscordNotifier:
 
     async def notify_player_join(self, player_name: str) -> None:  # type: ignore
         """Player joined the server"""
-        await self.send_game(
+        await self.send_admin(
             "Spieler beigetreten",
-            f"**{player_name}** hat den Server betreten 🎮",
+            f"**{player_name}** hat den Server betreten",
             NotifyLevel.INFO,
         )
 
@@ -185,7 +171,7 @@ class DiscordNotifier:
         else:
             desc = f"**{player_name}** hat den Server verlassen"
 
-        await self.send_game(
+        await self.send_admin(
             "Spieler verlassen",
             desc,
             NotifyLevel.INFO,

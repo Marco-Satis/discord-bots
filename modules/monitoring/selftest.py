@@ -73,15 +73,12 @@ class SelfTest:
         try:
             admin_ch_id = int(get_env("ADMIN_LOG_CHANNEL_ID", 0))
             status_ch_id = int(get_env("STATUS_EMBED_CHANNEL_ID", 0))
-            game_ch_id = int(get_env("GAME_CHAT_CHANNEL_ID", 0))
 
             missing = []
             if admin_ch_id and not self.bot.get_channel(admin_ch_id):
                 missing.append("Admin-Log")
             if status_ch_id and not self.bot.get_channel(status_ch_id):
                 missing.append("Status-Embed")
-            if game_ch_id and not self.bot.get_channel(game_ch_id):
-                missing.append("Game-Chat")
 
             if missing:
                 return {"name": "Discord Channels", "ok": False,

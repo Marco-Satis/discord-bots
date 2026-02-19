@@ -67,7 +67,6 @@ class ConfigValidator:
         optional_env = {
             "ADMIN_LOG_CHANNEL_ID": "Admin-Log Channel",
             "STATUS_EMBED_CHANNEL_ID": "Status-Embed Channel",
-            "GAME_CHAT_CHANNEL_ID": "Game-Chat Channel",
         }
 
         for key, desc in optional_env.items():

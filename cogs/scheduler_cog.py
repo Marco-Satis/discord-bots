@@ -348,13 +348,10 @@ class SchedulerCog(commands.Cog):
             # Use restart timer for in-game warnings before restart
             from modules.restart_timer import RestartTimer, TimerResult
 
-            # Hol den Game-Chat oder Admin-Channel für Warnungen
+            # Admin-Channel fuer Restart-Warnungen
             game_ch = None
-            game_ch_id = int(os.environ.get("GAME_CHAT_CHANNEL_ID", 0))
             admin_ch_id = int(os.environ.get("ADMIN_LOG_CHANNEL_ID", 0))
-            if game_ch_id:
-                game_ch = self.bot.get_channel(game_ch_id)
-            if not game_ch and admin_ch_id:
+            if admin_ch_id:
                 game_ch = self.bot.get_channel(admin_ch_id)
 
             timer = RestartTimer(api=self.sat_api, channel=game_ch)
@@ -383,8 +380,8 @@ class SchedulerCog(commands.Cog):
 
     async def _restart_warning_callback(self, minutes_left: int, message: str):
         """Callback for restart timer warnings"""
-        if self.notifier and self.notifier.game_channel:
-            await self.notifier.game_channel.send(
+        if self.notifier and self.notifier.admin_channel:
+            await self.notifier.admin_channel.send(
                 f"⏰ **Server Restart in {minutes_left} Minuten** — {message}"
             )
 

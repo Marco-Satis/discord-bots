@@ -39,9 +39,6 @@ def _default_config():
     """Return default configuration if config.json missing"""
     return {
         "features": {
-            "chat_bridge": False,
-            "word_filter": True,
-            "anti_spam": True,
             "player_tracking": True,
             "auto_backup": True,
             "onedrive_backup": False,

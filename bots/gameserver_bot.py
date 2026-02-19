@@ -94,7 +94,7 @@ bot.backup_mgr = BackupManager(
     max_backups=bot.config.get("backup", {}).get("max_local", 20)
 )
 
-# Phase 3: Restart Timer, Word Filter, Anti-Spam, Chat Bridge, Command Logger
+# Phase 3: Restart Timer, Word Filter, Anti-Spam, Command Logger
 bot.timer_mgr = RestartTimerManager()
 bot.word_filter = WordFilter()
 bot.anti_spam = AntiSpam(
@@ -280,7 +280,6 @@ async def setup_hook():
     await bot.blacklist_mgr.load()
     await bot.blueprint_mgr.load()
     await bot.backup_mgr.load()
-    # Phase 3
     await bot.word_filter.load()
     logger.info("All managers initialized")
     await load_cogs()
