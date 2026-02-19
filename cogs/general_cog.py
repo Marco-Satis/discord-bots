@@ -214,9 +214,8 @@ class GeneralCog(commands.Cog):
         if von:
             parsed = self._parse_date(von)
             if not parsed:
-                await interaction.followup.send(
-                    "Ungueltiges Datum fuer `von`. Format: `TT.MM.JJJJ` oder `TT.MM.JJJJ-HH:MM`",
-                    ephemeral=True,
+                await interaction.edit_original_response(
+                    content="Ungueltiges Datum fuer `von`. Format: `TT.MM.JJJJ` oder `TT.MM.JJJJ-HH:MM`"
                 )
                 return
             after = parsed
@@ -224,9 +223,8 @@ class GeneralCog(commands.Cog):
         if bis:
             parsed = self._parse_date(bis)
             if not parsed:
-                await interaction.followup.send(
-                    "Ungueltiges Datum fuer `bis`. Format: `TT.MM.JJJJ` oder `TT.MM.JJJJ-HH:MM`",
-                    ephemeral=True,
+                await interaction.edit_original_response(
+                    content="Ungueltiges Datum fuer `bis`. Format: `TT.MM.JJJJ` oder `TT.MM.JJJJ-HH:MM`"
                 )
                 return
             before = parsed
