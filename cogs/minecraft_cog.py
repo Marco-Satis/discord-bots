@@ -1,30 +1,28 @@
 """
-Minecraft Unified Cog - All /mc commands with sub-groups
+Minecraft Unified Cog - Alle /mc Befehle mit Multi-Server-Support
 
-Command Structure:
-  /mc status                              (Server status - Alle)
-  /mc start|stop|restart|cancel           (Server control - Admin)
-  /mc players list|kick|ban              (Player management - Spieler)
-  /mc backup create|list|restore          (Backup management - Spieler)
-  /mc command <cmd>                       (Execute RCON - Owner)
-  /mc whitelist add|remove|list           (Whitelist management - Admin)
-  /mc say <message>                       (Broadcast message - Admin)
-  /mc difficulty <level>                  (Set difficulty - Admin)
-  /mc weather <type>                      (Set weather - Admin)
-  /mc time <value>                        (Set time - Admin)
-  /mc gamemode <mode> <player>            (Set gamemode - Admin)
+Command-Struktur:
+  /mc status [server]                        (Server-Status - Alle)
+  /mc start|stop|restart|cancel [server]     (Server-Steuerung - Admin)
+  /mc players list|kick|ban [server]         (Spieler-Verwaltung - Spieler/Admin)
+  /mc backup create|list|restore [server]    (Backup-Verwaltung - Spieler/Owner)
+  /mc whitelist add|remove|list [server]     (Whitelist - Admin)
+  /mc command <cmd> [server]                 (RCON ausfuehren - Owner)
+  /mc say|difficulty|weather|time|gamemode   (Admin-Befehle)
+
+Server-Auswahl: Autocomplete zeigt nur aktivierte Server an.
+Bei nur einem Server wird dieser automatisch gewaehlt.
 """
 
 import asyncio
 import discord
 from discord import app_commands
 from discord.ext import commands
-from typing import Optional
-from pathlib import Path
+from typing import Optional, Dict
 
 from utils import get_logger, format_uptime, format_bytes, status_emoji
-from utils.permissions import admin_only, spieler_only, owner_only, is_admin, is_owner
-from modules.restart_timer import TimerResult
+from utils.permissions import admin_only, spieler_only, owner_only
+from modules.restart_timer import RestartTimer, TimerResult
 from modules.minecraft.server import MinecraftServer
 from modules.minecraft.backup import MinecraftBackupManager
 
@@ -32,10 +30,10 @@ logger = get_logger("cogs.minecraft")
 
 
 class MinecraftCog(commands.Cog):
-    """All Minecraft server commands unified under /mc"""
+    """Alle Minecraft-Server-Befehle unter /mc (Multi-Server)"""
 
     # ==================================================================
-    # Group & Sub-Group Definitions
+    # Group & Sub-Group Definitionen
     # ==================================================================
 
     mc = app_commands.Group(
@@ -57,25 +55,98 @@ class MinecraftCog(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
-        self.server = MinecraftServer()
-        self.backup_mgr = MinecraftBackupManager()
+        self.servers: Dict[str, MinecraftServer] = bot.mc_servers
+        self.backup_mgrs: Dict[str, MinecraftBackupManager] = getattr(
+            bot, 'mc_backup_mgrs', {}
+        )
         self.timer_mgr = bot.timer_mgr
-        self._stop_timer: Optional[asyncio.Task] = None
+
+    # ==================================================================
+    # Hilfsfunktionen
+    # ==================================================================
+
+    async def _server_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        """Autocomplete: Zeigt nur aktivierte MC-Server"""
+        return [
+            app_commands.Choice(name=srv.display_name, value=sid)
+            for sid, srv in self.servers.items()
+            if current.lower() in sid.lower()
+            or current.lower() in srv.display_name.lower()
+        ]
+
+    def _resolve_server(self, server_id: Optional[str]) -> Optional[MinecraftServer]:
+        """Server-Instanz anhand ID ermitteln. Bei None: Standard-Server."""
+        if not self.servers:
+            return None
+
+        if server_id:
+            return self.servers.get(server_id.upper())
+
+        # Bei einem einzigen Server automatisch waehlen
+        if len(self.servers) == 1:
+            return next(iter(self.servers.values()))
+
+        return None
+
+    def _resolve_backup_mgr(self, server_id: Optional[str]) -> Optional[MinecraftBackupManager]:
+        """Backup-Manager fuer Server ermitteln"""
+        if not self.backup_mgrs:
+            return None
+
+        if server_id:
+            return self.backup_mgrs.get(server_id.upper())
+
+        if len(self.backup_mgrs) == 1:
+            return next(iter(self.backup_mgrs.values()))
+
+        return None
+
+    async def _require_server(
+        self, interaction: discord.Interaction, server_id: Optional[str]
+    ) -> Optional[MinecraftServer]:
+        """Server ermitteln oder Fehlermeldung senden. Gibt None zurueck bei Fehler."""
+        server = self._resolve_server(server_id)
+        if not server:
+            if not self.servers:
+                await interaction.followup.send(
+                    "Kein Minecraft-Server konfiguriert.", ephemeral=True
+                )
+            elif not server_id:
+                namen = ", ".join(
+                    f"`{sid}` ({srv.display_name})"
+                    for sid, srv in self.servers.items()
+                )
+                await interaction.followup.send(
+                    f"Mehrere Server verfuegbar. Bitte Server angeben: {namen}",
+                    ephemeral=True
+                )
+            else:
+                await interaction.followup.send(
+                    f"Server `{server_id}` nicht gefunden.", ephemeral=True
+                )
+        return server
 
     # ╔════════════════════════════════════════════════════════════════╗
     # ║  CORE: /mc status | start | stop | restart | cancel           ║
     # ╚════════════════════════════════════════════════════════════════╝
 
     @mc.command(name="status", description="Server-Status anzeigen")
-    async def mc_status(self, interaction: discord.Interaction):
-        """Show server status"""
+    @app_commands.autocomplete(server=_server_autocomplete)
+    async def mc_status(self, interaction: discord.Interaction,
+                        server: Optional[str] = None):
         await interaction.response.defer()
 
-        status = await self.server.get_status()
+        srv = await self._require_server(interaction, server)
+        if not srv:
+            return
+
+        status = await srv.get_status()
         online = status["running"]
 
         embed = discord.Embed(
-            title=f"{status_emoji(online)} Minecraft Server",
+            title=f"{status_emoji(online)} {srv.display_name}",
             color=0x00ff00 if online else 0xff0000,
         )
 
@@ -91,28 +162,20 @@ class MinecraftCog(commands.Cog):
                 inline=True,
             )
             embed.add_field(
-                name="CPU",
-                value=f"{status['cpu_percent']:.1f}%",
-                inline=True,
-            )
-            embed.add_field(
-                name="RAM",
-                value=f"{status['memory_mb']} MB",
-                inline=True,
-            )
-            embed.add_field(
-                name="Typ",
-                value=status["type"].capitalize(),
+                name="PID",
+                value=str(status.get("pid", "—")),
                 inline=True,
             )
         else:
             embed.description = "Server ist offline."
 
-        active_timer = self.timer_mgr.get_active()
-        if active_timer:
+        # Aktiver Timer?
+        timer_key = f"mc_{srv.server_id.lower()}"
+        timer = self.timer_mgr._timers.get(timer_key)
+        if timer and timer.is_active:
             embed.add_field(
                 name="\u23f0 Geplant",
-                value=f"{active_timer.action_name} laeuft...",
+                value=f"{timer.action_name} laeuft...",
                 inline=False,
             )
 
@@ -120,26 +183,35 @@ class MinecraftCog(commands.Cog):
 
     @mc.command(name="start", description="Server starten")
     @admin_only()
-    async def mc_start(self, interaction: discord.Interaction):
-        """Start the server"""
+    @app_commands.autocomplete(server=_server_autocomplete)
+    async def mc_start(self, interaction: discord.Interaction,
+                       server: Optional[str] = None):
         await interaction.response.defer()
 
-        if await self.server.is_running():
-            await interaction.followup.send("Server laeuft bereits!")
+        srv = await self._require_server(interaction, server)
+        if not srv:
             return
 
-        await interaction.followup.send("Server wird gestartet...")
-        success, msg = await self.server.start()
+        if await srv.is_running():
+            await interaction.followup.send(
+                f"{srv.display_name} laeuft bereits!"
+            )
+            return
+
+        await interaction.followup.send(
+            f"{srv.display_name} wird gestartet..."
+        )
+        success, msg = await srv.start()
 
         if success:
             embed = discord.Embed(
-                title=f"{status_emoji(True)} Server gestartet",
+                title=f"{status_emoji(True)} {srv.display_name} gestartet",
                 description=msg,
                 color=0x00ff00,
             )
             embed.set_footer(text=f"von {interaction.user.display_name}")
             await interaction.edit_original_response(content=None, embed=embed)
-            logger.info(f"Server started by {interaction.user}")
+            logger.info(f"[{srv.server_id}] Server gestartet von {interaction.user}")
         else:
             embed = discord.Embed(
                 title="Start fehlgeschlagen",
@@ -150,47 +222,53 @@ class MinecraftCog(commands.Cog):
 
     @mc.command(name="stop", description="Server mit Countdown stoppen")
     @admin_only()
+    @app_commands.autocomplete(server=_server_autocomplete)
     async def mc_stop(self, interaction: discord.Interaction,
-                     countdown: int = 10):
-        """Stop server with countdown warning"""
+                      countdown: int = 10,
+                      server: Optional[str] = None):
         await interaction.response.defer()
 
-        if not await self.server.is_running():
-            await interaction.followup.send("Server ist nicht gestartet.")
+        srv = await self._require_server(interaction, server)
+        if not srv:
             return
 
-        if self.timer_mgr.get_active():
-            await interaction.followup.send("Ein Timer laeuft bereits. Nutze /mc cancel um diesen zu beenden.")
+        if not await srv.is_running():
+            await interaction.followup.send(
+                f"{srv.display_name} ist nicht gestartet."
+            )
+            return
+
+        # Timer fuer diesen Server pruefen
+        timer_key = f"mc_{srv.server_id.lower()}"
+        if self.timer_mgr.has_active:
+            await interaction.followup.send(
+                "Ein Timer laeuft bereits. Nutze `/mc cancel` zum Abbrechen."
+            )
             return
 
         await interaction.followup.send(
-            f"Server wird in {countdown} Minute(n) gestoppt!"
+            f"{srv.display_name} wird in {countdown} Minute(n) gestoppt!"
         )
 
-        # Create a new timer for this shutdown
-        from modules.restart_timer import RestartTimer
+        # Timer mit Server als API (fuer In-Game-Nachrichten via run_command)
+        timer = self.timer_mgr.get_or_create(
+            timer_key, api=srv, channel=interaction.channel
+        )
 
         async def perform_stop():
-            success, msg = await self.server.stop()
-            if success:
-                embed = discord.Embed(
-                    title=f"{status_emoji(False)} Server gestoppt",
-                    description=msg,
-                    color=0xff0000,
-                )
-            else:
-                embed = discord.Embed(
-                    title="Stop fehlgeschlagen",
-                    description=msg,
-                    color=0xff9900,
-                )
-
+            success, msg = await srv.stop()
+            embed = discord.Embed(
+                title=(f"{status_emoji(False)} {srv.display_name} gestoppt"
+                       if success else "Stop fehlgeschlagen"),
+                description=msg,
+                color=0xff0000 if success else 0xff9900,
+            )
             try:
                 await interaction.followup.send(embed=embed)
             except Exception:
                 pass
 
-        timer = RestartTimer()
+        # B1-Fix: on_complete fuehrt perform_stop aus, KEIN zweiter Aufruf danach
         result = await timer.countdown(
             duration_minutes=countdown,
             action_name="Server Stop",
@@ -198,64 +276,61 @@ class MinecraftCog(commands.Cog):
             on_complete=perform_stop
         )
 
-        if result == TimerResult.COMPLETED:
-            await perform_stop()
-        elif result == TimerResult.CANCELLED:
+        if result == TimerResult.CANCELLED:
             try:
-                await interaction.followup.send("Server-Stop abgebrochen!")
+                await interaction.followup.send(
+                    f"{srv.display_name} Stop abgebrochen!"
+                )
             except Exception:
                 pass
 
     @mc.command(name="restart", description="Server mit Countdown neustarten")
     @admin_only()
+    @app_commands.autocomplete(server=_server_autocomplete)
     async def mc_restart(self, interaction: discord.Interaction,
-                        countdown: int = 10):
-        """Restart server with countdown warning"""
+                         countdown: int = 10,
+                         server: Optional[str] = None):
         await interaction.response.defer()
 
-        if not await self.server.is_running():
-            await interaction.followup.send("Server ist nicht gestartet.")
+        srv = await self._require_server(interaction, server)
+        if not srv:
             return
 
-        if self.timer_mgr.get_active():
-            await interaction.followup.send("Ein Timer laeuft bereits. Nutze /mc cancel um diesen zu beenden.")
+        if not await srv.is_running():
+            await interaction.followup.send(
+                f"{srv.display_name} ist nicht gestartet."
+            )
+            return
+
+        timer_key = f"mc_{srv.server_id.lower()}"
+        if self.timer_mgr.has_active:
+            await interaction.followup.send(
+                "Ein Timer laeuft bereits. Nutze `/mc cancel` zum Abbrechen."
+            )
             return
 
         await interaction.followup.send(
-            f"Server wird in {countdown} Minute(n) neugestartet!"
+            f"{srv.display_name} wird in {countdown} Minute(n) neugestartet!"
         )
 
-        # Send in-game warning
-        try:
-            await self.server.rcon_command(
-                f"say Der Server wird in {countdown} Minuten neugestartet!"
-            )
-        except Exception as e:
-            logger.debug(f"Could not send in-game restart warning: {e}")
-
-        from modules.restart_timer import RestartTimer
+        timer = self.timer_mgr.get_or_create(
+            timer_key, api=srv, channel=interaction.channel
+        )
 
         async def perform_restart():
-            success, msg = await self.server.restart()
-            if success:
-                embed = discord.Embed(
-                    title=f"{status_emoji(True)} Server neugestartet",
-                    description=msg,
-                    color=0x00ff00,
-                )
-            else:
-                embed = discord.Embed(
-                    title="Restart fehlgeschlagen",
-                    description=msg,
-                    color=0xff9900,
-                )
-
+            success, msg = await srv.restart()
+            embed = discord.Embed(
+                title=(f"{status_emoji(True)} {srv.display_name} neugestartet"
+                       if success else "Restart fehlgeschlagen"),
+                description=msg,
+                color=0x00ff00 if success else 0xff9900,
+            )
             try:
                 await interaction.followup.send(embed=embed)
             except Exception:
                 pass
 
-        timer = RestartTimer()
+        # B1-Fix: on_complete fuehrt perform_restart aus, KEIN zweiter Aufruf
         result = await timer.countdown(
             duration_minutes=countdown,
             action_name="Server Restart",
@@ -263,51 +338,55 @@ class MinecraftCog(commands.Cog):
             on_complete=perform_restart
         )
 
-        if result == TimerResult.COMPLETED:
-            await perform_restart()
-        elif result == TimerResult.CANCELLED:
+        if result == TimerResult.CANCELLED:
             try:
-                await interaction.followup.send("Server-Restart abgebrochen!")
+                await interaction.followup.send(
+                    f"{srv.display_name} Restart abgebrochen!"
+                )
             except Exception:
                 pass
 
     @mc.command(name="cancel", description="Aktiven Timer abbrechen")
     @admin_only()
     async def mc_cancel(self, interaction: discord.Interaction):
-        """Cancel active timer"""
         active = self.timer_mgr.get_active()
         if not active:
             await interaction.response.send_message(
-                "Kein aktiver Timer.",
-                ephemeral=True
+                "Kein aktiver Timer.", ephemeral=True
             )
             return
 
         active.cancel()
         await interaction.response.send_message(
-            f"Timer abgebrochen: {active.action_name}",
-            ephemeral=True
+            f"Timer abgebrochen: {active.action_name}", ephemeral=True
         )
 
     # ╔════════════════════════════════════════════════════════════════╗
-    # ║  PLAYERS: /mc players list | kick | ban                        ║
+    # ║  PLAYERS: /mc players list | kick | ban | pardon               ║
     # ╚════════════════════════════════════════════════════════════════╝
 
     @players_grp.command(name="list", description="Online Spieler anzeigen")
-    async def mc_players_list(self, interaction: discord.Interaction):
-        """List online players"""
+    @app_commands.autocomplete(server=_server_autocomplete)
+    async def mc_players_list(self, interaction: discord.Interaction,
+                              server: Optional[str] = None):
         await interaction.response.defer()
 
-        if not await self.server.is_running():
-            await interaction.followup.send("Server ist offline.")
+        srv = await self._require_server(interaction, server)
+        if not srv:
+            return
+
+        if not await srv.is_running():
+            await interaction.followup.send(
+                f"{srv.display_name} ist offline."
+            )
             return
 
         try:
-            players = await self.server.get_players()
-            online, max_players = await self.server.get_player_count()
+            players = await srv.get_players()
+            online, max_players = await srv.get_player_count()
 
             embed = discord.Embed(
-                title="Online Spieler",
+                title=f"Online Spieler — {srv.display_name}",
                 color=0x0099ff,
             )
             embed.add_field(
@@ -315,19 +394,11 @@ class MinecraftCog(commands.Cog):
                 value=f"{online}/{max_players}",
                 inline=True,
             )
-
-            if players:
-                embed.add_field(
-                    name="Spieler",
-                    value="\n".join(players),
-                    inline=False,
-                )
-            else:
-                embed.add_field(
-                    name="Spieler",
-                    value="Keine Spieler online",
-                    inline=False,
-                )
+            embed.add_field(
+                name="Spieler",
+                value=("\n".join(players) if players else "Keine Spieler online"),
+                inline=False,
+            )
 
             await interaction.followup.send(embed=embed)
         except Exception as e:
@@ -335,36 +406,195 @@ class MinecraftCog(commands.Cog):
                 f"Fehler beim Abrufen der Spielerliste: {e}",
                 ephemeral=True
             )
-            logger.error(f"Failed to get player list: {e}")
+            logger.error(f"[{srv.server_id}] Spielerliste fehlgeschlagen: {e}")
 
     @players_grp.command(name="kick", description="Spieler kicken")
     @admin_only()
+    @app_commands.autocomplete(server=_server_autocomplete)
     async def mc_kick(self, interaction: discord.Interaction,
-                     player: str,
-                     reason: str = "Gekickt vom Admin"):
-        """Kick a player"""
+                      player: str,
+                      reason: str = "Gekickt vom Admin",
+                      server: Optional[str] = None):
         await interaction.response.defer()
 
-        if not await self.server.is_running():
-            await interaction.followup.send("Server ist offline.")
+        srv = await self._require_server(interaction, server)
+        if not srv:
+            return
+
+        if not await srv.is_running():
+            await interaction.followup.send(f"{srv.display_name} ist offline.")
             return
 
         try:
-            response = await self.server.rcon_command(
-                f"kick {player} {reason}"
-            )
+            await srv.rcon_command(f"kick {player} {reason}")
             embed = discord.Embed(
                 title="Spieler gekickt",
-                description=f"{player} wurde gekickt.",
+                description=f"**{player}** wurde von {srv.display_name} gekickt.",
                 color=0xff9900,
             )
             embed.set_footer(text=f"von {interaction.user.display_name}")
             await interaction.followup.send(embed=embed)
-            logger.info(f"Player {player} kicked by {interaction.user}")
+            logger.info(f"[{srv.server_id}] {player} gekickt von {interaction.user}")
         except Exception as e:
             await interaction.followup.send(
-                f"Fehler beim Kicken: {e}",
-                ephemeral=True
+                f"Fehler beim Kicken: {e}", ephemeral=True
+            )
+
+    @players_grp.command(name="ban", description="Spieler bannen")
+    @admin_only()
+    @app_commands.autocomplete(server=_server_autocomplete)
+    async def mc_ban(self, interaction: discord.Interaction,
+                     player: str,
+                     reason: str = "Gebannt vom Admin",
+                     server: Optional[str] = None):
+        await interaction.response.defer()
+
+        srv = await self._require_server(interaction, server)
+        if not srv:
+            return
+
+        if not await srv.is_running():
+            await interaction.followup.send(f"{srv.display_name} ist offline.")
+            return
+
+        try:
+            await srv.rcon_command(f"ban {player} {reason}")
+            embed = discord.Embed(
+                title="Spieler gebannt",
+                description=f"**{player}** wurde auf {srv.display_name} gebannt.\n"
+                           f"Grund: {reason}",
+                color=0xff0000,
+            )
+            embed.set_footer(text=f"von {interaction.user.display_name}")
+            await interaction.followup.send(embed=embed)
+            logger.info(f"[{srv.server_id}] {player} gebannt von {interaction.user}")
+        except Exception as e:
+            await interaction.followup.send(
+                f"Fehler beim Bannen: {e}", ephemeral=True
+            )
+
+    @players_grp.command(name="pardon", description="Spieler entbannen")
+    @admin_only()
+    @app_commands.autocomplete(server=_server_autocomplete)
+    async def mc_pardon(self, interaction: discord.Interaction,
+                        player: str,
+                        server: Optional[str] = None):
+        await interaction.response.defer()
+
+        srv = await self._require_server(interaction, server)
+        if not srv:
+            return
+
+        if not await srv.is_running():
+            await interaction.followup.send(f"{srv.display_name} ist offline.")
+            return
+
+        try:
+            await srv.rcon_command(f"pardon {player}")
+            embed = discord.Embed(
+                title="Spieler entbannt",
+                description=f"**{player}** wurde auf {srv.display_name} entbannt.",
+                color=0x00ff00,
+            )
+            embed.set_footer(text=f"von {interaction.user.display_name}")
+            await interaction.followup.send(embed=embed)
+            logger.info(f"[{srv.server_id}] {player} entbannt von {interaction.user}")
+        except Exception as e:
+            await interaction.followup.send(
+                f"Fehler beim Entbannen: {e}", ephemeral=True
+            )
+
+    # ╔════════════════════════════════════════════════════════════════╗
+    # ║  WHITELIST: /mc whitelist add | remove | list                  ║
+    # ╚════════════════════════════════════════════════════════════════╝
+
+    @whitelist_grp.command(name="add", description="Spieler zur Whitelist hinzufuegen")
+    @admin_only()
+    @app_commands.autocomplete(server=_server_autocomplete)
+    async def mc_whitelist_add(self, interaction: discord.Interaction,
+                               player: str,
+                               server: Optional[str] = None):
+        await interaction.response.defer()
+
+        srv = await self._require_server(interaction, server)
+        if not srv:
+            return
+
+        if not await srv.is_running():
+            await interaction.followup.send(f"{srv.display_name} ist offline.")
+            return
+
+        try:
+            response = await srv.rcon_command(f"whitelist add {player}")
+            embed = discord.Embed(
+                title="Whitelist aktualisiert",
+                description=f"`{player}` hinzugefuegt.\nAntwort: {response}",
+                color=0x00ff00,
+            )
+            embed.set_footer(text=f"von {interaction.user.display_name}")
+            await interaction.followup.send(embed=embed)
+            logger.info(f"[{srv.server_id}] Whitelist add: {player} von {interaction.user}")
+        except Exception as e:
+            await interaction.followup.send(
+                f"Fehler: {e}", ephemeral=True
+            )
+
+    @whitelist_grp.command(name="remove", description="Spieler von Whitelist entfernen")
+    @admin_only()
+    @app_commands.autocomplete(server=_server_autocomplete)
+    async def mc_whitelist_remove(self, interaction: discord.Interaction,
+                                  player: str,
+                                  server: Optional[str] = None):
+        await interaction.response.defer()
+
+        srv = await self._require_server(interaction, server)
+        if not srv:
+            return
+
+        if not await srv.is_running():
+            await interaction.followup.send(f"{srv.display_name} ist offline.")
+            return
+
+        try:
+            response = await srv.rcon_command(f"whitelist remove {player}")
+            embed = discord.Embed(
+                title="Whitelist aktualisiert",
+                description=f"`{player}` entfernt.\nAntwort: {response}",
+                color=0xff9900,
+            )
+            embed.set_footer(text=f"von {interaction.user.display_name}")
+            await interaction.followup.send(embed=embed)
+            logger.info(f"[{srv.server_id}] Whitelist remove: {player} von {interaction.user}")
+        except Exception as e:
+            await interaction.followup.send(
+                f"Fehler: {e}", ephemeral=True
+            )
+
+    @whitelist_grp.command(name="list", description="Whitelist anzeigen")
+    @app_commands.autocomplete(server=_server_autocomplete)
+    async def mc_whitelist_list(self, interaction: discord.Interaction,
+                                server: Optional[str] = None):
+        await interaction.response.defer()
+
+        srv = await self._require_server(interaction, server)
+        if not srv:
+            return
+
+        if not await srv.is_running():
+            await interaction.followup.send(f"{srv.display_name} ist offline.")
+            return
+
+        try:
+            response = await srv.rcon_command("whitelist list")
+            embed = discord.Embed(
+                title=f"Whitelist — {srv.display_name}",
+                description=response or "Whitelist ist leer.",
+                color=0x0099ff,
+            )
+            await interaction.followup.send(embed=embed)
+        except Exception as e:
+            await interaction.followup.send(
+                f"Fehler: {e}", ephemeral=True
             )
 
     # ╔════════════════════════════════════════════════════════════════╗
@@ -373,60 +603,77 @@ class MinecraftCog(commands.Cog):
 
     @backup_grp.command(name="create", description="Welt-Backup erstellen")
     @spieler_only()
+    @app_commands.autocomplete(server=_server_autocomplete)
     async def mc_backup_create(self, interaction: discord.Interaction,
-                              name: Optional[str] = None):
-        """Create world backup"""
+                               name: Optional[str] = None,
+                               server: Optional[str] = None):
         await interaction.response.defer()
+
+        srv = await self._require_server(interaction, server)
+        if not srv:
+            return
+
+        mgr = self._resolve_backup_mgr(srv.server_id)
+        if not mgr:
+            await interaction.followup.send(
+                "Kein Backup-Manager fuer diesen Server.", ephemeral=True
+            )
+            return
 
         await interaction.followup.send("Backup wird erstellt...")
 
         try:
-            success, msg, backup_path = await self.backup_mgr.create_backup(
+            success, msg, backup_path = await mgr.create_backup(
                 name=name,
                 created_by=str(interaction.user)
             )
 
+            embed = discord.Embed(
+                title=("Backup erstellt" if success else "Backup fehlgeschlagen"),
+                description=f"**{srv.display_name}**\n{msg}",
+                color=0x00ff00 if success else 0xff0000,
+            )
             if success:
-                embed = discord.Embed(
-                    title="Backup erstellt",
-                    description=msg,
-                    color=0x00ff00,
-                )
                 embed.set_footer(text=f"von {interaction.user.display_name}")
-                await interaction.edit_original_response(content=None, embed=embed)
-                logger.info(f"Backup created by {interaction.user}: {name}")
-            else:
-                embed = discord.Embed(
-                    title="Backup fehlgeschlagen",
-                    description=msg,
-                    color=0xff0000,
-                )
-                await interaction.edit_original_response(content=None, embed=embed)
+            await interaction.edit_original_response(content=None, embed=embed)
+            if success:
+                logger.info(f"[{srv.server_id}] Backup erstellt von {interaction.user}")
         except Exception as e:
             await interaction.followup.send(
-                f"Fehler beim Erstellen des Backups: {e}",
-                ephemeral=True
+                f"Fehler beim Backup: {e}", ephemeral=True
             )
-            logger.error(f"Backup creation failed: {e}")
+            logger.error(f"[{srv.server_id}] Backup fehlgeschlagen: {e}")
 
     @backup_grp.command(name="list", description="Verfuegbare Backups anzeigen")
     @spieler_only()
-    async def mc_backup_list(self, interaction: discord.Interaction):
-        """List available backups"""
+    @app_commands.autocomplete(server=_server_autocomplete)
+    async def mc_backup_list(self, interaction: discord.Interaction,
+                             server: Optional[str] = None):
         await interaction.response.defer()
 
-        backups = self.backup_mgr.list_backups(max_results=20)
+        srv = await self._require_server(interaction, server)
+        if not srv:
+            return
+
+        mgr = self._resolve_backup_mgr(srv.server_id)
+        if not mgr:
+            await interaction.followup.send(
+                "Kein Backup-Manager fuer diesen Server.", ephemeral=True
+            )
+            return
+
+        backups = await mgr.list_backups(max_results=20)
 
         if not backups:
             await interaction.followup.send("Keine Backups verfuegbar.")
             return
 
         embed = discord.Embed(
-            title="Verfuegbare Backups",
+            title=f"Backups — {srv.display_name}",
             color=0x0099ff,
         )
 
-        for backup in backups[:10]:  # Show top 10
+        for backup in backups[:10]:
             embed.add_field(
                 name=backup["name"],
                 value=f"**Groesse:** {backup['size_mb']:.1f} MB\n"
@@ -435,292 +682,308 @@ class MinecraftCog(commands.Cog):
                 inline=False,
             )
 
+        if len(backups) > 10:
+            embed.set_footer(text=f"... und {len(backups) - 10} weitere")
+
         await interaction.followup.send(embed=embed)
 
     @backup_grp.command(name="restore", description="Backup wiederherstellen")
     @owner_only()
+    @app_commands.autocomplete(server=_server_autocomplete)
     async def mc_backup_restore(self, interaction: discord.Interaction,
-                               name: str):
-        """Restore world from backup"""
+                                name: str,
+                                server: Optional[str] = None):
         await interaction.response.defer()
 
-        # Confirm restoration
-        embed = discord.Embed(
-            title="Wiederherstellung bestaetigen",
-            description=f"Moechtest du das Backup **{name}** wirklich wiederherstellen?\n"
-                       "Die aktuelle Welt wird geloescht!",
-            color=0xff0000,
-        )
+        srv = await self._require_server(interaction, server)
+        if not srv:
+            return
 
-        await interaction.followup.send(embed=embed)
-
-        try:
-            success, msg = await self.backup_mgr.restore(name)
-
-            if success:
-                embed = discord.Embed(
-                    title="Wiederhergestellt",
-                    description=msg,
-                    color=0x00ff00,
-                )
-            else:
-                embed = discord.Embed(
-                    title="Wiederherstellung fehlgeschlagen",
-                    description=msg,
-                    color=0xff0000,
-                )
-
-            await interaction.followup.send(embed=embed)
-            logger.info(f"Backup restored by {interaction.user}: {name}")
-        except Exception as e:
+        mgr = self._resolve_backup_mgr(srv.server_id)
+        if not mgr:
             await interaction.followup.send(
-                f"Fehler bei der Wiederherstellung: {e}",
+                "Kein Backup-Manager fuer diesen Server.", ephemeral=True
+            )
+            return
+
+        # Sicherheitsabfrage
+        if await srv.is_running():
+            await interaction.followup.send(
+                f"**Warnung:** {srv.display_name} laeuft noch! "
+                "Bitte Server vorher stoppen.",
                 ephemeral=True
             )
-            logger.error(f"Backup restore failed: {e}")
+            return
+
+        await interaction.followup.send(
+            f"Stelle Backup **{name}** fuer {srv.display_name} wieder her..."
+        )
+
+        try:
+            success, msg = await mgr.restore(name)
+            embed = discord.Embed(
+                title=("Wiederhergestellt" if success
+                       else "Wiederherstellung fehlgeschlagen"),
+                description=msg,
+                color=0x00ff00 if success else 0xff0000,
+            )
+            await interaction.followup.send(embed=embed)
+            logger.info(
+                f"[{srv.server_id}] Backup {name} wiederhergestellt von {interaction.user}"
+            )
+        except Exception as e:
+            await interaction.followup.send(
+                f"Fehler bei der Wiederherstellung: {e}", ephemeral=True
+            )
+            logger.error(f"[{srv.server_id}] Restore fehlgeschlagen: {e}")
 
     # ╔════════════════════════════════════════════════════════════════╗
-    # ║  ADMIN COMMANDS: say, difficulty, weather, time, gamemode      ║
+    # ║  ADMIN BEFEHLE: say, difficulty, weather, time, gamemode       ║
     # ╚════════════════════════════════════════════════════════════════╝
 
     @mc.command(name="say", description="Nachricht im Spiel ansagen")
     @admin_only()
+    @app_commands.autocomplete(server=_server_autocomplete)
     async def mc_say(self, interaction: discord.Interaction,
-                    message: str):
-        """Broadcast message to players"""
+                     message: str,
+                     server: Optional[str] = None):
         await interaction.response.defer()
 
-        if not await self.server.is_running():
-            await interaction.followup.send("Server ist offline.")
+        srv = await self._require_server(interaction, server)
+        if not srv:
+            return
+
+        if not await srv.is_running():
+            await interaction.followup.send(f"{srv.display_name} ist offline.")
             return
 
         try:
-            await self.server.rcon_command(f"say {message}")
+            await srv.rcon_command(f"say {message}")
             embed = discord.Embed(
-                title="Nachricht gesendet",
+                title=f"Nachricht gesendet — {srv.display_name}",
                 description=message,
                 color=0x00ff00,
             )
             embed.set_footer(text=f"von {interaction.user.display_name}")
             await interaction.followup.send(embed=embed)
-            logger.info(f"Broadcast by {interaction.user}: {message}")
         except Exception as e:
             await interaction.followup.send(
-                f"Fehler beim Senden der Nachricht: {e}",
-                ephemeral=True
+                f"Fehler beim Senden: {e}", ephemeral=True
             )
 
     @mc.command(name="difficulty", description="Schwierigkeitsgrad einstellen")
     @admin_only()
+    @app_commands.autocomplete(server=_server_autocomplete)
     async def mc_difficulty(self, interaction: discord.Interaction,
-                           level: str):
-        """Set server difficulty"""
+                            level: str,
+                            server: Optional[str] = None):
         valid_levels = ["peaceful", "easy", "normal", "hard"]
-
         if level.lower() not in valid_levels:
             await interaction.response.send_message(
-                f"Ungueltige Schwierigkeit. Valide Werte: {', '.join(valid_levels)}",
+                f"Ungueltig. Valide: {', '.join(valid_levels)}",
                 ephemeral=True
             )
             return
 
         await interaction.response.defer()
+        srv = await self._require_server(interaction, server)
+        if not srv:
+            return
 
-        if not await self.server.is_running():
-            await interaction.followup.send("Server ist offline.")
+        if not await srv.is_running():
+            await interaction.followup.send(f"{srv.display_name} ist offline.")
             return
 
         try:
-            await self.server.rcon_command(f"difficulty {level.lower()}")
+            await srv.rcon_command(f"difficulty {level.lower()}")
             embed = discord.Embed(
-                title="Schwierigkeit geaendert",
-                description=f"Neue Schwierigkeit: {level}",
+                title=f"Schwierigkeit geaendert — {srv.display_name}",
+                description=f"Neue Schwierigkeit: **{level}**",
                 color=0x00ff00,
             )
             embed.set_footer(text=f"von {interaction.user.display_name}")
             await interaction.followup.send(embed=embed)
-            logger.info(f"Difficulty changed by {interaction.user}: {level}")
         except Exception as e:
-            await interaction.followup.send(
-                f"Fehler beim Aendern der Schwierigkeit: {e}",
-                ephemeral=True
-            )
+            await interaction.followup.send(f"Fehler: {e}", ephemeral=True)
 
     @mc.command(name="weather", description="Wetter einstellen")
     @admin_only()
+    @app_commands.autocomplete(server=_server_autocomplete)
     async def mc_weather(self, interaction: discord.Interaction,
-                        weather_type: str):
-        """Set server weather"""
+                         weather_type: str,
+                         server: Optional[str] = None):
         valid_types = ["clear", "rain", "thunder"]
-
         if weather_type.lower() not in valid_types:
             await interaction.response.send_message(
-                f"Ungueltige Wetter. Valide Werte: {', '.join(valid_types)}",
+                f"Ungueltig. Valide: {', '.join(valid_types)}",
                 ephemeral=True
             )
             return
 
         await interaction.response.defer()
+        srv = await self._require_server(interaction, server)
+        if not srv:
+            return
 
-        if not await self.server.is_running():
-            await interaction.followup.send("Server ist offline.")
+        if not await srv.is_running():
+            await interaction.followup.send(f"{srv.display_name} ist offline.")
             return
 
         try:
-            await self.server.rcon_command(f"weather {weather_type.lower()}")
+            await srv.rcon_command(f"weather {weather_type.lower()}")
             embed = discord.Embed(
-                title="Wetter geaendert",
-                description=f"Neues Wetter: {weather_type}",
+                title=f"Wetter geaendert — {srv.display_name}",
+                description=f"Neues Wetter: **{weather_type}**",
                 color=0x00ff00,
             )
             embed.set_footer(text=f"von {interaction.user.display_name}")
             await interaction.followup.send(embed=embed)
-            logger.info(f"Weather changed by {interaction.user}: {weather_type}")
         except Exception as e:
-            await interaction.followup.send(
-                f"Fehler beim Aendern des Wetters: {e}",
-                ephemeral=True
-            )
+            await interaction.followup.send(f"Fehler: {e}", ephemeral=True)
 
     @mc.command(name="time", description="Tageszeit einstellen")
     @admin_only()
+    @app_commands.autocomplete(server=_server_autocomplete)
     async def mc_time(self, interaction: discord.Interaction,
-                     value: str):
-        """Set server time"""
+                      value: str,
+                      server: Optional[str] = None):
         valid_presets = ["day", "night", "noon", "midnight"]
-
-        # Check if it's a preset or a number
         if value.lower() not in valid_presets:
             try:
                 time_val = int(value)
                 if not (0 <= time_val <= 24000):
                     await interaction.response.send_message(
-                        f"Zeit muss zwischen 0 und 24000 liegen oder ein Preset sein.",
+                        "Zeit muss zwischen 0 und 24000 liegen.",
                         ephemeral=True
                     )
                     return
             except ValueError:
                 await interaction.response.send_message(
-                    f"Ungueltige Zeit. Valide Werte: {', '.join(valid_presets)} oder 0-24000",
+                    f"Ungueltig. Presets: {', '.join(valid_presets)} oder 0-24000",
                     ephemeral=True
                 )
                 return
 
         await interaction.response.defer()
+        srv = await self._require_server(interaction, server)
+        if not srv:
+            return
 
-        if not await self.server.is_running():
-            await interaction.followup.send("Server ist offline.")
+        if not await srv.is_running():
+            await interaction.followup.send(f"{srv.display_name} ist offline.")
             return
 
         try:
-            await self.server.rcon_command(f"time set {value}")
+            await srv.rcon_command(f"time set {value}")
             embed = discord.Embed(
-                title="Tageszeit geaendert",
-                description=f"Neue Zeit: {value}",
+                title=f"Zeit geaendert — {srv.display_name}",
+                description=f"Neue Zeit: **{value}**",
                 color=0x00ff00,
             )
             embed.set_footer(text=f"von {interaction.user.display_name}")
             await interaction.followup.send(embed=embed)
-            logger.info(f"Time changed by {interaction.user}: {value}")
         except Exception as e:
-            await interaction.followup.send(
-                f"Fehler beim Aendern der Zeit: {e}",
-                ephemeral=True
-            )
+            await interaction.followup.send(f"Fehler: {e}", ephemeral=True)
 
     @mc.command(name="gamemode", description="Spielmodus setzen")
     @admin_only()
+    @app_commands.autocomplete(server=_server_autocomplete)
     async def mc_gamemode(self, interaction: discord.Interaction,
-                         mode: str,
-                         player: Optional[str] = None):
-        """Set player gamemode"""
+                          mode: str,
+                          player: Optional[str] = None,
+                          server: Optional[str] = None):
         valid_modes = ["survival", "creative", "adventure", "spectator"]
-
         if mode.lower() not in valid_modes:
             await interaction.response.send_message(
-                f"Ungueltige Spielmodus. Valide Werte: {', '.join(valid_modes)}",
+                f"Ungueltig. Valide: {', '.join(valid_modes)}",
                 ephemeral=True
             )
             return
 
         await interaction.response.defer()
+        srv = await self._require_server(interaction, server)
+        if not srv:
+            return
 
-        if not await self.server.is_running():
-            await interaction.followup.send("Server ist offline.")
+        if not await srv.is_running():
+            await interaction.followup.send(f"{srv.display_name} ist offline.")
             return
 
         try:
-            if player:
-                cmd = f"gamemode {mode.lower()} {player}"
-            else:
-                cmd = f"gamemode {mode.lower()}"
+            cmd = f"gamemode {mode.lower()} {player}" if player else f"gamemode {mode.lower()}"
+            await srv.rcon_command(cmd)
 
-            await self.server.rcon_command(cmd)
-
-            target = player or "dir selbst"
+            target = player or "Alle"
             embed = discord.Embed(
-                title="Spielmodus geaendert",
-                description=f"Spielmodus fuer {target}: {mode}",
+                title=f"Spielmodus geaendert — {srv.display_name}",
+                description=f"**{target}**: {mode}",
                 color=0x00ff00,
             )
             embed.set_footer(text=f"von {interaction.user.display_name}")
             await interaction.followup.send(embed=embed)
-            logger.info(f"Gamemode changed by {interaction.user}: {mode} for {player or 'self'}")
         except Exception as e:
-            await interaction.followup.send(
-                f"Fehler beim Aendern des Spielmodus: {e}",
-                ephemeral=True
-            )
+            await interaction.followup.send(f"Fehler: {e}", ephemeral=True)
 
     # ╔════════════════════════════════════════════════════════════════╗
-    # ║  OWNER COMMANDS: RCON raw command execution                    ║
+    # ║  OWNER: RCON Raw Command                                       ║
     # ╚════════════════════════════════════════════════════════════════╝
 
     @mc.command(name="command", description="RCON Befehl ausfuehren")
     @owner_only()
+    @app_commands.autocomplete(server=_server_autocomplete)
     async def mc_command(self, interaction: discord.Interaction,
-                        cmd: str):
-        """Execute raw RCON command (owner only)"""
+                         cmd: str,
+                         server: Optional[str] = None):
         await interaction.response.defer()
 
-        if not await self.server.is_running():
-            await interaction.followup.send("Server ist offline.")
+        srv = await self._require_server(interaction, server)
+        if not srv:
+            return
+
+        if not await srv.is_running():
+            await interaction.followup.send(f"{srv.display_name} ist offline.")
             return
 
         try:
-            response = await self.server.rcon_command(cmd)
-
-            # Truncate long responses
+            response = await srv.rcon_command(cmd)
             if len(response) > 1900:
                 response = response[:1900] + "... (gekuerzt)"
 
             embed = discord.Embed(
-                title="RCON Befehl ausgefuehrt",
+                title=f"RCON — {srv.display_name}",
                 description=f"**Befehl:** `{cmd}`\n\n**Antwort:**\n```\n{response}\n```",
                 color=0x0099ff,
             )
             embed.set_footer(text=f"von {interaction.user.display_name}")
             await interaction.followup.send(embed=embed)
-            logger.info(f"RCON command by {interaction.user}: {cmd}")
+            logger.info(f"[{srv.server_id}] RCON von {interaction.user}: {cmd}")
         except Exception as e:
             embed = discord.Embed(
-                title="RCON Fehler",
+                title=f"RCON Fehler — {srv.display_name}",
                 description=f"**Befehl:** `{cmd}`\n**Fehler:** {e}",
                 color=0xff0000,
             )
             await interaction.followup.send(embed=embed)
-            logger.error(f"RCON command failed: {cmd} - {e}")
 
-    async def cog_app_command_error(self, interaction: discord.Interaction,
-                                     error: app_commands.AppCommandError) -> None:
-        """Handle errors for all commands in this cog."""
+    # ==================================================================
+    # Fehlerbehandlung
+    # ==================================================================
+
+    async def cog_app_command_error(
+        self, interaction: discord.Interaction,
+        error: app_commands.AppCommandError
+    ) -> None:
+        """Zentrale Fehlerbehandlung fuer alle Commands in dieser Cog"""
         if isinstance(error, app_commands.CheckFailure):
             if not interaction.response.is_done():
                 await interaction.response.send_message(
-                    "Keine Berechtigung fuer diesen Befehl.", ephemeral=True
+                    "Keine Berechtigung fuer diesen Befehl.",
+                    ephemeral=True
                 )
             return
-        logger.error(f"Command error in {interaction.command.name if interaction.command else 'unknown'}: {error}", exc_info=True)
+
+        cmd_name = interaction.command.name if interaction.command else "unknown"
+        logger.error(f"Command-Fehler in {cmd_name}: {error}", exc_info=True)
         try:
             msg = f"Ein Fehler ist aufgetreten: {error}"
             if interaction.response.is_done():
@@ -732,5 +995,5 @@ class MinecraftCog(commands.Cog):
 
 
 async def setup(bot):
-    """Load this cog"""
+    """Cog laden"""
     await bot.add_cog(MinecraftCog(bot))
