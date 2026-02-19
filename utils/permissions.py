@@ -4,7 +4,6 @@ Levels: Owner > Admin > Spieler > Alle
 """
 
 import os
-import functools
 from discord import app_commands, Interaction
 
 OWNER_ID = int(os.getenv("OWNER_ID", "0"))

@@ -3,7 +3,6 @@ Backup Manager for Satisfactory Server
 Creates compressed backups of savegames, handles rotation, and restore
 """
 
-import os
 import json
 import shutil
 import tarfile
@@ -40,7 +39,7 @@ class BackupManager:
                     self._history = json.loads(content)
             else:
                 await self._save_history()
-        except (json.JSONDecodeError, FileNotFoundError, IOError) as e:
+        except (json.JSONDecodeError, OSError) as e:
             logger.error(f"Failed to load backup history: {e}")
 
     async def _save_history(self) -> None:
@@ -49,7 +48,7 @@ class BackupManager:
             BACKUP_HISTORY.parent.mkdir(parents=True, exist_ok=True)
             async with aiofiles.open(BACKUP_HISTORY, "w", encoding="utf-8") as f:
                 await f.write(json.dumps(self._history, indent=2))
-        except (IOError, OSError) as e:
+        except OSError as e:
             logger.error(f"Failed to save backup history: {e}")
 
     async def create_backup(self, name: str = None, created_by: str = "system",
@@ -80,7 +79,7 @@ class BackupManager:
             backup_file = self.backup_path / f"{backup_name}.tar.gz"
 
             # Create backup in a thread to not block the event loop
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             size = await loop.run_in_executor(
                 None, self._create_archive, save_dir, backup_file
             )
@@ -216,7 +215,7 @@ class BackupManager:
 
             # Create pre-restore backup
             pre_restore = self.backup_path / f"pre_restore_{datetime.now().strftime('%Y%m%d_%H%M%S')}.tar.gz"
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             if save_dir.exists():
                 await loop.run_in_executor(
                     None, self._create_archive, save_dir, pre_restore

@@ -3,9 +3,9 @@ OneDrive Backup Module - Cloud Backup via rclone
 Uploads backups to OneDrive with rotation management
 """
 
+import json
 import asyncio
 import subprocess
-import re
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, Tuple, List, Dict, Any
@@ -185,7 +185,6 @@ class OneDriveBackup:
             if proc.returncode != 0:
                 return False, []
 
-            import json
             files = json.loads(stdout.decode())
             result = []
             for f in files:

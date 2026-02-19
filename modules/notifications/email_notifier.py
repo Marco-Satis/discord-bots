@@ -81,7 +81,7 @@ class EmailNotifier:
             msg.attach(MIMEText(html_body, "html", "utf-8"))
 
             # Send in thread pool to not block event loop
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             await loop.run_in_executor(None, self._smtp_send, msg)
 
             self._last_sent[event_type] = datetime.now()

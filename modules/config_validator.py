@@ -3,7 +3,6 @@ Config Validator — Phase 9b
 Validates all configuration on bot startup.
 """
 
-import os
 import json
 from pathlib import Path
 from typing import Optional, Tuple, List
@@ -112,7 +111,7 @@ class ConfigValidator:
         if not data_dir.exists():
             try:
                 data_dir.mkdir(parents=True, exist_ok=True)
-            except (IOError, OSError) as e:
+            except OSError as e:
                 logger.debug(f"Failed to create data directory: {e}")
                 errors.append(ConfigValidationError(
                     "data_dir",
@@ -126,7 +125,7 @@ class ConfigValidator:
         if not bp.exists():
             try:
                 bp.mkdir(parents=True, exist_ok=True)
-            except (IOError, OSError) as e:
+            except OSError as e:
                 logger.debug(f"Failed to create backup directory: {e}")
                 errors.append(ConfigValidationError(
                     "BACKUP_PATH",

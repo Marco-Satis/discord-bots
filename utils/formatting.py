@@ -2,7 +2,7 @@
 Formatting helpers for Discord embeds and messages
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime
 
 
 def format_uptime(seconds):

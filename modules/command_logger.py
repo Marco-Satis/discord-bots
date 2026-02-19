@@ -111,7 +111,7 @@ class CommandLogger:
             async with aiofiles.open(COMMAND_LOG_FILE, "a", encoding="utf-8") as f:
                 await f.write(line)
 
-        except (IOError, OSError) as e:
+        except OSError as e:
             logger.error(f"Command log file write failed: {e}")
 
     async def _log_to_discord(self, entry: Dict[str, Any]) -> None:  # type: ignore
@@ -171,6 +171,6 @@ class CommandLogger:
 
             return lines[-count:]
 
-        except (IOError, OSError) as e:
+        except OSError as e:
             logger.error(f"Failed to read command log: {e}")
             return []
