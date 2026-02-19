@@ -62,6 +62,10 @@ class SelfTest:
         # --- Config Files ---
         results.append(await self._test_config())
 
+        # --- Minecraft Server ---
+        mc_results = await self._test_minecraft()
+        results.extend(mc_results)
+
         return results
 
     async def _test_discord_channels(self) -> Dict[str, Any]:
@@ -291,3 +295,77 @@ class SelfTest:
         except Exception as e:
             return {"name": "Konfiguration", "ok": False,
                     "detail": str(e)[:100], "category": "System"}
+
+    async def _test_minecraft(self) -> List[Dict[str, Any]]:
+        """Test Minecraft Server Subsysteme"""
+        results = []
+        mc_servers = getattr(self.bot, "mc_servers", {})
+
+        if not mc_servers:
+            return []  # Kein MC konfiguriert, keine Tests
+
+        for sid, srv in mc_servers.items():
+            # Server-Status
+            try:
+                running = await srv.is_running()
+                status_text = "Online" if running else "Offline"
+                results.append({
+                    "name": f"MC {srv.display_name}",
+                    "ok": True,
+                    "detail": f"Service: {srv.service_name} — {status_text}",
+                    "category": "Minecraft"
+                })
+            except Exception as e:
+                results.append({
+                    "name": f"MC {srv.display_name}",
+                    "ok": False,
+                    "detail": f"Status-Abfrage fehlgeschlagen: {e}",
+                    "category": "Minecraft"
+                })
+
+            # RCON-Verbindung (nur wenn Server laeuft)
+            if running and srv.rcon_password:
+                try:
+                    from modules.minecraft.rcon import MinecraftRCON
+                    async with MinecraftRCON(
+                        srv.rcon_host, srv.rcon_port,
+                        srv.rcon_password, timeout=5.0
+                    ) as rcon:
+                        resp = await rcon.command("list")
+                    results.append({
+                        "name": f"MC {srv.display_name} RCON",
+                        "ok": True,
+                        "detail": f"Verbindung OK — {resp[:60]}",
+                        "category": "Minecraft"
+                    })
+                except Exception as e:
+                    results.append({
+                        "name": f"MC {srv.display_name} RCON",
+                        "ok": False,
+                        "detail": f"RCON Fehler: {e}",
+                        "category": "Minecraft"
+                    })
+
+            # Log-Pfad
+            if srv.log_path:
+                log_exists = srv.log_path.exists()
+                results.append({
+                    "name": f"MC {srv.display_name} Log",
+                    "ok": log_exists,
+                    "detail": (f"Gefunden: {srv.log_path}" if log_exists
+                               else f"Nicht gefunden: {srv.log_path}"),
+                    "category": "Minecraft"
+                })
+
+            # Backup-Pfad
+            if srv.backup_path:
+                bp_exists = srv.backup_path.exists()
+                results.append({
+                    "name": f"MC {srv.display_name} Backup",
+                    "ok": bp_exists,
+                    "detail": (f"Pfad OK: {srv.backup_path}" if bp_exists
+                               else f"Nicht gefunden: {srv.backup_path}"),
+                    "category": "Minecraft"
+                })
+
+        return results

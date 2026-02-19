@@ -1,23 +1,15 @@
 # Offene Review-Befunde — Marcos Entscheidung erforderlich
 
 > **Datum:** 19. Februar 2026
-> **Status:** Aktualisiert
+> **Status:** Alle Befunde behoben (B1-B5)
 
 ---
 
-## B1: Minecraft-Cog — Doppelte Ausfuehrung von Stop/Restart
+## ~~B1: Minecraft-Cog — Doppelte Ausfuehrung von Stop/Restart~~ BEHOBEN
 
-**Datei:** `cogs/minecraft_cog.py`, Zeilen 193–202 und 258–267
-
-**Problem:** Der `RestartTimer` ruft `on_complete` intern auf (nach Countdown-Ende),
-danach ruft der Cog `perform_stop()`/`perform_restart()` **nochmals** auf.
-Der Server wird dadurch doppelt gestoppt/neu gestartet.
-
-**Moegliche Loesungen:**
-1. Den zweiten Aufruf nach dem Timer entfernen (Timer erledigt es bereits)
-2. Das `on_complete`-Callback entfernen und nur den manuellen Aufruf behalten
-
-**Hinweis:** Minecraft-Modul ist Phase 14 (Platzhalter) — eventuell erst spaeter relevant.
+Loesung 1 umgesetzt in Phase 14f: Zweiter Aufruf nach Timer entfernt.
+`on_complete` fuehrt `perform_stop()`/`perform_restart()` aus, danach nur noch
+`TimerResult.CANCELLED` Check. Kein doppelter Aufruf mehr.
 
 ---
 
