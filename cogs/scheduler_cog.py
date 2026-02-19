@@ -48,6 +48,14 @@ class SchedulerCog(commands.Cog):
         self._config_backup_hour = sched.get("config_backup_hour", 3)
         self._config_backup_enabled = sched.get("config_backup_enabled", True)
 
+        # Minecraft Scheduler Config
+        mc_sched = sched.get("minecraft", {})
+        self._mc_daily_restart_hour = mc_sched.get("daily_restart_hour", 5)
+        self._mc_daily_restart_minute = mc_sched.get("daily_restart_minute", 0)
+        self._mc_daily_restart_enabled = mc_sched.get("daily_restart_enabled", True)
+        self._mc_auto_backup_enabled = mc_sched.get("auto_backup_enabled", True)
+        self._mc_auto_backup_interval_hours = mc_sched.get("auto_backup_interval_hours", 6)
+
         # State
         self._last_auto_backup: Optional[datetime] = None
         self._last_config_backup: Optional[datetime] = None
@@ -56,6 +64,10 @@ class SchedulerCog(commands.Cog):
         self._last_auto_update: Optional[datetime] = None
         self._last_daily_report: Optional[datetime] = None
         self._pending_update: bool = False
+
+        # Minecraft State (pro Server)
+        self._mc_last_restart: dict[str, Optional[datetime]] = {}
+        self._mc_last_backup: dict[str, Optional[datetime]] = {}
 
     # ------------------------------------------------------------------
     # Properties for accessing bot-level services
@@ -104,6 +116,14 @@ class SchedulerCog(commands.Cog):
     @property
     def restart_timer(self):
         return getattr(self.bot, "restart_timer_manager", None)
+
+    @property
+    def mc_servers(self):
+        return getattr(self.bot, "mc_servers", {})
+
+    @property
+    def mc_backup_mgrs(self):
+        return getattr(self.bot, "mc_backup_mgrs", {})
 
     # ------------------------------------------------------------------
     # Cog lifecycle
@@ -155,6 +175,13 @@ class SchedulerCog(commands.Cog):
 
             # Weekly report check
             await self._check_weekly_report(now)
+
+            # Minecraft Server Checks
+            for mc_sid in self.mc_servers:
+                if self._mc_daily_restart_enabled:
+                    await self._check_mc_daily_restart(now, mc_sid)
+                if self._mc_auto_backup_enabled:
+                    await self._check_mc_auto_backup(now, mc_sid)
 
         except Exception as e:
             logger.error(f"Scheduler tick error: {e}", exc_info=True)
@@ -515,6 +542,140 @@ class SchedulerCog(commands.Cog):
                 await self.sat_server.start()
             except Exception:
                 pass
+
+    # ------------------------------------------------------------------
+    # Minecraft: Daily Restart
+    # ------------------------------------------------------------------
+
+    async def _check_mc_daily_restart(self, now: datetime, server_id: str):
+        """Taeglicher Restart fuer einen Minecraft-Server"""
+        srv = self.mc_servers.get(server_id)
+        if not srv:
+            return
+
+        target = now.replace(
+            hour=self._mc_daily_restart_hour,
+            minute=self._mc_daily_restart_minute,
+            second=0, microsecond=0
+        )
+
+        # Innerhalb 1-Minuten-Fenster?
+        if abs((now - target).total_seconds()) > 60:
+            return
+
+        # Heute schon neugestartet?
+        last = self._mc_last_restart.get(server_id)
+        if last and last.date() == now.date():
+            return
+
+        # Server laeuft?
+        running = await srv.is_running()
+        if not running:
+            self._mc_last_restart[server_id] = now
+            return
+
+        # Spieler online? Verzoegern
+        try:
+            online, _ = await srv.get_player_count()
+            if online > 0:
+                logger.info(
+                    f"[{server_id}] MC Daily Restart verzoegert: "
+                    f"{online} Spieler online"
+                )
+                return
+        except Exception:
+            pass
+
+        logger.info(f"[{server_id}] MC Daily Restart startet...")
+        self._mc_last_restart[server_id] = now
+
+        try:
+            # In-Game Warnung
+            try:
+                await srv.rcon_command("say Server wird in 2 Minuten neugestartet!")
+                await asyncio.sleep(60)
+                await srv.rcon_command("say Server wird in 1 Minute neugestartet!")
+                await asyncio.sleep(50)
+                await srv.rcon_command("say Server startet JETZT neu!")
+                await asyncio.sleep(10)
+            except Exception as e:
+                logger.debug(f"[{server_id}] MC Restart-Warnung fehlgeschlagen: {e}")
+
+            success, msg = await srv.restart()
+
+            if self.notifier:
+                if success:
+                    await self.notifier.send_admin(
+                        f"MC {srv.display_name} neugestartet",
+                        f"Taeglicher Restart um {self._mc_daily_restart_hour:02d}:"
+                        f"{self._mc_daily_restart_minute:02d}",
+                        NotifyLevel.SUCCESS,
+                    )
+                else:
+                    await self.notifier.send_admin(
+                        f"MC {srv.display_name} Restart fehlgeschlagen",
+                        msg,
+                        NotifyLevel.ERROR,
+                    )
+
+        except Exception as e:
+            logger.error(f"[{server_id}] MC Daily Restart Fehler: {e}")
+
+    # ------------------------------------------------------------------
+    # Minecraft: Auto-Backup
+    # ------------------------------------------------------------------
+
+    async def _check_mc_auto_backup(self, now: datetime, server_id: str):
+        """Auto-Backup fuer einen Minecraft-Server"""
+        srv = self.mc_servers.get(server_id)
+        mgr = self.mc_backup_mgrs.get(server_id)
+        if not srv or not mgr:
+            return
+
+        interval = timedelta(hours=self._mc_auto_backup_interval_hours)
+        last = self._mc_last_backup.get(server_id)
+        if last and (now - last) < interval:
+            return
+
+        # Nur wenn Server laeuft
+        running = await srv.is_running()
+        if not running:
+            return
+
+        logger.info(f"[{server_id}] MC Auto-Backup startet...")
+        self._mc_last_backup[server_id] = now
+
+        try:
+            # Auto-Save ausloesen via RCON
+            try:
+                await srv.rcon_command("save-all")
+                await asyncio.sleep(5)
+            except Exception as e:
+                logger.debug(f"[{server_id}] save-all vor Backup fehlgeschlagen: {e}")
+
+            success, msg, backup_path = await mgr.create_backup(
+                name="auto-backup", created_by="scheduler"
+            )
+
+            if success and backup_path:
+                logger.info(f"[{server_id}] MC Auto-Backup erfolgreich: {msg}")
+
+                # OneDrive Upload (optional)
+                if self.onedrive and self.onedrive.enabled:
+                    try:
+                        cloud_ok, cloud_msg = await self.onedrive.upload(
+                            str(backup_path),
+                            remote_subdir=f"MinecraftBackups/{server_id}"
+                        )
+                        if cloud_ok:
+                            logger.info(f"[{server_id}] MC Cloud-Backup: {cloud_msg}")
+                    except Exception as e:
+                        logger.debug(f"[{server_id}] MC Cloud-Backup Fehler: {e}")
+            else:
+                logger.error(f"[{server_id}] MC Auto-Backup fehlgeschlagen: {msg}")
+
+        except Exception as e:
+            logger.error(f"[{server_id}] MC Auto-Backup Fehler: {e}")
 
     # ------------------------------------------------------------------
     # Daily Report
