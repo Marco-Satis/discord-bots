@@ -284,6 +284,15 @@ for _mc_sid in MC_SERVER_IDS:
 
 bot.mc_servers = mc_servers
 
+# Minecraft Player-Tracker (separate Instanz pro Server)
+mc_player_trackers: dict[str, PlayerTracker] = {}
+for _mc_sid in mc_servers:
+    mc_player_trackers[_mc_sid] = PlayerTracker(
+        data_dir=str(PROJECT_ROOT / "data" / f"mc_{_mc_sid.lower()}")
+    )
+
+bot.mc_player_trackers = mc_player_trackers
+
 # Chat-Bridge Callbacks (werden in on_ready mit Channels verbunden)
 
 
@@ -294,12 +303,11 @@ async def _mc_on_chat(server_id: str, player: str, message: str):
         return
     channel = bot.get_channel(srv.game_chat_channel_id)
     if channel:
-        # Embed fuer saubere Darstellung
         await channel.send(f"**<{player}>** {message}")
 
 
 async def _mc_on_join(server_id: str, player: str):
-    """MC Join → Discord Channel"""
+    """MC Join → Discord Channel + Player-Tracker"""
     srv = mc_servers.get(server_id)
     if not srv or not srv.game_chat_channel_id:
         return
@@ -307,15 +315,27 @@ async def _mc_on_join(server_id: str, player: str):
     if channel:
         await channel.send(f"**{player}** ist dem Server beigetreten")
 
+    # Player-Tracker aktualisieren
+    tracker = mc_player_trackers.get(server_id)
+    if tracker:
+        current = tracker.get_online_players() | {player}
+        await tracker.update(current)
+
 
 async def _mc_on_leave(server_id: str, player: str):
-    """MC Leave → Discord Channel"""
+    """MC Leave → Discord Channel + Player-Tracker"""
     srv = mc_servers.get(server_id)
     if not srv or not srv.game_chat_channel_id:
         return
     channel = bot.get_channel(srv.game_chat_channel_id)
     if channel:
         await channel.send(f"**{player}** hat den Server verlassen")
+
+    # Player-Tracker aktualisieren
+    tracker = mc_player_trackers.get(server_id)
+    if tracker:
+        current = tracker.get_online_players() - {player}
+        await tracker.update(current)
 
 
 async def _mc_on_advancement(server_id: str, player: str, advancement: str):
