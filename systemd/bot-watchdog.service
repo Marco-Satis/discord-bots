@@ -1,0 +1,15 @@
+[Unit]
+Description=Bot Watchdog Service
+After=network.target gameserver-bot.service monitor-bot.service
+
+[Service]
+Type=oneshot
+ExecStart=/home/botuser/Discord_Bots/scripts/bot_watchdog.sh
+User=root
+WorkingDirectory=/home/botuser/Discord_Bots
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bot-watchdog
+
+[Install]
+WantedBy=multi-user.target

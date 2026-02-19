@@ -1,0 +1,26 @@
+# Discord Bot Requirements
+# Install: pip install -r requirements.txt
+
+# Core
+discord.py>=2.3.0,<3.0.0
+python-dotenv>=1.0.0
+
+# HTTP/API
+aiohttp>=3.9.0
+aiofiles>=23.0.0
+
+# System monitoring
+psutil>=5.9.0
+
+# Data handling (included in stdlib but listed for clarity)
+# json, asyncio, pathlib, datetime - stdlib
+
+# Optional: OneDrive backup (needs rclone installed separately)
+# rclone: sudo apt install rclone && rclone config
+
+# Optional: Email notifications
+# Uses stdlib smtplib - no extra packages needed
+
+# Optional: Deep savegame analysis (building counts, power stats)
+# pip install satisfactory-save --break-system-packages
+satisfactory-save>=0.1.0

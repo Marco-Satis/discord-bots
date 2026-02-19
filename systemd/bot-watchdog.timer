@@ -1,0 +1,10 @@
+[Unit]
+Description=Bot Watchdog Timer - Checks every 5 minutes
+
+[Timer]
+OnBootSec=60
+OnUnitActiveSec=300
+AccuracySec=10
+
+[Install]
+WantedBy=timers.target

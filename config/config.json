@@ -1,0 +1,93 @@
+{
+  "features": {
+    "chat_bridge": false,
+    "word_filter": true,
+    "anti_spam": true,
+    "player_tracking": true,
+    "auto_backup": true,
+    "onedrive_backup": true,
+    "email_notifications": true,
+    "auto_update": true,
+    "daily_restart": true,
+    "voice_stats": true,
+    "status_embed": true,
+    "login_audit": true,
+    "auto_cleanup": true,
+    "savegame_protection": true,
+    "graceful_degradation": true,
+    "steam_changelog": true
+  },
+  "thresholds": {
+    "cpu_warning": 80,
+    "ram_warning": 85,
+    "disk_warning": 90,
+    "disk_critical": 95,
+    "tick_rate_warning": 20,
+    "warning_cooldown": 300
+  },
+  "auto_restart": true,
+  "restart_delay": 30,
+  "scheduler": {
+    "daily_restart_enabled": true,
+    "daily_restart_hour": 4,
+    "daily_restart_minute": 0,
+    "min_uptime_for_restart_hours": 12,
+    "auto_backup_enabled": true,
+    "auto_backup_interval_hours": 6,
+    "backup_before_restart": true,
+    "max_local_backups": 20,
+    "max_cloud_backups": 10,
+    "update_check_enabled": true,
+    "update_check_interval_hours": 6,
+    "auto_update_enabled": false,
+    "auto_update_hour": 5,
+    "auto_update_require_empty": true,
+    "daily_report_enabled": true,
+    "daily_report_hour": 7,
+    "weekly_report_day": 0,
+    "weekly_report_hour": 8,
+    "config_backup_enabled": true,
+    "config_backup_hour": 3,
+    "auto_cleanup_hour": 2,
+    "auto_cleanup_enabled": true,
+    "backup_verify_day": 6,
+    "backup_verify_hour": 3
+  },
+  "restart_timer": {
+    "default_duration": 10,
+    "warning_intervals": [10, 5, 3, 1],
+    "stop_duration": 5,
+    "stop_warning_intervals": [5, 3, 1]
+  },
+  "anti_spam": {
+    "max_messages": 5,
+    "window_seconds": 10,
+    "cooldown_seconds": 30,
+    "command_limit": 3,
+    "command_window": 10
+  },
+  "chat_bridge": {
+    "poll_interval": 5,
+    "max_message_length": 200,
+    "prefix": "[DC]"
+  },
+  "login_audit": {
+    "known_ips": [],
+    "enabled": true
+  },
+  "auto_cleanup": {
+    "retention": {
+      "logs": 30,
+      "crash_replays": 20,
+      "backups": 30,
+      "settings_backups": 30,
+      "weekly_snapshots": 52,
+      "compress_after": 3
+    }
+  },
+  "savegame_protection": {
+    "crash_window_minutes": 10,
+    "max_crashes_in_window": 3,
+    "size_drop_threshold": 0.5
+  }
+}

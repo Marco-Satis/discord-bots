@@ -1,0 +1,43 @@
+[Unit]
+Description=Discord Monitor Bot (Health Check, Dashboard, Scheduler)
+Documentation=https://github.com/your-repo/discord-bots
+After=network-online.target gameserver-bot.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=botuser
+Group=botuser
+WorkingDirectory=/home/botuser/Discord_Bots
+ExecStart=/home/botuser/Discord_Bots/venv/bin/python -u bots/monitor_bot.py
+Restart=on-failure
+RestartSec=15
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+# Environment
+EnvironmentFile=/home/botuser/Discord_Bots/config/.env
+
+# Security hardening
+# NoNewPrivileges=yes  -- REMOVED: blocks sudo which is needed for systemctl/renice
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/botuser/Discord_Bots/data
+ReadWritePaths=/home/botuser/Discord_Bots/logs
+ReadWritePaths=/home/botuser/Discord_Bots/backups
+PrivateTmp=yes
+# ProtectKernelTunables=yes  -- REMOVED: blocks drop_caches for optimizer
+ProtectControlGroups=yes
+# RestrictSUIDSGID=yes  -- REMOVED: blocks sudo setuid
+
+# Resource limits (monitor needs more for psutil + steamcmd)
+MemoryMax=768M
+CPUQuota=50%
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=monitor-bot
+
+[Install]
+WantedBy=multi-user.target
