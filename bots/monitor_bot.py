@@ -57,6 +57,8 @@ from modules.monitoring.savegame_protection import SavegameProtection
 from modules.monitoring.graceful_degradation import GracefulDegradation
 from modules.monitoring.steam_changelog import SteamChangelog
 from modules.config_validator import ConfigValidator
+from modules.minecraft.server import MinecraftServer
+from modules.minecraft.chat_bridge import MinecraftChatBridge
 
 load_env()
 
@@ -265,6 +267,91 @@ bot.savegame_protection = savegame_protection
 bot.degradation = degradation
 bot.steam_changelog = steam_changelog
 bot.config_validator = validator
+
+# ------------------------------------------------------------------
+# Minecraft Multi-Server + Chat-Bridge
+# ------------------------------------------------------------------
+
+MC_SERVER_IDS = ["BMC", "VANILLA"]
+mc_servers: dict[str, MinecraftServer] = {}
+mc_chat_bridges: dict[str, MinecraftChatBridge] = {}
+
+for _mc_sid in MC_SERVER_IDS:
+    _mc_srv = MinecraftServer(_mc_sid)
+    if _mc_srv.enabled:
+        mc_servers[_mc_sid] = _mc_srv
+        logger.info(f"Minecraft-Server aktiviert: {_mc_srv.display_name} ({_mc_sid})")
+
+bot.mc_servers = mc_servers
+
+# Chat-Bridge Callbacks (werden in on_ready mit Channels verbunden)
+
+
+async def _mc_on_chat(server_id: str, player: str, message: str):
+    """MC Chat → Discord Channel"""
+    srv = mc_servers.get(server_id)
+    if not srv or not srv.game_chat_channel_id:
+        return
+    channel = bot.get_channel(srv.game_chat_channel_id)
+    if channel:
+        # Embed fuer saubere Darstellung
+        await channel.send(f"**<{player}>** {message}")
+
+
+async def _mc_on_join(server_id: str, player: str):
+    """MC Join → Discord Channel"""
+    srv = mc_servers.get(server_id)
+    if not srv or not srv.game_chat_channel_id:
+        return
+    channel = bot.get_channel(srv.game_chat_channel_id)
+    if channel:
+        await channel.send(f"**{player}** ist dem Server beigetreten")
+
+
+async def _mc_on_leave(server_id: str, player: str):
+    """MC Leave → Discord Channel"""
+    srv = mc_servers.get(server_id)
+    if not srv or not srv.game_chat_channel_id:
+        return
+    channel = bot.get_channel(srv.game_chat_channel_id)
+    if channel:
+        await channel.send(f"**{player}** hat den Server verlassen")
+
+
+async def _mc_on_advancement(server_id: str, player: str, advancement: str):
+    """MC Advancement → Discord Channel"""
+    srv = mc_servers.get(server_id)
+    if not srv or not srv.game_chat_channel_id:
+        return
+    channel = bot.get_channel(srv.game_chat_channel_id)
+    if channel:
+        await channel.send(f"**{player}** hat den Fortschritt **{advancement}** erreicht!")
+
+
+async def _mc_on_death(server_id: str, player: str, death_msg: str):
+    """MC Death → Discord Channel"""
+    srv = mc_servers.get(server_id)
+    if not srv or not srv.game_chat_channel_id:
+        return
+    channel = bot.get_channel(srv.game_chat_channel_id)
+    if channel:
+        await channel.send(f"{death_msg}")
+
+
+# Chat-Bridge Instanzen erstellen
+for _mc_sid, _mc_srv in mc_servers.items():
+    bridge = MinecraftChatBridge(
+        server_id=_mc_sid,
+        log_path=_mc_srv.log_path,
+        on_chat=_mc_on_chat,
+        on_join=_mc_on_join,
+        on_leave=_mc_on_leave,
+        on_advancement=_mc_on_advancement,
+        on_death=_mc_on_death,
+    )
+    mc_chat_bridges[_mc_sid] = bridge
+
+bot.mc_chat_bridges = mc_chat_bridges
 
 # State - persistent status message ID
 _status_message_id = None
@@ -722,6 +809,34 @@ async def before_player_log():
     await bot.wait_until_ready()
     await asyncio.sleep(12)
     _init_log_position()
+
+
+# ------------------------------------------------------------------
+# Minecraft Chat-Bridge Task
+# ------------------------------------------------------------------
+
+@tasks.loop(seconds=5)
+async def mc_chat_bridge_task():
+    """Minecraft Log-Polling fuer Chat-Bridge (alle 5 Sekunden)"""
+    for sid, bridge in mc_chat_bridges.items():
+        srv = mc_servers.get(sid)
+        if not srv or not srv.game_chat_channel_id:
+            continue
+        try:
+            await bridge.poll()
+        except Exception as e:
+            logger.debug(f"[{sid}] Chat-Bridge Poll Fehler: {e}")
+
+
+@mc_chat_bridge_task.before_loop
+async def before_mc_chat_bridge():
+    await bot.wait_until_ready()
+    await asyncio.sleep(15)
+    # Chat-Bridges initialisieren (Log-Position auf Ende setzen)
+    for bridge in mc_chat_bridges.values():
+        await bridge.initialize()
+    if mc_chat_bridges:
+        logger.info(f"Minecraft Chat-Bridges gestartet: {list(mc_chat_bridges.keys())}")
 
 
 @tasks.loop(seconds=60)
@@ -1232,9 +1347,12 @@ async def on_ready():
     )
 
     # Start background tasks (is_running guard prevents duplicates)
-    for task in [health_check_task, player_log_task, update_status_embed, update_voice_stats, optimize_task, login_audit_task, weekly_snapshot_task]:
+    for task in [health_check_task, player_log_task, mc_chat_bridge_task, update_status_embed, update_voice_stats, optimize_task, login_audit_task, weekly_snapshot_task]:
         if not task.is_running():
             task.start()
+
+    # Minecraft Chat-Bridge Channel-Map befuellen
+    _build_mc_chat_channel_map()
 
     if _first_ready:
         logger.info("All background tasks started")
@@ -1247,6 +1365,61 @@ async def on_ready():
         _first_ready = False
     else:
         logger.info("Reconnected to Discord")
+
+
+# ------------------------------------------------------------------
+# Discord → Minecraft Chat-Bridge (on_message)
+# ------------------------------------------------------------------
+
+# Channel-ID → Server-ID Mapping (wird in on_ready befuellt)
+_mc_chat_channel_map: dict[int, str] = {}
+
+
+@bot.event
+async def on_message(message: discord.Message):
+    """Discord-Nachrichten an Minecraft weiterleiten"""
+    # Bots ignorieren
+    if message.author.bot:
+        return
+
+    # Nur konfigurierte MC-Chat-Channels
+    if message.channel.id not in _mc_chat_channel_map:
+        return
+
+    server_id = _mc_chat_channel_map[message.channel.id]
+    srv = mc_servers.get(server_id)
+    bridge = mc_chat_bridges.get(server_id)
+
+    if not srv or not bridge:
+        return
+
+    # Nur weiterleiten wenn Server laeuft
+    try:
+        if not await srv.is_running():
+            return
+    except Exception:
+        return
+
+    # An Minecraft senden
+    author_name = message.author.display_name
+    content = message.clean_content
+    if content:
+        await bridge.send_to_minecraft(srv, author_name, content)
+
+    # Commands trotzdem verarbeiten
+    await bot.process_commands(message)
+
+
+# Channel-Map beim Start befuellen
+def _build_mc_chat_channel_map():
+    """Baut die Channel-ID → Server-ID Map auf"""
+    _mc_chat_channel_map.clear()
+    for sid, srv in mc_servers.items():
+        if srv.game_chat_channel_id:
+            _mc_chat_channel_map[srv.game_chat_channel_id] = sid
+            logger.info(
+                f"[{sid}] Chat-Bridge Channel: {srv.game_chat_channel_id}"
+            )
 
 
 # ------------------------------------------------------------------
