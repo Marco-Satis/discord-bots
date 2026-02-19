@@ -1204,7 +1204,45 @@ async def _update_status_embed_impl():
     if update_checker and update_checker.update_available:
         lines.append("\n📦 **Server-Update verfuegbar!**")
 
-    lines.append("\n▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬")
+    # -- Minecraft Server --
+    if mc_servers:
+        lines.append("\n▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬")
+        lines.append("")
+
+        for mc_sid, mc_srv in mc_servers.items():
+            try:
+                mc_running = await mc_srv.is_running()
+                mc_dot = "🟢" if mc_running else "🔴"
+                mc_state = "Online" if mc_running else "Offline"
+
+                lines.append(f"⛏️ **{mc_srv.display_name}**")
+
+                if mc_running:
+                    try:
+                        mc_online, mc_max = await mc_srv.get_player_count()
+                        lines.append(
+                            f"{mc_dot} {mc_state} | "
+                            f"{mc_online}/{mc_max} Spieler"
+                        )
+                    except Exception:
+                        lines.append(f"{mc_dot} {mc_state}")
+
+                    # World-Groesse
+                    try:
+                        world_bytes = mc_srv.get_world_size()
+                        if world_bytes > 0:
+                            world_mb = world_bytes / (1024 * 1024)
+                            lines.append(f"  🌍 Welt: {world_mb:.1f} MB")
+                    except Exception:
+                        pass
+                else:
+                    lines.append(f"{mc_dot} {mc_state}")
+
+                lines.append("")
+            except Exception as e:
+                logger.debug(f"[{mc_sid}] Status-Embed MC Fehler: {e}")
+
+    lines.append("▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬")
 
     # -- Footer --
     lines.append("")
