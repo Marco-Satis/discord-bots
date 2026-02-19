@@ -1,0 +1,34 @@
+[Unit]
+Description=Minecraft Vanilla/Paper Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=minecraft
+Group=minecraft
+WorkingDirectory=/home/minecraft/vanilla
+
+# Java-Startbefehl — Speicher und Jar-Name anpassen!
+ExecStart=/usr/bin/java -Xms2G -Xmx4G -jar server.jar nogui
+
+# Graceful Shutdown via RCON
+ExecStop=/usr/bin/rcon-cli --host 127.0.0.1 --port 25576 --password RCON_PASSWORD stop
+TimeoutStopSec=60
+
+Restart=on-failure
+RestartSec=30
+StartLimitIntervalSec=600
+StartLimitBurst=3
+
+# Resource Limits
+MemoryMax=6G
+CPUQuota=200%
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=minecraft-vanilla
+
+[Install]
+WantedBy=multi-user.target
