@@ -7,6 +7,7 @@ Also integrates Phase 4c disk monitoring.
 import asyncio
 import gzip
 import shutil
+import psutil
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Any
@@ -188,7 +189,6 @@ class AutoCleanup:
         Check disk space and return status.
         Returns dict with usage info and alert level.
         """
-        import psutil
         disk = psutil.disk_usage("/")
 
         result = {

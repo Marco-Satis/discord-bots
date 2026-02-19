@@ -82,7 +82,7 @@ class PlayerTracker:
                         current_session_start=None,
                     )
                 logger.info(f"Loaded {len(self.players)} player records")
-            except (json.JSONDecodeError, FileNotFoundError, IOError) as e:
+            except (json.JSONDecodeError, OSError) as e:
                 logger.error(f"Failed to load player stats: {e}")
 
     def _save(self) -> None:
@@ -100,7 +100,7 @@ class PlayerTracker:
                 }
             with open(self.data_file, "w") as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
-        except (IOError, OSError) as e:
+        except OSError as e:
             logger.error(f"Failed to save player stats: {e}")
 
     async def update(self, current_players: Set[str]) -> None:

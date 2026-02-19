@@ -50,7 +50,7 @@ class StatsTracker:
                     if key in loaded:
                         self._data[key] = loaded[key]
                 logger.info(f"Stats history loaded ({len(self._data['uptime_checks'])} uptime records)")
-        except (json.JSONDecodeError, FileNotFoundError, IOError) as e:
+        except (json.JSONDecodeError, OSError) as e:
             logger.error(f"Failed to load stats history: {e}")
 
     def _save(self) -> None:
@@ -58,7 +58,7 @@ class StatsTracker:
         try:
             with open(self.data_file, "w") as f:
                 json.dump(self._data, f, ensure_ascii=False)
-        except (IOError, OSError) as e:
+        except OSError as e:
             logger.error(f"Failed to save stats history: {e}")
 
     def _cleanup_old(self, days: int = 90) -> None:

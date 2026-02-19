@@ -54,7 +54,7 @@ class SavegameProtection:
                 if lkg:
                     self._last_known_good_save = Path(lkg)
                 self._last_save_size = data.get("last_save_size", 0)
-        except (json.JSONDecodeError, FileNotFoundError, IOError) as e:
+        except (json.JSONDecodeError, OSError) as e:
             logger.debug(f"State load error: {e}")
 
     def _save_state(self) -> None:
@@ -67,7 +67,7 @@ class SavegameProtection:
                     "last_save_size": self._last_save_size,
                     "crash_loop_active": self._crash_loop_active,
                 }, f, indent=2)
-        except (IOError, OSError) as e:
+        except OSError as e:
             logger.debug(f"State save error: {e}")
 
     # ------------------------------------------------------------------
@@ -193,7 +193,7 @@ class SavegameProtection:
                 if len(header) < 4:
                     result["ok"] = False
                     result["issues"].append("Savegame Header zu kurz")
-            except (IOError, OSError) as e:
+            except OSError as e:
                 logger.debug(f"Failed to read file header: {e}")
 
             # Update tracking

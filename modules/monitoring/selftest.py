@@ -4,6 +4,7 @@ Checks all systems and reports status.
 """
 
 import asyncio
+import psutil
 import shutil
 from pathlib import Path
 from datetime import datetime
@@ -161,7 +162,6 @@ class SelfTest:
     async def _test_disk(self) -> Dict[str, Any]:
         """Test disk space"""
         try:
-            import psutil
             disk = psutil.disk_usage("/")
             free_gb = disk.free / (1024 ** 3)
             pct = disk.percent
