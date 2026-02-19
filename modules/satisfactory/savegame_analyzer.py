@@ -610,7 +610,7 @@ class SavegameAnalyzer:
         async with self._lock:
             self._analyzing = True
             try:
-                stats = await asyncio.get_event_loop().run_in_executor(
+                stats = await asyncio.get_running_loop().run_in_executor(
                     None, self._analyze_save, save_file
                 )
                 self._cached_stats = stats

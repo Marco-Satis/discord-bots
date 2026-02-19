@@ -116,11 +116,6 @@ class AutoCleanup:
 
         def _do_compress():
             nonlocal count
-            for log_file in self.log_dir.glob("*.log"):
-                # Skip current log files (those without .N suffix)
-                # Only compress rotated logs: *.log.1, *.log.2 etc.
-                pass
-
             for log_file in self.log_dir.glob("*.log.[0-9]*"):
                 try:
                     if log_file.suffix == ".gz":
@@ -136,7 +131,7 @@ class AutoCleanup:
                 except OSError as e:
                     logger.debug(f"Compress error for {log_file}: {e}")
 
-        await asyncio.get_event_loop().run_in_executor(None, _do_compress)
+        await asyncio.get_running_loop().run_in_executor(None, _do_compress)
         return count
 
     async def _delete_old_files(self, directory: Path, patterns: List[str],
@@ -160,7 +155,7 @@ class AutoCleanup:
                     except OSError:
                         pass
 
-        await asyncio.get_event_loop().run_in_executor(None, _do_delete)
+        await asyncio.get_running_loop().run_in_executor(None, _do_delete)
         return count
 
     def _trim_directory(self, directory: Path, pattern: str, max_files: int) -> int:

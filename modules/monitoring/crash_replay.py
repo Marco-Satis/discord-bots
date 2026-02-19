@@ -109,7 +109,7 @@ class CrashReplay:
                     content = f.read()
                     return content, f.tell()
 
-            content, new_pos = await asyncio.get_event_loop().run_in_executor(
+            content, new_pos = await asyncio.get_running_loop().run_in_executor(
                 None, _read
             )
             self._last_pos = new_pos
@@ -156,7 +156,7 @@ class CrashReplay:
                     f.write('\n'.join(self._buffer))
                     f.write('\n')
 
-            await asyncio.get_event_loop().run_in_executor(None, _write_file)
+            await asyncio.get_running_loop().run_in_executor(None, _write_file)
 
             logger.info(
                 f"Crash replay saved: {filename} "

@@ -187,7 +187,7 @@ class MinecraftCog(commands.Cog):
 
             try:
                 await interaction.followup.send(embed=embed)
-            except:
+            except Exception:
                 pass
 
         timer = RestartTimer()
@@ -203,7 +203,7 @@ class MinecraftCog(commands.Cog):
         elif result == TimerResult.CANCELLED:
             try:
                 await interaction.followup.send("Server-Stop abgebrochen!")
-            except:
+            except Exception:
                 pass
 
     @mc.command(name="restart", description="Server mit Countdown neustarten")
@@ -252,7 +252,7 @@ class MinecraftCog(commands.Cog):
 
             try:
                 await interaction.followup.send(embed=embed)
-            except:
+            except Exception:
                 pass
 
         timer = RestartTimer()
@@ -268,7 +268,7 @@ class MinecraftCog(commands.Cog):
         elif result == TimerResult.CANCELLED:
             try:
                 await interaction.followup.send("Server-Restart abgebrochen!")
-            except:
+            except Exception:
                 pass
 
     @mc.command(name="cancel", description="Aktiven Timer abbrechen")

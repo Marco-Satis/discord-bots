@@ -239,7 +239,7 @@ class SavegameProtection:
                         members = tf.getnames()
                         return len(members)
 
-                count = await asyncio.get_event_loop().run_in_executor(None, _test_tar)
+                count = await asyncio.get_running_loop().run_in_executor(None, _test_tar)
                 size_mb = size / (1024 * 1024)
                 return {"ok": True,
                         "detail": f"OK — {count} Dateien, {size_mb:.1f} MB"}
@@ -251,7 +251,7 @@ class SavegameProtection:
                         bad = zf.testzip()
                         return len(zf.namelist()), bad
 
-                count, bad_file = await asyncio.get_event_loop().run_in_executor(None, _test_zip)
+                count, bad_file = await asyncio.get_running_loop().run_in_executor(None, _test_zip)
                 if bad_file:
                     return {"ok": False, "detail": f"Korrupte Datei im Archiv: {bad_file}"}
                 size_mb = size / (1024 * 1024)

@@ -81,7 +81,7 @@ class LoginAudit:
                     content = f.read()
                     return content, f.tell()
 
-            content, new_pos = await asyncio.get_event_loop().run_in_executor(None, _read)
+            content, new_pos = await asyncio.get_running_loop().run_in_executor(None, _read)
             self._last_pos = new_pos
 
             if not content:
