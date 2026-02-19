@@ -304,15 +304,13 @@ def main():
     except KeyboardInterrupt:
         logger.info("Bot stopped by user")
         try:
-            loop = asyncio.get_event_loop()
-            loop.run_until_complete(shutdown())
+            asyncio.run(shutdown())
         except Exception:
             pass
     except Exception as e:
         logger.error(f"Fatal: {e}", exc_info=True)
         try:
-            loop = asyncio.get_event_loop()
-            loop.run_until_complete(shutdown())
+            asyncio.run(shutdown())
         except Exception:
             pass
         sys.exit(1)

@@ -40,6 +40,7 @@ class CrashReplay:
         self._buffer: deque = deque(maxlen=context_lines)
         self._last_pos: int = 0
         self._last_size: int = 0
+        self._lock = asyncio.Lock()
 
         # Ensure replay directory exists
         self.replay_dir.mkdir(parents=True, exist_ok=True)
@@ -90,37 +91,38 @@ class CrashReplay:
         if not self.log_path.exists():
             return
 
-        try:
-            current_size = self.log_path.stat().st_size
+        async with self._lock:
+            try:
+                current_size = self.log_path.stat().st_size
 
-            # Log rotated?
-            if current_size < self._last_size:
-                self._last_pos = 0
-                self._buffer.clear()
-            self._last_size = current_size
+                # Log rotated?
+                if current_size < self._last_size:
+                    self._last_pos = 0
+                    self._buffer.clear()
+                self._last_size = current_size
 
-            if current_size <= self._last_pos:
-                return
+                if current_size <= self._last_pos:
+                    return
 
-            def _read():
-                with open(self.log_path, 'r', encoding='utf-8',
-                          errors='replace') as f:
-                    f.seek(self._last_pos)
-                    content = f.read()
-                    return content, f.tell()
+                def _read():
+                    with open(self.log_path, 'r', encoding='utf-8',
+                              errors='replace') as f:
+                        f.seek(self._last_pos)
+                        content = f.read()
+                        return content, f.tell()
 
-            content, new_pos = await asyncio.get_running_loop().run_in_executor(
-                None, _read
-            )
-            self._last_pos = new_pos
+                content, new_pos = await asyncio.get_running_loop().run_in_executor(
+                    None, _read
+                )
+                self._last_pos = new_pos
 
-            if content:
-                for line in content.splitlines():
-                    if line.strip():
-                        self._buffer.append(line)
+                if content:
+                    for line in content.splitlines():
+                        if line.strip():
+                            self._buffer.append(line)
 
-        except Exception as e:
-            logger.debug(f"Buffer update error: {e}")
+            except Exception as e:
+                logger.debug(f"Buffer update error: {e}")
 
     async def capture(self, crash_number: int) -> Optional[Path]:
         """
@@ -132,45 +134,46 @@ class CrashReplay:
         Returns:
             Path to the saved replay file, or None on failure
         """
-        if not self._buffer:
-            logger.warning("No log lines in buffer to capture")
-            return None
+        async with self._lock:
+            if not self._buffer:
+                logger.warning("No log lines in buffer to capture")
+                return None
 
-        try:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"crash_{crash_number:03d}_{timestamp}.log"
-            filepath = self.replay_dir / filename
+            try:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"crash_{crash_number:03d}_{timestamp}.log"
+                filepath = self.replay_dir / filename
 
-            header = [
-                f"{'='*60}",
-                f"CRASH REPLAY #{crash_number}",
-                f"Zeitpunkt: {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}",
-                f"Letzte {len(self._buffer)} Log-Zeilen vor dem Crash:",
-                f"{'='*60}",
-                "",
-            ]
+                header = [
+                    f"{'='*60}",
+                    f"CRASH REPLAY #{crash_number}",
+                    f"Zeitpunkt: {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}",
+                    f"Letzte {len(self._buffer)} Log-Zeilen vor dem Crash:",
+                    f"{'='*60}",
+                    "",
+                ]
 
-            def _write_file():
-                with open(filepath, 'w', encoding='utf-8') as f:
-                    f.write('\n'.join(header))
-                    f.write('\n'.join(self._buffer))
-                    f.write('\n')
+                def _write_file():
+                    with open(filepath, 'w', encoding='utf-8') as f:
+                        f.write('\n'.join(header))
+                        f.write('\n'.join(self._buffer))
+                        f.write('\n')
 
-            await asyncio.get_running_loop().run_in_executor(None, _write_file)
+                await asyncio.get_running_loop().run_in_executor(None, _write_file)
 
-            logger.info(
-                f"Crash replay saved: {filename} "
-                f"({len(self._buffer)} lines)"
-            )
+                logger.info(
+                    f"Crash replay saved: {filename} "
+                    f"({len(self._buffer)} lines)"
+                )
 
-            # Rotate old replays
-            self._rotate()
+                # Rotate old replays
+                self._rotate()
 
-            return filepath
+                return filepath
 
-        except Exception as e:
-            logger.error(f"Failed to save crash replay: {e}")
-            return None
+            except Exception as e:
+                logger.error(f"Failed to save crash replay: {e}")
+                return None
 
     def get_summary(self) -> str:
         """

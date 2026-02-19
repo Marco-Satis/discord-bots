@@ -282,8 +282,8 @@ def _load_status_message_id() -> Optional[int]:
             with open(_STATUS_MSG_FILE, "r") as f:
                 data = json.load(f)
             return data.get("message_id")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Status-Message-ID laden fehlgeschlagen: {e}")
     return None
 
 
@@ -621,6 +621,8 @@ _sat_log_path = (
 )
 _log_last_pos: int = 0
 _log_last_size: int = 0
+_log_lock = asyncio.Lock()
+_status_lock = asyncio.Lock()
 
 
 def _init_log_position():
@@ -630,8 +632,8 @@ def _init_log_position():
         if _sat_log_path.exists():
             _log_last_size = _sat_log_path.stat().st_size
             _log_last_pos = _log_last_size
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Log-Position initialisieren fehlgeschlagen: {e}")
 
 
 async def _poll_player_events():
@@ -644,58 +646,59 @@ async def _poll_player_events():
     if not _sat_log_path.exists():
         return
 
-    try:
-        current_size = _sat_log_path.stat().st_size
+    async with _log_lock:
+        try:
+            current_size = _sat_log_path.stat().st_size
 
-        # Log rotated?
-        if current_size < _log_last_size:
-            _log_last_pos = 0
-        _log_last_size = current_size
+            # Log rotated?
+            if current_size < _log_last_size:
+                _log_last_pos = 0
+            _log_last_size = current_size
 
-        if current_size <= _log_last_pos:
-            return
+            if current_size <= _log_last_pos:
+                return
 
-        # Read new content in executor to not block
-        def _read_new():
-            with open(_sat_log_path, 'r', encoding='utf-8', errors='replace') as f:
-                f.seek(_log_last_pos)
-                content = f.read()
-                return content, f.tell()
+            # Read new content in executor to not block
+            def _read_new():
+                with open(_sat_log_path, 'r', encoding='utf-8', errors='replace') as f:
+                    f.seek(_log_last_pos)
+                    content = f.read()
+                    return content, f.tell()
 
-        new_content, new_pos = await asyncio.get_running_loop().run_in_executor(
-            None, _read_new
-        )
-        _log_last_pos = new_pos
+            new_content, new_pos = await asyncio.get_running_loop().run_in_executor(
+                None, _read_new
+            )
+            _log_last_pos = new_pos
 
-        if not new_content:
-            return
+            if not new_content:
+                return
 
-        # Feed each line to IP tracker for name<->IP mapping
-        for line in new_content.splitlines():
-            if line.strip():
-                player_ip_tracker.process_log_line(line)
+            # Feed each line to IP tracker for name<->IP mapping
+            for line in new_content.splitlines():
+                if line.strip():
+                    player_ip_tracker.process_log_line(line)
 
-        # Detect events and let player_tracker handle them
-        joined = set()
-        left = set()
+            # Detect events and let player_tracker handle them
+            joined = set()
+            left = set()
 
-        for match in _PLAYER_JOIN_RE.finditer(new_content):
-            name = match.group(1).strip()
-            if name:
-                joined.add(name)
+            for match in _PLAYER_JOIN_RE.finditer(new_content):
+                name = match.group(1).strip()
+                if name:
+                    joined.add(name)
 
-        for match in _PLAYER_LEAVE_RE.finditer(new_content):
-            name = match.group(1).strip()
-            if name:
-                left.add(name)
+            for match in _PLAYER_LEAVE_RE.finditer(new_content):
+                name = match.group(1).strip()
+                if name:
+                    left.add(name)
 
-        # Build current set: previous online + joins - leaves
-        current = player_tracker.get_online_players()
-        current = (current | joined) - left
-        await player_tracker.update(current)
+            # Build current set: previous online + joins - leaves
+            current = player_tracker.get_online_players()
+            current = (current | joined) - left
+            await player_tracker.update(current)
 
-    except Exception as e:
-        logger.debug(f"Player log poll error: {e}")
+        except Exception as e:
+            logger.debug(f"Player log poll error: {e}")
 
 
 # ------------------------------------------------------------------
@@ -1020,22 +1023,23 @@ async def _update_status_embed_impl():
         color=0x00ff00 if running else 0xff0000,
     )
 
-    # -- Send or Edit --
-    try:
-        if _status_message_id:
-            try:
-                msg = await channel.fetch_message(_status_message_id)
-                await msg.edit(embed=embed)
-                return
-            except discord.NotFound:
-                _status_message_id = None
+    # -- Send or Edit (Lock schuetzt _status_message_id) --
+    async with _status_lock:
+        try:
+            if _status_message_id:
+                try:
+                    msg = await channel.fetch_message(_status_message_id)
+                    await msg.edit(embed=embed)
+                    return
+                except discord.NotFound:
+                    _status_message_id = None
 
-        # Post new message and persist ID
-        msg = await channel.send(embed=embed)
-        _status_message_id = msg.id
-        _save_status_message_id(msg.id)
-    except Exception as e:
-        logger.error(f"Status embed error: {e}")
+            # Post new message and persist ID
+            msg = await channel.send(embed=embed)
+            _status_message_id = msg.id
+            _save_status_message_id(msg.id)
+        except Exception as e:
+            logger.error(f"Status embed error: {e}")
 
 
 # Expose for cog access
@@ -1268,13 +1272,13 @@ def main():
     except KeyboardInterrupt:
         logger.info("Bot stopped by user")
         try:
-            asyncio.get_event_loop().run_until_complete(shutdown())
+            asyncio.run(shutdown())
         except Exception:
             pass
     except Exception as e:
         logger.error(f"Fatal: {e}", exc_info=True)
         try:
-            asyncio.get_event_loop().run_until_complete(shutdown())
+            asyncio.run(shutdown())
         except Exception:
             pass
         sys.exit(1)

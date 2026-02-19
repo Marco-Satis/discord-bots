@@ -192,8 +192,8 @@ class SchedulerCog(commands.Cog):
             try:
                 await self.sat_api.save_game()
                 await asyncio.sleep(5)  # Wait for save to complete
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"save_game() vor Auto-Backup fehlgeschlagen: {e}")
 
             # Create backup
             success, msg, backup_path = await self.backup_manager.create_backup(
@@ -290,8 +290,8 @@ class SchedulerCog(commands.Cog):
                 try:
                     await self.sat_api.save_game()
                     await asyncio.sleep(5)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(f"save_game() vor Daily Restart fehlgeschlagen: {e}")
 
                 success, msg, backup_path = await self.backup_manager.create_backup(
                     name="pre-restart", created_by="scheduler"
@@ -430,8 +430,8 @@ class SchedulerCog(commands.Cog):
                 try:
                     await self.sat_api.save_game()
                     await asyncio.sleep(5)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(f"save_game() vor Auto-Update fehlgeschlagen: {e}")
 
                 success, msg, backup_path = await self.backup_manager.create_backup(
                     name="pre-update", created_by="auto-update"
