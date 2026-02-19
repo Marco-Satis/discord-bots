@@ -1,7 +1,7 @@
 # Offene Review-Befunde — Marcos Entscheidung erforderlich
 
 > **Datum:** 19. Februar 2026
-> **Status:** Warten auf Marcos Freigabe
+> **Status:** Aktualisiert
 
 ---
 
@@ -21,60 +21,21 @@ Der Server wird dadurch doppelt gestoppt/neu gestartet.
 
 ---
 
-## B2: Scheduler — Lautloses Verschlucken von save_game()-Fehlern
+## ~~B2: Scheduler — save_game() Fehler~~ BEHOBEN
 
-**Datei:** `cogs/scheduler_cog.py`, Zeilen 195–196, 293–294, 433–434
+Loesung 1 umgesetzt: `except Exception: pass` → `logger.warning(...)` an 3 Stellen.
 
-**Problem:** Vor Auto-Backup, Daily Restart und Auto-Update wird `save_game()` aufgerufen.
-Bei Fehler wird `except Exception: pass` verwendet — das Backup/Restart laeuft dann
-mit moeglicherweise veraltetem Savegame-Stand weiter, ohne Warnung.
+## ~~B3: Monitor-Bot — Lautloses Verschlucken~~ BEHOBEN
 
-**Moegliche Loesungen:**
-1. Fehler loggen aber weitermachen (`logger.warning(...)`)
-2. Bei Save-Fehler das Backup/Restart abbrechen
-3. Fehler loggen UND Admin-Channel benachrichtigen
+`except Exception: pass` → `except Exception as e: logger.debug(...)` an 2 Stellen.
 
----
+## ~~B4: Race Condition — Shared Mutable State~~ BEHOBEN
 
-## B3: Monitor-Bot — Lautloses Verschlucken bei Status-Load
+- `_log_lock` fuer `_poll_player_events()` in monitor_bot.py
+- `_status_lock` fuer Status-Embed Send/Edit in monitor_bot.py
+- `self._lock` fuer `update_buffer()` und `capture()` in crash_replay.py
 
-**Datei:** `bots/monitor_bot.py`, Zeilen 285–286, 633–634
+## ~~B5: Bot-Startup — get_event_loop() nach bot.run()~~ BEHOBEN
 
-**Problem:**
-- `_load_status_message_id()`: Fehler beim Laden der gespeicherten Status-Message-ID
-  werden komplett verschluckt → Bot erstellt neue Embed statt alte zu bearbeiten
-- `_init_log_position()`: Fehler beim Initialisieren der Log-Position verschluckt
-  → Kann dazu fuehren dass Spieler-Events verpasst werden
-
-**Moegliche Loesung:** `except Exception: pass` → `except Exception as e: logger.debug(...)`
-
----
-
-## B4: Race Condition — Shared Mutable State
-
-**Dateien:** `bots/monitor_bot.py`, `modules/monitoring/crash_replay.py`
-
-**Problem:**
-- `_log_last_pos`/`_log_last_size` (monitor_bot.py, Zeilen 622–623): Gelesen/geschrieben
-  von `_poll_player_events()` (alle 10s) und potenziell von CrashReplay
-- `_status_message_id` (monitor_bot.py): Geschrieben von Status-Update-Task
-  und Command-Handler gleichzeitig
-- `CrashReplay._last_pos/_last_size`: Gelesen/geschrieben von `update_buffer()` und `capture()`
-
-**Risiko:** Gering (asyncio ist kooperativ), aber real bei bestimmten Task-Schedulings.
-
-**Moegliche Loesung:** `asyncio.Lock()` fuer kritische Abschnitte einsetzen.
-Dies waere eine Architektur-Aenderung.
-
----
-
-## B5: Bot-Startup — get_event_loop() nach bot.run()
-
-**Dateien:** `bots/gameserver_bot.py` (Zeilen 307, 314), `bots/monitor_bot.py` (Zeilen 1271, 1277)
-
-**Problem:** Nach `bot.run()` (das den Event-Loop schliesst) wird `asyncio.get_event_loop()`
-aufgerufen um `shutdown()` auszufuehren. Der Loop ist zu diesem Zeitpunkt bereits beendet.
-
-**Hinweis:** `get_running_loop()` wuerde hier ebenfalls fehlschlagen.
-Die korrekte Loesung waere `asyncio.run(shutdown())` oder `asyncio.new_event_loop()`.
-Da dies den Startup-Ablauf betrifft, sollte Marco entscheiden.
+`asyncio.get_event_loop().run_until_complete(shutdown())` → `asyncio.run(shutdown())`
+in beiden Bot-Dateien.
