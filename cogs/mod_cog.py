@@ -19,7 +19,7 @@ from discord.ext import commands
 from pathlib import Path
 from typing import Optional
 
-from utils import get_logger, admin_only, spieler_only, owner_only, truncate, format_timestamp
+from utils import get_logger, admin_only, spieler_only, owner_only, truncate
 from modules.mod_manager import ModManager
 
 logger = get_logger("cogs.mod")

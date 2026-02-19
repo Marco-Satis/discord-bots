@@ -4,6 +4,7 @@ General Commands Cog
 """
 
 import asyncio
+import time
 
 import discord
 import psutil
@@ -131,7 +132,6 @@ class GeneralCog(commands.Cog):
         mem = psutil.virtual_memory()
         disk = psutil.disk_usage("/")
         uptime = psutil.boot_time()
-        import time
         sys_uptime = int(time.time() - uptime)
 
         embed.add_field(

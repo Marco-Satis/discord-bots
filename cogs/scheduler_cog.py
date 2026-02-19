@@ -8,13 +8,12 @@ import asyncio
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
-from datetime import datetime, time as dt_time, timedelta
+from datetime import datetime, timedelta
 from typing import Optional
-from pathlib import Path
 
 from utils.logger import get_logger
 from utils.config import get_config
-from utils.permissions import is_admin, is_owner
+from utils.permissions import is_admin
 from modules.notifications.discord_notifier import NotifyLevel
 
 logger = get_logger("scheduler_cog")
