@@ -1,20 +1,29 @@
 """
 Scheduler Cog - Scheduled Background Tasks
-Handles: Auto-Backup, Daily Restart, Update Checks, Weekly Report
+Handles: Auto-Backup, Daily Restart, Update Checks, Weekly Report, Scheduled Messages
 """
 
 import os
 import asyncio
+import json
+import re
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, List, Dict, Any
+from zoneinfo import ZoneInfo
+
+import aiofiles
 
 from utils.logger import get_logger
-from utils.config import get_config
-from utils.permissions import is_admin
+from utils.config import get_config, DATA_DIR
+from utils.permissions import is_admin, admin_only
 from modules.notifications.discord_notifier import NotifyLevel
+
+BERLIN_TZ = ZoneInfo("Europe/Berlin")
+SCHEDULED_MESSAGES_FILE = DATA_DIR / "scheduled_messages.json"
+MAX_ACTIVE_SCHEDULES = 20
 
 logger = get_logger("scheduler_cog")
 
@@ -75,6 +84,11 @@ class SchedulerCog(commands.Cog):
         self._mc_last_backup: dict[str, Optional[datetime]] = {}
         self._mc_last_update_check: dict[str, Optional[datetime]] = {}
         self._mc_last_config_backup: dict[str, Optional[datetime]] = {}
+
+        # Scheduled Messages (Phase 8f)
+        self._scheduled_messages: List[Dict[str, Any]] = []
+        self._next_schedule_id = 1
+        self._schedule_lock = asyncio.Lock()
 
     # ------------------------------------------------------------------
     # Properties for accessing bot-level services
@@ -146,6 +160,7 @@ class SchedulerCog(commands.Cog):
 
     async def cog_load(self):
         """Start all scheduled tasks when cog loads"""
+        await self._load_scheduled_messages()
         self.scheduler_tick.start()
         logger.info("Scheduler started")
 
@@ -190,6 +205,9 @@ class SchedulerCog(commands.Cog):
 
             # Weekly report check
             await self._check_weekly_report(now)
+
+            # Scheduled Messages (Phase 8f)
+            await self._check_scheduled_messages(now)
 
             # Minecraft Server Checks
             for mc_sid in self.mc_servers:
@@ -1100,6 +1118,290 @@ class SchedulerCog(commands.Cog):
             )
 
         await interaction.followup.send(embed=embed)
+
+    # ------------------------------------------------------------------
+    # Scheduled Messages (Phase 8f)
+    # ------------------------------------------------------------------
+
+    async def _load_scheduled_messages(self) -> None:
+        """Scheduled Messages aus JSON laden, vergangene einmalige loeschen"""
+        try:
+            if SCHEDULED_MESSAGES_FILE.exists():
+                async with aiofiles.open(SCHEDULED_MESSAGES_FILE, "r", encoding="utf-8") as f:
+                    data = json.loads(await f.read())
+                self._scheduled_messages = data.get("messages", [])
+                self._next_schedule_id = data.get("next_id", 1)
+
+                # Vergangene einmalige Messages entfernen
+                now = datetime.now(BERLIN_TZ)
+                before = len(self._scheduled_messages)
+                self._scheduled_messages = [
+                    m for m in self._scheduled_messages
+                    if m.get("repeat", "einmalig") != "einmalig"
+                    or datetime.fromisoformat(m["next_run"]) > now
+                ]
+                removed = before - len(self._scheduled_messages)
+                if removed > 0:
+                    await self._save_scheduled_messages()
+                    logger.info(f"Scheduled Messages: {removed} vergangene einmalige entfernt")
+
+                logger.info(f"Scheduled Messages geladen: {len(self._scheduled_messages)} aktiv")
+            else:
+                self._scheduled_messages = []
+                self._next_schedule_id = 1
+        except Exception as e:
+            logger.error(f"Scheduled Messages laden fehlgeschlagen: {e}")
+            self._scheduled_messages = []
+
+    async def _save_scheduled_messages(self) -> None:
+        """Scheduled Messages in JSON speichern"""
+        try:
+            SCHEDULED_MESSAGES_FILE.parent.mkdir(parents=True, exist_ok=True)
+            data = {
+                "messages": self._scheduled_messages,
+                "next_id": self._next_schedule_id,
+            }
+            async with aiofiles.open(SCHEDULED_MESSAGES_FILE, "w", encoding="utf-8") as f:
+                await f.write(json.dumps(data, indent=2, ensure_ascii=False))
+        except Exception as e:
+            logger.error(f"Scheduled Messages speichern fehlgeschlagen: {e}")
+
+    def _parse_time(self, zeit: str) -> Optional[datetime]:
+        """Parst relative ('2h', '30m') oder absolute ('20:00', '2026-02-21 18:00') Zeitangaben.
+
+        Gibt eine timezone-aware datetime (Europe/Berlin) zurueck.
+        """
+        now = datetime.now(BERLIN_TZ)
+
+        # Relative Zeit: 2h, 30m, 1h30m, etc.
+        rel_match = re.match(r'^(?:(\d+)h)?(?:(\d+)m)?$', zeit.strip())
+        if rel_match and (rel_match.group(1) or rel_match.group(2)):
+            hours = int(rel_match.group(1) or 0)
+            minutes = int(rel_match.group(2) or 0)
+            if hours == 0 and minutes == 0:
+                return None
+            return now + timedelta(hours=hours, minutes=minutes)
+
+        # Absolute Zeit: HH:MM (heute oder morgen)
+        time_match = re.match(r'^(\d{1,2}):(\d{2})$', zeit.strip())
+        if time_match:
+            hour = int(time_match.group(1))
+            minute = int(time_match.group(2))
+            if 0 <= hour <= 23 and 0 <= minute <= 59:
+                target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                if target <= now:
+                    target += timedelta(days=1)
+                return target
+            return None
+
+        # Absolute Zeit: YYYY-MM-DD HH:MM
+        try:
+            dt = datetime.strptime(zeit.strip(), "%Y-%m-%d %H:%M")
+            return dt.replace(tzinfo=BERLIN_TZ)
+        except ValueError:
+            pass
+
+        return None
+
+    async def _check_scheduled_messages(self, now: datetime) -> None:
+        """Prueft ob Scheduled Messages gesendet werden muessen"""
+        if not self._scheduled_messages:
+            return
+
+        now_tz = datetime.now(BERLIN_TZ)
+        to_remove = []
+
+        for msg in self._scheduled_messages:
+            try:
+                next_run = datetime.fromisoformat(msg["next_run"])
+                if next_run > now_tz:
+                    continue
+
+                # Nachricht senden
+                channel = self.bot.get_channel(msg["channel_id"])
+                if channel:
+                    await channel.send(msg["message"])
+                    logger.info(f"Scheduled Message #{msg['id']} gesendet in #{channel.name}")
+                else:
+                    logger.warning(f"Scheduled Message #{msg['id']}: Channel {msg['channel_id']} nicht gefunden")
+
+                # Wiederholung oder entfernen
+                repeat = msg.get("repeat", "einmalig")
+                if repeat == "taeglich":
+                    next_dt = next_run + timedelta(days=1)
+                    msg["next_run"] = next_dt.isoformat()
+                elif repeat == "woechentlich":
+                    next_dt = next_run + timedelta(weeks=1)
+                    msg["next_run"] = next_dt.isoformat()
+                else:
+                    to_remove.append(msg["id"])
+
+            except Exception as e:
+                logger.error(f"Scheduled Message #{msg.get('id', '?')} Fehler: {e}")
+
+        if to_remove:
+            self._scheduled_messages = [
+                m for m in self._scheduled_messages if m["id"] not in to_remove
+            ]
+
+        if to_remove or any(True for _ in []):
+            await self._save_scheduled_messages()
+
+    # ------------------------------------------------------------------
+    # Scheduled Messages Commands
+    # ------------------------------------------------------------------
+
+    schedule_grp = app_commands.Group(
+        name="schedule", description="Geplante Nachrichten verwalten"
+    )
+
+    @schedule_grp.command(
+        name="add", description="Geplante Nachricht erstellen"
+    )
+    @app_commands.check(is_admin)
+    @app_commands.describe(
+        nachricht="Die Nachricht die gesendet werden soll",
+        zeit="Zeitpunkt: relativ (2h, 30m) oder absolut (20:00, 2026-02-21 18:00)",
+        channel="Ziel-Channel (Standard: aktueller Channel)",
+        wiederholung="einmalig, taeglich oder woechentlich",
+    )
+    @app_commands.choices(wiederholung=[
+        app_commands.Choice(name="Einmalig", value="einmalig"),
+        app_commands.Choice(name="Taeglich", value="taeglich"),
+        app_commands.Choice(name="Woechentlich", value="woechentlich"),
+    ])
+    async def schedule_add(self, interaction: discord.Interaction,
+                           nachricht: str,
+                           zeit: str,
+                           channel: Optional[discord.TextChannel] = None,
+                           wiederholung: str = "einmalig"):
+        await interaction.response.defer(ephemeral=True)
+
+        # Rate-Limit pruefen
+        active_count = len(self._scheduled_messages)
+        if active_count >= MAX_ACTIVE_SCHEDULES:
+            await interaction.followup.send(
+                f"Maximale Anzahl aktiver Schedules erreicht ({MAX_ACTIVE_SCHEDULES}).",
+                ephemeral=True,
+            )
+            return
+
+        # Zeit parsen
+        target_time = self._parse_time(zeit)
+        if not target_time:
+            await interaction.followup.send(
+                "Ungueltiges Zeitformat. Beispiele: `2h`, `30m`, `20:00`, `2026-02-21 18:00`",
+                ephemeral=True,
+            )
+            return
+
+        # Ziel-Channel bestimmen
+        target_channel = channel or interaction.channel
+        if not target_channel:
+            await interaction.followup.send(
+                "Kein Ziel-Channel gefunden.", ephemeral=True
+            )
+            return
+
+        # Schedule erstellen
+        async with self._schedule_lock:
+            schedule_id = self._next_schedule_id
+            self._next_schedule_id += 1
+
+            entry = {
+                "id": schedule_id,
+                "message": nachricht,
+                "channel_id": target_channel.id,
+                "channel_name": getattr(target_channel, 'name', str(target_channel.id)),
+                "next_run": target_time.isoformat(),
+                "repeat": wiederholung,
+                "created_by": str(interaction.user),
+                "created_at": datetime.now(BERLIN_TZ).isoformat(),
+            }
+            self._scheduled_messages.append(entry)
+            await self._save_scheduled_messages()
+
+        time_str = target_time.strftime("%d.%m.%Y %H:%M")
+        repeat_str = {"einmalig": "Einmalig", "taeglich": "Taeglich", "woechentlich": "Woechentlich"}
+        embed = discord.Embed(
+            title=f"Nachricht geplant (#{schedule_id})",
+            color=0x00cc66,
+        )
+        embed.add_field(name="Nachricht", value=nachricht[:1024], inline=False)
+        embed.add_field(name="Zeitpunkt", value=time_str, inline=True)
+        embed.add_field(name="Channel", value=f"#{target_channel.name}" if hasattr(target_channel, 'name') else str(target_channel.id), inline=True)
+        embed.add_field(name="Wiederholung", value=repeat_str.get(wiederholung, wiederholung), inline=True)
+        embed.set_footer(text=f"von {interaction.user.display_name}")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        logger.info(f"Schedule #{schedule_id} erstellt von {interaction.user}: {zeit}")
+
+    @schedule_grp.command(
+        name="list", description="Alle geplanten Nachrichten anzeigen"
+    )
+    @app_commands.check(is_admin)
+    async def schedule_list(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+
+        if not self._scheduled_messages:
+            await interaction.followup.send(
+                "Keine geplanten Nachrichten.", ephemeral=True
+            )
+            return
+
+        lines = []
+        for msg in self._scheduled_messages:
+            try:
+                next_run = datetime.fromisoformat(msg["next_run"])
+                time_str = next_run.strftime("%d.%m. %H:%M")
+            except (ValueError, KeyError):
+                time_str = "?"
+            repeat = msg.get("repeat", "einmalig")
+            repeat_icon = {"einmalig": "1x", "taeglich": "🔁T", "woechentlich": "🔁W"}
+            ch_name = msg.get("channel_name", "?")
+            text_preview = msg.get("message", "")[:50]
+            if len(msg.get("message", "")) > 50:
+                text_preview += "..."
+            lines.append(
+                f"**#{msg['id']}** — {time_str} ({repeat_icon.get(repeat, repeat)}) "
+                f"→ #{ch_name}\n  {text_preview}"
+            )
+
+        text = "\n".join(lines)
+        if len(text) > 4000:
+            text = text[:4000] + "\n..."
+
+        embed = discord.Embed(
+            title=f"Geplante Nachrichten ({len(self._scheduled_messages)})",
+            description=text,
+            color=0x5865F2,
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @schedule_grp.command(
+        name="cancel", description="Geplante Nachricht loeschen"
+    )
+    @app_commands.check(is_admin)
+    @app_commands.describe(id="Die ID der geplanten Nachricht")
+    async def schedule_cancel(self, interaction: discord.Interaction,
+                              id: int):
+        await interaction.response.defer(ephemeral=True)
+
+        async with self._schedule_lock:
+            before = len(self._scheduled_messages)
+            self._scheduled_messages = [
+                m for m in self._scheduled_messages if m["id"] != id
+            ]
+
+            if len(self._scheduled_messages) < before:
+                await self._save_scheduled_messages()
+                await interaction.followup.send(
+                    f"Schedule #{id} geloescht.", ephemeral=True
+                )
+                logger.info(f"Schedule #{id} geloescht von {interaction.user}")
+            else:
+                await interaction.followup.send(
+                    f"Schedule #{id} nicht gefunden.", ephemeral=True
+                )
 
     # ------------------------------------------------------------------
     # Error handler
