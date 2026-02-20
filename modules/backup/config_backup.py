@@ -38,6 +38,8 @@ class ConfigBackup:
     """
     Backs up server-specific config files to OneDrive.
 
+    Unterstuetzt optionale GPG-Verschluesselung und automatische Rotation.
+
     Usage:
         config_bk = ConfigBackup(project_root, onedrive_backup)
         success, msg = await config_bk.create_and_upload()
@@ -45,11 +47,13 @@ class ConfigBackup:
 
     def __init__(self, project_root: Path, onedrive_backup=None,
                  remote_path: str = "Backups/ServerConfig",
-                 max_backups: int = 7):
+                 max_backups: int = 10,
+                 encrypt: bool = False):
         self.project_root = project_root
         self.onedrive = onedrive_backup
         self.remote_path = remote_path
         self.max_backups = max_backups
+        self.encrypt = encrypt
         self.last_backup: Optional[datetime] = None
 
     async def create_and_upload(self) -> Tuple[bool, str]:
@@ -113,16 +117,28 @@ class ConfigBackup:
                 if files_added == 0:
                     return False, "Keine Dateien zum Sichern gefunden"
 
+                # Optionale GPG-Verschluesselung (Phase 8d)
+                upload_path = archive_path
+                upload_filename = filename
+                if self.encrypt:
+                    encrypted_path = await self._encrypt_gpg(archive_path)
+                    if encrypted_path:
+                        upload_path = encrypted_path
+                        upload_filename = filename + ".gpg"
+                        logger.info(f"Config backup verschluesselt: {upload_filename}")
+                    else:
+                        logger.warning("GPG-Verschluesselung fehlgeschlagen, lade unverschluesselt hoch")
+
                 # Upload to OneDrive
-                size_kb = round(archive_path.stat().st_size / 1024, 1)
+                size_kb = round(upload_path.stat().st_size / 1024, 1)
                 logger.info(
-                    f"Config backup created: {filename} "
+                    f"Config backup created: {upload_filename} "
                     f"({files_added} files, {size_kb} KB)"
                 )
 
                 # Use rclone directly to upload to separate folder
                 success, msg = await self._upload_to_onedrive(
-                    str(archive_path), filename
+                    str(upload_path), upload_filename
                 )
 
                 if success:
@@ -245,11 +261,58 @@ class ConfigBackup:
         except Exception as e:
             logger.debug(f"Config backup rotation error: {e}")
 
+    async def _encrypt_gpg(self, file_path: Path) -> Optional[Path]:  # type: ignore
+        """Verschluesselt eine Datei mit GPG (symmetrisch).
+
+        Verwendet die Umgebungsvariable GPG_PASSPHRASE oder fragt nicht interaktiv.
+        Gibt den Pfad zur verschluesselten Datei zurueck oder None bei Fehler.
+        """
+        import os
+        passphrase = os.environ.get("GPG_PASSPHRASE", "")
+        if not passphrase:
+            logger.warning("GPG_PASSPHRASE nicht gesetzt, Verschluesselung uebersprungen")
+            return None
+
+        output_path = file_path.parent / (file_path.name + ".gpg")
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "gpg", "--batch", "--yes", "--symmetric",
+                "--cipher-algo", "AES256",
+                "--passphrase-fd", "0",
+                "--output", str(output_path),
+                str(file_path),
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, stderr = await asyncio.wait_for(
+                proc.communicate(input=passphrase.encode()),
+                timeout=30
+            )
+
+            if proc.returncode == 0 and output_path.exists():
+                return output_path
+            else:
+                error = stderr.decode("utf-8", errors="ignore")[:200]
+                logger.error(f"GPG-Verschluesselung fehlgeschlagen: {error}")
+                return None
+
+        except asyncio.TimeoutError:
+            logger.error("GPG-Verschluesselung Timeout")
+            return None
+        except FileNotFoundError:
+            logger.warning("GPG nicht installiert, Verschluesselung uebersprungen")
+            return None
+        except Exception as e:
+            logger.error(f"GPG-Verschluesselung Fehler: {e}")
+            return None
+
     def get_status(self) -> Any:  # type: ignore
         """Get config backup status"""
         return {
             "remote_path": self.remote_path,
             "max_backups": self.max_backups,
+            "encrypt": self.encrypt,
             "last_backup": (
                 self.last_backup.isoformat() if self.last_backup else None
             ),

@@ -172,11 +172,14 @@ onedrive_backup = OneDriveBackup(
 )
 
 # Config backup (server-specific files to OneDrive)
+# Phase 8d: Konfigurierbare Rotation + optionale Verschluesselung
+_backup_cfg = config.get("backup", {})
 config_backup = ConfigBackup(
     project_root=PROJECT_ROOT,
     onedrive_backup=onedrive_backup,
     remote_path="Backups/ServerConfig",
-    max_backups=7,
+    max_backups=_backup_cfg.get("config_max_count", 10),
+    encrypt=_backup_cfg.get("config_encrypt", False),
 )
 
 # Stats tracker (persisted history for reports)
