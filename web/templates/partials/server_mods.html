@@ -1,0 +1,182 @@
+<!-- HTMX-Partial: Mod-Verwaltung fuer Server-Detailseite -->
+<div class="config-section">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+        <h3 class="subsection-title" style="margin: 0;">Installierte Mods</h3>
+        <div style="display: flex; gap: 0.5rem;">
+            <button class="btn btn-primary btn-sm"
+                    hx-post="/api/server/{{ server_id }}/mods/check-updates"
+                    hx-target="#mod-update-result"
+                    hx-swap="innerHTML">
+                Updates pruefen
+            </button>
+        </div>
+    </div>
+
+    <div id="mod-update-result" style="margin-bottom: 0.75rem;"></div>
+
+    <!-- Suchfeld zum Filtern -->
+    <div style="margin-bottom: 1rem;">
+        <input type="text"
+               id="mod-filter"
+               placeholder="Mods filtern..."
+               oninput="filterMods(this.value)"
+               style="
+                   width: 100%;
+                   max-width: 400px;
+                   padding: 0.5rem 0.75rem;
+                   background: var(--bg-input, #1a1a3e);
+                   border: 1px solid var(--border-color);
+                   border-radius: var(--radius-sm, 4px);
+                   color: var(--text-primary);
+                   font-size: 0.9rem;
+               ">
+    </div>
+
+    <!-- Mod-Tabelle -->
+    <div class="table-wrapper">
+        <table class="data-table" id="mod-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Version</th>
+                    <th>Installiert am</th>
+                    <th>Status</th>
+                    <th>Aktionen</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for mod in mods %}
+                <tr class="mod-row" data-mod-name="{{ mod.name|lower }}">
+                    <td>
+                        <span style="font-weight: 600;">{{ mod.name }}</span>
+                        {% if mod.description %}
+                        <br><small style="color: var(--text-muted); font-size: 0.75rem;">{{ mod.description[:80] }}{% if mod.description|length > 80 %}...{% endif %}</small>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <span style="font-family: monospace; font-size: 0.85rem;">{{ mod.version|default('N/A') }}</span>
+                    </td>
+                    <td class="col-timestamp">{{ mod.installed_at|default('N/A') }}</td>
+                    <td>
+                        {% if mod.update_available %}
+                        <span style="
+                            display: inline-block;
+                            padding: 0.15rem 0.5rem;
+                            background: rgba(243, 156, 18, 0.2);
+                            color: var(--warning, #f39c12);
+                            border-radius: 8px;
+                            font-size: 0.75rem;
+                            font-weight: 600;
+                        ">Update</span>
+                        {% else %}
+                        <span style="
+                            display: inline-block;
+                            padding: 0.15rem 0.5rem;
+                            background: rgba(46, 204, 113, 0.2);
+                            color: var(--success, #2ecc71);
+                            border-radius: 8px;
+                            font-size: 0.75rem;
+                            font-weight: 600;
+                        ">Aktuell</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <div style="display: flex; gap: 0.35rem;">
+                            {% if mod.update_available %}
+                            <button class="btn btn-sm btn-primary"
+                                    hx-post="/api/server/{{ server_id }}/mods/update"
+                                    hx-vals='{"mod_name": "{{ mod.name }}"}'
+                                    hx-target="#mod-update-result"
+                                    hx-swap="innerHTML"
+                                    hx-confirm="Mod {{ mod.name }} aktualisieren?"
+                                    style="padding: 0.2rem 0.5rem; font-size: 0.75rem;">
+                                Update
+                            </button>
+                            {% endif %}
+                            <button class="btn btn-sm btn-danger"
+                                    hx-post="/api/server/{{ server_id }}/mods/uninstall"
+                                    hx-vals='{"mod_name": "{{ mod.name }}"}'
+                                    hx-target="#mod-update-result"
+                                    hx-swap="innerHTML"
+                                    hx-confirm="Mod {{ mod.name }} wirklich deinstallieren?"
+                                    style="padding: 0.2rem 0.5rem; font-size: 0.75rem;">
+                                Entfernen
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+                {% if not mods %}
+                <tr>
+                    <td colspan="5" class="empty-row" style="color: var(--text-muted);">
+                        Keine Mods installiert
+                    </td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+
+    {% if mods %}
+    <p style="color: var(--text-muted); font-size: 0.8rem; margin-top: 0.5rem; text-align: right;">
+        {{ mods|length }} Mod(s) installiert
+    </p>
+    {% endif %}
+
+    <!-- Mod-Suche + Installation -->
+    <div style="margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--border-color);">
+        <h3 class="subsection-title">Mod suchen &amp; installieren</h3>
+        <form hx-post="/api/server/{{ server_id }}/mods/search"
+              hx-target="#mod-search-results"
+              hx-swap="innerHTML"
+              style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+            <input type="text" name="query" placeholder="Mod-Name suchen..."
+                   required
+                   style="
+                       flex: 1;
+                       padding: 0.5rem 0.75rem;
+                       background: var(--bg-input, #1a1a3e);
+                       border: 1px solid var(--border-color);
+                       border-radius: var(--radius-sm, 4px);
+                       color: var(--text-primary);
+                       font-size: 0.9rem;
+                   ">
+            <select name="source" style="
+                padding: 0.5rem 0.75rem;
+                background: var(--bg-input, #1a1a3e);
+                border: 1px solid var(--border-color);
+                border-radius: var(--radius-sm, 4px);
+                color: var(--text-primary);
+                font-size: 0.9rem;
+            ">
+                <option value="modrinth">Modrinth</option>
+                <option value="curseforge">CurseForge</option>
+            </select>
+            <button type="submit" class="btn btn-primary btn-sm">Suchen</button>
+        </form>
+        <div id="mod-search-results"></div>
+    </div>
+
+    <!-- Export/Import -->
+    <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-color); display: flex; gap: 0.5rem;">
+        <a href="/api/server/{{ server_id }}/mods/export"
+           class="btn btn-secondary btn-sm"
+           download="mods_{{ server_id }}.json">
+            Mod-Liste exportieren
+        </a>
+        <span style="color: var(--text-muted); font-size: 0.8rem; align-self: center;">
+            (Feature in Entwicklung: Import)
+        </span>
+    </div>
+</div>
+
+<script>
+function filterMods(query) {
+    var rows = document.querySelectorAll('.mod-row');
+    var lower = query.toLowerCase();
+    rows.forEach(function(row) {
+        var name = row.getAttribute('data-mod-name') || '';
+        row.style.display = name.indexOf(lower) !== -1 ? '' : 'none';
+    });
+}
+</script>

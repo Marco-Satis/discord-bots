@@ -316,6 +316,168 @@ async def server_action(request: Request, server_id: str, action: str = Form("")
     return HTMLResponse(content=html)
 
 
+@router.get("/api/server/{server_id}/mods", response_class=HTMLResponse)
+async def server_mods_partial(request: Request, server_id: str):
+    """
+    HTMX-Partial: Gibt die Mod-Liste als HTML-Fragment zurueck.
+
+    Liest die installierte Mod-Liste aus der jeweiligen JSON-Datei
+    des ModManagers und stellt sie als Tabelle dar.
+    """
+    user = get_current_user(request)
+    if user is None:
+        return HTMLResponse(content="<p>Nicht angemeldet</p>", status_code=401)
+
+    if server_id not in VALID_SERVER_IDS:
+        return HTMLResponse(content="<p>Unbekannter Server</p>", status_code=404)
+
+    # Mod-Liste aus der JSON-Datei laden
+    server_type = _get_server_type(server_id)
+    mods: list[dict] = []
+
+    # Mod-Dateien nach Server-Typ suchen
+    mod_files = {
+        "minecraft": ["minecraft_mods.json"],
+        "satisfactory": ["satisfactory_mods.json"],
+    }
+    for mod_file_name in mod_files.get(server_type, []):
+        mod_file = DATA_DIR / mod_file_name
+        if mod_file.exists():
+            try:
+                with open(mod_file, "r", encoding="utf-8") as f:
+                    mod_data = json.load(f)
+                if isinstance(mod_data, list):
+                    mods = mod_data
+            except (json.JSONDecodeError, IOError) as e:
+                logger.warning(f"Konnte Mod-Datei nicht laden: {e}")
+
+    return templates.TemplateResponse("partials/server_mods.html", {
+        "request": request,
+        "mods": mods,
+        "server_id": server_id,
+    })
+
+
+@router.get("/api/server/{server_id}/mods/export")
+async def server_mods_export(request: Request, server_id: str):
+    """
+    Exportiert die installierte Mod-Liste als JSON-Download.
+    """
+    from fastapi.responses import JSONResponse
+
+    user = get_current_user(request)
+    if user is None:
+        return JSONResponse(content={"error": "Nicht angemeldet"}, status_code=401)
+
+    if server_id not in VALID_SERVER_IDS:
+        return JSONResponse(content={"error": "Unbekannter Server"}, status_code=404)
+
+    server_type = _get_server_type(server_id)
+    mods: list[dict] = []
+
+    mod_files = {
+        "minecraft": ["minecraft_mods.json"],
+        "satisfactory": ["satisfactory_mods.json"],
+    }
+    for mod_file_name in mod_files.get(server_type, []):
+        mod_file = DATA_DIR / mod_file_name
+        if mod_file.exists():
+            try:
+                with open(mod_file, "r", encoding="utf-8") as f:
+                    mods = json.load(f)
+            except (json.JSONDecodeError, IOError):
+                pass
+
+    return JSONResponse(
+        content={"server_id": server_id, "server_type": server_type, "mods": mods},
+        headers={"Content-Disposition": f'attachment; filename="mods_{server_id}.json"'},
+    )
+
+
+@router.post("/api/server/{server_id}/mods/search", response_class=HTMLResponse)
+async def server_mods_search(request: Request, server_id: str):
+    """
+    Mod-Suche — Platzhalter-Endpunkt fuer Mod-Suche ueber Modrinth/CurseForge.
+
+    Die tatsaechliche API-Integration erfolgt wenn die Bots neben dem
+    Dashboard laufen und der ModManager direkt angesprochen werden kann.
+    """
+    user = get_current_user(request)
+    if user is None:
+        return HTMLResponse(content="<p>Nicht angemeldet</p>", status_code=401)
+
+    form = await request.form()
+    query = form.get("query", "").strip()
+    source = form.get("source", "modrinth")
+
+    if not query:
+        return HTMLResponse(content='<div class="alert alert-danger">Bitte Suchbegriff eingeben.</div>')
+
+    logger.info(f"Mod-Suche: '{query}' auf {source} (von {user.get('username', 'Unbekannt')})")
+
+    html = f"""
+    <div class="alert alert-warning">
+        <strong>Feature in Entwicklung:</strong>
+        Suche nach &laquo;{query}&raquo; auf {source} empfangen.
+        Die Mod-Suche wird aktiviert, sobald die Bots neben dem Dashboard laufen
+        und der ModManager direkt angesprochen werden kann.
+    </div>
+    """
+    return HTMLResponse(content=html)
+
+
+@router.post("/api/server/{server_id}/mods/check-updates", response_class=HTMLResponse)
+async def server_mods_check_updates(request: Request, server_id: str):
+    """Prueft auf verfuegbare Mod-Updates — Platzhalter."""
+    user = get_current_user(request)
+    if user is None:
+        return HTMLResponse(content="<p>Nicht angemeldet</p>", status_code=401)
+
+    logger.info(f"Mod-Update-Check fuer {server_id} (von {user.get('username', 'Unbekannt')})")
+    return HTMLResponse(content="""
+    <div class="alert alert-warning">
+        <strong>Feature in Entwicklung:</strong>
+        Der Update-Check wird aktiviert, sobald die Bots neben dem Dashboard laufen.
+    </div>
+    """)
+
+
+@router.post("/api/server/{server_id}/mods/update", response_class=HTMLResponse)
+async def server_mod_update(request: Request, server_id: str):
+    """Aktualisiert einen einzelnen Mod — Platzhalter."""
+    user = get_current_user(request)
+    if user is None:
+        return HTMLResponse(content="<p>Nicht angemeldet</p>", status_code=401)
+
+    form = await request.form()
+    mod_name = form.get("mod_name", "")
+    logger.info(f"Mod-Update: '{mod_name}' fuer {server_id} (von {user.get('username', 'Unbekannt')})")
+    return HTMLResponse(content=f"""
+    <div class="alert alert-warning">
+        <strong>Feature in Entwicklung:</strong>
+        Update fuer &laquo;{mod_name}&raquo; empfangen.
+    </div>
+    """)
+
+
+@router.post("/api/server/{server_id}/mods/uninstall", response_class=HTMLResponse)
+async def server_mod_uninstall(request: Request, server_id: str):
+    """Deinstalliert einen Mod — Platzhalter."""
+    user = get_current_user(request)
+    if user is None:
+        return HTMLResponse(content="<p>Nicht angemeldet</p>", status_code=401)
+
+    form = await request.form()
+    mod_name = form.get("mod_name", "")
+    logger.info(f"Mod-Deinstallation: '{mod_name}' fuer {server_id} (von {user.get('username', 'Unbekannt')})")
+    return HTMLResponse(content=f"""
+    <div class="alert alert-warning">
+        <strong>Feature in Entwicklung:</strong>
+        Deinstallation von &laquo;{mod_name}&raquo; empfangen.
+    </div>
+    """)
+
+
 @router.post("/api/server/{server_id}/rcon", response_class=HTMLResponse)
 async def server_rcon(request: Request, server_id: str, command: str = Form("")):
     """

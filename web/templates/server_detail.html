@@ -173,6 +173,22 @@
             Server Config
         </button>
         <button class="detail-tab"
+                onclick="switchTab(this, 'tab-mods')"
+                style="
+                    padding: 0.6rem 1.25rem;
+                    background: none;
+                    border: none;
+                    border-bottom: 2px solid transparent;
+                    margin-bottom: -2px;
+                    color: var(--text-secondary);
+                    font-size: 0.9rem;
+                    font-weight: 600;
+                    cursor: pointer;
+                    transition: all 0.2s ease;
+                ">
+            Mods
+        </button>
+        <button class="detail-tab"
                 onclick="switchTab(this, 'tab-updates')"
                 style="
                     padding: 0.6rem 1.25rem;
@@ -333,6 +349,15 @@
             {% else %}
             <p style="color: var(--text-muted); padding: 1rem;">Keine Konfigurationsdaten verfuegbar.</p>
             {% endif %}
+        </div>
+    </div>
+
+    <!-- Tab: Mods -->
+    <div id="tab-mods" class="tab-content" style="display: none;">
+        <div hx-get="/api/server/{{ server.server_id }}/mods"
+             hx-trigger="load"
+             hx-swap="innerHTML">
+            <p style="color: var(--text-muted); padding: 1rem;">Mod-Liste wird geladen...</p>
         </div>
     </div>
 
