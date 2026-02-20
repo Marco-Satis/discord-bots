@@ -1,0 +1,77 @@
+<!-- Phase 13g: Benachrichtigungs-Routing Matrix (Partial) -->
+<div id="config-notifications-content">
+
+    {% if success %}
+    <div class="alert alert-success">{{ success }}</div>
+    {% endif %}
+    {% if error %}
+    <div class="alert alert-danger">{{ error }}</div>
+    {% endif %}
+
+    <form hx-post="/config/notifications" hx-target="#config-tab-content" hx-swap="innerHTML">
+
+        <p class="config-hint">
+            Lege fest, in welchen Kanal jede Benachrichtigung gesendet wird und ob zusaetzlich eine E-Mail verschickt werden soll.
+        </p>
+
+        {% for category, events in categories.items() %}
+        <section class="config-section">
+            <h2 class="section-title">{{ category }}</h2>
+
+            <div class="table-wrapper">
+                <table class="data-table notification-table">
+                    <thead>
+                        <tr>
+                            <th class="col-event">Ereignis</th>
+                            <th class="col-channel">Ziel-Kanal</th>
+                            <th class="col-email">E-Mail</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for event_key in events %}
+                        {% set event_data = routing.get(event_key, {"channel": "aus", "email": false}) if routing is mapping else {"channel": "aus", "email": false} %}
+                        <tr>
+                            <td class="col-event">
+                                <span class="event-label">{{ labels.get(event_key, event_key) }}</span>
+                                <span class="event-key-hint">{{ event_key }}</span>
+                            </td>
+                            <td class="col-channel">
+                                <div class="form-group" style="margin-bottom: 0;">
+                                    <select name="routing.{{ event_key }}.channel">
+                                        {% for ch in channels %}
+                                        <option value="{{ ch }}"
+                                                {% if event_data.channel == ch %}selected{% endif %}>
+                                            {% if ch == "admin" %}Admin
+                                            {% elif ch == "spieler" %}Spieler
+                                            {% elif ch == "log" %}Log
+                                            {% elif ch == "mod" %}Moderation
+                                            {% elif ch == "aus" %}Deaktiviert
+                                            {% else %}{{ ch }}
+                                            {% endif %}
+                                        </option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                            </td>
+                            <td class="col-email">
+                                <label class="toggle-switch">
+                                    <input type="checkbox" name="routing.{{ event_key }}.email"
+                                           {% if event_data.email %}checked{% endif %}>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+        {% endfor %}
+
+        <!-- Speichern-Button -->
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary btn-lg">Benachrichtigungen speichern</button>
+        </div>
+    </form>
+
+</div>

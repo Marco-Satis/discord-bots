@@ -1,8 +1,13 @@
 """
-Phase 13a: Konfigurations-Panel — Bearbeitung der config.json
+Phase 13a/13g: Konfigurations-Panel — Bearbeitung der config.json
 
 Ermoeglicht das Anzeigen und Aendern der Bot-Konfiguration
 ueber das Web-Dashboard. Nur fuer Owner zugaenglich.
+
+Phase 13g erweitert:
+  - Benachrichtigungs-Routing (Notification Matrix)
+  - Login-Verwaltung (Berechtigte Rollen und Benutzer)
+  - Bot-Profile (Namen, Status, Avatare)
 """
 
 import json
@@ -22,6 +27,61 @@ TEMPLATE_DIR = Path(__file__).parent.parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 
 router = APIRouter(tags=["Konfiguration"])
+
+# --- Standard-Benachrichtigungs-Routing ---
+DEFAULT_NOTIFICATION_ROUTING = {
+    "server_start": {"channel": "admin", "email": False},
+    "server_stop": {"channel": "admin", "email": False},
+    "server_crash": {"channel": "admin", "email": True},
+    "backup_success": {"channel": "log", "email": False},
+    "backup_failed": {"channel": "admin", "email": True},
+    "player_join": {"channel": "log", "email": False},
+    "player_leave": {"channel": "log", "email": False},
+    "mod_warn": {"channel": "mod", "email": False},
+    "mod_ban": {"channel": "mod", "email": False},
+    "cpu_warning": {"channel": "admin", "email": True},
+    "disk_warning": {"channel": "admin", "email": True},
+    "update_available": {"channel": "spieler", "email": False},
+    "config_change": {"channel": "admin", "email": False},
+}
+
+# --- Standard-Bot-Profile ---
+DEFAULT_BOT_PROFILES = {
+    "gameserver": {"display_name": "GameServer Bot", "status": "Verwaltet Server", "avatar_url": ""},
+    "monitor": {"display_name": "Monitor Bot", "status": "Ueberwacht alles", "avatar_url": ""},
+    "admin": {"display_name": "Admin Bot", "status": "Community Management", "avatar_url": ""},
+}
+
+# --- Erlaubte Kanal-Werte fuer Benachrichtigungen ---
+ALLOWED_CHANNELS = ["admin", "spieler", "log", "mod", "aus"]
+
+# --- Kategorien fuer Benachrichtigungs-Ereignisse (fuer Gruppierung) ---
+NOTIFICATION_CATEGORIES = {
+    "Server": ["server_start", "server_stop", "server_crash"],
+    "Backups": ["backup_success", "backup_failed"],
+    "Spieler": ["player_join", "player_leave"],
+    "Moderation": ["mod_warn", "mod_ban"],
+    "Performance": ["cpu_warning", "disk_warning"],
+    "Updates": ["update_available"],
+    "System": ["config_change"],
+}
+
+# --- Lesbare Event-Labels ---
+NOTIFICATION_LABELS = {
+    "server_start": "Server gestartet",
+    "server_stop": "Server gestoppt",
+    "server_crash": "Server-Absturz",
+    "backup_success": "Backup erfolgreich",
+    "backup_failed": "Backup fehlgeschlagen",
+    "player_join": "Spieler beigetreten",
+    "player_leave": "Spieler verlassen",
+    "mod_warn": "Moderation: Warnung",
+    "mod_ban": "Moderation: Bann",
+    "cpu_warning": "CPU-Warnung",
+    "disk_warning": "Speicherplatz-Warnung",
+    "update_available": "Update verfuegbar",
+    "config_change": "Konfigurationsaenderung",
+}
 
 
 def _is_owner(user: dict) -> bool:
@@ -183,6 +243,254 @@ async def config_save(request: Request):
             "request": request,
             "user": user,
             "config": config,
+            "success": "",
+            "error": f"Fehler beim Speichern: {e}",
+        })
+
+
+# ==============================================================
+#  Phase 13g: Benachrichtigungs-Routing
+# ==============================================================
+
+@router.get("/config/notifications", response_class=HTMLResponse)
+async def notifications_page(request: Request):
+    """Benachrichtigungs-Routing Matrix — zeigt alle Event-Typen mit Kanal- und E-Mail-Zuordnung."""
+    user = get_current_user(request)
+    if user is None:
+        return RedirectResponse(url="/auth/login", status_code=302)
+
+    if not _is_owner(user):
+        return RedirectResponse(url="/", status_code=302)
+
+    config = get_config()
+    routing = config.get("notification_routing", DEFAULT_NOTIFICATION_ROUTING)
+
+    return templates.TemplateResponse("partials/config_notifications.html", {
+        "request": request,
+        "user": user,
+        "routing": routing,
+        "categories": NOTIFICATION_CATEGORIES,
+        "labels": NOTIFICATION_LABELS,
+        "channels": ALLOWED_CHANNELS,
+        "success": "",
+        "error": "",
+    })
+
+
+@router.post("/config/notifications", response_class=HTMLResponse)
+async def save_notifications(request: Request):
+    """Speichert Benachrichtigungs-Routing in config.json."""
+    user = get_current_user(request)
+    if user is None:
+        return RedirectResponse(url="/auth/login", status_code=302)
+
+    if not _is_owner(user):
+        return RedirectResponse(url="/", status_code=302)
+
+    try:
+        form = await request.form()
+        config = get_config()
+
+        routing = {}
+        for event_key in DEFAULT_NOTIFICATION_ROUTING:
+            channel_field = f"routing.{event_key}.channel"
+            email_field = f"routing.{event_key}.email"
+
+            channel = form.get(channel_field, "aus")
+            if channel not in ALLOWED_CHANNELS:
+                channel = "aus"
+
+            routing[event_key] = {
+                "channel": channel,
+                "email": email_field in form,
+            }
+
+        config["notification_routing"] = routing
+        save_config(config)
+        logger.info(f"Benachrichtigungs-Routing gespeichert von {user.get('username', 'Unbekannt')}")
+
+        return templates.TemplateResponse("partials/config_notifications.html", {
+            "request": request,
+            "user": user,
+            "routing": routing,
+            "categories": NOTIFICATION_CATEGORIES,
+            "labels": NOTIFICATION_LABELS,
+            "channels": ALLOWED_CHANNELS,
+            "success": "Benachrichtigungs-Routing erfolgreich gespeichert.",
+            "error": "",
+        })
+
+    except Exception as e:
+        logger.error(f"Fehler beim Speichern des Benachrichtigungs-Routings: {e}")
+        config = get_config()
+        routing = config.get("notification_routing", DEFAULT_NOTIFICATION_ROUTING)
+        return templates.TemplateResponse("partials/config_notifications.html", {
+            "request": request,
+            "user": user,
+            "routing": routing,
+            "categories": NOTIFICATION_CATEGORIES,
+            "labels": NOTIFICATION_LABELS,
+            "channels": ALLOWED_CHANNELS,
+            "success": "",
+            "error": f"Fehler beim Speichern: {e}",
+        })
+
+
+# ==============================================================
+#  Phase 13g: Login-Verwaltung
+# ==============================================================
+
+@router.get("/config/login", response_class=HTMLResponse)
+async def login_management(request: Request):
+    """Dashboard-Login-Verwaltung — Berechtigte Rollen und Benutzer anzeigen."""
+    user = get_current_user(request)
+    if user is None:
+        return RedirectResponse(url="/auth/login", status_code=302)
+
+    if not _is_owner(user):
+        return RedirectResponse(url="/", status_code=302)
+
+    config = get_config()
+    allowed_roles = config.get("web_allowed_role_ids", [])
+    allowed_users = config.get("web_allowed_user_ids", [])
+
+    return templates.TemplateResponse("partials/config_login.html", {
+        "request": request,
+        "user": user,
+        "allowed_roles": allowed_roles,
+        "allowed_users": allowed_users,
+        "success": "",
+        "error": "",
+    })
+
+
+@router.post("/config/login", response_class=HTMLResponse)
+async def save_login_settings(request: Request):
+    """Speichert Login-Einstellungen (berechtigte Rollen- und Benutzer-IDs)."""
+    user = get_current_user(request)
+    if user is None:
+        return RedirectResponse(url="/auth/login", status_code=302)
+
+    if not _is_owner(user):
+        return RedirectResponse(url="/", status_code=302)
+
+    try:
+        form = await request.form()
+        config = get_config()
+
+        # Rollen-IDs einlesen (kommasepariert oder einzelne Felder)
+        roles_raw = form.get("allowed_role_ids", "")
+        allowed_roles = [
+            rid.strip() for rid in roles_raw.split(",")
+            if rid.strip()
+        ]
+
+        # Benutzer-IDs einlesen (kommasepariert oder einzelne Felder)
+        users_raw = form.get("allowed_user_ids", "")
+        allowed_users = [
+            uid.strip() for uid in users_raw.split(",")
+            if uid.strip()
+        ]
+
+        config["web_allowed_role_ids"] = allowed_roles
+        config["web_allowed_user_ids"] = allowed_users
+        save_config(config)
+        logger.info(f"Login-Einstellungen gespeichert von {user.get('username', 'Unbekannt')}")
+
+        return templates.TemplateResponse("partials/config_login.html", {
+            "request": request,
+            "user": user,
+            "allowed_roles": allowed_roles,
+            "allowed_users": allowed_users,
+            "success": "Login-Einstellungen erfolgreich gespeichert.",
+            "error": "",
+        })
+
+    except Exception as e:
+        logger.error(f"Fehler beim Speichern der Login-Einstellungen: {e}")
+        config = get_config()
+        return templates.TemplateResponse("partials/config_login.html", {
+            "request": request,
+            "user": user,
+            "allowed_roles": config.get("web_allowed_role_ids", []),
+            "allowed_users": config.get("web_allowed_user_ids", []),
+            "success": "",
+            "error": f"Fehler beim Speichern: {e}",
+        })
+
+
+# ==============================================================
+#  Phase 13g: Bot-Profile
+# ==============================================================
+
+@router.get("/config/bot-profiles", response_class=HTMLResponse)
+async def bot_profiles(request: Request):
+    """Bot-Profile verwalten (Namen, Avatare, Status)."""
+    user = get_current_user(request)
+    if user is None:
+        return RedirectResponse(url="/auth/login", status_code=302)
+
+    if not _is_owner(user):
+        return RedirectResponse(url="/", status_code=302)
+
+    config = get_config()
+    profiles = config.get("bot_profiles", DEFAULT_BOT_PROFILES)
+
+    return templates.TemplateResponse("partials/config_bot_profiles.html", {
+        "request": request,
+        "user": user,
+        "profiles": profiles,
+        "success": "",
+        "error": "",
+    })
+
+
+@router.post("/config/bot-profiles", response_class=HTMLResponse)
+async def save_bot_profiles(request: Request):
+    """Speichert Bot-Profile (Anzeigename, Status, Avatar-URL)."""
+    user = get_current_user(request)
+    if user is None:
+        return RedirectResponse(url="/auth/login", status_code=302)
+
+    if not _is_owner(user):
+        return RedirectResponse(url="/", status_code=302)
+
+    try:
+        form = await request.form()
+        config = get_config()
+
+        profiles = {}
+        for bot_key in DEFAULT_BOT_PROFILES:
+            display_name = form.get(f"profiles.{bot_key}.display_name", DEFAULT_BOT_PROFILES[bot_key]["display_name"])
+            status = form.get(f"profiles.{bot_key}.status", DEFAULT_BOT_PROFILES[bot_key]["status"])
+            avatar_url = form.get(f"profiles.{bot_key}.avatar_url", "")
+
+            profiles[bot_key] = {
+                "display_name": display_name.strip(),
+                "status": status.strip(),
+                "avatar_url": avatar_url.strip(),
+            }
+
+        config["bot_profiles"] = profiles
+        save_config(config)
+        logger.info(f"Bot-Profile gespeichert von {user.get('username', 'Unbekannt')}")
+
+        return templates.TemplateResponse("partials/config_bot_profiles.html", {
+            "request": request,
+            "user": user,
+            "profiles": profiles,
+            "success": "Bot-Profile erfolgreich gespeichert.",
+            "error": "",
+        })
+
+    except Exception as e:
+        logger.error(f"Fehler beim Speichern der Bot-Profile: {e}")
+        config = get_config()
+        profiles = config.get("bot_profiles", DEFAULT_BOT_PROFILES)
+        return templates.TemplateResponse("partials/config_bot_profiles.html", {
+            "request": request,
+            "user": user,
+            "profiles": profiles,
             "success": "",
             "error": f"Fehler beim Speichern: {e}",
         })

@@ -1,0 +1,169 @@
+<!-- Phase 13g: Login-Verwaltung (Partial) -->
+<div id="config-login-content">
+
+    {% if success %}
+    <div class="alert alert-success">{{ success }}</div>
+    {% endif %}
+    {% if error %}
+    <div class="alert alert-danger">{{ error }}</div>
+    {% endif %}
+
+    <form hx-post="/config/login" hx-target="#config-tab-content" hx-swap="innerHTML">
+
+        <p class="config-hint">
+            Berechtigte Rollen und Benutzer koennen sich ueber Discord OAuth2 am Dashboard anmelden.
+            Trage Discord-IDs kommasepariert ein.
+        </p>
+
+        <!-- Berechtigte Rollen -->
+        <section class="config-section">
+            <h2 class="section-title">Berechtigte Rollen</h2>
+            <p class="config-hint" style="margin-bottom: 1rem;">
+                Discord Rollen-IDs, deren Mitglieder Zugang zum Dashboard erhalten.
+            </p>
+
+            <div class="id-list-container" id="role-list">
+                {% if allowed_roles %}
+                {% for role_id in allowed_roles %}
+                <div class="id-list-item">
+                    <span class="id-badge">{{ role_id }}</span>
+                    <button type="button" class="btn btn-sm btn-danger id-remove-btn"
+                            onclick="removeIdItem(this)">Entfernen</button>
+                </div>
+                {% endfor %}
+                {% else %}
+                <p class="empty-text">Keine Rollen konfiguriert.</p>
+                {% endif %}
+            </div>
+
+            <div class="id-add-row">
+                <div class="form-group" style="margin-bottom: 0; flex: 1;">
+                    <input type="text" id="new-role-id" placeholder="Rollen-ID eingeben..."
+                           onkeydown="if(event.key==='Enter'){event.preventDefault();addRoleId();}">
+                </div>
+                <button type="button" class="btn btn-secondary" onclick="addRoleId()">Hinzufuegen</button>
+            </div>
+
+            <!-- Verstecktes Feld mit allen Rollen-IDs (kommasepariert) -->
+            <input type="hidden" name="allowed_role_ids" id="allowed-role-ids-field"
+                   value="{{ allowed_roles | join(',') }}">
+        </section>
+
+        <!-- Berechtigte Benutzer -->
+        <section class="config-section">
+            <h2 class="section-title">Berechtigte Benutzer</h2>
+            <p class="config-hint" style="margin-bottom: 1rem;">
+                Discord Benutzer-IDs, die individuellen Zugang zum Dashboard erhalten.
+            </p>
+
+            <div class="id-list-container" id="user-list">
+                {% if allowed_users %}
+                {% for user_id in allowed_users %}
+                <div class="id-list-item">
+                    <span class="id-badge">{{ user_id }}</span>
+                    <button type="button" class="btn btn-sm btn-danger id-remove-btn"
+                            onclick="removeIdItem(this)">Entfernen</button>
+                </div>
+                {% endfor %}
+                {% else %}
+                <p class="empty-text">Keine Benutzer konfiguriert.</p>
+                {% endif %}
+            </div>
+
+            <div class="id-add-row">
+                <div class="form-group" style="margin-bottom: 0; flex: 1;">
+                    <input type="text" id="new-user-id" placeholder="Benutzer-ID eingeben..."
+                           onkeydown="if(event.key==='Enter'){event.preventDefault();addUserId();}">
+                </div>
+                <button type="button" class="btn btn-secondary" onclick="addUserId()">Hinzufuegen</button>
+            </div>
+
+            <!-- Verstecktes Feld mit allen Benutzer-IDs (kommasepariert) -->
+            <input type="hidden" name="allowed_user_ids" id="allowed-user-ids-field"
+                   value="{{ allowed_users | join(',') }}">
+        </section>
+
+        <!-- Speichern-Button -->
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary btn-lg">Login-Einstellungen speichern</button>
+        </div>
+    </form>
+
+</div>
+
+<!-- JavaScript fuer dynamisches Hinzufuegen/Entfernen von IDs -->
+<script>
+function collectIds(listId) {
+    /** Sammelt alle ID-Werte aus einer ID-Liste. */
+    var items = document.querySelectorAll('#' + listId + ' .id-badge');
+    var ids = [];
+    items.forEach(function(el) { ids.push(el.textContent.trim()); });
+    return ids;
+}
+
+function syncRoleField() {
+    /** Aktualisiert das versteckte Rollen-Feld. */
+    document.getElementById('allowed-role-ids-field').value = collectIds('role-list').join(',');
+}
+
+function syncUserField() {
+    /** Aktualisiert das versteckte Benutzer-Feld. */
+    document.getElementById('allowed-user-ids-field').value = collectIds('user-list').join(',');
+}
+
+function removeIdItem(btn) {
+    /** Entfernt einen Eintrag aus der ID-Liste. */
+    var item = btn.closest('.id-list-item');
+    var listId = item.parentElement.id;
+    item.remove();
+    // Leere-Nachricht anzeigen wenn keine Eintraege mehr
+    var container = document.getElementById(listId);
+    if (container.querySelectorAll('.id-list-item').length === 0) {
+        var emptyP = document.createElement('p');
+        emptyP.className = 'empty-text';
+        emptyP.textContent = 'Keine Eintraege konfiguriert.';
+        container.appendChild(emptyP);
+    }
+    if (listId === 'role-list') syncRoleField();
+    if (listId === 'user-list') syncUserField();
+}
+
+function addIdToList(inputId, listId, syncFn) {
+    /** Fuegt eine neue ID zur Liste hinzu. */
+    var input = document.getElementById(inputId);
+    var val = input.value.trim();
+    if (!val) return;
+    // Nur Zahlen erlauben (Discord IDs)
+    if (!/^\d+$/.test(val)) {
+        alert('Bitte nur numerische Discord-IDs eingeben.');
+        return;
+    }
+    // Duplikat-Pruefung
+    var existing = collectIds(listId);
+    if (existing.indexOf(val) !== -1) {
+        alert('Diese ID ist bereits vorhanden.');
+        input.value = '';
+        return;
+    }
+    var container = document.getElementById(listId);
+    // Leere-Nachricht entfernen
+    var emptyMsg = container.querySelector('.empty-text');
+    if (emptyMsg) emptyMsg.remove();
+    // Neuen Eintrag erstellen
+    var div = document.createElement('div');
+    div.className = 'id-list-item';
+    div.innerHTML = '<span class="id-badge">' + val + '</span>' +
+                    '<button type="button" class="btn btn-sm btn-danger id-remove-btn" onclick="removeIdItem(this)">Entfernen</button>';
+    container.appendChild(div);
+    input.value = '';
+    syncFn();
+}
+
+function addRoleId() {
+    addIdToList('new-role-id', 'role-list', syncRoleField);
+}
+
+function addUserId() {
+    addIdToList('new-user-id', 'user-list', syncUserField);
+}
+</script>

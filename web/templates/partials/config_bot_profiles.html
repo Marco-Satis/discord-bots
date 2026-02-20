@@ -1,0 +1,59 @@
+<!-- Phase 13h: Bot-Profile Verwaltung (Partial) -->
+<div id="config-bot-profiles-content">
+
+    {% if success %}
+    <div class="alert alert-success">{{ success }}</div>
+    {% endif %}
+    {% if error %}
+    <div class="alert alert-danger">{{ error }}</div>
+    {% endif %}
+
+    <form hx-post="/config/bot-profiles" hx-target="#config-tab-content" hx-swap="innerHTML">
+
+        <p class="config-hint">
+            Anzeigenamen, Status-Texte und Avatar-URLs fuer die drei Bots konfigurieren.
+        </p>
+
+        {% set bot_labels = {
+            "gameserver": "GameServer Bot",
+            "monitor": "Monitor Bot",
+            "admin": "Admin Bot"
+        } %}
+
+        {% for bot_key, bot_label in bot_labels.items() %}
+        {% set profile = profiles.get(bot_key, {}) if profiles is mapping else {} %}
+        <section class="config-section">
+            <h2 class="section-title">{{ bot_label }}</h2>
+            <div class="input-grid">
+                <div class="form-group">
+                    <label for="profiles.{{ bot_key }}.display_name">Anzeigename</label>
+                    <input type="text" id="profiles.{{ bot_key }}.display_name"
+                           name="profiles.{{ bot_key }}.display_name"
+                           value="{{ profile.display_name|default(bot_label, true) }}"
+                           placeholder="{{ bot_label }}">
+                </div>
+                <div class="form-group">
+                    <label for="profiles.{{ bot_key }}.status">Status-Text</label>
+                    <input type="text" id="profiles.{{ bot_key }}.status"
+                           name="profiles.{{ bot_key }}.status"
+                           value="{{ profile.status|default('', true) }}"
+                           placeholder="z.B. Verwaltet Server">
+                </div>
+                <div class="form-group" style="grid-column: 1 / -1;">
+                    <label for="profiles.{{ bot_key }}.avatar_url">Avatar-URL (optional)</label>
+                    <input type="url" id="profiles.{{ bot_key }}.avatar_url"
+                           name="profiles.{{ bot_key }}.avatar_url"
+                           value="{{ profile.avatar_url|default('', true) }}"
+                           placeholder="https://example.com/avatar.png">
+                </div>
+            </div>
+        </section>
+        {% endfor %}
+
+        <!-- Speichern-Button -->
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary btn-lg">Bot-Profile speichern</button>
+        </div>
+    </form>
+
+</div>
