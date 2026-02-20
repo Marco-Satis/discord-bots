@@ -31,8 +31,9 @@ Dateiformat (data/timeouts.json):
 
 from __future__ import annotations
 
+import asyncio
 import json
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -66,6 +67,7 @@ class TimeoutManager:
         """
         self.data_file = data_file
         self._data: dict[str, Any] = {"active": {}, "history": []}
+        self._lock = asyncio.Lock()
         self._load()
 
     # ------------------------------------------------------------------
@@ -139,6 +141,36 @@ class TimeoutManager:
             - action_results: Liste von Info-Strings (was gemacht wurde)
         """
         action_results: list[str] = []
+
+        if not discord_id:
+            return (
+                False,
+                f"Kein Discord-Account fuer **{player_name}** gefunden. "
+                "Timeout kann nicht gesetzt werden.",
+                [],
+            )
+
+        async with self._lock:
+            return await self._set_timeout_locked(
+                player_name, discord_id, duration_minutes, reason,
+                set_by, set_by_id, servers, bot, action_results,
+            )
+
+    async def _set_timeout_locked(
+        self,
+        player_name: str,
+        discord_id: int,
+        duration_minutes: int,
+        reason: str,
+        set_by: str,
+        set_by_id: int,
+        servers: list[str],
+        bot: Any,
+        action_results: list[str],
+    ) -> tuple[bool, str, list[str]]:
+        """Interner set_timeout — wird unter Lock ausgefuehrt."""
+        from datetime import timedelta
+
         discord_id_str = str(discord_id)
 
         # Pruefen ob bereits ein aktiver Timeout besteht
@@ -223,6 +255,15 @@ class TimeoutManager:
             - was_active: True wenn ein aktiver Timeout gefunden wurde
             - timeout_data: Der verschobene Eintrag oder None
         """
+        async with self._lock:
+            return self._lift_timeout_locked(discord_id, ended_by)
+
+    def _lift_timeout_locked(
+        self,
+        discord_id: int,
+        ended_by: str | None = None,
+    ) -> tuple[bool, dict | None]:
+        """Interner lift_timeout — wird unter Lock ausgefuehrt."""
         discord_id_str = str(discord_id)
 
         if discord_id_str not in self._data["active"]:
@@ -387,15 +428,21 @@ class TimeoutManager:
         mc_trackers = getattr(bot, "mc_ip_trackers", None)
         if mc_trackers and isinstance(mc_trackers, dict):
             for tracker in mc_trackers.values():
-                ip = tracker.get_ip(player_name)
-                if ip:
-                    return ip
+                try:
+                    ip = tracker.get_ip(player_name)
+                    if ip:
+                        return ip
+                except Exception as e:
+                    logger.warning(f"MC IP-Lookup fehlgeschlagen: {e}")
 
         # SAT IP-Tracker (Monitor Bot)
         sat_tracker = getattr(bot, "player_ip_tracker", None)
         if sat_tracker:
-            ip = sat_tracker.get_ip(player_name)
-            if ip:
-                return ip
+            try:
+                ip = sat_tracker.get_ip(player_name)
+                if ip:
+                    return ip
+            except Exception as e:
+                logger.warning(f"SAT IP-Lookup fehlgeschlagen: {e}")
 
         return None

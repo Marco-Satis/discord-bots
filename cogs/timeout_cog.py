@@ -90,13 +90,16 @@ class TimeoutCog(commands.Cog):
 
             logger.info(f"Timeout abgelaufen: {player_name} (Discord: {discord_id})")
 
+            # Timeout in Manager als abgelaufen markieren
+            was_active, _ = await self.timeout_mgr.lift_timeout(discord_id)
+            if not was_active:
+                continue  # Bereits von anderem Pfad aufgehoben
+
             # Server-Bans aufheben
-            await self._unban_from_servers(player_name, servers, entry.get("ip"))
+            safe_name = _sanitize_input(player_name)
+            await self._unban_from_servers(safe_name, servers)
 
             # Discord-Timeout wird automatisch von Discord aufgehoben
-
-            # Timeout in Manager als abgelaufen markieren
-            await self.timeout_mgr.lift_timeout(discord_id)
 
             # Spieler per DM benachrichtigen
             await self._notify_player_dm(
@@ -150,6 +153,7 @@ class TimeoutCog(commands.Cog):
             return
 
         safe_spieler = _sanitize_input(spieler)
+        safe_grund = _sanitize_input(grund, max_length=200)
         target_servers = self._resolve_servers(server)
 
         # Discord-Member finden
@@ -172,9 +176,9 @@ class TimeoutCog(commands.Cog):
             await interaction.followup.send(message, ephemeral=True)
             return
 
-        # Aktionen ausfuehren auf den Servern
+        # Aktionen ausfuehren auf den Servern (safe_grund fuer RCON)
         ban_results = await self._ban_on_servers(
-            safe_spieler, target_servers, dauer_min, grund
+            safe_spieler, target_servers, dauer_min, safe_grund
         )
         action_results.extend(ban_results)
 
@@ -262,6 +266,7 @@ class TimeoutCog(commands.Cog):
 
         # Restzeit berechnen
         expires_str = timeout_data.get("expires_at", "")
+        expires_at = None
         try:
             expires_at = datetime.fromisoformat(expires_str)
             remaining = expires_at - datetime.now()
@@ -293,9 +298,9 @@ class TimeoutCog(commands.Cog):
 
         embed.add_field(name="Gesperrt seit", value=set_at, inline=True)
 
-        try:
+        if expires_at:
             expires_display = expires_at.strftime("%d.%m.%Y %H:%M")
-        except Exception:
+        else:
             expires_display = expires_str
         embed.add_field(name="Gesperrt bis", value=expires_display, inline=True)
 
@@ -346,11 +351,11 @@ class TimeoutCog(commands.Cog):
             return
 
         player_name = timeout_data.get("player_name", spieler.display_name)
+        safe_name = _sanitize_input(player_name)
         servers = timeout_data.get("servers", [])
-        ip = timeout_data.get("ip")
 
         # Server-Bans aufheben
-        await self._unban_from_servers(player_name, servers, ip)
+        await self._unban_from_servers(safe_name, servers)
 
         # Discord-Timeout aufheben
         try:
@@ -628,7 +633,6 @@ class TimeoutCog(commands.Cog):
         self,
         player_name: str,
         servers: list[str],
-        ip: Optional[str] = None,
     ) -> None:
         """Spieler auf allen angegebenen Servern entbannen"""
         for srv in servers:

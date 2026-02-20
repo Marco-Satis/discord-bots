@@ -110,6 +110,9 @@ class MinecraftCog(commands.Cog):
         # IP-Tracker fuer UFW-Bans (Phase 10c: MC IP-Ban wie SAT)
         self.ip_trackers: Dict[str, object] = getattr(bot, 'mc_ip_trackers', {})
 
+        # Announcement-Tasks (Phase 10b)
+        self._active_announcements: Dict[str, asyncio.Task] = {}
+
         # Autosave-System (Phase 8b)
         self._autosave_file = DATA_DIR / "mc_autosave.json"
         self._autosave_intervals: Dict[str, int] = {}  # server_id -> Minuten
@@ -594,8 +597,12 @@ class MinecraftCog(commands.Cog):
             safe_reason = _sanitize_rcon_input(reason, 200)
 
             # 1. RCON-Ban (MC-interner Name/UUID-Ban)
-            await srv.rcon_command(f"ban {safe_player} {safe_reason}")
-            rcon_ok = True
+            rcon_ok = False
+            try:
+                await srv.rcon_command(f"ban {safe_player} {safe_reason}")
+                rcon_ok = True
+            except Exception as rcon_err:
+                logger.warning(f"[{srv.server_id}] RCON-Ban fehlgeschlagen: {rcon_err}")
 
             # 2. IP-Ban via UFW (Phase 10c: wie SAT)
             ip_ok = False
@@ -604,7 +611,7 @@ class MinecraftCog(commands.Cog):
             if ip_tracker:
                 ip_success, ip_msg = await ip_tracker.ban_player(
                     safe_player, safe_reason,
-                    str(interaction.user)
+                    str(interaction.user), api=srv
                 )
                 ip_ok = ip_success
             else:
@@ -661,8 +668,12 @@ class MinecraftCog(commands.Cog):
             safe_player = _sanitize_rcon_input(player)
 
             # 1. RCON-Pardon (MC-interner Ban aufheben)
-            await srv.rcon_command(f"pardon {safe_player}")
-            rcon_ok = True
+            rcon_ok = False
+            try:
+                await srv.rcon_command(f"pardon {safe_player}")
+                rcon_ok = True
+            except Exception as rcon_err:
+                logger.warning(f"[{srv.server_id}] RCON-Pardon fehlgeschlagen: {rcon_err}")
 
             # 2. IP-Ban via UFW aufheben (Phase 10c)
             ip_ok = False
@@ -974,7 +985,11 @@ class MinecraftCog(commands.Cog):
                 self._repeat_announcement(srv, safe_message, repeat, banner)
             )
             # Task-Referenz speichern damit er nicht garbage-collected wird
-            self._active_announcements = getattr(self, '_active_announcements', {})
+            def _on_done(t: asyncio.Task, sid: str = srv.server_id) -> None:
+                self._active_announcements.pop(sid, None)
+                if not t.cancelled() and t.exception():
+                    logger.error(f"Announcement-Task {sid} fehlgeschlagen: {t.exception()}")
+            task.add_done_callback(_on_done)
             self._active_announcements[srv.server_id] = task
 
             embed = discord.Embed(
@@ -1493,11 +1508,6 @@ class MinecraftCog(commands.Cog):
             )
             return
 
-        if 0 < intervall < 1:
-            await interaction.followup.send(
-                "Minimum ist 1 Minute.", ephemeral=True
-            )
-            return
 
         old_interval = self._autosave_intervals.get(srv.server_id, 0)
 
@@ -1691,25 +1701,24 @@ class MinecraftCog(commands.Cog):
 
             zip_path = await loop.run_in_executor(None, _create_zip)
 
-            # ZIP-Groesse pruefen
-            zip_size = zip_path.stat().st_size
-            if zip_size > 25 * 1024 * 1024:
-                zip_path.unlink()
+            try:
+                # ZIP-Groesse pruefen
+                zip_size = zip_path.stat().st_size
+                if zip_size > 25 * 1024 * 1024:
+                    await interaction.followup.send(
+                        f"ZIP-Datei ist zu gross ({zip_size / (1024*1024):.1f} MB)."
+                    )
+                    return
+
+                # Per Discord senden
                 await interaction.followup.send(
-                    f"ZIP-Datei ist zu gross ({zip_size / (1024*1024):.1f} MB)."
+                    file=discord.File(
+                        zip_path,
+                        filename=f"{target['name']}.zip"
+                    )
                 )
-                return
-
-            # Per Discord senden
-            await interaction.followup.send(
-                file=discord.File(
-                    zip_path,
-                    filename=f"{target['name']}.zip"
-                )
-            )
-
-            # Temporaere Datei aufraeumen
-            zip_path.unlink(missing_ok=True)
+            finally:
+                zip_path.unlink(missing_ok=True)
 
         except Exception as e:
             await interaction.followup.send(

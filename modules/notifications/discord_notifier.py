@@ -5,7 +5,7 @@ Handles all Discord notifications (admin alerts, player events, etc.)
 
 import discord
 from datetime import datetime
-from typing import Optional, Union, List, Tuple
+from typing import Optional, List, Tuple
 from enum import Enum
 
 from utils.logger import get_logger
@@ -90,11 +90,12 @@ class DiscordNotifier:
 
     async def send_admin(self, title: str, description: str,
                          level: NotifyLevel = NotifyLevel.INFO,
-                         ping_role: bool = False, **kwargs) -> None:  # type: ignore
+                         ping_role: bool = False,
+                         fields: Optional[List[Tuple[str, str, bool]]] = None) -> None:  # type: ignore
         """Send notification to admin log channel"""
         if self._admin_channel_id:
             await self.send(self._admin_channel_id, title, description,
-                            level, ping_role, **kwargs)
+                            level, ping_role, fields=fields)
 
     # ------------------------------------------------------------------
     # Server events
@@ -215,15 +216,19 @@ class DiscordNotifier:
     # Update events
     # ------------------------------------------------------------------
 
-    async def notify_update_available(self, installed_build: str, available_build: str) -> None:  # type: ignore
+    async def notify_update_available(self, installed_build: str, available_build: str,
+                                      extra_text: str = "") -> None:  # type: ignore
         """Server update available"""
+        desc = (
+            f"**Installiert:** Build {installed_build}\n"
+            f"**Verfuegbar:** Build {available_build}\n\n"
+            f"Verwende `/sat update` um das Update durchzufuehren."
+        )
+        if extra_text:
+            desc += extra_text
         await self.send_admin(
             "Server Update verfuegbar",
-            (
-                f"**Installiert:** Build {installed_build}\n"
-                f"**Verfuegbar:** Build {available_build}\n\n"
-                f"Verwende `/sat update` um das Update durchzufuehren."
-            ),
+            desc,
             NotifyLevel.INFO,
         )
 

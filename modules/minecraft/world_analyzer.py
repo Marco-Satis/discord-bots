@@ -10,7 +10,6 @@ Optional: anvil-parser2 (fuer detailliertere Region-Analyse)
 
 import asyncio
 import json
-import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -249,9 +248,6 @@ class WorldAnalyzer:
         """Parst Advancement-Dateien pro Spieler (blocking)"""
         players = []
 
-        # Gesamtzahl der Advancements ermitteln (Standard MC hat ~110)
-        # Wir zaehlen "done": true Eintraege
-        TOTAL_ADVANCEMENTS_APPROX = 110
 
         for adv_file in adv_dir.glob("*.json"):
             try:

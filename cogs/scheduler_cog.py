@@ -7,6 +7,7 @@ import os
 import asyncio
 import json
 import re
+from pathlib import Path
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
@@ -407,13 +408,6 @@ class SchedulerCog(commands.Cog):
         except Exception as e:
             logger.error(f"Daily restart error: {e}", exc_info=True)
 
-    async def _restart_warning_callback(self, minutes_left: int, message: str):
-        """Callback for restart timer warnings"""
-        if self.notifier and self.notifier.admin_channel:
-            await self.notifier.admin_channel.send(
-                f"⏰ **Server Restart in {minutes_left} Minuten** — {message}"
-            )
-
     # ------------------------------------------------------------------
     # Update Check
     # ------------------------------------------------------------------
@@ -445,6 +439,7 @@ class SchedulerCog(commands.Cog):
                     await self.notifier.notify_update_available(
                         info.get("installed_buildid", "?"),
                         info.get("available_buildid", "?"),
+                        extra_text=auto_hint,
                     )
 
                 if self.email_notifier:
@@ -627,6 +622,10 @@ class SchedulerCog(commands.Cog):
             True wenn Rollback noetig (Server nicht erreichbar),
             False wenn Server OK
         """
+        if not self.sat_server:
+            logger.error("Health-Check: sat_server nicht verfuegbar")
+            return True  # Rollback noetig
+
         logger.info("Post-Update Health-Check: Warte 3 Minuten...")
         # 6 Pruefungen alle 30 Sekunden = 3 Minuten
         for i in range(6):
@@ -654,7 +653,7 @@ class SchedulerCog(commands.Cog):
         logger.error("Post-Update Health-Check FEHLGESCHLAGEN nach 3 Minuten")
         return True  # Rollback noetig
 
-    async def _perform_rollback(self, backup_path, update_msg: str) -> None:
+    async def _perform_rollback(self, backup_path: Path, update_msg: str) -> None:
         """Fuehrt einen automatischen Rollback nach fehlgeschlagenem Update durch.
 
         1. Server stoppen (falls haengend)
@@ -1153,7 +1152,7 @@ class SchedulerCog(commands.Cog):
             name="Auto-Update",
             value=(
                 f"Status: {au_status}\n"
-                f"Install-Zeit: {self._auto_update_hour:02d}:00 Uhr\n"
+                f"Install: Sofort bei leerem Server\n"
                 f"Nur wenn leer: {empty_req}\n"
                 f"Pending: {pending}\n"
                 f"Letztes: {last_au}"
