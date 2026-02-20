@@ -13,6 +13,11 @@ CONFIG_DIR = PROJECT_ROOT / "config"
 DATA_DIR = PROJECT_ROOT / "data"
 LOG_DIR = PROJECT_ROOT / "logs"
 
+# Phase 11a: Getrennte Datenverzeichnisse pro Bot
+GAMESERVER_DATA_DIR = DATA_DIR / "gameserver"
+MONITOR_DATA_DIR = DATA_DIR / "monitor"
+ADMIN_DATA_DIR = DATA_DIR / "admin"
+
 
 def load_env():
     """Load .env file from config directory"""
