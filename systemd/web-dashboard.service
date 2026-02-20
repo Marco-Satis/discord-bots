@@ -1,0 +1,41 @@
+[Unit]
+Description=Discord Bot Web Dashboard (Phase 13)
+Documentation=https://github.com/your-repo/discord-bots
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=botuser
+Group=botuser
+WorkingDirectory=/home/botuser/Discord_Bots
+ExecStart=/home/botuser/Discord_Bots/venv/bin/uvicorn web.app:app --host 0.0.0.0 --port ${WEB_PORT} --workers 1
+Restart=on-failure
+RestartSec=10
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+# Environment
+EnvironmentFile=/home/botuser/Discord_Bots/config/.env
+
+# Security hardening
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/botuser/Discord_Bots/data
+ReadWritePaths=/home/botuser/Discord_Bots/logs
+ReadWritePaths=/home/botuser/Discord_Bots/config
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+
+# Resource limits
+MemoryMax=512M
+CPUQuota=30%
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=web-dashboard
+
+[Install]
+WantedBy=multi-user.target

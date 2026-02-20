@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+
+{% block title %}System{% endblock %}
+{% block nav_system %}active{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>System-Verwaltung</h1>
+    <p class="page-subtitle">Webmin Server-Administration</p>
+</div>
+
+<div class="iframe-container">
+    <iframe src="/webmin/"
+            class="webmin-iframe"
+            title="Webmin Server-Verwaltung"
+            sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
+            loading="lazy">
+        <p>Webmin konnte nicht geladen werden. Stelle sicher, dass Webmin auf dem Server laeuft.</p>
+    </iframe>
+</div>
+{% endblock %}

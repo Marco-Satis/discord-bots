@@ -1,0 +1,260 @@
+{% extends "base.html" %}
+
+{% block title %}Konfiguration{% endblock %}
+{% block nav_config %}active{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Konfiguration</h1>
+    <p class="page-subtitle">Bot-Einstellungen bearbeiten (config.json)</p>
+</div>
+
+{% if success %}
+<div class="alert alert-success">{{ success }}</div>
+{% endif %}
+
+<form action="/config" method="POST" class="config-form">
+
+    <!-- Features -->
+    <section class="config-section">
+        <h2 class="section-title">Features</h2>
+        <div class="toggle-grid">
+            {% set feature_labels = {
+                "player_tracking": "Spieler-Tracking",
+                "auto_backup": "Automatisches Backup",
+                "onedrive_backup": "OneDrive Cloud-Backup",
+                "email_notifications": "E-Mail-Benachrichtigungen",
+                "auto_update": "Automatische Updates",
+                "daily_restart": "Taeglicher Neustart",
+                "voice_stats": "Voice-Channel Statistiken",
+                "status_embed": "Status-Embed",
+                "chat_bridge": "Chat-Bridge",
+                "word_filter": "Wort-Filter",
+                "anti_spam": "Anti-Spam",
+                "login_audit": "Login-Audit",
+                "auto_cleanup": "Auto-Bereinigung",
+                "savegame_protection": "Savegame-Schutz",
+                "graceful_degradation": "Graceful Degradation",
+                "steam_changelog": "Steam Changelog"
+            } %}
+            {% for key, label in feature_labels.items() %}
+            <div class="toggle-item">
+                <label class="toggle-switch">
+                    <input type="checkbox" name="features.{{ key }}"
+                           {% if config.features is defined and config.features[key] is defined and config.features[key] %}checked{% endif %}>
+                    <span class="toggle-slider"></span>
+                </label>
+                <span class="toggle-label">{{ label }}</span>
+            </div>
+            {% endfor %}
+        </div>
+    </section>
+
+    <!-- Schwellenwerte -->
+    <section class="config-section">
+        <h2 class="section-title">Schwellenwerte</h2>
+        <div class="input-grid">
+            {% set threshold_labels = {
+                "cpu_warning": ("CPU-Warnung (%)", 80),
+                "ram_warning": ("RAM-Warnung (%)", 85),
+                "disk_warning": ("Disk-Warnung (%)", 90),
+                "disk_critical": ("Disk-Kritisch (%)", 95),
+                "tick_rate_warning": ("Tick-Rate-Warnung", 20),
+                "warning_cooldown": ("Warn-Cooldown (Sek.)", 300)
+            } %}
+            {% for key, (label, default) in threshold_labels.items() %}
+            <div class="form-group">
+                <label for="thresholds.{{ key }}">{{ label }}</label>
+                <input type="number" id="thresholds.{{ key }}" name="thresholds.{{ key }}"
+                       value="{{ config.thresholds[key] if config.thresholds is defined and key in config.thresholds else default }}"
+                       min="0" max="100" step="1">
+            </div>
+            {% endfor %}
+        </div>
+    </section>
+
+    <!-- Scheduler / Intervalle -->
+    <section class="config-section">
+        <h2 class="section-title">Scheduler / Intervalle</h2>
+
+        <h3 class="subsection-title">Neustart</h3>
+        <div class="input-grid">
+            <div class="form-group">
+                <label for="scheduler.daily_restart_hour">Neustart-Stunde</label>
+                <input type="number" id="scheduler.daily_restart_hour" name="scheduler.daily_restart_hour"
+                       value="{{ config.scheduler.daily_restart_hour if config.scheduler is defined else 4 }}"
+                       min="0" max="23">
+            </div>
+            <div class="form-group">
+                <label for="scheduler.daily_restart_minute">Neustart-Minute</label>
+                <input type="number" id="scheduler.daily_restart_minute" name="scheduler.daily_restart_minute"
+                       value="{{ config.scheduler.daily_restart_minute if config.scheduler is defined else 0 }}"
+                       min="0" max="59">
+            </div>
+            <div class="form-group">
+                <label for="scheduler.min_uptime_for_restart_hours">Min. Uptime (Std.)</label>
+                <input type="number" id="scheduler.min_uptime_for_restart_hours" name="scheduler.min_uptime_for_restart_hours"
+                       value="{{ config.scheduler.min_uptime_for_restart_hours if config.scheduler is defined else 12 }}"
+                       min="0" max="168">
+            </div>
+        </div>
+
+        <div class="toggle-grid" style="margin-top: 1rem;">
+            <div class="toggle-item">
+                <label class="toggle-switch">
+                    <input type="checkbox" name="scheduler.daily_restart_enabled"
+                           {% if config.scheduler is defined and config.scheduler.daily_restart_enabled %}checked{% endif %}>
+                    <span class="toggle-slider"></span>
+                </label>
+                <span class="toggle-label">Taeglicher Neustart aktiviert</span>
+            </div>
+        </div>
+
+        <h3 class="subsection-title">Backup</h3>
+        <div class="input-grid">
+            <div class="form-group">
+                <label for="scheduler.auto_backup_interval_hours">Backup-Intervall (Std.)</label>
+                <input type="number" id="scheduler.auto_backup_interval_hours" name="scheduler.auto_backup_interval_hours"
+                       value="{{ config.scheduler.auto_backup_interval_hours if config.scheduler is defined else 6 }}"
+                       min="1" max="168">
+            </div>
+            <div class="form-group">
+                <label for="scheduler.max_local_backups">Max. lokale Backups</label>
+                <input type="number" id="scheduler.max_local_backups" name="scheduler.max_local_backups"
+                       value="{{ config.scheduler.max_local_backups if config.scheduler is defined else 20 }}"
+                       min="1" max="100">
+            </div>
+            <div class="form-group">
+                <label for="scheduler.max_cloud_backups">Max. Cloud-Backups</label>
+                <input type="number" id="scheduler.max_cloud_backups" name="scheduler.max_cloud_backups"
+                       value="{{ config.scheduler.max_cloud_backups if config.scheduler is defined else 10 }}"
+                       min="1" max="100">
+            </div>
+        </div>
+
+        <div class="toggle-grid" style="margin-top: 1rem;">
+            <div class="toggle-item">
+                <label class="toggle-switch">
+                    <input type="checkbox" name="scheduler.auto_backup_enabled"
+                           {% if config.scheduler is defined and config.scheduler.auto_backup_enabled %}checked{% endif %}>
+                    <span class="toggle-slider"></span>
+                </label>
+                <span class="toggle-label">Auto-Backup aktiviert</span>
+            </div>
+            <div class="toggle-item">
+                <label class="toggle-switch">
+                    <input type="checkbox" name="scheduler.backup_before_restart"
+                           {% if config.scheduler is defined and config.scheduler.backup_before_restart %}checked{% endif %}>
+                    <span class="toggle-slider"></span>
+                </label>
+                <span class="toggle-label">Backup vor Neustart</span>
+            </div>
+        </div>
+
+        <h3 class="subsection-title">Updates & Reports</h3>
+        <div class="input-grid">
+            <div class="form-group">
+                <label for="scheduler.update_check_interval_hours">Update-Check-Intervall (Std.)</label>
+                <input type="number" id="scheduler.update_check_interval_hours" name="scheduler.update_check_interval_hours"
+                       value="{{ config.scheduler.update_check_interval_hours if config.scheduler is defined else 6 }}"
+                       min="1" max="168">
+            </div>
+            <div class="form-group">
+                <label for="scheduler.auto_update_hour">Auto-Update-Stunde</label>
+                <input type="number" id="scheduler.auto_update_hour" name="scheduler.auto_update_hour"
+                       value="{{ config.scheduler.auto_update_hour if config.scheduler is defined else 5 }}"
+                       min="0" max="23">
+            </div>
+            <div class="form-group">
+                <label for="scheduler.daily_report_hour">Report-Stunde</label>
+                <input type="number" id="scheduler.daily_report_hour" name="scheduler.daily_report_hour"
+                       value="{{ config.scheduler.daily_report_hour if config.scheduler is defined else 7 }}"
+                       min="0" max="23">
+            </div>
+        </div>
+
+        <div class="toggle-grid" style="margin-top: 1rem;">
+            <div class="toggle-item">
+                <label class="toggle-switch">
+                    <input type="checkbox" name="scheduler.update_check_enabled"
+                           {% if config.scheduler is defined and config.scheduler.update_check_enabled %}checked{% endif %}>
+                    <span class="toggle-slider"></span>
+                </label>
+                <span class="toggle-label">Update-Check aktiviert</span>
+            </div>
+            <div class="toggle-item">
+                <label class="toggle-switch">
+                    <input type="checkbox" name="scheduler.auto_update_enabled"
+                           {% if config.scheduler is defined and config.scheduler.auto_update_enabled %}checked{% endif %}>
+                    <span class="toggle-slider"></span>
+                </label>
+                <span class="toggle-label">Auto-Update aktiviert</span>
+            </div>
+            <div class="toggle-item">
+                <label class="toggle-switch">
+                    <input type="checkbox" name="scheduler.daily_report_enabled"
+                           {% if config.scheduler is defined and config.scheduler.daily_report_enabled %}checked{% endif %}>
+                    <span class="toggle-slider"></span>
+                </label>
+                <span class="toggle-label">Tagesbericht aktiviert</span>
+            </div>
+            <div class="toggle-item">
+                <label class="toggle-switch">
+                    <input type="checkbox" name="scheduler.config_backup_enabled"
+                           {% if config.scheduler is defined and config.scheduler.config_backup_enabled %}checked{% endif %}>
+                    <span class="toggle-slider"></span>
+                </label>
+                <span class="toggle-label">Config-Backup aktiviert</span>
+            </div>
+            <div class="toggle-item">
+                <label class="toggle-switch">
+                    <input type="checkbox" name="scheduler.auto_cleanup_enabled"
+                           {% if config.scheduler is defined and config.scheduler.auto_cleanup_enabled %}checked{% endif %}>
+                    <span class="toggle-slider"></span>
+                </label>
+                <span class="toggle-label">Auto-Bereinigung aktiviert</span>
+            </div>
+        </div>
+    </section>
+
+    <!-- Restart-Timer -->
+    <section class="config-section">
+        <h2 class="section-title">Restart-Timer</h2>
+        <div class="input-grid">
+            <div class="form-group">
+                <label for="restart_timer.default_duration">Standard-Countdown (Min.)</label>
+                <input type="number" id="restart_timer.default_duration" name="restart_timer.default_duration"
+                       value="{{ config.restart_timer.default_duration if config.restart_timer is defined else 10 }}"
+                       min="1" max="60">
+            </div>
+            <div class="form-group">
+                <label for="restart_timer.stop_duration">Stop-Countdown (Min.)</label>
+                <input type="number" id="restart_timer.stop_duration" name="restart_timer.stop_duration"
+                       value="{{ config.restart_timer.stop_duration if config.restart_timer is defined else 5 }}"
+                       min="1" max="60">
+            </div>
+            <div class="form-group">
+                <label for="restart_delay">Restart-Delay (Sek.)</label>
+                <input type="number" id="restart_delay" name="restart_delay"
+                       value="{{ config.restart_delay if config.restart_delay is defined else 30 }}"
+                       min="0" max="300">
+            </div>
+        </div>
+        <div class="toggle-grid" style="margin-top: 1rem;">
+            <div class="toggle-item">
+                <label class="toggle-switch">
+                    <input type="checkbox" name="auto_restart"
+                           {% if config.auto_restart is defined and config.auto_restart %}checked{% endif %}>
+                    <span class="toggle-slider"></span>
+                </label>
+                <span class="toggle-label">Auto-Restart bei Crash</span>
+            </div>
+        </div>
+    </section>
+
+    <!-- Speichern-Button -->
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary btn-lg">Konfiguration speichern</button>
+    </div>
+</form>
+{% endblock %}

@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Dashboard{% endblock %} — Bot Dashboard</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="/static/htmx.min.js"></script>
+</head>
+<body>
+    <!-- Sidebar-Navigation -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <h2 class="sidebar-logo">Bot Dashboard</h2>
+        </div>
+
+        <!-- Benutzer-Info -->
+        {% if user %}
+        <div class="sidebar-user">
+            {% if user.avatar %}
+            <img src="{{ user.avatar }}" alt="Avatar" class="user-avatar">
+            {% else %}
+            <div class="user-avatar user-avatar-placeholder">
+                {{ user.username[:1]|upper }}
+            </div>
+            {% endif %}
+            <span class="user-name">{{ user.username }}</span>
+        </div>
+        {% endif %}
+
+        <nav class="sidebar-nav">
+            <a href="/" class="nav-item {% block nav_dashboard %}{% endblock %}">
+                <span class="nav-icon">&#9632;</span>
+                <span class="nav-label">Uebersicht</span>
+            </a>
+            <a href="/errors" class="nav-item {% block nav_errors %}{% endblock %}">
+                <span class="nav-icon">&#9888;</span>
+                <span class="nav-label">Fehler</span>
+            </a>
+            <a href="/admin-bot" class="nav-item {% block nav_admin_bot %}{% endblock %}">
+                <span class="nav-icon">&#9881;</span>
+                <span class="nav-label">Admin Bot</span>
+            </a>
+            <a href="/config" class="nav-item {% block nav_config %}{% endblock %}">
+                <span class="nav-icon">&#9998;</span>
+                <span class="nav-label">Konfiguration</span>
+            </a>
+            <a href="/system" class="nav-item {% block nav_system %}{% endblock %}">
+                <span class="nav-icon">&#9783;</span>
+                <span class="nav-label">System</span>
+            </a>
+            <a href="/auth/logout" class="nav-item nav-logout">
+                <span class="nav-icon">&#10140;</span>
+                <span class="nav-label">Abmelden</span>
+            </a>
+        </nav>
+
+        <div class="sidebar-footer">
+            <small>Phase 13 &middot; v1.0.0</small>
+        </div>
+    </aside>
+
+    <!-- Mobiler Hamburger-Button -->
+    <button class="sidebar-toggle" id="sidebarToggle" onclick="document.getElementById('sidebar').classList.toggle('open')">
+        &#9776;
+    </button>
+
+    <!-- Hauptinhalt -->
+    <main class="main-content">
+        {% if error is defined and error %}
+        <div class="alert alert-danger">{{ error }}</div>
+        {% endif %}
+        {% if success is defined and success %}
+        <div class="alert alert-success">{{ success }}</div>
+        {% endif %}
+
+        {% block content %}{% endblock %}
+    </main>
+</body>
+</html>

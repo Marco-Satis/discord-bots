@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+
+{% block title %}Fehler{% endblock %}
+{% block nav_errors %}active{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Fehler-Uebersicht</h1>
+    <p class="page-subtitle">ERROR- und WARNING-Meldungen aus den Bot-Logs</p>
+</div>
+
+<!-- Filter-Buttons -->
+<div class="filter-bar">
+    <a href="/errors"
+       class="btn btn-sm {% if active_filter == 'ALL' %}btn-primary{% else %}btn-secondary{% endif %}"
+       hx-get="/errors" hx-target="#error-table-container" hx-select="#error-table-container" hx-swap="outerHTML">
+        Alle
+    </a>
+    <a href="/errors?level=error"
+       class="btn btn-sm {% if active_filter == 'ERROR' %}btn-danger{% else %}btn-secondary{% endif %}"
+       hx-get="/errors?level=error" hx-target="#error-table-container" hx-select="#error-table-container" hx-swap="outerHTML">
+        ERROR
+    </a>
+    <a href="/errors?level=warning"
+       class="btn btn-sm {% if active_filter == 'WARNING' %}btn-warning{% else %}btn-secondary{% endif %}"
+       hx-get="/errors?level=warning" hx-target="#error-table-container" hx-select="#error-table-container" hx-swap="outerHTML">
+        WARNING
+    </a>
+    <span class="filter-info">{{ entries|length }} Eintraege</span>
+</div>
+
+<!-- Tabelle mit Auto-Refresh (alle 30 Sekunden) -->
+<div id="error-table-container"
+     hx-get="/errors{% if active_filter != 'ALL' %}?level={{ active_filter|lower }}{% endif %}"
+     hx-trigger="every 30s"
+     hx-select="#error-table-container"
+     hx-swap="outerHTML">
+    <div class="table-wrapper">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th class="col-timestamp">Zeitstempel</th>
+                    <th class="col-bot">Bot</th>
+                    <th class="col-level">Level</th>
+                    <th class="col-message">Nachricht</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if entries %}
+                    {% for entry in entries %}
+                    <tr class="{% if entry.level == 'ERROR' %}row-error{% else %}row-warning{% endif %}">
+                        <td class="col-timestamp">{{ entry.timestamp }}</td>
+                        <td class="col-bot">{{ entry.bot }}</td>
+                        <td class="col-level">
+                            <span class="level-badge level-{{ entry.level|lower }}">{{ entry.level }}</span>
+                        </td>
+                        <td class="col-message">{{ entry.message }}</td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="4" class="empty-row">Keine Fehler oder Warnungen gefunden.</td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

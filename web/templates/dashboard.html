@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+
+{% block title %}Uebersicht{% endblock %}
+{% block nav_dashboard %}active{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Server-Uebersicht</h1>
+    <p class="page-subtitle">Alle Game-Server und Bots auf einen Blick</p>
+</div>
+
+<!-- Server-Kacheln -->
+<section class="section">
+    <h2 class="section-title">Game-Server</h2>
+    <div class="tile-grid" id="server-tiles" hx-get="/" hx-trigger="every 30s" hx-select="#server-tiles" hx-swap="outerHTML">
+        {% if servers %}
+            {% for server in servers %}
+            <div class="tile">
+                <div class="tile-header">
+                    <h3 class="tile-name">{{ server.name }}</h3>
+                    <span class="status-badge {% if server.status == 'online' %}status-online{% elif server.status == 'offline' %}status-offline{% else %}status-unknown{% endif %}">
+                        {{ server.status|capitalize }}
+                    </span>
+                </div>
+                <div class="tile-body">
+                    <div class="tile-stat">
+                        <span class="stat-label">Spieler</span>
+                        <span class="stat-value">{{ server.players }}/{{ server.max_players }}</span>
+                    </div>
+                    <div class="tile-stat">
+                        <span class="stat-label">Uptime</span>
+                        <span class="stat-value">{{ server.uptime }}</span>
+                    </div>
+                    <div class="tile-stat">
+                        <span class="stat-label">Typ</span>
+                        <span class="stat-value">{{ server.type|capitalize }}</span>
+                    </div>
+                </div>
+                <div class="tile-actions">
+                    <button class="btn btn-sm btn-primary"
+                            hx-post="/api/server/{{ server.name }}/start"
+                            hx-confirm="Server {{ server.name }} starten?"
+                            hx-swap="none">Start</button>
+                    <button class="btn btn-sm btn-danger"
+                            hx-post="/api/server/{{ server.name }}/stop"
+                            hx-confirm="Server {{ server.name }} stoppen?"
+                            hx-swap="none">Stop</button>
+                    <button class="btn btn-sm btn-secondary"
+                            hx-post="/api/server/{{ server.name }}/restart"
+                            hx-confirm="Server {{ server.name }} neustarten?"
+                            hx-swap="none">Restart</button>
+                </div>
+            </div>
+            {% endfor %}
+        {% else %}
+            <div class="tile tile-empty">
+                <p>Keine Server-Daten verfuegbar. Status-Dateien werden nach dem ersten Health-Check erstellt.</p>
+            </div>
+        {% endif %}
+    </div>
+</section>
+
+<!-- System-Performance -->
+<section class="section">
+    <h2 class="section-title">System-Performance</h2>
+    <div class="stats-grid" id="system-stats">
+        <div class="stat-card">
+            <h4>CPU-Auslastung</h4>
+            <div class="progress-bar">
+                <div class="progress-fill {% if system.cpu_percent > 80 %}progress-danger{% elif system.cpu_percent > 60 %}progress-warning{% else %}progress-ok{% endif %}"
+                     style="width: {{ system.cpu_percent }}%"></div>
+            </div>
+            <span class="stat-number">{{ system.cpu_percent }}%</span>
+        </div>
+        <div class="stat-card">
+            <h4>RAM-Auslastung</h4>
+            <div class="progress-bar">
+                <div class="progress-fill {% if system.ram_percent > 85 %}progress-danger{% elif system.ram_percent > 70 %}progress-warning{% else %}progress-ok{% endif %}"
+                     style="width: {{ system.ram_percent }}%"></div>
+            </div>
+            <span class="stat-number">{{ system.ram_used_gb }} / {{ system.ram_total_gb }} GB ({{ system.ram_percent }}%)</span>
+        </div>
+        <div class="stat-card">
+            <h4>Festplatten-Auslastung</h4>
+            <div class="progress-bar">
+                <div class="progress-fill {% if system.disk_percent > 90 %}progress-danger{% elif system.disk_percent > 75 %}progress-warning{% else %}progress-ok{% endif %}"
+                     style="width: {{ system.disk_percent }}%"></div>
+            </div>
+            <span class="stat-number">{{ system.disk_used_gb }} / {{ system.disk_total_gb }} GB ({{ system.disk_percent }}%)</span>
+        </div>
+    </div>
+</section>
+
+<!-- Bot-Status -->
+<section class="section">
+    <h2 class="section-title">Bot-Status</h2>
+    <div class="bot-status-bar" id="bot-status">
+        {% for bot in bots %}
+        <div class="bot-card">
+            <span class="bot-indicator {% if bot.status == 'online' %}indicator-online{% elif bot.status == 'offline' %}indicator-offline{% else %}indicator-unknown{% endif %}"></span>
+            <div class="bot-info">
+                <span class="bot-name">{{ bot.name }}</span>
+                <span class="bot-detail">Ping: {{ bot.ping }}ms</span>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</section>
+
+<!-- Letzte Ereignisse -->
+<section class="section">
+    <h2 class="section-title">Letzte Ereignisse</h2>
+    <div class="event-feed" id="event-feed" hx-get="/" hx-trigger="every 30s" hx-select="#event-feed" hx-swap="outerHTML">
+        {% if events %}
+            <ul class="event-list">
+                {% for event in events %}
+                <li class="event-item">
+                    <span class="event-time">{{ event.timestamp if event.timestamp else '' }}</span>
+                    <span class="event-type badge-{{ event.type|default('info') }}">{{ event.type|default('info')|upper }}</span>
+                    <span class="event-message">{{ event.message if event.message else event }}</span>
+                </li>
+                {% endfor %}
+            </ul>
+        {% else %}
+            <p class="empty-text">Keine Ereignisse vorhanden.</p>
+        {% endif %}
+    </div>
+</section>
+{% endblock %}

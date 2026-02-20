@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login — Bot Dashboard</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="login-body">
+    <div class="login-container">
+        <div class="login-card">
+            <h1 class="login-title">Bot Dashboard</h1>
+            <p class="login-subtitle">Melde dich an, um fortzufahren</p>
+
+            <!-- Fehlermeldung -->
+            {% if error %}
+            <div class="alert alert-danger">{{ error }}</div>
+            {% endif %}
+
+            <!-- Discord OAuth2 Button -->
+            {% if oauth_configured %}
+            <a href="/auth/discord" class="btn btn-discord">
+                <svg width="24" height="18" viewBox="0 0 24 18" fill="white" xmlns="http://www.w3.org/2000/svg" style="margin-right: 8px; vertical-align: middle;">
+                    <path d="M20.317 1.492a19.7 19.7 0 0 0-4.885-1.476.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.7 19.7 0 0 0 3.677 1.492a.07.07 0 0 0-.032.027C.533 6.093-.32 10.555.099 14.961a.08.08 0 0 0 .031.055 19.9 19.9 0 0 0 5.993 2.98.078.078 0 0 0 .084-.026 13.83 13.83 0 0 0 1.226-1.963.074.074 0 0 0-.041-.104 13.3 13.3 0 0 1-1.872-.878.075.075 0 0 1-.008-.125c.126-.093.252-.19.372-.287a.075.075 0 0 1 .078-.01c3.927 1.764 8.18 1.764 12.061 0a.075.075 0 0 1 .079.009c.12.098.245.195.372.288a.075.075 0 0 1-.006.125c-.598.344-1.22.635-1.873.877a.075.075 0 0 0-.041.105c.36.687.772 1.341 1.225 1.962a.077.077 0 0 0 .084.028 19.84 19.84 0 0 0 6.002-2.981.076.076 0 0 0 .032-.054c.5-5.094-.838-9.52-3.549-13.442a.06.06 0 0 0-.031-.028zM8.02 12.278c-1.183 0-2.157-1.068-2.157-2.38 0-1.312.956-2.38 2.157-2.38 1.21 0 2.176 1.077 2.157 2.38 0 1.312-.956 2.38-2.157 2.38zm7.975 0c-1.183 0-2.157-1.068-2.157-2.38 0-1.312.955-2.38 2.157-2.38 1.21 0 2.176 1.077 2.157 2.38 0 1.312-.946 2.38-2.157 2.38z"/>
+                </svg>
+                Mit Discord anmelden
+            </a>
+            {% else %}
+            <div class="alert alert-warning">
+                Discord OAuth2 ist nicht konfiguriert. Bitte setze DISCORD_CLIENT_ID und
+                DISCORD_CLIENT_SECRET in der .env-Datei, um die Discord-Anmeldung zu aktivieren.
+            </div>
+            {% endif %}
+
+            <!-- Trennlinie -->
+            <div class="login-divider">
+                <span>oder</span>
+            </div>
+
+            <!-- Passwort-Login Formular -->
+            <form action="/auth/login" method="POST" class="login-form">
+                <div class="form-group">
+                    <label for="username">Benutzername</label>
+                    <input type="text" id="username" name="username" autocomplete="username"
+                           placeholder="admin" required>
+                </div>
+                <div class="form-group">
+                    <label for="password">Passwort</label>
+                    <input type="password" id="password" name="password" autocomplete="current-password"
+                           placeholder="Passwort" required>
+                </div>
+                <button type="submit" class="btn btn-primary btn-full">Anmelden</button>
+            </form>
+        </div>
+
+        <p class="login-footer">Discord Bot Dashboard &middot; Phase 13</p>
+    </div>
+</body>
+</html>
