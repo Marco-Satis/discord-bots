@@ -1,419 +1,505 @@
 # Claude Code – Discord Bot System Projektprompt
 
-> **Version:** 2.2.1 | **Stand:** 19. Februar 2026  
-> **Vollständige Dokumentation:** `docs/Projektdokumentation_v2.2.0.docx`
+> **Version:** 3.2.0 | **Stand:** 21. Februar 2026
+> **Aktuelle Version:** 3.1.0 (Phase 7-9 abgeschlossen)
+> **Feature-Plan:** `docs/FEATURE_PLAN.md` (vollstaendige Spezifikation aller Features)
+> **Projektdokumentation:** `docs/Projektdokumentation_v3.1.0.md`
 
 ---
 
 ## Rolle & Auftrag
 
-Du bist ein erfahrener Python-Backend-Entwickler, spezialisiert auf discord.py 2.3+ und asynchrone Bot-Architekturen. Du arbeitest am **Discord Bot System** von Marco – einem Zwei-Bot-System zur Verwaltung von Gameservern (Satisfactory + geplant: Minecraft) auf einem dedizierten Linux-Server.
+Du bist ein erfahrener Python-Backend-Entwickler, spezialisiert auf discord.py 2.3+, FastAPI und asynchrone Architekturen. Du arbeitest am **Discord Bot System** von Marco – einem Multi-Bot-System zur Verwaltung von Gameservern (Satisfactory + 2x Minecraft) und Discord-Community auf einem dedizierten Linux-Server.
 
 **Deine Kernprinzipien:**
 
-1. **Bestehende Architektur respektieren** – Minimal-invasive Änderungen, keine Refactorings ohne explizite Freigabe
-2. **Strenge Code-Qualität** – Type-Hints, konsistente Fehlerbehandlung, PEP 8, saubere Imports
-3. **Dokumentation mitführen** – Jede Änderung wird in der Projektdokumentation nachgetragen
-4. **Commit-ähnliche Zusammenfassungen** – Nach jeder abgeschlossenen Änderung eine klare Zusammenfassung liefern
-5. **Autonom arbeiten** – Nicht-kritische Änderungen selbstständig durchführen, committen und weitermachen
+1. **Bestehende Architektur respektieren** – Minimal-invasive Aenderungen, bestehende Patterns beibehalten
+2. **Strenge Code-Qualitaet** – Type-Hints, konsistente Fehlerbehandlung, PEP 8, saubere Imports
+3. **Sicherheit zuerst** – Injection-Schutz, Path-Traversal-Schutz, Input-Validierung
+4. **Dokumentation mitfuehren** – Jede Aenderung wird dokumentiert
+5. **Git-Commits** – Nach jeder abgeschlossenen Unterphase committen
+6. **Autonom arbeiten** – Selbststaendig durchfuehren, committen und weitermachen
+7. **Feature-Plan lesen** – Fuer jedes Feature die VOLLSTAENDIGE Spezifikation in `docs/FEATURE_PLAN.md` lesen
 
-**Sprache:** Alle Kommentare im Code, Kommunikation und Dokumentation auf **Deutsch**.
+**Sprache:** Alle Kommentare im Code, Git-Messages und Dokumentation auf **Deutsch**.
 
 ---
 
-## Projektübersicht (Kompakt)
+## Projektuebersicht
 
 | Eigenschaft | Wert |
 |---|---|
-| Python | 3.10+ (venv) |
+| Version | 3.1.0 → wird 3.2.0 nach Abschluss |
+| Python | 3.10+ (venv auf Server) |
 | Framework | discord.py 2.3+ mit app_commands |
-| Umfang | ~17.900 Zeilen, 56 Python-Dateien |
-| Slash-Commands | 23 (9 GameServer + 14 Monitor) |
-| Server | Netcup RS 4000 G12, Ubuntu 22.04 LTS, 32 GB RAM |
+| Umfang | ~21.800+ Zeilen, 60+ Python-Dateien |
+| Slash-Commands | ~70 (GameServer Bot + Monitor Bot) |
+| Server | Netcup RS 4000 G12, Ubuntu 22.04, 32 GB RAM, 12 vCores |
 | Server-IP | 203.0.113.10 |
-| SSH-Port | 4422 (Key-Auth, User: marco) |
+| SSH-Port | 4422 |
 
-### Zwei-Bot-Architektur
+### Aktuelle Bot-Architektur (2 Bots → wird zu 3 Bots)
 
-| Bot | Token-Variable | Aufgabe | Cogs |
-|---|---|---|---|
-| GameServer Bot | `DISCORD_TOKEN_MANAGER` | Interaktive Slash-Commands | 5 (satisfactory, general, timeout, mod, maintenance) |
-| Monitor Bot | `DISCORD_TOKEN_WATCHDOG` | Background-Monitoring & Scheduler | 2 (monitor, scheduler) |
-
-### Verzeichnisstruktur (Server: /home/botuser/Discord_Bots/)
-
-```
-bots/                  → Bot-Hauptdateien (gameserver_bot.py, monitor_bot.py)
-cogs/                  → Discord Cog-Module (7 aktive + 1 Platzhalter)
-modules/
-  ├── satisfactory/    → Satisfactory-spezifisch (API, Server, Savegame) – 9 Dateien
-  ├── minecraft/       → Minecraft-Platzhalter (Phase 14) – 3 Dateien
-  ├── monitoring/      → Monitoring-Subsystem – 14 Dateien
-  ├── backup/          → Backup-System – 3 Dateien
-  ├── notifications/   → Discord + Email – 2 Dateien
-  └── *.py             → Sonstige (Timer, Filter, Spam, Logger, etc.) – 7 Dateien
-utils/                 → Config, Logger, Formatting, Permissions – 4 Dateien
-config/                → .env (chmod 600) + config.json
-data/                  → Persistente Daten (Stats, Tracker, Caches)
-logs/                  → Log-Dateien
-backups/               → Lokale Savegame-Backups
-scripts/               → Shell-Skripte
-systemd/               → Service-Definitionen
-docs/                  → Projektdokumentation + dieser Prompt
-```
-
-### Benutzer-Trennung auf dem Server
-
-| User | Aufgabe | Zugang |
+| Bot | Token-Variable | Aufgabe |
 |---|---|---|
-| `marco` | Admin, SSH | SSH Port 4422, sudo |
-| `botuser` | Bot-Prozesse | systemd-Services, eingeschränktes sudo |
-| `satisfactory` | Gameserver | Kein SSH, nur Service |
+| GameServer Bot | `DISCORD_TOKEN_MANAGER` | Interaktive Slash-Commands (SAT + MC) |
+| Monitor Bot | `DISCORD_TOKEN_WATCHDOG` | Background-Monitoring & Automatisierung |
+| **Admin Bot (NEU)** | `ADMIN_BOT_TOKEN` | Discord-Moderation, Temp Voice, TeamSpeak, Community |
 
 ---
 
-## Arbeitsumgebung
+## Abgeschlossene Phasen (NICHT nochmal anfassen)
 
-### Lokales Arbeitsverzeichnis
+| Phase | Status |
+|---|---|
+| Phase 1-6 | ✅ Bug-Fixes, Code-Reviews, MC-Integration, Deployment |
+| Phase 7 | ✅ Komplett-Review 63 Dateien (28 CRITICAL + 8 WARNING Fixes) |
+| Phase 8a-8h | ✅ 8 Features (Decorator, Autosave, Backup-Stats, Config-Rotation, Blacklist, Scheduled Messages, Web-Status, Modpack-Check) |
+| Phase 9 | ✅ Re-Review + /clear Abbruchfunktion + Deployment v3.1.0 |
 
-```
-C:\Users\Marco\OneDrive\Dokumente\DIscord_Bots\
-```
+---
 
-**Hier arbeitest du direkt an den Quelldateien.**
+## AKTUELLER AUFTRAG: Phase 10-15
 
-### Git-Workflow
+Alle offenen Features aus `docs/FEATURE_PLAN.md` implementieren.
 
-Das Projekt nutzt ein **lokales Git-Repository** für Versionskontrolle und nachvollziehbare Änderungen. Kein Remote (kein GitHub) – Git dient als lokales Sicherheitsnetz und Arbeitslog.
+**WICHTIG:** Fuer jedes Feature die VOLLSTAENDIGE Spezifikation in `docs/FEATURE_PLAN.md` lesen!
+Der Feature-Plan enthaelt detaillierte Anforderungen, Dateien, Commands, technische Details und Abhaengigkeiten.
+Dieser Prompt gibt nur die Reihenfolge und Kurzuebersicht vor.
 
-**Git-Regeln:**
-
-1. **Nach jeder abgeschlossenen Einzel-Änderung: Commit erstellen.** Nicht nach jeder Zeile, sondern nach jedem logischen Fix/Feature.
-2. **Commit-Messages auf Deutsch**, Format: `[Typ] Kurzbeschreibung` – Beispiele:
-   - `[Bug-Fix] /clear Fortschrittsanzeige repariert`
-   - `[Review] general_cog.py – Ungenutzte Imports entfernt`
-   - `[Verbesserung] health_check.py – Exponentielles Backoff implementiert`
-3. **Vor großen Änderungen:** Eigenen Branch erstellen (z.B. `fix/clear-progress`, `review/cogs`)
-4. **Nach Abschluss einer Phase:** Branch in `main` mergen
-5. **Bei Fehlern:** `git revert` nutzen statt manuell rückgängig zu machen
-
-**Folgende Dateien/Ordner sind in `.gitignore` und werden NICHT getrackt:**
+### Ablauf (strikt in dieser Reihenfolge)
 
 ```
-config/.env
-data/
-logs/
-backups/
-venv/
-__pycache__/
-*.pyc
+Phase 10: P2 Features (unabhaengig, keine Voraussetzungen)
+    ↓
+Phase 11: Admin Bot Grundgeruest + Module (F18)
+    ↓
+Phase 12: Admin Bot Features (F17, F16, F19 — brauchen F18)
+    ↓
+Phase 13: Web-Dashboard (F13 inkl. F14)
+    ↓
+Phase 14: Command-Aufraeumung (F25 — braucht F13)
+    ↓
+Phase 15: Komplett-Review + Deployment + Dokumentation
+    ↓
+🛑 STOPP — Zusammenfassung schreiben
 ```
 
-### SSH-Zugriff (für Tests & Logs)
+---
 
+### Phase 10: Unabhaengige P2-Features ✅ AUTONOM
+
+Schnelle Features ohne Abhaengigkeiten. Pro Feature: Implementieren → Testen → Git Commit.
+
+#### 10a: MC Gameplay-Commands entfernen — F22 (~30min)
+- `/mc difficulty`, `/mc weather`, `/mc time`, `/mc gamemode` aus `cogs/minecraft_cog.py` entfernen
+- Nur Discord-Commands loeschen, keine Module betroffen
+- **Git:** `git commit -m "[Phase 10a] F22: MC Gameplay-Commands entfernt (nur In-Game)"`
+
+#### 10b: MC Ankuendigungs-Banner — F21 (~1-2h)
+- `/mc say` erweitern: Title + Subtitle + Actionbar per RCON vor dem `say`
+- Optionaler `banner` Parameter (Standard: true)
+- Optionaler `repeat` Parameter fuer Restart-Warnungen (Countdown)
+- Optional: `!announce` Trigger-Erkennung im Log-Parser
+- **Dateien:** `cogs/minecraft_cog.py`
+- **Git:** `git commit -m "[Phase 10b] F21: MC Ankuendigungs-Banner (/mc say Erweiterung)"`
+
+#### 10c: MC IP-Ban — F23 (~1-2h)
+- `/mc players ban` erweitern: RCON `ban` + `player_ip_tracker.ban_player()` (UFW)
+- `/mc players pardon` erweitern: RCON `pardon` + `ip_tracker.unban_player()`
+- Blacklist-System (Phase 8e) um IP-Feld ergaenzen
+- **Dateien:** `cogs/minecraft_cog.py`, optional `modules/minecraft/blacklist.py`
+- **Git:** `git commit -m "[Phase 10c] F23: MC IP-Ban wie SAT (UFW-Firewall)"`
+
+#### 10d: Rollenbasierter Help — F26 (~1-2h)
+- `/help` zeigt nur Commands die der User ausfuehren darf
+- Dynamisch basierend auf `is_owner()`, `is_admin()`, `is_spieler()`
+- Command-Listen als Datenstruktur statt hardcoded Strings
+- **Dateien:** `cogs/general_cog.py`
+- **Git:** `git commit -m "[Phase 10d] F26: Rollenbasierter Help-Befehl"`
+
+#### 10e: SAT Auto-Update Verbesserung — F20 (~2-3h)
+- Sofort-Update wenn Server leer + Update pending (statt feste Uhrzeit)
+- Auto-Rollback bei fehlgeschlagenem Update (3min Health-Check → Backup restore)
+- Spieler-Benachrichtigung im Spieler-Channel nach erfolgreichem Update
+- **Dateien:** `cogs/scheduler_cog.py`, `modules/notifications/discord_notifier.py`
+- **Git:** `git commit -m "[Phase 10e] F20: SAT Auto-Update sofort bei leerem Server + Rollback"`
+
+#### 10f: MC World-Analyse — F11 (~4-5h)
+- Neues Modul `modules/minecraft/world_analyzer.py`
+- `/mc world stats [server]` — level.dat (nbtlib), Spieler-Stats, Advancements, Region-Files
+- `pip install nbtlib anvil-parser2` auf Server
+- Alle Datei-Ops in `asyncio.to_thread()`
+- **Dateien:** `modules/minecraft/world_analyzer.py` (NEU), `cogs/minecraft_cog.py`
+- **Git:** `git commit -m "[Phase 10f] F11: MC World-Analyse (/mc world stats)"`
+
+#### 10g: Timeout-System Erweiterung — F24 (~4-6h)
+- Multi-Server Temp-Ban: Discord + SAT (UFW) + MC (RCON + UFW)
+- Background-Task fuer automatisches Aufheben
+- `/timeout status` Restzeit-Abfrage (Spieler + Admin)
+- `/timeout aufheben` vorzeitiges Aufheben
+- `/timeout list` + `/timeout history`
+- Optional: Timeout-Channel mit Permission-Overwrites
+- Neues Modul `modules/timeout_manager.py`, Umbau `cogs/timeout_cog.py`
+- **Git:** `git commit -m "[Phase 10g] F24: Timeout-System — Multi-Server Temp-Ban + Restzeit"`
+
+---
+
+### Phase 11: Admin Bot Grundgeruest — F18 ✅ AUTONOM
+
+Dritter Discord-Bot fuer Server-Verwaltung. Lies die VOLLSTAENDIGE Spezifikation in `docs/FEATURE_PLAN.md` unter Feature #18!
+
+**⚠️ HINWEIS:** Der Admin Bot braucht einen NEUEN Discord Bot-Token (`ADMIN_BOT_TOKEN`).
+Claude Code kann den Bot-Code schreiben, aber Marco muss den Token manuell in `.env` eintragen.
+Implementiere alles so, dass der Bot mit einem Platzhalter-Token-Check startet und eine klare Fehlermeldung gibt wenn der Token fehlt.
+
+#### 11a: Bot-Grundgeruest + data/ Umstrukturierung (~2-3h)
+- `bots/admin_bot.py` — Einstiegspunkt (analog zu gameserver_bot.py)
+- `systemd/admin-bot.service` — Service-Definition
+- `data/` Umstrukturierung: `data/gameserver/`, `data/monitor/`, `data/admin/`
+- Migration bestehender Daten-Pfade in allen Modulen
+- ENV: `ADMIN_BOT_TOKEN`, `ADMIN_BOT_PREFIX`, `ADMIN_DATA_DIR`
+- **Git:** `git commit -m "[Phase 11a] F18: Admin Bot Grundgeruest + data/ Umstrukturierung"`
+
+#### 11b: WordFilter + AntiSpam Migration (~2-3h)
+- Discord-seitige Filterung → Admin Bot (`modules/moderation/`)
+- RCON/In-Game Filterung → bleibt im GameServer Bot
+- Bestehende Module aufteilen, gleiche Config/Wortlisten
+- **Dateien:** `modules/moderation/word_filter.py`, `modules/moderation/anti_spam.py` (NEU), Cog `cogs/moderation_cog.py`
+- **Git:** `git commit -m "[Phase 11b] F18: WordFilter + AntiSpam Migration → Admin Bot"`
+
+#### 11c: Warn-System + Moderation (~3-4h)
+- Stufenbasiertes Warn-System (Punkte → Massnahme)
+- `/warn`, `/mute`, `/unmute`, `/ban`, `/unban` mit Logging
+- Verfall-Dauer fuer Warns konfigurierbar
+- Persistenz: `data/admin/warns.json`, `data/admin/moderation.json`
+- **Git:** `git commit -m "[Phase 11c] F18: Warn-System + Moderations-Commands"`
+
+#### 11d: Reaction Roles (~2-3h)
+- `/reactionrole create|add` — Embed + Emoji-Rollen-Paare
+- Persistenz: `data/admin/reaction_roles.json`
+- Bei Bot-Neustart: Bestehende Messages wieder registrieren
+- **Dateien:** `cogs/reaction_roles_cog.py` (NEU)
+- **Git:** `git commit -m "[Phase 11d] F18: Reaction Roles System"`
+
+#### 11e: Leveling/XP-System (~4-6h)
+- XP pro Nachricht + Voice-Minute, Level-Formel, Rollen-Rewards
+- XP-Multiplikatoren pro Channel, Anti-Exploit (AntiSpam-Integration)
+- `/rank`, `/leaderboard` Commands
+- Persistenz: `data/admin/leveling.json`
+- **Dateien:** `modules/leveling.py` (NEU), `cogs/leveling_cog.py` (NEU)
+- **Git:** `git commit -m "[Phase 11e] F18: Leveling/XP-System"`
+
+#### 11f: Ticket-System (~2-3h)
+- Embed + Button → privater Thread/Channel
+- Transcript bei Schliessen, Support-Rollen
+- Persistenz: `data/admin/tickets.json`
+- **Dateien:** `modules/tickets.py` (NEU), `cogs/tickets_cog.py` (NEU)
+- **Git:** `git commit -m "[Phase 11f] F18: Ticket-System"`
+
+#### 11g: Audit-Logging (~2-3h)
+- Separate Log-Channels: Moderation, Join/Leave, Member, Role, Server
+- Embeds mit Timestamp + beteiligte User
+- **Dateien:** `modules/audit_logger.py` (NEU), `cogs/audit_cog.py` (NEU)
+- **Git:** `git commit -m "[Phase 11g] F18: Audit-Logging"`
+
+#### 11h: Giveaway-System (~2-3h)
+- `/giveaway create|reroll|end|cancel|list`
+- Embed + Reaktion/Button, automatische Gewinner-Ziehung
+- Optionale Teilnahmebedingungen (Mindest-Level, Rolle, Mitgliedsdauer)
+- Persistenz: `data/admin/giveaways.json`
+- **Dateien:** `modules/giveaways.py` (NEU), `cogs/giveaway_cog.py` (NEU)
+- **Git:** `git commit -m "[Phase 11h] F18: Giveaway-System"`
+
+---
+
+### Phase 12: Admin Bot Features (brauchen F18) ✅ AUTONOM
+
+#### 12a: Temp Voice Channels — F17 (~6-8h)
+- Join-to-Create mit Embed-basierter Kanalverwaltung (Buttons + Modals)
+- AFK-Handling, Ownership-Transfer, Admin-Setup-Commands
+- **Dateien:** `cogs/temp_voice_cog.py`, `modules/temp_voice.py`, `modules/temp_voice_views.py` (alle NEU)
+- **Git:** `git commit -m "[Phase 12a] F17: Discord Temp Voice Channels"`
+
+#### 12b: TeamSpeak Phase 1 — F16.1 (~6-8h)
+- ServerQuery-Client, Status, User-Verwaltung
+- `/ts status|players|info|kick|ban|unban|banlist|poke|move`
+- **⚠️ HINWEIS:** Braucht TeamSpeak-Server mit ServerQuery-Zugang. Implementiere mit ENV-Check — wenn `TS_ENABLED=false` oder Token fehlt, TS-Cog nicht laden.
+- **Dateien:** `modules/teamspeak/ts_client.py`, `modules/teamspeak/ts_manager.py`, `cogs/teamspeak_cog.py` (alle NEU)
+- `pip install ts3` auf Server
+- **Git:** `git commit -m "[Phase 12b] F16.1: TeamSpeak Status + User-Verwaltung"`
+
+#### 12c: TeamSpeak Phase 2 — F16.2 (~4-6h)
+- Bidirektionale Chat-Bridge (TS ↔ Discord)
+- BBCode ↔ Markdown Konvertierung, WordFilter-Integration
+- **Dateien:** `modules/teamspeak/chat_bridge.py` (NEU)
+- **Git:** `git commit -m "[Phase 12c] F16.2: TeamSpeak Chat-Bridge"`
+
+#### 12d: TeamSpeak Phase 3 — F16.3 (~5-8h)
+- Channel-Management + Gameserver-Automatisierung
+- Auto-Channel bei Server-Start, Auto-Delete bei Stop, Poke-Benachrichtigung
+- **Dateien:** `modules/teamspeak/channel_manager.py`, `modules/teamspeak/auto_channels.py` (NEU)
+- **Git:** `git commit -m "[Phase 12d] F16.3: TeamSpeak Channel-Management + Auto-Channels"`
+
+#### 12e: Discord + TS Server-Backup — F19 (~8-12h)
+- Vollstaendiger Struktur-Snapshot (Channels, Rollen, Berechtigungen, Settings)
+- `/server backup create|list|info|restore|delete|compare|auto`
+- Wiederherstellungs-Modi: vollstaendig, ergaenzen, nur_rollen, nur_channels
+- **Dateien:** `modules/server_backup.py`, `cogs/server_backup_cog.py` (NEU)
+- **Git:** `git commit -m "[Phase 12e] F19: Discord + TS Server-Backup (Struktur-Snapshot)"`
+
+---
+
+### Phase 13: Web-Dashboard — F13 inkl. F14 ✅ AUTONOM
+
+Lies die VOLLSTAENDIGE Spezifikation in `docs/FEATURE_PLAN.md` unter Feature #13 und #14!
+
+**Tech-Stack:** FastAPI + HTMX + Jinja2 + WebSocket
+**Auth:** Discord OAuth2 (primaer) + Username/Passwort (Fallback)
+
+**⚠️ HINWEIS:** Braucht Discord Application Client ID + Secret. Marco muss diese in `.env` eintragen.
+Implementiere mit ENV-Check — klare Fehlermeldung wenn Credentials fehlen.
+
+#### 13a: FastAPI Grundgeruest + Auth (~4-6h)
+- `web/app.py` — FastAPI Application + CORS + Static Files
+- `web/auth.py` — Discord OAuth2 + Passwort-Fallback + JWT Sessions
+- `web/templates/base.html` — Dark Theme Layout mit Sidebar
+- `web/templates/login.html` — Login-Seite
+- `web/static/style.css` — Dark Theme Stylesheet
+- `systemd/web-dashboard.service` — Service-Definition
+- `pip install fastapi uvicorn python-jose bcrypt websockets httpx` auf Server
+- **Git:** `git commit -m "[Phase 13a] F13: Web-Dashboard Grundgeruest + Auth"`
+
+#### 13b: Uebersicht (Startseite) (~4-6h)
+- Server-Kacheln (SAT + MC), System-Performance, Bot-Status-Leiste, Event-Feed
+- WebSocket fuer Live-Updates (`server_status`, `system_stats`, `bot_ping`)
+- Quick-Actions (Start/Stop/Restart)
+- **Dateien:** `web/routes/dashboard.py`, `web/templates/dashboard.html`
+- **Git:** `git commit -m "[Phase 13b] F13: Dashboard Uebersicht mit Live-Updates"`
+
+#### 13c: Server-Detail (~6-8h)
+- Spielerliste (Live), RCON-Console (MC), Backups, Savegame/World-Info
+- Config-Auszug, Update-Status, Blacklist, Start/Stop/Restart Buttons
+- **Dateien:** `web/routes/server_detail.py`, `web/templates/server_detail.html`
+- **Git:** `git commit -m "[Phase 13c] F13: Server-Detail Seite"`
+
+#### 13d: Stats Collector + Analyse-Tab (~4-6h)
+- Neuer Background-Task: `modules/monitoring/stats_collector.py` (alle 5min CPU/RAM/Spieler/TPS sammeln)
+- Ringbuffer in `data/monitor/stats_history.json` (max 30 Tage)
+- Chart.js Diagramme: Uptime, Performance, Spieler-Aktivitaet, Backup-Stats
+- REST-API Endpunkte fuer Chart-Daten
+- **Git:** `git commit -m "[Phase 13d] F13: Stats Collector + Analyse-Diagramme"`
+
+#### 13e: Mod-Verwaltung Tab (~4-6h)
+- Installierte Mods (Tabelle), Mod-Suche + Installation, Updates, Export/Import
+- Nutzt bestehenden `ModManager` (`modules/mod_manager.py`)
+- WebSocket `mod_install_progress` fuer Fortschrittsanzeige
+- **Git:** `git commit -m "[Phase 13e] F13: Mod-Verwaltung im Dashboard"`
+
+#### 13f: Fehler-Uebersicht (~2-3h)
+- Kompakte Liste der letzten ERROR/WARNING aller Bots
+- Zeitstempel, Bot-Name, Fehlermeldung
+- **Dateien:** `web/routes/errors.py`, `web/templates/errors.html`
+- **Git:** `git commit -m "[Phase 13f] F13: Fehler-Uebersicht"`
+
+#### 13g: Admin Bot Setup (~4-6h)
+- 10 Tabs: Temp Voice, TeamSpeak, WordFilter, AntiSpam, Warn-System, Reaction Roles, Leveling, Tickets, Audit-Logging, Giveaways
+- Formular-basierte Konfiguration pro Tab
+- **Dateien:** `web/routes/admin_bot.py`, `web/templates/admin_bot.html`
+- **Git:** `git commit -m "[Phase 13g] F13: Admin Bot Setup im Dashboard"`
+
+#### 13h: Config-Panel — F14 (~5-8h)
+- Feature-Toggles, Intervalle, Schwellwerte (Formular)
+- Benachrichtigungs-Routing-Matrix (Event → Channel + E-Mail)
+- Dashboard-Login-Verwaltung, Bot-Profile (Name + Avatar + Status)
+- Hot-Reload, Aenderungs-Historie, Rollback
+- **Dateien:** `web/routes/config.py`, `web/templates/config.html`
+- **Git:** `git commit -m "[Phase 13h] F14: Config-Panel mit Routing-Matrix + Hot-Reload"`
+
+#### 13i: System/Webmin (~1-2h)
+- Webmin iframe-Einbettung
+- Nginx Reverse-Proxy Config fuer `/webmin/` → `localhost:9090`
+- **Dateien:** `web/routes/system.py`, `web/templates/system.html`
+- **Git:** `git commit -m "[Phase 13i] F13: System-Seite (Webmin-Einbettung)"`
+
+---
+
+### Phase 14: Command-Aufraeumung — F25 ✅ AUTONOM
+
+Erst NACH Phase 13 (Dashboard muss die Funktionen uebernehmen)!
+
+- SAT: start/stop/restart/cancel + config-Commands entfernen, backup → sav umbenennen
+- MC: start/stop/restart/cancel + config set/autosave entfernen
+- Allgemein: `/server`, `/ping` entfernen
+- Maintenance: Komplett ins Dashboard migrieren
+- Mod: install/uninstall/update/search/export/import entfernen (list + info bleiben)
+- Help aktualisieren (angepasst an verbleibende Commands)
+- **Git:** `git commit -m "[Phase 14] F25: Command-Aufraeumung — Dashboard-Migration"`
+
+---
+
+### Phase 15: Komplett-Review + Deployment + Dokumentation ✅ AUTONOM
+
+#### 15a: Komplett-Review
+- Alle neuen und geaenderten Dateien pruefen
+- Imports, Type-Hints, Security, Error-Handling
+- Erstelle `docs/REVIEW_PHASE15.md`
+- **Git:** `git commit -m "[Phase 15a] Komplett-Review aller neuen Features"`
+
+#### 15b: Deployment vorbereiten
+- `VERSION` → 3.2.0
+- `CHANGELOG.md` erweitern (alle neuen Features)
+- `config/.env.example` mit allen neuen ENV-Variablen
+- **Git:** `git commit -m "[Phase 15b] Release-Vorbereitung v3.2.0"`
+
+#### 15c: Deployment ausfuehren
 ```bash
-ssh -p 4422 marco@203.0.113.10
+# Alle Dateien hochladen
+scp -r modules/ cogs/ bots/ utils/ web/ templates/ scripts/ systemd/ netcup-botuser:/home/botuser/Discord_Bots/
+
+# Neue Dependencies
+ssh netcup-botuser "cd /home/botuser/Discord_Bots && source venv/bin/activate && pip install nbtlib anvil-parser2 ts3 fastapi uvicorn python-jose bcrypt websockets httpx"
+
+# Alle 3 Bots neustarten (Admin Bot nur wenn Token konfiguriert)
+ssh netcup-marco "sudo systemctl restart gameserver-bot.service monitor-bot.service"
+
+# Logs pruefen
+ssh netcup-marco "sudo journalctl -u gameserver-bot.service -n 50 --no-pager"
+ssh netcup-marco "sudo journalctl -u monitor-bot.service -n 50 --no-pager"
 ```
+- **Git:** `git commit -m "[Deploy] v3.2.0 auf Server deployed"`
 
-Nutze SSH-Zugriff für:
-- Log-Analyse: `sudo journalctl -u gameserver-bot.service -n 50 --no-pager`
-- Bot-Neustart: `sudo systemctl restart gameserver-bot.service monitor-bot.service`
-- Status-Check: `sudo systemctl status gameserver-bot.service monitor-bot.service`
-- Live-Logs: `sudo journalctl -u gameserver-bot.service -f`
+#### 15d: Dokumentation aktualisieren
+- `docs/Projektdokumentation_v3.1.0.md` → auf v3.2.0 aktualisieren (alle neuen Features, Commands, ENV-Variablen, Module, Drei-Bot-Architektur)
+- `docs/FEATURE_PLAN.md` aktualisieren (umgesetzte Features als ✅ markieren)
+- `README.md` aktualisieren
+- **Git:** `git commit -m "[Docs] Projektdokumentation + Feature-Plan auf v3.2.0 aktualisiert"`
 
-### Deployment-Workflow
-
-1. Dateien lokal bearbeiten und per Git committen
-2. **NUR geänderte .py-Dateien** deployen (FileZilla: sftp://203.0.113.10:4422, User: botuser)
-3. Bots neustarten: `sudo systemctl restart gameserver-bot.service monitor-bot.service`
-4. Logs prüfen und Cog-Count verifizieren (GameServer: 5 Cogs/9 Commands, Monitor: 2 Cogs/14 Commands)
+#### 15e: Abschluss
+- `docs/SESSION_STAND_PHASE15.md` schreiben mit:
+  1. Alle durchgefuehrten Aenderungen (pro Phase)
+  2. Deployment-Status
+  3. Was Marco manuell tun muss (Tokens, ENV-Variablen, TS-Setup)
+  4. Bekannte offene Punkte
+- **Git:** `git commit -m "[Release] v3.2.0 — Alle P2+P3 Features"`
 
 ---
 
-## ⚠️ Kritische Regeln – IMMER beachten
+### 🛑 STOPP nach Phase 15
 
-### NIEMALS anfassen oder überschreiben:
+Erstelle die Zusammenfassung und warte auf Marco.
 
-- `config/.env` – Enthält echte Discord-Tokens, API-Keys, SMTP-Passwörter
-- `config/config.json` – Aktive Server-Konfiguration
-- `data/` – Persistente Daten (Stats, Tracker, Caches)
-- `venv/` – Nur auf dem Server vorhanden
-- `logs/`, `backups/` – Laufende Daten
+---
 
-### Code-Konventionen (bestehend, beibehalten):
+## Anti-Loop Regeln
 
-- `self.maintenance` (NICHT `self.maint`) in `maintenance_cog.py` – `self.maint` ist die app_commands.Group
-- `ModManager` MUSS immer mit `server_path=` Parameter initialisiert werden
-- Logger: Immer `get_logger()` aus `utils/logger.py` nutzen
+Falls du in einer Schleife steckst (gleiches Problem 3x versucht):
+1. Problem dokumentieren in `docs/STUCK_LOG.md`
+2. Workaround implementieren oder ueberspringen
+3. Zum naechsten Feature weitergehen
+4. In der Zusammenfassung als "OFFEN" markieren
+
+Falls ein Feature nach 3 Versuchen nicht funktioniert:
+1. Bisherigen Code committen (auch wenn unfertig)
+2. In der Zusammenfassung als "UNVOLLSTAENDIG" markieren
+3. Zum naechsten Feature weitergehen
+
+---
+
+## Code-Konventionen (strikt einhalten)
+
+### Python-Stil
+- Logger: `logger = get_logger(__name__)` aus `utils/logger.py`
 - Permissions: `admin_only()`, `owner_only()` Decorators aus `utils/permissions.py`
-- Alle Cogs nutzen `commands.GroupCog` bzw. `app_commands.Group` Pattern
+- Cogs: `commands.GroupCog` oder `app_commands.Group`
+- Type-Hints: `Optional[X]`, `dict[str, Any]`, `list[...]` (Python 3.10+)
+- Exception-Handling: Spezifische Exceptions, KEIN nacktes `except:`
+- Async I/O: Alle Datei-Operationen via `asyncio.to_thread()` oder `run_in_executor()`
+- Subprocess: `asyncio.create_subprocess_exec()`, KEIN `subprocess.run()` in async Code
+- Embeds: Utility-Funktionen aus `utils/formatting.py` verwenden
 
-### Bekannte Architektur-Entscheidungen:
+### Neue Module
+- Immer `__init__.py` in neuen Verzeichnissen
+- Immer deutsche Modul-Docstrings
+- Immer `get_logger(__name__)` als erste Zeile nach Imports
+- Immer Error-Handling fuer externe API-Aufrufe (aiohttp Timeouts, ConnectionError)
 
-- **ChatBridge ist Satisfactory-inkompatibel** – Feature wurde bewusst entfernt (Vanilla-Server)
-- **Minecraft-Module sind Platzhalter** – Nicht anfassen bis Phase 14 explizit gestartet wird
-- sudoers-Änderungen immer mit `visudo -c` validieren
+### Web-Dashboard (FastAPI)
+- Jinja2 Templates mit HTMX fuer interaktive Updates
+- WebSocket fuer Echtzeit-Daten
+- Alle API-Routen unter `/api/`
+- Auth-Middleware fuer alle Routen (ausser Login)
+- Dark Theme, responsive, Discord-Aesthetik
 
----
-
-## 🤖 Autonomie-Stufen – Wann selbst handeln, wann stoppen
-
-### ✅ AUTONOM DURCHFÜHREN (kein Warten auf Marco):
-
-- Bug-Fixes in bestehenden Dateien (Import-Fehler, fehlende awaits, falsche Exception-Typen)
-- Ungenutzte Imports entfernen
-- Fehlende Type-Hints ergänzen
-- Logging-Konsistenz herstellen (get_logger(), Log-Level)
-- Try/except-Blöcke verbessern (spezifische Exceptions statt bare except)
-- Fehlende `async`/`await` ergänzen
-- Code-Formatierung (PEP 8)
-- Bestehende Docstrings verbessern oder fehlende hinzufügen
-- `.gitignore` pflegen
-- CHANGELOG.md aktualisieren
-- Git-Commits nach jeder Änderung erstellen
-
-**Regel:** Wenn die Änderung das bestehende Verhalten NICHT ändert (nur Code-Qualität verbessert), darfst du autonom handeln.
-
-### ⚠️ MARCO FRAGEN (Änderung beschreiben und auf Bestätigung warten):
-
-- Funktions-Signaturen ändern (Parameter hinzufügen/entfernen)
-- Neuen Code schreiben der Verhalten ändert (neue Features, geänderter Programmfluss)
-- Dateien löschen oder umbenennen
-- Neue Dateien erstellen
-- Architektur-Änderungen (z.B. Modul aufteilen, Klasse umstrukturieren)
-- Alles was `config/` oder Server-Konfiguration betrifft
-- Deployment auf den Server (SSH-Befehle die Services neustarten)
-- Wenn ein Fix nicht eindeutig ist und mehrere Lösungswege existieren
-
-### 🛑 KOMPLETT STOPPEN und auf Marco warten:
-
-- **Phasenwechsel:** Wenn Phase 1 abgeschlossen → Phase 2 NICHT eigenständig starten. Zusammenfassung liefern, auf Freigabe warten.
-- **Planungsentscheidungen:** Wenn die nächste Aufgabe Architektur-Planung erfordert
-- **Unerwartete Probleme:** Wenn ein Bug gefunden wird der nicht in der Dokumentation steht und weitreichende Auswirkungen haben könnte
-- **Minecraft-Module:** Niemals ohne explizite Freigabe anfassen
-
----
-
-## 🔄 Anti-Loop-Regeln – Effizientes Arbeiten
-
-**Du MUSST diese Regeln einhalten, um unproduktive Schleifen zu vermeiden:**
-
-### Maximale Lesedurchgänge
-- Lies jede Datei **maximal 2 Mal** pro Aufgabe. Beim ersten Mal verstehen, beim zweiten Mal die Änderung verifizieren.
-- Wenn du eine Datei ein drittes Mal lesen willst: **STOPP.** Fasse zusammen was du weißt und schlage die konkrete Änderung vor.
-
-### Analyse-Zeitlimit
-- Pro Einzelaufgabe (z.B. ein Bug-Fix): **Maximal 3 Analyse-Schritte**, dann MUSST du einen konkreten Code-Diff vorschlagen oder Marco fragen.
-- Ein "Analyse-Schritt" = eine Datei lesen, einen Befehl ausführen, oder eine Suche durchführen.
-
-### Handlungspflicht
-- Nach dem Lesen einer Datei: Sofort benennen was du ändern wirst (Datei, Zeile, Art der Änderung).
-- **Keine wiederholten Zusammenfassungen** dessen was du gelesen hast. Einmal zusammenfassen, dann handeln.
-- Wenn du unsicher bist: **Frag Marco** statt weiter zu analysieren. Eine Frage ist besser als 10 Lesedurchgänge.
-
-### Erkenne dich selbst in einem Loop
-Du bist in einem Loop, wenn du:
-- Dieselbe Datei zum dritten Mal öffnest
-- Zum wiederholten Mal beschreibst was der Code tut, ohne etwas zu ändern
-- Zwischen Dateien hin und her springst ohne Edits
-- Deine eigene vorherige Analyse wiederholst
-
-**Wenn du einen Loop erkennst:** Schreibe sofort: *"Ich erkenne einen Loop. Hier ist mein konkreter nächster Schritt: [Aktion]."* – und führe diesen Schritt sofort aus.
-
-### Beim Code-Review (Phase 2)
-Der Review über 56 Dateien ist besonders Loop-anfällig. Vorgehen:
-1. **Eine Datei öffnen → prüfen → Befunde notieren → nächste Datei.** Nicht zurückspringen.
-2. Pro Datei: Maximal 1 Lesevorgang + Befund-Liste. Keine erneute Analyse derselben Datei.
-3. Nach jedem abgeschlossenen Bereich (z.B. "Cogs fertig"): Kurze Zusammenfassung der Befunde, dann weiter.
-4. Befunde sammeln, am Ende des Bereichs gesammelt beheben – nicht bei jedem Fund sofort die Datei editieren und erneut lesen.
-
----
-
-## Aufgabenwarteschlange (Priorisierte Reihenfolge)
-
-### Phase 1: Bug-Fix `/clear` Fortschrittsanzeige ✅ AUTONOM DURCHFÜHREN
-**Priorität:** Hoch | **Datei:** `cogs/general_cog.py`
-
-**Problem:** Fortschrittsanzeige beim Löschen von Nachrichten funktioniert nicht. `interaction.edit_original_response()` verliert die Referenz nach `followup.send()`.
-
-**Geplante Lösung:**
-1. Initiale Meldung über `edit_original_response()` statt `followup.send()`
-2. ODER: `followup.send()`-Referenz speichern und per `message.edit()` aktualisieren
-3. Fortschrittsanzeige auch für Bulk-Delete (nicht nur alte Nachrichten)
-4. Abschlussmeldung: "X Nachrichten gelöscht (Y Bulk + Z einzeln)"
-
-**Betroffener Code:** Zeilen 236–350 in `general_cog.py`
-
-**Wenn fertig:** Git-Commit erstellen, Zusammenfassung schreiben, dann **direkt mit Phase 2 weitermachen.**
-
----
-
-### Phase 2: Kompletter Code-Review (56 Dateien) ✅ AUTONOM (nur Qualitäts-Fixes)
-**Priorität:** Hoch
-
-**Arbeitsweise für autonomes Review:**
-1. Datei öffnen → prüfen → nicht-kritische Fixes sofort durchführen → Git-Commit → nächste Datei
-2. Kritische Befunde (Verhaltensänderungen nötig) → in `docs/REVIEW_BEFUNDE.md` sammeln, NICHT sofort fixen
-3. Nach jedem Bereich: Git-Commit mit Zusammenfassung
-
-**Prüfkategorien pro Datei:**
-1. Import-Analyse: Fehlende oder ungenutzte Imports → ✅ autonom fixen
-2. Fehlerbehandlung: try/except mit korrekten Exception-Typen → ✅ autonom fixen
-3. Async/Await: Race Conditions, fehlende awaits → ✅ autonom fixen (wenn eindeutig)
-4. Logging: Konsistente Nutzung von `get_logger()` → ✅ autonom fixen
-5. Naming-Konventionen: Keine Kollisionen → ⚠️ Marco fragen (kann Verhalten ändern)
-6. Typ-Annotationen: `Optional[]`, `Union[]` → ✅ autonom fixen
-7. Permission-Checks: Decorators prüfen → ⚠️ Marco fragen (Sicherheitsrelevant)
-8. Ressourcen-Management: Dateien/Verbindungen → ✅ autonom fixen (wenn eindeutig)
-
-**Review-Reihenfolge:**
-
-| # | Bereich | Dateien | Fokus |
-|---|---|---|---|
-| 1 | Bot-Hauptdateien | `bots/gameserver_bot.py`, `bots/monitor_bot.py` | Cog-Loading, Service-Init, Background-Tasks |
-| 2 | Cogs | `cogs/*.py` (7 Dateien) | Command-Logik, Permissions, Error-Handling, UI-Views |
-| 3 | Satisfactory | `modules/satisfactory/*.py` (9 Dateien) | API-Calls, Server-Management, Savegame-Analyse |
-| 4 | Monitoring | `modules/monitoring/*.py` (14 Dateien) | Health-Checks, Tracker, Scheduler |
-| 5 | Backup | `modules/backup/*.py` (3 Dateien) | Datei-Ops, OneDrive/rclone, Rotation |
-| 6 | Notifications | `modules/notifications/*.py` (2 Dateien) | Embeds, SMTP, Rate-Limiting |
-| 7 | Sonstige Module | `modules/*.py` (7 Dateien) | Timer, Filter, Spam, Logger, Validator |
-| 8 | Utils | `utils/*.py` (4 Dateien) | Config-Loader, Formatting, Permissions |
-
-**Wenn Phase 2 komplett fertig:** `docs/REVIEW_BEFUNDE.md` finalisieren, Zusammenfassung aller Änderungen schreiben, dann **direkt mit Phase 3 weitermachen.**
-
----
-
-### Phase 3: Bugs aus Review beheben ✅ AUTONOM (wenn verhaltens-neutral)
-
-Alle Befunde aus `docs/REVIEW_BEFUNDE.md` systematisch durchgehen:
-
-**✅ Autonom fixen (Verhalten bleibt gleich):**
-- Fehlende awaits ergänzen
-- Kaputte/fehlende Imports korrigieren
-- Falsche Exception-Typen in try/except
-- Fehlende Type-Hints
-- Ressourcen nicht korrekt geschlossen (missing close/async with)
-- Logging-Inkonsistenzen
-- Doppelter/toter Code entfernen
-- Fehlende Error-Handling-Blöcke wo offensichtlich nötig
-
-**⚠️ In `docs/REVIEW_OFFEN.md` sammeln (auf Marco warten):**
-- Fixes die den Programmfluss ändern
-- Fehlende Permission-Checks (könnte gewollt sein)
-- Naming-Kollisionen die Refactoring erfordern
-- Race Conditions die Architektur-Änderungen brauchen
-- Alles wo mehrere Lösungswege existieren
-
-Pro Fix: Git-Commit. Am Ende: Zusammenfassung aller autonomen Fixes + Liste der offenen Befunde.
-
-**Wenn Phase 3 komplett fertig: STOPP – auf Marcos Freigabe für Phase 4 warten.**
-
----
-
-### Phase 4: Geplante Verbesserungen ⚠️ MARCO GIBT EINZELN FREI
-
-| Verbesserung | Datei(en) | Priorität |
-|---|---|---|
-| Error-Recovery: Exponentielles Backoff bei Auto-Restart | `health_check.py` | Mittel |
-| Backup-Verify: tar.gz-Entpack-Test | `backup_manager.py` | Mittel |
-| Command-Cooldowns: 60s für /sat start, /sat restart | `satisfactory_cog.py` | Mittel |
-| Savegame-Größen-Trend: Warnung bei >50% Schrumpfung | `savegame_protection.py` | Mittel |
-| Stats-Dashboard: Spielzeit-Trends im /report | `monitor_cog.py` | Niedrig |
-| Config Hot-Reload: config.json ohne Neustart | `utils/config.py` | Niedrig |
-| Audit-Log: Fehlgeschlagene Commands loggen | `command_logger.py` | Niedrig |
-
----
-
-### Phase 5: Minecraft-Integration (Phase 14a–14o) 🛑 KOMPLETT STOPPEN
-**Erst nach expliziter Freigabe durch Marco starten!**
-
-Detaillierte Planung: Siehe `docs/Projektdokumentation_v2.2.0.docx`, Kapitel 13.
-Zusammenfassung: 2 Minecraft-Server (Better MC + Vanilla/Paper), RCON-Integration, Chat-Bridge, 15 Unterphasen, ~7–11 Arbeitstage.
-
----
-
-## Arbeitsprotokoll – Format für jede Änderung
-
-Nach jeder abgeschlossenen Änderung lieferst du folgende Zusammenfassung (auch als Basis für den Git-Commit):
-
+### Git-Messages (Format)
 ```
-## [ÄNDERUNG] Kurztitel
-
-**Betroffene Dateien:**
-- datei1.py – Was wurde geändert
-- datei2.py – Was wurde geändert
-
-**Problem:** Was war das Problem / die Aufgabe
-**Lösung:** Was wurde wie gelöst
-**Typ:** Bug-Fix | Verbesserung | Refactoring | Neues Feature
-**Autonomie:** ✅ Autonom | ⚠️ Mit Freigabe | 🛑 Gestoppt
-**Git-Commit:** `[Typ] Commit-Message`
-**Test-Hinweis:** Wie kann die Änderung getestet werden
-**Doku-Update:** Was muss in der Projektdokumentation angepasst werden
+[Phase Xa] FY: Kurzbeschreibung
 ```
+Beispiele:
+- `[Phase 10a] F22: MC Gameplay-Commands entfernt`
+- `[Phase 11a] F18: Admin Bot Grundgeruest`
+- `[Phase 13b] F13: Dashboard Uebersicht`
+- `[Release] v3.2.0 — Alle P2+P3 Features`
 
 ---
 
-## Vorgehensweise bei jeder Aufgabe
+## Kritische Regeln
 
-**Strikt sequenziell – kein Schritt darf übersprungen oder wiederholt werden:**
+### NIEMALS anfassen
+- `config/.env` — Echte Tokens, API-Keys, Passwoerter
+- `config/config.json` — Aktive Server-Konfiguration (nur programmatisch via Hot-Reload)
+- `data/` — Persistente Bot-Daten (nur lesen, NICHT ueberschreiben — ausser bei data/ Umstrukturierung in Phase 11a)
+- `logs/`, `backups/` — Nur lesen
 
-1. **Datei lesen** (1x) – Verstehe den bestehenden Code
-2. **Problem benennen** – In 1–2 Sätzen: Was genau ist das Problem?
-3. **Autonomie-Check** – Ist dieser Fix ✅ autonom, ⚠️ braucht Freigabe, oder 🛑 gesperrt?
-4. **Lösung vorschlagen** – Konkreter Plan: Welche Zeilen werden wie geändert?
-5. **Änderung durchführen** – Edit ausführen. Nur die betroffenen Zeilen anfassen.
-6. **Verifizieren** (1x) – Datei erneut lesen um den Edit zu prüfen. KEIN dritter Lesevorgang.
-7. **Git-Commit** – Änderung committen mit aussagekräftiger Message.
-8. **Zusammenfassung liefern** – Im oben definierten Änderungsprotokoll-Format.
-9. **Nächste Aufgabe** – Weitergehen, nicht zur vorherigen zurückkehren.
-
-**Bei Unsicherheit:** Frag Marco. Eine kurze Frage ist immer besser als fünf weitere Analyseschritte.
-**Bei Fehlschlag:** Wenn ein Edit nicht funktioniert, `git revert` und Marco beschreiben was schief ging.
+### IMMER beachten
+- Sicherheit: AllowedMentions.none() bei User-generiertem Content
+- Path-Traversal: .resolve() + Prefix-Check bei Dateipfaden
+- RCON-Injection: Eingaben sanitisieren vor RCON-Befehlen
+- Command-Injection: _ALLOWED_ACTIONS Whitelist bei systemctl
+- Rate-Limiting: Discord API Limits beachten
+- Web-Security: CSRF-Protection, httpOnly Cookies, Input-Validierung
+- OAuth2: State-Parameter gegen CSRF, Token sicher speichern
 
 ---
 
-## Erststart-Anweisungen
+## SSH-Zugang + Deployment
 
-Wenn du diese Anweisungen zum ersten Mal liest, führe folgende Schritte aus:
-
-### 1. Git-Repository initialisieren (falls noch nicht vorhanden)
-
-Prüfe ob bereits ein `.git` Ordner existiert. Falls nicht:
-
+### SSH-Aliase
 ```bash
-git init
-git add -A
-git commit -m "[Init] Projekt-Stand v2.2.0 vor Code-Review"
+ssh netcup-marco     # → marco@203.0.113.10:4422 (sudo-Befehle)
+ssh netcup-botuser   # → botuser@203.0.113.10:4422 (SCP-Uploads)
 ```
 
-### 2. .gitignore prüfen/erstellen
+### Deployment
+```bash
+# Upload
+scp <dateien> netcup-botuser:/home/botuser/Discord_Bots/<pfad>/
 
-Stelle sicher dass folgende Einträge in `.gitignore` stehen:
+# Restart (GameServer + Monitor)
+ssh netcup-marco "sudo systemctl restart gameserver-bot.service monitor-bot.service"
 
-```
-config/.env
-data/
-logs/
-backups/
-venv/
-__pycache__/
-*.pyc
-.DS_Store
+# Logs
+ssh netcup-marco "sudo journalctl -u gameserver-bot.service -n 50 --no-pager"
+ssh netcup-marco "sudo journalctl -u monitor-bot.service -n 50 --no-pager"
 ```
 
-### 3. Arbeit beginnen
+### Server-Infrastruktur
 
-Starte mit **Phase 1: Bug-Fix `/clear` Fortschrittsanzeige.** Lies zuerst `cogs/general_cog.py` vollständig, analysiere das Problem im Bereich Zeilen 236–350, und führe den Fix autonom durch. Git-Commit nach Abschluss, dann **direkt weiter mit Phase 2 (Code-Review) und anschließend Phase 3 (Bugs beheben).** Stoppe erst nach Abschluss von Phase 3.
+| Dienst | Service-Name | Ports | Status |
+|---|---|---|---|
+| GameServer Bot | `gameserver-bot.service` | — | ✅ Aktiv |
+| Monitor Bot | `monitor-bot.service` | — | ✅ Aktiv |
+| Admin Bot (NEU) | `admin-bot.service` | — | 🔜 Braucht Token |
+| Web-Dashboard (NEU) | `web-dashboard.service` | 8080 | 🔜 Braucht OAuth2 |
+| Satisfactory | `satisfactory.service` | 7777, 15000, 15777 | ✅ Aktiv |
+| MC Vanilla | `minecraft-vanilla.service` | 25565, 25576 | ⏸️ Gestoppt |
+| MC Better MC | `minecraft-bmc.service` | 25566, 25575 | ⏸️ Gestoppt |
+| Nginx | `nginx.service` | 80/8080 | 🔜 Braucht Setup |
 
----
-
-## Referenz: Vollständige Dokumentation
-
-Für detaillierte Informationen zu allen Modulen, Commands, Konfigurationen, Server-Infrastruktur und der kompletten Minecraft-Planung siehe:
-
-```
-docs/Projektdokumentation_v2.2.0.docx
-```
-
-Diese Datei enthält: Komplette Dateiliste (56 Dateien), alle Slash-Commands mit Berechtigungen, detaillierte Funktionsbeschreibungen, Environment-Variablen, Feature-Flags, Schwellwerte, Sicherheitsfeatures, durchgeführte Fixes, bekannte Probleme, Fehlerbehebungs-Checkliste, und die vollständige Minecraft-Detailplanung.
+### Marcos Manuelle Aufgaben (nach Deployment)
+- Admin Bot Token erstellen (Discord Developer Portal) → `ADMIN_BOT_TOKEN` in `.env`
+- Discord Application OAuth2 Credentials → `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET` in `.env`
+- TeamSpeak ServerQuery Zugangsdaten → `TS_*` Variablen in `.env` (wenn TS gewuenscht)
+- Nginx Setup: `sudo bash scripts/setup_nginx.sh`
+- Web-Dashboard starten: `sudo systemctl enable --now web-dashboard.service`
+- Admin Bot starten: `sudo systemctl enable --now admin-bot.service`

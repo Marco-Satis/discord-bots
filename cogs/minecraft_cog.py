@@ -11,7 +11,7 @@ Command-Struktur:
   /mc config autosave|update|stats|modpack_check (Autosave/Update/Statistiken)
   /mc blacklist add|remove|list|history       (Blacklist - Admin/Spieler)
   /mc command <cmd> [server]                 (RCON ausfuehren - Owner)
-  /mc say|difficulty|weather|time|gamemode   (Admin-Befehle)
+  /mc say [banner] [repeat]                  (Ankuendigungs-Banner - Admin)
 
 Server-Auswahl: Autocomplete zeigt nur aktivierte Server an.
 Bei nur einem Server wird dieser automatisch gewaehlt.
