@@ -8,7 +8,7 @@ Command-Struktur:
   /mc backup create|list|restore|download    (Backup-Verwaltung - Spieler/Owner)
   /mc whitelist add|remove|list [server]     (Whitelist - Admin)
   /mc config settings|set|backup|restore     (Server-Konfiguration)
-  /mc config update|stats                    (Update-Pruefer/Statistiken)
+  /mc config autosave|update|stats           (Autosave/Update/Statistiken)
   /mc command <cmd> [server]                 (RCON ausfuehren - Owner)
   /mc say|difficulty|weather|time|gamemode   (Admin-Befehle)
 
@@ -17,6 +17,7 @@ Bei nur einem Server wird dieser automatisch gewaehlt.
 """
 
 import asyncio
+import json
 import re as _re
 import tempfile
 import zipfile
@@ -26,7 +27,7 @@ from discord import app_commands
 from discord.ext import commands
 from typing import Optional, Dict
 
-from utils import get_logger, format_uptime, format_bytes, status_emoji
+from utils import get_logger, format_uptime, format_bytes, status_emoji, DATA_DIR
 from utils.permissions import admin_only, spieler_only, owner_only
 
 
@@ -92,6 +93,27 @@ class MinecraftCog(commands.Cog):
             bot, 'mc_update_checkers', {}
         )
         self.timer_mgr = bot.timer_mgr
+
+        # Autosave-System (Phase 8b)
+        self._autosave_file = DATA_DIR / "mc_autosave.json"
+        self._autosave_intervals: Dict[str, int] = {}  # server_id -> Minuten
+        self._autosave_tasks: Dict[str, asyncio.Task] = {}
+        self._load_autosave_config()
+
+    async def cog_load(self) -> None:
+        """Wird beim Laden des Cogs aufgerufen — startet Autosave-Tasks"""
+        for server_id, minutes in self._autosave_intervals.items():
+            if minutes > 0 and server_id in self.servers:
+                self._autosave_tasks[server_id] = asyncio.create_task(
+                    self._autosave_loop(server_id, minutes)
+                )
+                logger.info(f"[{server_id}] Autosave-Task gestartet: alle {minutes} Min")
+
+    async def cog_unload(self) -> None:
+        """Wird beim Entladen des Cogs aufgerufen — stoppt Autosave-Tasks"""
+        for server_id in list(self._autosave_tasks):
+            self._stop_autosave_task(server_id)
+        logger.info("Alle Autosave-Tasks gestoppt")
 
     # ==================================================================
     # Hilfsfunktionen
@@ -196,6 +218,51 @@ class MinecraftCog(commands.Cog):
             await interaction.followup.send(f"{srv.display_name} ist offline.")
             return None
         return srv
+
+    # ==================================================================
+    # Autosave-Hilfsmethoden (Phase 8b)
+    # ==================================================================
+
+    def _load_autosave_config(self) -> None:
+        """Laedt Autosave-Intervalle aus JSON-Datei"""
+        try:
+            if self._autosave_file.exists():
+                with open(self._autosave_file, "r", encoding="utf-8") as f:
+                    self._autosave_intervals = json.load(f)
+                logger.info(f"Autosave-Config geladen: {self._autosave_intervals}")
+        except Exception as e:
+            logger.error(f"Autosave-Config laden fehlgeschlagen: {e}")
+            self._autosave_intervals = {}
+
+    def _save_autosave_config(self) -> None:
+        """Speichert Autosave-Intervalle in JSON-Datei"""
+        try:
+            DATA_DIR.mkdir(parents=True, exist_ok=True)
+            with open(self._autosave_file, "w", encoding="utf-8") as f:
+                json.dump(self._autosave_intervals, f, indent=2)
+        except Exception as e:
+            logger.error(f"Autosave-Config speichern fehlgeschlagen: {e}")
+
+    async def _autosave_loop(self, server_id: str, interval_minutes: int) -> None:
+        """Periodischer save-all Aufruf fuer einen Server"""
+        try:
+            while True:
+                await asyncio.sleep(interval_minutes * 60)
+                srv = self.servers.get(server_id)
+                if srv and await srv.is_running():
+                    try:
+                        await srv.rcon_command("save-all")
+                        logger.info(f"[{server_id}] Autosave: save-all ausgefuehrt")
+                    except Exception as e:
+                        logger.debug(f"[{server_id}] Autosave fehlgeschlagen: {e}")
+        except asyncio.CancelledError:
+            pass
+
+    def _stop_autosave_task(self, server_id: str) -> None:
+        """Stoppt den Autosave-Task fuer einen Server"""
+        task = self._autosave_tasks.pop(server_id, None)
+        if task and not task.done():
+            task.cancel()
 
     # ╔════════════════════════════════════════════════════════════════╗
     # ║  CORE: /mc status | start | stop | restart | cancel           ║
@@ -1306,6 +1373,86 @@ class MinecraftCog(commands.Cog):
                 )
 
         await interaction.followup.send(embed=embed)
+
+    @config_grp.command(name="autosave", description="Autosave-Intervall konfigurieren (save-all)")
+    @app_commands.describe(
+        intervall="Intervall in Minuten (0 = deaktivieren, min. 1)",
+        server="Server-Auswahl"
+    )
+    @admin_only()
+    @app_commands.autocomplete(server=_server_autocomplete)
+    async def config_autosave(self, interaction: discord.Interaction,
+                              intervall: int,
+                              server: Optional[str] = None):
+        """Konfiguriert periodisches save-all via RCON.
+
+        Sendet sofort save-all und startet einen Timer der regelmaessig
+        save-all ausfuehrt. Aendert NICHT server.properties.
+        """
+        await interaction.response.defer()
+
+        srv = await self._require_server(interaction, server)
+        if not srv:
+            return
+
+        if intervall < 0:
+            await interaction.followup.send(
+                "Intervall muss >= 0 sein.", ephemeral=True
+            )
+            return
+
+        if 0 < intervall < 1:
+            await interaction.followup.send(
+                "Minimum ist 1 Minute.", ephemeral=True
+            )
+            return
+
+        old_interval = self._autosave_intervals.get(srv.server_id, 0)
+
+        # Bestehenden Task stoppen
+        self._stop_autosave_task(srv.server_id)
+
+        if intervall > 0:
+            # Neuen Intervall setzen und Task starten
+            self._autosave_intervals[srv.server_id] = intervall
+            self._autosave_tasks[srv.server_id] = asyncio.create_task(
+                self._autosave_loop(srv.server_id, intervall)
+            )
+
+            # Sofort save-all ausfuehren wenn Server online
+            if await srv.is_running():
+                try:
+                    await srv.rcon_command("save-all")
+                except Exception:
+                    pass
+        else:
+            # Deaktivieren
+            self._autosave_intervals.pop(srv.server_id, None)
+
+        self._save_autosave_config()
+
+        # Bestaetigungs-Embed
+        embed = discord.Embed(
+            title=f"Autosave — {srv.display_name}",
+            color=0x2ecc71 if intervall > 0 else 0xff9900,
+        )
+
+        if intervall > 0:
+            embed.description = f"Autosave alle **{intervall} Minuten** aktiviert."
+            if old_interval > 0:
+                embed.add_field(name="Vorher", value=f"{old_interval} Min", inline=True)
+            embed.add_field(name="Neu", value=f"{intervall} Min", inline=True)
+        else:
+            embed.description = "Autosave **deaktiviert**."
+            if old_interval > 0:
+                embed.add_field(name="Vorher", value=f"{old_interval} Min", inline=True)
+
+        embed.set_footer(text=f"von {interaction.user.display_name}")
+        await interaction.followup.send(embed=embed)
+        logger.info(
+            f"[{srv.server_id}] Autosave geaendert: {old_interval} -> {intervall} Min "
+            f"von {interaction.user}"
+        )
 
     # ╔════════════════════════════════════════════════════════════════╗
     # ║  BACKUP DOWNLOAD: /mc backup download                          ║
