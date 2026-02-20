@@ -22,6 +22,7 @@ import json
 import re as _re
 import tempfile
 import zipfile
+from datetime import datetime
 from pathlib import Path
 import discord
 from discord import app_commands
@@ -42,6 +43,7 @@ from modules.minecraft.backup import MinecraftBackupManager
 from modules.minecraft.settings_backup import MinecraftSettingsBackup
 from modules.minecraft.update_checker import MinecraftUpdateChecker
 from modules.minecraft.blacklist import MinecraftBlacklist
+from modules.minecraft.world_analyzer import WorldAnalyzer
 
 logger = get_logger("cogs.minecraft")
 
@@ -79,6 +81,9 @@ class MinecraftCog(commands.Cog):
     )
     blacklist_grp = app_commands.Group(
         name="blacklist", parent=mc, description="Serveruebergreifendes Ban-System"
+    )
+    world_grp = app_commands.Group(
+        name="world", parent=mc, description="Welt-Analyse & Statistiken"
     )
 
     # ==================================================================
@@ -1985,6 +1990,166 @@ class MinecraftCog(commands.Cog):
         )
         embed.set_footer(text=f"{len(history)} Eintraege gesamt")
         await interaction.followup.send(embed=embed, ephemeral=True)
+
+    # ╔════════════════════════════════════════════════════════════════╗
+    # ║  WORLD: /mc world stats                                        ║
+    # ╚════════════════════════════════════════════════════════════════╝
+
+    @world_grp.command(name="stats", description="Detaillierte Welt-Analyse anzeigen")
+    @app_commands.autocomplete(server=_server_autocomplete)
+    async def mc_world_stats(self, interaction: discord.Interaction,
+                             server: Optional[str] = None):
+        """Analysiert die Minecraft-Welt: level.dat, Spieler-Stats,
+        Advancements und Region-Files.
+        """
+        await interaction.response.defer()
+
+        srv = await self._require_server(interaction, server)
+        if not srv:
+            return
+
+        await interaction.followup.send(
+            f"Analysiere Welt von {srv.display_name}... (kann einige Sekunden dauern)"
+        )
+
+        analyzer = WorldAnalyzer(
+            world_path=srv.world_path,
+            server_path=srv.server_path,
+        )
+
+        try:
+            results = await analyzer.analyze()
+        except Exception as e:
+            await interaction.edit_original_response(
+                content=f"Analyse fehlgeschlagen: {e}"
+            )
+            logger.error(f"[{srv.server_id}] World-Analyse fehlgeschlagen: {e}")
+            return
+
+        # Ergebnis-Embed erstellen
+        embed = discord.Embed(
+            title=f"Welt-Analyse — {srv.display_name}",
+            color=0x2ecc71,
+        )
+
+        # Welt-Info (level.dat)
+        world_info = results.get("world_info", {})
+        if world_info:
+            info_lines = []
+            if "mc_version" in world_info:
+                info_lines.append(f"**MC-Version:** {world_info['mc_version']}")
+            if "level_name" in world_info:
+                info_lines.append(f"**Weltname:** {world_info['level_name']}")
+            if "seed" in world_info:
+                info_lines.append(f"**Seed:** `{world_info['seed']}`")
+            if "world_age_days" in world_info:
+                info_lines.append(
+                    f"**Welt-Alter:** {world_info['world_age_days']} Tage "
+                    f"({world_info.get('world_age_hours', '?')} Stunden)"
+                )
+            if "spawn" in world_info:
+                s = world_info["spawn"]
+                info_lines.append(
+                    f"**Spawn:** X={s.get('x', '?')} Y={s.get('y', '?')} Z={s.get('z', '?')}"
+                )
+            if "difficulty" in world_info:
+                info_lines.append(f"**Schwierigkeit:** {world_info['difficulty']}")
+            if "gamemode" in world_info:
+                info_lines.append(f"**Spielmodus:** {world_info['gamemode']}")
+            if "hardcore" in world_info:
+                info_lines.append(
+                    f"**Hardcore:** {'Ja' if world_info['hardcore'] else 'Nein'}"
+                )
+            if info_lines:
+                embed.add_field(
+                    name="Welt-Info",
+                    value="\n".join(info_lines),
+                    inline=False,
+                )
+
+        # Welt-Groesse
+        world_size = results.get("world_size", {})
+        total = world_size.get("total", {})
+        if total:
+            size_lines = [f"**Gesamt:** {total.get('size_mb', 0)} MB"]
+            for dim_name in ["overworld", "nether", "end"]:
+                dim = world_size.get(dim_name, {})
+                if dim:
+                    dim_label = {
+                        "overworld": "Oberwelt",
+                        "nether": "Nether",
+                        "end": "End"
+                    }.get(dim_name, dim_name)
+                    size_lines.append(
+                        f"**{dim_label}:** {dim['size_mb']} MB — "
+                        f"{dim['regions']} Regionen ({dim['explored_km2']} km²)"
+                    )
+            size_lines.append(
+                f"**Erkundete Flaeche:** {total.get('total_explored_km2', 0)} km²"
+            )
+            embed.add_field(
+                name="Welt-Groesse",
+                value="\n".join(size_lines),
+                inline=False,
+            )
+
+        # Spieler-Statistiken (Top 5)
+        player_stats = results.get("player_stats", [])
+        if player_stats:
+            stat_lines = []
+            for i, p in enumerate(player_stats[:5], 1):
+                uuid_short = p["uuid"][:8]
+                hours = p.get("play_hours", 0)
+                deaths = p.get("deaths", 0)
+                kills = p.get("mob_kills", 0)
+                dist = p.get("distance_km", {})
+                walk_km = dist.get("walk", 0)
+                stat_lines.append(
+                    f"**{i}.** `{uuid_short}` — "
+                    f"{hours}h Spielzeit, {deaths} Tode, "
+                    f"{kills} Mob-Kills, {walk_km} km gelaufen"
+                )
+            embed.add_field(
+                name=f"Spieler-Statistiken (Top {min(5, len(player_stats))})",
+                value="\n".join(stat_lines),
+                inline=False,
+            )
+
+        # Advancements (Top 5)
+        advancements = results.get("advancements", [])
+        if advancements:
+            adv_lines = []
+            for i, a in enumerate(advancements[:5], 1):
+                uuid_short = a["uuid"][:8]
+                progress = a.get("progress_percent", 0)
+                completed = a.get("completed", 0)
+                total_adv = a.get("total", 0)
+                last = a.get("last_advancement", "?")
+                adv_lines.append(
+                    f"**{i}.** `{uuid_short}` — "
+                    f"{progress}% ({completed}/{total_adv})"
+                )
+                if last:
+                    adv_lines[-1] += f" — Letztes: {last}"
+            embed.add_field(
+                name=f"Advancements (Top {min(5, len(advancements))})",
+                value="\n".join(adv_lines),
+                inline=False,
+            )
+
+        # Fehler anzeigen
+        errors = results.get("errors", [])
+        if errors:
+            embed.add_field(
+                name="Hinweise",
+                value="\n".join(f"⚠️ {e}" for e in errors),
+                inline=False,
+            )
+
+        embed.set_footer(
+            text=f"Analysiert am {datetime.now().strftime('%d.%m.%Y %H:%M')}"
+        )
+        await interaction.edit_original_response(content=None, embed=embed)
 
     # ==================================================================
     # Fehlerbehandlung
