@@ -6,16 +6,58 @@
 {% block content %}
 <div class="page-header">
     <h1>System-Verwaltung</h1>
-    <p class="page-subtitle">Webmin Server-Administration</p>
+    <p class="page-subtitle">Server-Informationen und Webmin-Administration</p>
 </div>
 
-<div class="iframe-container">
-    <iframe src="/webmin/"
-            class="webmin-iframe"
-            title="Webmin Server-Verwaltung"
-            sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
-            loading="lazy">
-        <p>Webmin konnte nicht geladen werden. Stelle sicher, dass Webmin auf dem Server laeuft.</p>
-    </iframe>
+<!-- System-Info Kacheln -->
+<div class="stats-grid" style="margin-bottom: 1.5rem;">
+    <div class="stat-card">
+        <div class="stat-label">Hostname</div>
+        <div class="stat-value" style="font-size: 1rem;">{{ system_info.hostname|default('N/A') }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Betriebssystem</div>
+        <div class="stat-value" style="font-size: 1rem;">{{ system_info.os|default('N/A') }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Uptime</div>
+        <div class="stat-value" style="font-size: 1rem;">{{ system_info.uptime|default('N/A') }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Python</div>
+        <div class="stat-value" style="font-size: 1rem;">{{ system_info.python|default('N/A') }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">CPU</div>
+        <div class="stat-value">{{ system_info.cpu_percent|default(0) }}%</div>
+        <div class="stat-sub">{{ system_info.cpu_count|default(0) }} Kerne</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">RAM</div>
+        <div class="stat-value">{{ system_info.ram_used_percent|default(0) }}%</div>
+        <div class="stat-sub">{{ system_info.ram_total_gb|default(0) }} GB gesamt</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Disk</div>
+        <div class="stat-value">{{ system_info.disk_used_percent|default(0) }}%</div>
+        <div class="stat-sub">{{ system_info.disk_total_gb|default(0) }} GB gesamt</div>
+    </div>
 </div>
+
+<!-- Webmin Iframe -->
+<section class="config-section">
+    <h2 class="section-title">Webmin Server-Administration</h2>
+    <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 1rem;">
+        Eingebettetes Webmin-Interface fuer erweiterte Server-Verwaltung.
+    </p>
+    <div class="iframe-container">
+        <iframe src="{{ webmin_url|default('/webmin/') }}"
+                class="webmin-iframe"
+                title="Webmin Server-Verwaltung"
+                sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
+                loading="lazy">
+            <p>Webmin konnte nicht geladen werden. Stelle sicher, dass Webmin auf dem Server laeuft.</p>
+        </iframe>
+    </div>
+</section>
 {% endblock %}
