@@ -33,7 +33,7 @@ Konfiguration (temp_voice_config.json):
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -227,7 +227,7 @@ class TempVoiceManager:
         # In Daten speichern
         self._channels[str(channel.id)] = {
             "owner_id": member.id,
-            "created_at": datetime.now().isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
             "name": channel_name,
             "user_limit": default_limit,
         }

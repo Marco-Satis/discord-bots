@@ -196,11 +196,12 @@ class OwnerTransferSelect(discord.ui.UserSelect):
     """
 
     def __init__(self) -> None:
+        # Kein fester custom_id — jede Instanz bekommt eine einzigartige ID
+        # damit mehrere gleichzeitige Transfer-Dialoge sich nicht gegenseitig stoeren
         super().__init__(
             placeholder="Neuen Owner auswaehlen...",
             min_values=1,
             max_values=1,
-            custom_id="temp_voice:transfer_select",
         )
 
     async def callback(self, interaction: discord.Interaction) -> None:
@@ -253,11 +254,8 @@ class OwnerTransferSelect(discord.ui.UserSelect):
             )
             return
 
-        # Ownership uebertragen
-        manager.transfer_ownership(channel.id, selected_user.id)
-
         # Berechtigungen aktualisieren: alter Owner verliert Manage-Rechte,
-        # neuer Owner bekommt sie
+        # neuer Owner bekommt sie — BEVOR Ownership uebertragen wird (Rollback-Sicherheit)
         try:
             await channel.set_permissions(
                 member,
@@ -280,6 +278,14 @@ class OwnerTransferSelect(discord.ui.UserSelect):
             )
         except (discord.Forbidden, discord.HTTPException) as e:
             logger.warning(f"Berechtigungen beim Transfer aktualisieren fehlgeschlagen: {e}")
+            await interaction.response.send_message(
+                "Ownership-Transfer fehlgeschlagen (Berechtigungsfehler).",
+                ephemeral=True,
+            )
+            return
+
+        # Ownership uebertragen (erst nach erfolgreichen Permissions)
+        manager.transfer_ownership(channel.id, selected_user.id)
 
         await interaction.response.send_message(
             f"Ownership an **{target_member.display_name}** uebertragen.",
@@ -455,16 +461,12 @@ class TempVoiceControlView(discord.ui.View):
 
         # Toggle: Wenn connect erlaubt oder nicht gesetzt -> sperren
         # Wenn connect gesperrt -> entsperren
+        # Nur connect-Berechtigung aendern, alle anderen beibehalten
         if overwrites.connect is False:
             # Entsperren: connect wieder erlauben
             try:
-                await channel.set_permissions(
-                    everyone_role,
-                    overwrite=discord.PermissionOverwrite(
-                        connect=True,
-                        speak=True,
-                    ),
-                )
+                overwrites.connect = True
+                await channel.set_permissions(everyone_role, overwrite=overwrites)
                 await interaction.response.send_message(
                     "Channel **entsperrt** — Alle koennen beitreten.",
                     ephemeral=True,
@@ -481,13 +483,8 @@ class TempVoiceControlView(discord.ui.View):
         else:
             # Sperren: connect verweigern
             try:
-                await channel.set_permissions(
-                    everyone_role,
-                    overwrite=discord.PermissionOverwrite(
-                        connect=False,
-                        speak=True,
-                    ),
-                )
+                overwrites.connect = False
+                await channel.set_permissions(everyone_role, overwrite=overwrites)
                 await interaction.response.send_message(
                     "Channel **gesperrt** — Nur aktuelle Mitglieder koennen bleiben.",
                     ephemeral=True,

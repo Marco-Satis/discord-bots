@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Optional
 
 import discord
@@ -96,7 +95,6 @@ class RestoreConfirmView(discord.ui.View):
     @discord.ui.button(
         label="Wiederherstellen",
         style=discord.ButtonStyle.danger,
-        custom_id="server_backup:confirm_restore",
     )
     async def confirm_button(
         self,
@@ -143,7 +141,6 @@ class RestoreConfirmView(discord.ui.View):
     @discord.ui.button(
         label="Abbrechen",
         style=discord.ButtonStyle.secondary,
-        custom_id="server_backup:cancel_restore",
     )
     async def cancel_button(
         self,
@@ -504,7 +501,7 @@ class ServerBackupCog(commands.Cog):
         await interaction.response.defer(ephemeral=True)
 
         backup = await self.backup_mgr.get_backup(backup_id)
-        if not backup:
+        if not backup or backup.get("guild_id") != interaction.guild.id:
             await interaction.followup.send(
                 f"Backup `{backup_id}` nicht gefunden.",
                 ephemeral=True,
@@ -625,6 +622,15 @@ class ServerBackupCog(commands.Cog):
         if not interaction.guild:
             await interaction.followup.send(
                 "Dieser Befehl funktioniert nur auf einem Server.",
+                ephemeral=True,
+            )
+            return
+
+        # Guild-ID pruefen bevor Vergleich
+        backup = await self.backup_mgr.get_backup(backup_id)
+        if not backup or backup.get("guild_id") != interaction.guild.id:
+            await interaction.followup.send(
+                f"Backup `{backup_id}` nicht gefunden.",
                 ephemeral=True,
             )
             return
@@ -845,6 +851,15 @@ class ServerBackupCog(commands.Cog):
     ) -> None:
         """Backup-Datei endgueltig loeschen"""
         await interaction.response.defer(ephemeral=True)
+
+        # Guild-ID pruefen: Nur Backups des eigenen Servers loeschen
+        backup = await self.backup_mgr.get_backup(backup_id)
+        if not backup or backup.get("guild_id") != interaction.guild.id:
+            await interaction.followup.send(
+                f"Backup `{backup_id}` nicht gefunden.",
+                ephemeral=True,
+            )
+            return
 
         deleted = await self.backup_mgr.delete_backup(backup_id)
 

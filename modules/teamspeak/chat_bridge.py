@@ -10,7 +10,6 @@ da die ts3-Bibliothek kein Event-basiertes Listening unterstuetzt.
 
 import asyncio
 import re
-import time
 from typing import Optional
 
 import discord
@@ -58,7 +57,6 @@ class TSChatBridge:
         self._running = False
         self._poll_task: Optional[asyncio.Task] = None
         self._seen_messages: list = []  # Cache fuer bereits weitergeleitete Nachrichten
-        self._last_poll_time: float = 0.0
 
     @property
     def is_running(self) -> bool:
@@ -85,7 +83,7 @@ class TSChatBridge:
 
         # TS-Server ueber Textmessage-Events informieren (registriere Notifications)
         try:
-            await self._register_notifications()
+            await self.ts_client.register_notifications(self.ts_channel_id)
         except Exception as e:
             logger.warning(
                 f"TS-Notification-Registrierung fehlgeschlagen: {e}. "
@@ -93,7 +91,6 @@ class TSChatBridge:
             )
 
         self._running = True
-        self._last_poll_time = time.time()
         self._poll_task = asyncio.create_task(self._poll_ts_messages())
         logger.info(
             f"Chat-Bridge gestartet (Discord: {self.discord_channel_id}, "
@@ -135,11 +132,12 @@ class TSChatBridge:
         if len(message) > self.MAX_MESSAGE_LENGTH:
             message = message[:self.MAX_MESSAGE_LENGTH] + "..."
 
-        # Markdown in BBCode umwandeln
+        # Markdown in BBCode umwandeln, BBCode in Autor-Name escapen
         ts_message = self._markdown_to_bbcode(message)
+        safe_author = author.replace("[", "(").replace("]", ")")
 
         # Formatierte Nachricht mit Autor
-        formatted = f"[b][Discord][/b] {author}: {ts_message}"
+        formatted = f"[b][Discord][/b] {safe_author}: {ts_message}"
 
         try:
             # target_mode: 2 = Channel-Nachricht, 3 = Server-Nachricht
@@ -148,7 +146,7 @@ class TSChatBridge:
                 target_id = self.ts_channel_id
             else:
                 target_mode = 3
-                target_id = 1  # Virtual Server ID
+                target_id = self.ts_client.server_id
             success = await self.ts_client.send_text_message(
                 target_mode=target_mode,
                 target_id=target_id,
@@ -212,8 +210,12 @@ class TSChatBridge:
                 if len(self._seen_messages) > self.MESSAGE_CACHE_SIZE:
                     self._seen_messages = self._seen_messages[-self.MESSAGE_CACHE_SIZE:]
 
-                # BBCode in Markdown umwandeln
+                # BBCode in Markdown umwandeln + Mentions escapen
                 md_message = self._bbcode_to_markdown(msg_text)
+                md_message = discord.utils.escape_mentions(md_message)
+                # Auf Discord-Embed-Limit beschraenken
+                if len(md_message) > 4000:
+                    md_message = md_message[:4000] + "..."
 
                 # An Discord weiterleiten
                 embed = discord.Embed(
@@ -233,7 +235,10 @@ class TSChatBridge:
             logger.debug(f"TS-Event-Check-Fehler: {e}")
 
     async def _fetch_ts_events(self) -> list:
-        """Holt neue Events vom TS-Server (via asyncio.to_thread).
+        """Holt neue Events vom TS-Server ueber die oeffentliche TSClient-API.
+
+        Nutzt ts_client.fetch_events() statt direktem _connection-Zugriff
+        fuer Thread-Sicherheit.
 
         Returns:
             Liste von Event-Dicts oder leere Liste.
@@ -242,65 +247,10 @@ class TSChatBridge:
             return []
 
         try:
-            events = await asyncio.to_thread(self._sync_fetch_events)
-            return events if events else []
+            return await self.ts_client.fetch_events()
         except Exception as e:
             logger.debug(f"TS-Event-Abruf fehlgeschlagen: {e}")
             return []
-
-    def _sync_fetch_events(self) -> list:
-        """Synchroner Event-Abruf vom TS-Server.
-
-        Versucht, wartende Notifications abzurufen.
-        """
-        conn = self.ts_client._connection
-        if conn is None:
-            return []
-
-        events = []
-        # Nicht-blockierendes Polling auf der TS-Verbindung
-        try:
-            # ts3-Bibliothek: wait_for_event mit kurzem Timeout
-            conn.recv_in_thread()
-            # Events werden im internen Buffer gespeichert
-            while True:
-                try:
-                    event = conn.wait_for_event(timeout=0.1)
-                    if event and event.parsed:
-                        for entry in event.parsed:
-                            events.append(dict(entry))
-                except Exception:
-                    break
-        except Exception:
-            pass
-
-        return events
-
-    async def _register_notifications(self) -> None:
-        """Registriert TS-Server-Notifications fuer Chat-Events."""
-        if not self.ts_client.is_connected():
-            return
-
-        try:
-            await asyncio.to_thread(self._sync_register_notifications)
-            logger.debug("TS-Notifications registriert.")
-        except Exception as e:
-            logger.debug(f"TS-Notification-Registrierung: {e}")
-
-    def _sync_register_notifications(self) -> None:
-        """Synchrone Notification-Registrierung."""
-        conn = self.ts_client._connection
-        if conn is None:
-            return
-
-        # textchannel-Event registrieren
-        if self.ts_channel_id > 0:
-            conn.servernotifyregister(
-                event="textchannel",
-                id_=self.ts_channel_id,
-            )
-        # textserver-Event registrieren (Server-Chat)
-        conn.servernotifyregister(event="textserver")
 
     # ------------------------------------------------------------------
     # BBCode <-> Markdown Konvertierung

@@ -733,13 +733,14 @@ class TeamSpeakCog(commands.Cog):
             )
             return
 
+        await interaction.response.defer()
         await self.chat_bridge.stop()
         embed = discord.Embed(
             title="Chat-Bridge gestoppt",
             color=0xe74c3c,
         )
         embed.set_footer(text=f"Gestoppt von {interaction.user.display_name}")
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
         logger.info(f"Chat-Bridge gestoppt von {interaction.user}")
 
     @bridge_grp.command(name="status", description="Chat-Bridge-Status anzeigen")

@@ -501,3 +501,55 @@ class TSClient:
         """Synchrones Channel-Loeschen."""
         self._connection.channeldelete(cid=channel_id, force=1 if force else 0)
         return True
+
+    # ------------------------------------------------------------------
+    # Event-Handling (fuer Chat-Bridge)
+    # ------------------------------------------------------------------
+
+    async def register_notifications(self, ts_channel_id: int = 0) -> None:
+        """Registriert TS-Server-Notifications fuer Chat-Events.
+
+        Muss ueber _execute laufen, damit _lock korrekt gehalten wird.
+
+        Args:
+            ts_channel_id: Channel-ID fuer textchannel-Events (0 = nur Server)
+        """
+        await self._execute(
+            self._sync_register_notifications, ts_channel_id
+        )
+
+    def _sync_register_notifications(self, ts_channel_id: int = 0) -> bool:
+        """Synchrone Notification-Registrierung."""
+        if ts_channel_id > 0:
+            self._connection.servernotifyregister(
+                event="textchannel",
+                id_=ts_channel_id,
+            )
+        self._connection.servernotifyregister(event="textserver")
+        return True
+
+    async def fetch_events(self) -> list:
+        """Holt wartende Events vom TS-Server (thread-safe ueber _execute).
+
+        Returns:
+            Liste von Event-Dicts oder leere Liste.
+        """
+        result = await self._execute(self._sync_fetch_events)
+        return result if result else []
+
+    def _sync_fetch_events(self) -> list:
+        """Synchroner Event-Abruf."""
+        events = []
+        try:
+            self._connection.recv_in_thread()
+            while True:
+                try:
+                    event = self._connection.wait_for_event(timeout=0.1)
+                    if event and event.parsed:
+                        for entry in event.parsed:
+                            events.append(dict(entry))
+                except Exception:
+                    break
+        except Exception:
+            pass
+        return events

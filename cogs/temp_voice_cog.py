@@ -23,7 +23,7 @@ Features:
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 import discord
@@ -69,7 +69,12 @@ class TempVoiceCog(commands.Cog):
 
         # Cleanup verwaister Channels beim Start
         # (wird als Task gestartet, damit cog_load nicht blockiert)
-        self.bot.loop.create_task(self._startup_cleanup())
+        task = asyncio.create_task(self._startup_cleanup())
+        task.add_done_callback(
+            lambda t: t.exception() and logger.error(
+                f"Startup-Cleanup fehlgeschlagen: {t.exception()}"
+            ) if not t.cancelled() and t.exception() else None
+        )
 
     # ==================================================================
     # Startup-Cleanup: Verwaiste leere Channels entfernen
@@ -92,7 +97,12 @@ class TempVoiceCog(commands.Cog):
 
         removed = 0
         for channel_id_str, data in list(channels.items()):
-            channel_id = int(channel_id_str)
+            try:
+                channel_id = int(channel_id_str)
+            except (ValueError, TypeError):
+                self.manager.delete_channel(0)  # Ungueltige ID entfernen
+                removed += 1
+                continue
 
             # Channel im Discord suchen
             channel = self.bot.get_channel(channel_id)
@@ -225,7 +235,7 @@ class TempVoiceCog(commands.Cog):
                 f"Verwende die Buttons unten um deinen Channel zu verwalten."
             ),
             color=0x5865F2,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
         )
         embed.add_field(
             name="Steuerung",
@@ -432,7 +442,7 @@ class TempVoiceCog(commands.Cog):
             title="Temp-Voice Setup",
             description="\n".join(f"- {line}" for line in info_lines),
             color=0x2ecc71,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
         )
         embed.set_footer(text=f"Konfiguriert von {interaction.user.display_name}")
 
@@ -492,7 +502,7 @@ class TempVoiceCog(commands.Cog):
         embed = discord.Embed(
             title="Temp-Voice Informationen",
             color=0x5865F2,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
         )
 
         embed.add_field(

@@ -10,7 +10,9 @@ Persistenz: data/admin/server_backups/ — eine JSON-Datei pro Backup.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -36,8 +38,12 @@ class ServerBackupManager:
     JSON-Datei in data/admin/server_backups/ gespeichert.
     """
 
+    # Regex fuer gueltige Backup-IDs (nur alphanumerisch + Bindestriche)
+    _VALID_ID_RE = re.compile(r'^[a-zA-Z0-9\-]+$')
+
     def __init__(self) -> None:
         BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+        self._restore_lock = asyncio.Lock()
         logger.info("ServerBackupManager initialisiert")
 
     # ------------------------------------------------------------------
@@ -45,8 +51,19 @@ class ServerBackupManager:
     # ------------------------------------------------------------------
 
     def _backup_path(self, backup_id: str) -> Path:
-        """Dateipfad fuer ein Backup anhand der ID"""
-        return BACKUP_DIR / f"{backup_id}.json"
+        """Dateipfad fuer ein Backup anhand der ID.
+
+        Validiert die ID gegen Path-Traversal-Angriffe.
+
+        Raises:
+            ValueError: Wenn die Backup-ID ungueltige Zeichen enthaelt.
+        """
+        if not self._VALID_ID_RE.match(backup_id):
+            raise ValueError(f"Ungueltige Backup-ID: {backup_id}")
+        path = (BACKUP_DIR / f"{backup_id}.json").resolve()
+        if not str(path).startswith(str(BACKUP_DIR.resolve())):
+            raise ValueError(f"Path-Traversal erkannt: {backup_id}")
+        return path
 
     def _save_backup(self, data: dict) -> None:
         """Backup-Daten auf Disk speichern"""
@@ -573,26 +590,28 @@ class ServerBackupManager:
             f"fuer '{guild.name}' (Modus: {mode})"
         )
 
-        try:
-            # -- Rollen wiederherstellen --
-            if mode in ("full", "roles_only", "add_missing"):
-                await self._restore_roles(guild, backup, mode, results)
+        # Lock: Nur ein Restore gleichzeitig pro Manager
+        async with self._restore_lock:
+            try:
+                # -- Rollen wiederherstellen --
+                if mode in ("full", "roles_only", "add_missing"):
+                    await self._restore_roles(guild, backup, mode, results)
 
-            # -- Channels/Kategorien wiederherstellen --
-            if mode in ("full", "channels_only", "add_missing"):
-                await self._restore_channels(guild, backup, mode, results)
+                # -- Channels/Kategorien wiederherstellen --
+                if mode in ("full", "channels_only", "add_missing"):
+                    await self._restore_channels(guild, backup, mode, results)
 
-            # -- Einstellungen wiederherstellen (nur im full-Modus) --
-            if mode == "full":
-                await self._restore_settings(guild, backup, results)
+                # -- Einstellungen wiederherstellen (nur im full-Modus) --
+                if mode == "full":
+                    await self._restore_settings(guild, backup, results)
 
-        except Exception as e:
-            logger.error(
-                f"Kritischer Fehler bei Wiederherstellung {backup_id}: {e}",
-                exc_info=True,
-            )
-            results["success"] = False
-            results["error"] = str(e)
+            except Exception as e:
+                logger.error(
+                    f"Kritischer Fehler bei Wiederherstellung {backup_id}: {e}",
+                    exc_info=True,
+                )
+                results["success"] = False
+                results["error"] = str(e)
 
         logger.info(
             f"Wiederherstellung {backup_id} abgeschlossen: "
