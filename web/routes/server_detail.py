@@ -5,8 +5,8 @@ Zeigt detaillierte Informationen zu einem Server:
 Spielerliste, RCON-Console, Backups, World-Info, Server-Steuerung.
 """
 
+import html as html_escape_module
 import json
-import os
 from pathlib import Path
 from datetime import datetime
 
@@ -415,15 +415,17 @@ async def server_mods_search(request: Request, server_id: str):
 
     logger.info(f"Mod-Suche: '{query}' auf {source} (von {user.get('username', 'Unbekannt')})")
 
-    html = f"""
+    safe_query = html_escape_module.escape(query)
+    safe_source = html_escape_module.escape(source)
+    resp_html = f"""
     <div class="alert alert-warning">
         <strong>Feature in Entwicklung:</strong>
-        Suche nach &laquo;{query}&raquo; auf {source} empfangen.
+        Suche nach &laquo;{safe_query}&raquo; auf {safe_source} empfangen.
         Die Mod-Suche wird aktiviert, sobald die Bots neben dem Dashboard laufen
         und der ModManager direkt angesprochen werden kann.
     </div>
     """
-    return HTMLResponse(content=html)
+    return HTMLResponse(content=resp_html)
 
 
 @router.post("/api/server/{server_id}/mods/check-updates", response_class=HTMLResponse)
@@ -452,10 +454,11 @@ async def server_mod_update(request: Request, server_id: str):
     form = await request.form()
     mod_name = form.get("mod_name", "")
     logger.info(f"Mod-Update: '{mod_name}' fuer {server_id} (von {user.get('username', 'Unbekannt')})")
+    safe_mod_name = html_escape_module.escape(mod_name)
     return HTMLResponse(content=f"""
     <div class="alert alert-warning">
         <strong>Feature in Entwicklung:</strong>
-        Update fuer &laquo;{mod_name}&raquo; empfangen.
+        Update fuer &laquo;{safe_mod_name}&raquo; empfangen.
     </div>
     """)
 
@@ -470,10 +473,11 @@ async def server_mod_uninstall(request: Request, server_id: str):
     form = await request.form()
     mod_name = form.get("mod_name", "")
     logger.info(f"Mod-Deinstallation: '{mod_name}' fuer {server_id} (von {user.get('username', 'Unbekannt')})")
+    safe_mod_name = html_escape_module.escape(mod_name)
     return HTMLResponse(content=f"""
     <div class="alert alert-warning">
         <strong>Feature in Entwicklung:</strong>
-        Deinstallation von &laquo;{mod_name}&raquo; empfangen.
+        Deinstallation von &laquo;{safe_mod_name}&raquo; empfangen.
     </div>
     """)
 
@@ -510,14 +514,15 @@ async def server_rcon(request: Request, server_id: str, command: str = Form(""))
 
     # Platzhalter-Antwort — tatsaechliche RCON-Integration folgt spaeter
     timestamp = datetime.now().strftime("%H:%M:%S")
-    html = f"""
+    safe_command = html_escape_module.escape(command)
+    resp_html = f"""
     <div class="rcon-line">
         <span class="rcon-timestamp">[{timestamp}]</span>
-        <span class="rcon-input">&gt; {command}</span>
+        <span class="rcon-input">&gt; {safe_command}</span>
     </div>
     <div class="rcon-line rcon-response">
         <span class="rcon-timestamp">[{timestamp}]</span>
-        <span class="rcon-output">[Feature in Entwicklung] Befehl empfangen: &laquo;{command}&raquo; — RCON-Verbindung wird aktiviert, sobald die Bots neben dem Dashboard laufen.</span>
+        <span class="rcon-output">[Feature in Entwicklung] Befehl empfangen: &laquo;{safe_command}&raquo; — RCON-Verbindung wird aktiviert, sobald die Bots neben dem Dashboard laufen.</span>
     </div>
     """
-    return HTMLResponse(content=html)
+    return HTMLResponse(content=resp_html)

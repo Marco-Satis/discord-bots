@@ -189,7 +189,7 @@ async def discord_oauth_callback(request: Request, code: str = "", state: str = 
         return RedirectResponse(url="/auth/login?error=Discord+Autorisierung+abgelehnt", status_code=302)
 
     # CSRF State pruefen
-    stored_state = request.session.get("oauth_state")
+    stored_state = request.session.pop("oauth_state", None)
     if not stored_state or stored_state != state:
         logger.warning("OAuth2 State-Mismatch — moeglicher CSRF-Angriff")
         return RedirectResponse(url="/auth/login?error=Ungueltiger+State", status_code=302)

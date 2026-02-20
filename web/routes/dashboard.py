@@ -8,7 +8,7 @@ aktuelle Ereignisse in einer Kacheluebersicht an.
 import json
 from pathlib import Path
 
-from fastapi import APIRouter, Request, Depends
+from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 

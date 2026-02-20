@@ -10,10 +10,9 @@ Phase 13g erweitert:
   - Bot-Profile (Namen, Status, Avatare)
 """
 
-import json
 from pathlib import Path
 
-from fastapi import APIRouter, Request, Depends, Form
+from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
@@ -244,7 +243,7 @@ async def config_save(request: Request):
             "user": user,
             "config": config,
             "success": "",
-            "error": f"Fehler beim Speichern: {e}",
+            "error": "Fehler beim Speichern der Einstellungen. Details im Server-Log.",
         })
 
 
@@ -332,7 +331,7 @@ async def save_notifications(request: Request):
             "labels": NOTIFICATION_LABELS,
             "channels": ALLOWED_CHANNELS,
             "success": "",
-            "error": f"Fehler beim Speichern: {e}",
+            "error": "Fehler beim Speichern der Einstellungen. Details im Server-Log.",
         })
 
 
@@ -415,7 +414,7 @@ async def save_login_settings(request: Request):
             "allowed_roles": config.get("web_allowed_role_ids", []),
             "allowed_users": config.get("web_allowed_user_ids", []),
             "success": "",
-            "error": f"Fehler beim Speichern: {e}",
+            "error": "Fehler beim Speichern der Einstellungen. Details im Server-Log.",
         })
 
 
@@ -492,5 +491,5 @@ async def save_bot_profiles(request: Request):
             "user": user,
             "profiles": profiles,
             "success": "",
-            "error": f"Fehler beim Speichern: {e}",
+            "error": "Fehler beim Speichern der Einstellungen. Details im Server-Log.",
         })

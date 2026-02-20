@@ -7,9 +7,8 @@ und stellt sie in einer filterbaren Tabelle dar.
 
 import re
 from pathlib import Path
-from datetime import datetime
 
-from fastapi import APIRouter, Request, Depends
+from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 

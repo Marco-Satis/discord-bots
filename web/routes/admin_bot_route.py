@@ -508,7 +508,7 @@ async def admin_bot_save(request: Request, module_name: str):
 
     except Exception as e:
         logger.error(f"Fehler beim Speichern von '{module_name}': {e}")
-        error_msg = f"Fehler beim Speichern: {e}"
+        error_msg = "Fehler beim Speichern der Einstellungen. Details im Server-Log."
         config = _load_module_config(module_name)
 
     return templates.TemplateResponse(template_name, {
