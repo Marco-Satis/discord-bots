@@ -1256,6 +1256,7 @@ class SchedulerCog(commands.Cog):
 
         now_tz = datetime.now(BERLIN_TZ)
         to_remove = []
+        changed = False
 
         for msg in self._scheduled_messages:
             try:
@@ -1276,9 +1277,11 @@ class SchedulerCog(commands.Cog):
                 if repeat == "taeglich":
                     next_dt = next_run + timedelta(days=1)
                     msg["next_run"] = next_dt.isoformat()
+                    changed = True
                 elif repeat == "woechentlich":
                     next_dt = next_run + timedelta(weeks=1)
                     msg["next_run"] = next_dt.isoformat()
+                    changed = True
                 else:
                     to_remove.append(msg["id"])
 
@@ -1289,8 +1292,9 @@ class SchedulerCog(commands.Cog):
             self._scheduled_messages = [
                 m for m in self._scheduled_messages if m["id"] not in to_remove
             ]
+            changed = True
 
-        if to_remove or any(True for _ in []):
+        if changed:
             await self._save_scheduled_messages()
 
     # ------------------------------------------------------------------
@@ -1328,6 +1332,14 @@ class SchedulerCog(commands.Cog):
         if active_count >= MAX_ACTIVE_SCHEDULES:
             await interaction.followup.send(
                 f"Maximale Anzahl aktiver Schedules erreicht ({MAX_ACTIVE_SCHEDULES}).",
+                ephemeral=True,
+            )
+            return
+
+        # Nachrichtenlaenge validieren (Discord-Limit: 2000 Zeichen)
+        if len(nachricht) > 2000:
+            await interaction.followup.send(
+                "Nachricht darf maximal 2000 Zeichen lang sein.",
                 ephemeral=True,
             )
             return

@@ -30,6 +30,8 @@ class GeneralCog(commands.Cog):
         self.bot = bot
         # Aktive Clear-Vorgaenge: {channel_id: task_info}
         self._active_clears: dict[int, dict] = {}
+        # Abbruch-Events fuer laufende Clear-Tasks: {channel_id: asyncio.Event}
+        self._clear_cancel_events: dict[int, asyncio.Event] = {}
 
     @commands.Cog.listener()
     async def on_ready(self):
@@ -163,7 +165,9 @@ class GeneralCog(commands.Cog):
                 )
             return
 
-        # Lock setzen
+        # Lock setzen + Cancel-Event erstellen
+        cancel_event = asyncio.Event()
+        self._clear_cancel_events[channel_id] = cancel_event
         self._active_clears[channel_id] = {
             "user": user_name,
             "started": datetime.now(timezone.utc).isoformat(),
@@ -224,8 +228,14 @@ class GeneralCog(commands.Cog):
             last_deleted_at = None
 
             # Bulk-Delete fuer neuere Nachrichten (in 100er-Chunks)
+            cancelled = False
             if bulk_msgs:
                 for i in range(0, len(bulk_msgs), 100):
+                    # Abbruch-Pruefung
+                    if cancel_event.is_set():
+                        cancelled = True
+                        break
+
                     chunk = bulk_msgs[i:i + 100]
                     try:
                         await channel.delete_messages(
@@ -237,6 +247,9 @@ class GeneralCog(commands.Cog):
                         logger.warning(f"Bulk delete error: {e}")
                         # Fallback: einzeln loeschen
                         for msg in chunk:
+                            if cancel_event.is_set():
+                                cancelled = True
+                                break
                             try:
                                 await msg.delete()
                                 deleted_bulk += 1
@@ -276,8 +289,13 @@ class GeneralCog(commands.Cog):
                     await asyncio.sleep(1)
 
             # Alte Nachrichten einzeln loeschen
-            if old_msgs:
+            if old_msgs and not cancelled:
                 for i, msg in enumerate(old_msgs):
+                    # Abbruch-Pruefung
+                    if cancel_event.is_set():
+                        cancelled = True
+                        break
+
                     try:
                         await msg.delete()
                         deleted_old += 1
@@ -321,10 +339,14 @@ class GeneralCog(commands.Cog):
             # --- Abschluss ---
             deleted_count = already_deleted + deleted_bulk + deleted_old
             failed_count = total - deleted_count
-            summary = f"{deleted_count} Nachrichten geloescht"
+            if cancelled:
+                remaining = total - deleted_count
+                summary = f"⛔ Abgebrochen: {deleted_count} Nachrichten geloescht, {remaining} uebersprungen"
+            else:
+                summary = f"{deleted_count} Nachrichten geloescht"
 
             # Zeitraum-Info (nur bei manuellem Aufruf mit Parametern)
-            if is_resume:
+            if is_resume and not cancelled:
                 summary = f"🔄 Fortgesetzt: {summary}"
 
             if interaction:
@@ -410,8 +432,9 @@ class GeneralCog(commands.Cog):
             # Restart fortgesetzt
 
         finally:
-            # Lock freigeben
+            # Lock + Cancel-Event freigeben
             self._active_clears.pop(channel_id, None)
+            self._clear_cancel_events.pop(channel_id, None)
 
     def _send_error_log(self, channel, user_name: str, error_msg: str) -> None:
         """Fehler-Embed an Log-Channel senden (fire-and-forget)"""
@@ -519,7 +542,7 @@ class GeneralCog(commands.Cog):
         general_cmds = (
             "`/help` - Diese Uebersicht\n"
             "`/server` - Server-Uebersicht\n"
-            "`/clear [anzahl] [stunden] [von] [bis]` - Nachrichten loeschen (Admin)\n"
+            "`/clear [anzahl] [stunden] [von] [bis]` - Nachrichten loeschen, nochmal = Abbruch (Admin)\n"
             "`/ping` - Bot-Latenz (Owner)\n"
             "`/reload` - Cog neuladen (Owner)"
         )
@@ -622,9 +645,18 @@ class GeneralCog(commands.Cog):
 
         # Pruefen ob schon ein Clear in diesem Channel laeuft
         if interaction.channel.id in self._active_clears:
+            # Wenn ohne Parameter aufgerufen: Abbruch des laufenden Vorgangs
+            if not anzahl and not stunden and not von and not bis:
+                cancel_ev = self._clear_cancel_events.get(interaction.channel.id)
+                if cancel_ev:
+                    cancel_ev.set()
+                    await interaction.edit_original_response(
+                        content="⛔ Loeschvorgang wird abgebrochen..."
+                    )
+                    return
             await interaction.edit_original_response(
                 content="⚠️ In diesem Channel laeuft bereits ein Loeschvorgang. "
-                "Bitte warte bis er abgeschlossen ist."
+                "Verwende `/clear` ohne Parameter um ihn abzubrechen."
             )
             return
 
