@@ -13,9 +13,9 @@
 
 ---
 
-## Offene Features
+## Features
 
-### 11. MC World-Analyse per Command
+### 11. MC World-Analyse per Command ✅ Erledigt (v3.2.0)
 
 Neuer Befehl `/mc world stats [server]` fuer eine detaillierte Analyse der aktuellen Minecraft-Welt. Zeigt auf Wunsch ausfuehrliche Infos zum aktuellen Spielstand als Discord-Embed.
 
@@ -44,7 +44,7 @@ Welt-Groesse:
 **Abhaengigkeiten:** `nbtlib` + `anvil-parser2` (pip install)
 **Hinweis:** Alle Datei-Operationen muessen in `asyncio.to_thread()` laufen (blocking I/O)
 
-### 13. Web-Dashboard (Interaktiv)
+### 13. Web-Dashboard (Interaktiv) ✅ Erledigt (v3.2.0)
 
 Vollstaendiges Admin-Dashboard zur Verwaltung aller Server ueber den Browser. Ausschliesslich fuer Admins und Owner — kein oeffentlicher Zugang fuer normale User. Echtzeit-Updates per WebSocket, Login-geschuetzt.
 
@@ -260,7 +260,7 @@ Server-Detail ist keine eigene Sidebar-Seite, sondern per Klick auf eine Server-
 **ENV-Variablen:** `WEB_ENABLED`, `WEB_PORT`, `WEB_SECRET_KEY`, `WEB_ADMIN_USER`, `WEB_ADMIN_PASS_HASH`, `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `DISCORD_REDIRECT_URI`, `DISCORD_GUILD_ID`
 **Config-Variablen:** `web_allowed_role_ids` (Liste), `web_allowed_user_ids` (Liste)
 
-### 14. Discord-Bot-Konfiguration via Web-UI
+### 14. Discord-Bot-Konfiguration via Web-UI ✅ Erledigt (v3.2.0)
 
 In Feature #13 (Web-Dashboard) integriertes Config-Panel. Ermoeglicht das Aendern von `config.json`-Settings direkt im Browser ohne SSH-Zugang.
 
@@ -337,7 +337,7 @@ In Feature #13 (Web-Dashboard) integriertes Config-Panel. Ermoeglicht das Aender
 **Dateien:** `web/routes/config.py`, `web/templates/config.html`, Erweiterung `utils/config.py` (Hot-Reload)
 **Abhaengigkeiten:** Feature #13 (Web-Dashboard)
 
-### 17. Discord Temp Voice Channels
+### 17. Discord Temp Voice Channels ✅ Erledigt (v3.2.0)
 
 Join-to-Create-System fuer temporaere Voice Channels mit Embed-basierter Kanalverwaltung. Ein einzelner Hub-Voice-Channel dient als Trigger — sobald ein User diesem Channel beitritt, wird automatisch ein neuer temporaerer Voice Channel in einer dedizierten Kategorie erstellt und der User dorthin verschoben. Sobald der letzte User den Channel verlaesst, wird er sofort geloescht. Die gesamte Kanalverwaltung erfolgt ueber ein interaktives Embed im Text-in-Voice-Chat — keine Slash-Commands fuer Owner.
 
@@ -418,7 +418,7 @@ Das Embed wird automatisch beim Erstellen des Temp-Channels im integrierten Text
 **Dateien:** Neuer Cog `cogs/temp_voice_cog.py`, Neues Modul `modules/temp_voice.py`, Views `modules/temp_voice_views.py`
 **Abhaengigkeiten:** Keine (discord.py Voice-State-Events, discord.ui Components)
 
-### 16. TeamSpeak-Integration (3 Phasen)
+### 16. TeamSpeak-Integration (3 Phasen) ✅ Erledigt (v3.2.0)
 
 Schrittweise Integration eines TeamSpeak-Servers in das Bot-System ueber die TeamSpeak ServerQuery-Schnittstelle. Alle TS-Befehle werden per Discord-Slash-Commands gesteuert. Bot-Architektur (eigener Bot vs. Cog im GameServer Bot) wird bei Implementierung entschieden.
 
@@ -481,7 +481,7 @@ Erweiterte Channel-Verwaltung und automatische Verknuepfung mit Gameserver-Event
 **Hauptverzeichnis:** `modules/teamspeak/` mit Query-Client, Manager, Chat-Bridge, Channel-Manager
 **Voraussetzung:** TeamSpeak-Server mit aktiviertem ServerQuery-Zugang
 
-### 18. Admin Bot — Dritter Bot fuer Server-Verwaltung
+### 18. Admin Bot — Dritter Bot fuer Server-Verwaltung ✅ Erledigt (v3.2.0)
 
 Eigenstaendiger dritter Discord-Bot, der sich ausschliesslich um Server-Verwaltung kuemmert: Discord-Moderation und TeamSpeak-Steuerung. Damit entsteht eine klare Drei-Bot-Architektur:
 
@@ -588,7 +588,7 @@ data/
 **Abhaengigkeiten:** Neuer Discord Bot-Token
 **ENV-Variablen:** `ADMIN_BOT_TOKEN`, `ADMIN_BOT_PREFIX`, `ADMIN_DATA_DIR`
 
-### 19. Discord + TeamSpeak Server-Backup (Struktur-Snapshot)
+### 19. Discord + TeamSpeak Server-Backup (Struktur-Snapshot) ✅ Erledigt (v3.2.0)
 
 Vollstaendiges Backup der Discord- und TeamSpeak-Server-Struktur als JSON-Snapshot. Ermoeglicht es, den kompletten Aufbau (Channels, Rollen, Berechtigungen, Einstellungen) jederzeit wiederherzustellen — z.B. fuer einen neuen Server oder nach versehentlichen Aenderungen.
 
@@ -650,7 +650,7 @@ TeamSpeak-Server (wenn TS-Integration aktiv):
 **Abhaengigkeiten:** Feature #18 (Admin Bot), Feature #16 Phase 1 (TS-Client, optional)
 **Persistenz:** `data/admin/server_backups/*.json`
 
-### 20. SAT Auto-Update Verbesserung (Sofort bei leerem Server + Spieler-Benachrichtigung)
+### 20. SAT Auto-Update Verbesserung (Sofort bei leerem Server + Spieler-Benachrichtigung) ✅ Erledigt (v3.2.0)
 
 Erweiterung des bestehenden Auto-Update-Systems fuer Satisfactory. Aktuell wird nur zu einer festen Uhrzeit (`auto_update_hour`, Standard 5:00) geprüft und installiert. Neues Verhalten: Sobald ein Update erkannt wird UND keine Spieler mehr online sind, wird sofort aktualisiert — unabhaengig von der Uhrzeit.
 
@@ -701,7 +701,7 @@ Erweiterung des bestehenden Auto-Update-Systems fuer Satisfactory. Aktuell wird 
 **Dateien:** `cogs/scheduler_cog.py`, `modules/notifications/discord_notifier.py`
 **Abhaengigkeiten:** Keine neuen
 
-### 21. MC Ankuendigungs-Banner (`/mc say` Erweiterung + In-Game)
+### 21. MC Ankuendigungs-Banner (`/mc say` Erweiterung + In-Game) ✅ Erledigt (v3.2.0)
 
 Erweiterung des bestehenden `/mc say`-Befehls: Statt nur einer Chat-Nachricht (`say`) wird zusaetzlich ein grosser Ankuendigungsbanner auf dem Bildschirm aller Spieler angezeigt. Funktioniert sowohl aus Discord heraus als auch In-Game.
 
@@ -742,7 +742,7 @@ Erweiterung des bestehenden `/mc say`-Befehls: Statt nur einer Chat-Nachricht (`
 **Dateien:** `cogs/minecraft_cog.py`
 **Abhaengigkeiten:** Keine neuen
 
-### 22. MC Gameplay-Commands entfernen (nur In-Game)
+### 22. MC Gameplay-Commands entfernen (nur In-Game) ✅ Erledigt (v3.2.0)
 
 Die Befehle `/mc difficulty`, `/mc weather`, `/mc time` und `/mc gamemode` werden aus den Discord Slash-Commands entfernt. Diese Gameplay-Einstellungen sollen ausschliesslich In-Game per Minecraft-Befehlen verfuegbar sein — sie haben in Discord nichts zu suchen.
 
@@ -764,7 +764,7 @@ Die Befehle `/mc difficulty`, `/mc weather`, `/mc time` und `/mc gamemode` werde
 **Aufwand:** ~30 Minuten (reines Entfernen)
 **Dateien:** `cogs/minecraft_cog.py`
 
-### 23. MC IP-Ban (wie SAT)
+### 23. MC IP-Ban (wie SAT) ✅ Erledigt (v3.2.0)
 
 Erweiterung des Minecraft-Bans um IP-basierte Sperrung per UFW-Firewall — identisch zum bestehenden SAT-Ban-System.
 
@@ -798,7 +798,7 @@ Erweiterung des Minecraft-Bans um IP-basierte Sperrung per UFW-Firewall — iden
 **Dateien:** `cogs/minecraft_cog.py`, optional `modules/minecraft/blacklist.py`
 **Abhaengigkeiten:** Keine neuen (player_ip_tracker + UFW bereits vorhanden)
 
-### 24. Timeout-System Erweiterung (Temporaerer Server-Ban + Restzeit)
+### 24. Timeout-System Erweiterung (Temporaerer Server-Ban + Restzeit) ✅ Erledigt (v3.2.0)
 
 Kompletter Umbau des Timeout-Systems: Statt nur Game-Kick + Discord-Timeout wird der Spieler temporaer von ALLEN Gameservern ausgesperrt. Nach Ablauf wird der Zugang automatisch wiederhergestellt. Spieler koennen ihre verbleibende Timeout-Zeit jederzeit abfragen.
 
@@ -874,7 +874,7 @@ Timeout-Historie:
 **Dateien:** `cogs/timeout_cog.py` (Umbau), neues `modules/timeout_manager.py`
 **Abhaengigkeiten:** Feature #23 (MC IP-Ban), `player_ip_tracker` (bereits vorhanden)
 
-### 25. Command-Aufraeumung (Loeschen, Umbenennen, Dashboard-Migration)
+### 25. Command-Aufraeumung (Loeschen, Umbenennen, Dashboard-Migration) ✅ Erledigt (v3.2.0)
 
 Grosse Aufraeumaktion der Discord Slash-Commands. Viele Befehle wandern ins Dashboard, einige werden umbenannt, einige komplett entfernt. Ziel: Nur noch die wirklich in Discord sinnvollen Commands behalten.
 
@@ -961,7 +961,7 @@ Allgemein:
 **Dateien:** Alle Cog-Dateien, `cogs/general_cog.py` (Help aktualisieren)
 **Abhaengigkeiten:** Feature #13 (Dashboard muss die Funktionen uebernehmen)
 
-### 26. Rollenbasierter Help-Befehl
+### 26. Rollenbasierter Help-Befehl ✅ Erledigt (v3.2.0)
 
 Der `/help`-Befehl zeigt aktuell alle Commands an, auch solche die der Nutzer nicht verwenden darf. Neues Verhalten: Nur Commands anzeigen, fuer die der Nutzer die Berechtigung hat.
 

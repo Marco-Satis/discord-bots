@@ -889,7 +889,7 @@ class SchedulerCog(commands.Cog):
                         f"MC {label} — Paper-Update verfuegbar",
                         f"Aktueller Build: {info.get('current_build', '?')}\n"
                         f"Neuester Build: {info.get('latest_build', '?')}\n"
-                        f"Verwende `/mc config update` zum Installieren.",
+                        f"Update manuell auf dem Server installieren.",
                         NotifyLevel.WARNING,
                     )
 

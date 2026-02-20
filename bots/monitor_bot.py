@@ -63,6 +63,7 @@ from modules.minecraft.settings_backup import MinecraftSettingsBackup
 from modules.minecraft.update_checker import MinecraftUpdateChecker
 from modules.monitoring.web_status import WebStatusGenerator
 from modules.minecraft.modpack_updater import ModpackUpdater
+from modules.monitoring.stats_collector import StatsCollector
 
 load_env()
 
@@ -500,6 +501,13 @@ else:
     logger.info("Modpack-Updater deaktiviert (MC_BMC_MODPACK_ID/VERSION nicht gesetzt)")
 
 bot.modpack_updater = modpack_updater
+
+# ------------------------------------------------------------------
+# Stats Collector (Phase 13c) — Sammelt System/Server-Metriken
+# ------------------------------------------------------------------
+
+stats_collector = StatsCollector(interval=300)  # Alle 5 Minuten
+bot.stats_collector = stats_collector
 
 # State - persistent status message ID
 _status_message_id = None
@@ -1772,6 +1780,10 @@ async def on_ready():
     # Minecraft Chat-Bridge Channel-Map befuellen
     _build_mc_chat_channel_map()
 
+    # StatsCollector als Hintergrund-Task starten (nur beim ersten Start)
+    if not stats_collector._running:
+        await stats_collector.start()
+
     if _first_ready:
         logger.info("All background tasks started")
         # Send startup notification only on first connect
@@ -1840,6 +1852,7 @@ async def shutdown():
     """Graceful shutdown: close sessions and resources"""
     logger.info("Shutting down...")
     player_tracker.close_all_sessions()
+    await stats_collector.stop()
     await sat_api.close()
     logger.info("Cleanup complete")
 
