@@ -61,6 +61,7 @@ from modules.minecraft.server import MinecraftServer
 from modules.minecraft.chat_bridge import MinecraftChatBridge
 from modules.minecraft.settings_backup import MinecraftSettingsBackup
 from modules.minecraft.update_checker import MinecraftUpdateChecker
+from modules.monitoring.web_status import WebStatusGenerator
 
 load_env()
 
@@ -455,6 +456,29 @@ for _mc_sid, _mc_srv in mc_servers.items():
     mc_chat_bridges[_mc_sid] = bridge
 
 bot.mc_chat_bridges = mc_chat_bridges
+
+# ------------------------------------------------------------------
+# Web-Status-Seite (Phase 8g)
+# ------------------------------------------------------------------
+
+_web_status_enabled = get_env("WEB_STATUS_ENABLED", "false").lower() == "true"
+_web_status_path = get_env("WEB_STATUS_PATH", "/var/www/status")
+
+web_status_generator = None
+if _web_status_enabled:
+    web_status_generator = WebStatusGenerator(
+        output_path=_web_status_path,
+        sat_server=sat_server,
+        mc_servers=mc_servers,
+        health_checker=health_checker,
+        perf_monitor=perf_monitor,
+        player_tracker=player_tracker,
+    )
+    logger.info(f"Web-Status-Seite aktiviert: {_web_status_path}")
+else:
+    logger.info("Web-Status-Seite deaktiviert (WEB_STATUS_ENABLED != true)")
+
+bot.web_status_generator = web_status_generator
 
 # State - persistent status message ID
 _status_message_id = None
@@ -1628,6 +1652,28 @@ async def before_weekly_snapshot():
 
 
 # ------------------------------------------------------------------
+# Web-Status-Seite Task (Phase 8g)
+# ------------------------------------------------------------------
+
+@tasks.loop(seconds=60)
+async def web_status_task():
+    """Generiert die HTML-Status-Seite alle 60 Sekunden"""
+    if web_status_generator:
+        try:
+            success = await web_status_generator.generate()
+            if not success:
+                logger.debug("Web-Status-Seite Generierung fehlgeschlagen")
+        except Exception as e:
+            logger.debug(f"Web-Status-Task Fehler: {e}")
+
+
+@web_status_task.before_loop
+async def before_web_status():
+    await bot.wait_until_ready()
+    await asyncio.sleep(15)
+
+
+# ------------------------------------------------------------------
 # Bot Events
 # ------------------------------------------------------------------
 
@@ -1690,6 +1736,10 @@ async def on_ready():
         update_voice_stats, optimize_task, login_audit_task,
         weekly_snapshot_task,
     ]
+    # Web-Status-Task nur starten wenn aktiviert
+    if web_status_generator:
+        core_tasks.append(web_status_task)
+
     # MC-Tasks nur starten wenn MC-Server konfiguriert sind
     if mc_servers:
         core_tasks.extend([mc_chat_bridge_task, mc_health_check_task])

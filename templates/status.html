@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="refresh" content="60">
+    <title>Server Status</title>
+    <style>
+        :root {
+            --bg-primary: #1e1e2e;
+            --bg-secondary: #2b2b3d;
+            --bg-card: #313244;
+            --text-primary: #cdd6f4;
+            --text-secondary: #a6adc8;
+            --accent: #89b4fa;
+            --green: #a6e3a1;
+            --red: #f38ba8;
+            --yellow: #f9e2af;
+            --border: #45475a;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            padding: 1rem;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            padding: 1.5rem 0;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 1.5rem;
+        }
+
+        header h1 {
+            font-size: 1.8rem;
+            color: var(--accent);
+            margin-bottom: 0.3rem;
+        }
+
+        .updated {
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .card {
+            background: var(--bg-card);
+            border-radius: 8px;
+            padding: 1.2rem;
+            border: 1px solid var(--border);
+        }
+
+        .card h2 {
+            font-size: 1.1rem;
+            color: var(--accent);
+            margin-bottom: 0.8rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .status-online { background-color: var(--green); }
+        .status-offline { background-color: var(--red); }
+        .status-warning { background-color: var(--yellow); }
+
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.3rem 0;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.9rem;
+        }
+
+        .stat-row:last-child {
+            border-bottom: none;
+        }
+
+        .stat-label {
+            color: var(--text-secondary);
+        }
+
+        .stat-value {
+            font-weight: 600;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 6px;
+            background: var(--bg-secondary);
+            border-radius: 3px;
+            margin-top: 0.3rem;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 0.3s ease;
+        }
+
+        .fill-green { background-color: var(--green); }
+        .fill-yellow { background-color: var(--yellow); }
+        .fill-red { background-color: var(--red); }
+
+        .server-status {
+            font-size: 1rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            margin-bottom: 0.6rem;
+        }
+
+        .online-text { color: var(--green); }
+        .offline-text { color: var(--red); }
+
+        footer {
+            text-align: center;
+            padding: 1rem 0;
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+            border-top: 1px solid var(--border);
+        }
+
+        @media (max-width: 600px) {
+            body { padding: 0.5rem; }
+            header h1 { font-size: 1.4rem; }
+            .card { padding: 0.9rem; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Server Status</h1>
+            <p class="updated">Letzte Aktualisierung: {{ updated_at }}</p>
+        </header>
+
+        <div class="grid">
+            <!-- Satisfactory Server -->
+            <div class="card">
+                <h2>
+                    <span class="status-dot {{ 'status-online' if sat_online else 'status-offline' }}"></span>
+                    Satisfactory
+                </h2>
+                <div class="server-status">
+                    <span class="{{ 'online-text' if sat_online else 'offline-text' }}">
+                        {{ 'Online' if sat_online else 'Offline' }}
+                    </span>
+                </div>
+                {% if sat_online %}
+                <div class="stat-row">
+                    <span class="stat-label">Spieler</span>
+                    <span class="stat-value">{{ sat_players }}</span>
+                </div>
+                {% endif %}
+            </div>
+
+            <!-- Minecraft Server -->
+            {% for mc in mc_servers %}
+            <div class="card">
+                <h2>
+                    <span class="status-dot {{ 'status-online' if mc.online else 'status-offline' }}"></span>
+                    {{ mc.name }}
+                </h2>
+                <div class="server-status">
+                    <span class="{{ 'online-text' if mc.online else 'offline-text' }}">
+                        {{ 'Online' if mc.online else 'Offline' }}
+                    </span>
+                </div>
+                {% if mc.online %}
+                <div class="stat-row">
+                    <span class="stat-label">Spieler</span>
+                    <span class="stat-value">{{ mc.players }}</span>
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+
+            <!-- System Performance -->
+            <div class="card">
+                <h2>System</h2>
+                <div class="stat-row">
+                    <span class="stat-label">CPU</span>
+                    <span class="stat-value">{{ cpu_percent }}%</span>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill {{ 'fill-green' if cpu_percent < 80 else ('fill-yellow' if cpu_percent < 95 else 'fill-red') }}"
+                         style="width: {{ cpu_percent }}%"></div>
+                </div>
+
+                <div class="stat-row" style="margin-top: 0.5rem;">
+                    <span class="stat-label">RAM</span>
+                    <span class="stat-value">{{ ram_percent }}%</span>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill {{ 'fill-green' if ram_percent < 80 else ('fill-yellow' if ram_percent < 95 else 'fill-red') }}"
+                         style="width: {{ ram_percent }}%"></div>
+                </div>
+
+                <div class="stat-row" style="margin-top: 0.5rem;">
+                    <span class="stat-label">Disk</span>
+                    <span class="stat-value">{{ disk_percent }}%</span>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill {{ 'fill-green' if disk_percent < 80 else ('fill-yellow' if disk_percent < 95 else 'fill-red') }}"
+                         style="width: {{ disk_percent }}%"></div>
+                </div>
+            </div>
+        </div>
+
+        <footer>
+            Auto-Refresh alle 60 Sekunden
+        </footer>
+    </div>
+</body>
+</html>
