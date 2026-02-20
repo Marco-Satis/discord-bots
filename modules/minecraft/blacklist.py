@@ -89,7 +89,8 @@ class MinecraftBlacklist:
         return None
 
     async def add(self, player_name: str, reason: str, banned_by: str,
-                  servers: Optional[List[str]] = None) -> bool:
+                  servers: Optional[List[str]] = None,
+                  ip: Optional[str] = None) -> bool:
         """Spieler zur Blacklist hinzufuegen.
 
         Args:
@@ -97,6 +98,7 @@ class MinecraftBlacklist:
             reason: Ban-Grund
             banned_by: Discord-User der den Ban ausgesprochen hat
             servers: Liste von Server-IDs oder None fuer alle Server
+            ip: Bekannte IP-Adresse des Spielers (fuer IP-Ban-Tracking)
 
         Returns:
             True wenn hinzugefuegt, False wenn bereits gebannt
@@ -105,17 +107,22 @@ class MinecraftBlacklist:
             if self.is_banned(player_name):
                 return False
 
-            self._data.setdefault("bans", []).append({
+            entry = {
                 "player_name": player_name.strip(),
                 "reason": reason,
                 "banned_by": banned_by,
                 "timestamp": datetime.now().isoformat(),
                 "servers": servers or ["ALL"],
                 "active": True,
-            })
+            }
+            if ip:
+                entry["ip"] = ip
+
+            self._data.setdefault("bans", []).append(entry)
             await self._save()
             logger.info(
                 f"Blacklist: {player_name} gebannt von {banned_by} — {reason}"
+                + (f" (IP: {ip})" if ip else "")
             )
             return True
 

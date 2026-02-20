@@ -102,6 +102,9 @@ class MinecraftCog(commands.Cog):
         # Blacklist-System (Phase 8e)
         self.blacklist = getattr(bot, 'mc_blacklist', None)
 
+        # IP-Tracker fuer UFW-Bans (Phase 10c: MC IP-Ban wie SAT)
+        self.ip_trackers: Dict[str, object] = getattr(bot, 'mc_ip_trackers', {})
+
         # Autosave-System (Phase 8b)
         self._autosave_file = DATA_DIR / "mc_autosave.json"
         self._autosave_intervals: Dict[str, int] = {}  # server_id -> Minuten
@@ -568,7 +571,7 @@ class MinecraftCog(commands.Cog):
                 f"Fehler beim Kicken: {e}", ephemeral=True
             )
 
-    @players_grp.command(name="ban", description="Spieler bannen")
+    @players_grp.command(name="ban", description="Spieler bannen (RCON + IP-Sperre)")
     @admin_only()
     @app_commands.autocomplete(server=_server_autocomplete)
     async def mc_ban(self, interaction: discord.Interaction,
@@ -584,13 +587,32 @@ class MinecraftCog(commands.Cog):
         try:
             safe_player = _sanitize_rcon_input(player)
             safe_reason = _sanitize_rcon_input(reason, 200)
-            await srv.rcon_command(f"ban {safe_player} {safe_reason}")
 
-            # Automatisch Blacklist-Eintrag erstellen (Phase 8e)
+            # 1. RCON-Ban (MC-interner Name/UUID-Ban)
+            await srv.rcon_command(f"ban {safe_player} {safe_reason}")
+            rcon_ok = True
+
+            # 2. IP-Ban via UFW (Phase 10c: wie SAT)
+            ip_ok = False
+            ip_msg = ""
+            ip_tracker = self.ip_trackers.get(srv.server_id)
+            if ip_tracker:
+                ip_success, ip_msg = await ip_tracker.ban_player(
+                    safe_player, safe_reason,
+                    str(interaction.user)
+                )
+                ip_ok = ip_success
+            else:
+                ip_msg = "IP-Tracker nicht verfuegbar"
+
+            # 3. Automatisch Blacklist-Eintrag erstellen (Phase 8e)
             if self.blacklist:
+                # IP-Feld im Blacklist-Eintrag ergaenzen
+                ip_address = ip_tracker.get_ip(safe_player) if ip_tracker else None
                 await self.blacklist.add(
                     safe_player, safe_reason,
                     str(interaction.user), servers=[srv.server_id],
+                    ip=ip_address,
                 )
 
             embed = discord.Embed(
@@ -599,15 +621,26 @@ class MinecraftCog(commands.Cog):
                            f"Grund: {safe_reason}",
                 color=0xff0000,
             )
+            embed.add_field(
+                name="RCON-Ban", value="✅ Aktiv" if rcon_ok else "❌ Fehler", inline=True
+            )
+            embed.add_field(
+                name="IP-Sperre (UFW)",
+                value=f"✅ {ip_msg}" if ip_ok else f"⚠️ {ip_msg}",
+                inline=True,
+            )
             embed.set_footer(text=f"von {interaction.user.display_name}")
             await interaction.followup.send(embed=embed)
-            logger.info(f"[{srv.server_id}] {player} gebannt von {interaction.user}")
+            logger.info(
+                f"[{srv.server_id}] {player} gebannt von {interaction.user} "
+                f"(RCON: {rcon_ok}, IP: {ip_ok})"
+            )
         except Exception as e:
             await interaction.followup.send(
                 f"Fehler beim Bannen: {e}", ephemeral=True
             )
 
-    @players_grp.command(name="pardon", description="Spieler entbannen")
+    @players_grp.command(name="pardon", description="Spieler entbannen (RCON + IP-Sperre aufheben)")
     @admin_only()
     @app_commands.autocomplete(server=_server_autocomplete)
     async def mc_pardon(self, interaction: discord.Interaction,
@@ -621,15 +654,44 @@ class MinecraftCog(commands.Cog):
 
         try:
             safe_player = _sanitize_rcon_input(player)
+
+            # 1. RCON-Pardon (MC-interner Ban aufheben)
             await srv.rcon_command(f"pardon {safe_player}")
+            rcon_ok = True
+
+            # 2. IP-Ban via UFW aufheben (Phase 10c)
+            ip_ok = False
+            ip_msg = ""
+            ip_tracker = self.ip_trackers.get(srv.server_id)
+            if ip_tracker:
+                ip_success, ip_msg = await ip_tracker.unban_player(safe_player)
+                ip_ok = ip_success
+                if not ip_success and "nicht gebannt" in ip_msg.lower():
+                    # Kein IP-Ban vorhanden — kein Fehler
+                    ip_msg = "Kein IP-Ban vorhanden"
+                    ip_ok = True
+            else:
+                ip_msg = "IP-Tracker nicht verfuegbar"
+
             embed = discord.Embed(
                 title="Spieler entbannt",
                 description=f"**{safe_player}** wurde auf {srv.display_name} entbannt.",
                 color=0x00ff00,
             )
+            embed.add_field(
+                name="RCON-Pardon", value="✅ Aktiv" if rcon_ok else "❌ Fehler", inline=True
+            )
+            embed.add_field(
+                name="IP-Sperre (UFW)",
+                value=f"✅ {ip_msg}" if ip_ok else f"⚠️ {ip_msg}",
+                inline=True,
+            )
             embed.set_footer(text=f"von {interaction.user.display_name}")
             await interaction.followup.send(embed=embed)
-            logger.info(f"[{srv.server_id}] {player} entbannt von {interaction.user}")
+            logger.info(
+                f"[{srv.server_id}] {player} entbannt von {interaction.user} "
+                f"(RCON: {rcon_ok}, IP: {ip_ok})"
+            )
         except Exception as e:
             await interaction.followup.send(
                 f"Fehler beim Entbannen: {e}", ephemeral=True

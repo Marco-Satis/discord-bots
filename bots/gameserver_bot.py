@@ -142,6 +142,16 @@ if bot.mc_servers:
 from modules.minecraft.blacklist import MinecraftBlacklist
 bot.mc_blacklist = MinecraftBlacklist()
 
+# Phase 10c: MC IP-Tracker (fuer IP-basierte Bans via UFW)
+from modules.monitoring.player_ip_tracker import PlayerIPTracker
+bot.mc_ip_trackers: dict[str, PlayerIPTracker] = {}
+for _sid in bot.mc_servers:
+    bot.mc_ip_trackers[_sid] = PlayerIPTracker(
+        data_file=PROJECT_ROOT / "data" / f"player_ips_mc_{_sid.lower()}.json",
+        game_type="mc",
+    )
+    logger.info(f"MC IP-Tracker aktiviert: {_sid}")
+
 # Mod management
 bot.sat_mod_mgr = ModManager("satisfactory",
                              server_path=bot.sat_server.server_path,
