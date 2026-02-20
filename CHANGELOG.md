@@ -4,12 +4,79 @@ Alle relevanten Aenderungen am Discord Bot System werden hier dokumentiert.
 
 ---
 
+## [3.1.0] — 2026-02-20
+
+### Hinzugefuegt
+
+- **Phase 8a: Server-Offline-Decorator**
+  - `@server_online_required(server_attr)` Decorator fuer SAT-Commands
+  - `_require_online_server()` Helper fuer MC Multi-Server-Commands
+  - Wiederholendes `if not await srv.is_running(): return` Pattern refactored
+
+- **Phase 8b: MC Autosave-Command**
+  - `/mc config autosave <intervall> [server]` — Periodisches save-all via RCON
+  - JSON-Persistenz in `data/mc_autosave.json`
+  - cog_load/cog_unload Lifecycle fuer Task-Management
+
+- **Phase 8c: Backup-Statistiken**
+  - `/backup stats` — Detaillierte Backup-Statistiken pro Server
+  - Disk-Usage mit Farbcodierung und Fortschrittsbalken
+  - Async I/O via run_in_executor
+
+- **Phase 8d: Config-Backup Rotation + Verschluesselung**
+  - Konfigurierbare max_backups aus config.json
+  - Optionale GPG-Verschluesselung (AES256, symmetrisch)
+  - ENV: `GPG_PASSPHRASE`, config: `backup.config_encrypt`
+
+- **Phase 8e: MC Blacklist-System**
+  - Serveruebergreifendes Ban-System fuer Minecraft
+  - `/mc blacklist add|remove|list|history`
+  - Ban-Historie mit active/inactive Status
+  - Automatische Blacklist-Integration bei `/mc players ban`
+  - Mention-Injection-Schutz in allen Embeds
+
+- **Phase 8f: Scheduled Messages**
+  - `/schedule add|list|cancel` — Geplante Nachrichten
+  - Relative/absolute Zeitangaben, Wiederholung (einmalig/taeglich/woechentlich)
+  - Persistenz in `data/scheduled_messages.json`
+  - Zeitzone: Europe/Berlin, max. 20 aktive Schedules
+
+- **Phase 8g: Web-Status-Seite**
+  - HTML-Generator mit Jinja2-Template (Dark-Mode, responsive)
+  - Auto-Refresh alle 60s, Farbcodierung, System-Performance
+  - Nginx-Setup-Script (`scripts/setup_nginx.sh`)
+  - ENV: `WEB_STATUS_ENABLED`, `WEB_STATUS_PATH`
+
+- **Phase 8h: BMC Modpack-Update-Check**
+  - Modrinth/CurseForge API Unterstuetzung
+  - Periodischer Check alle 12h mit Admin-Benachrichtigung
+  - `/mc config modpack_check` fuer manuellen Check
+  - ENV: `MC_BMC_MODPACK_ID`, `MC_BMC_MODPACK_VERSION`, `MC_BMC_MODPACK_SOURCE`
+
+- **/clear Abbruchfunktion**
+  - `/clear` ohne Parameter bricht laufenden Loeschvorgang ab
+  - Cancel-Event-System fuer sauberen Abbruch
+
+### Behoben (Phase 7 + Phase 9 Re-Review)
+
+- 20 CRITICAL + 8 WARNING Fixes aus Komplett-Review (63 Dateien)
+- Scheduled Messages: changed-Flag korrekt initialisiert
+- Scheduled Messages: Nachrichtenlaenge auf 2000 Zeichen validiert
+
+### Sicherheit
+
+- Mention-Injection-Schutz in allen neuen Embeds (discord.utils.escape_mentions)
+- RCON-Input-Sanitisierung fuer alle neuen Commands
+- GPG-Verschluesselung fuer Config-Backups (optional)
+
+---
+
 ## [3.0.0] — 2026-02-20
 
 ### Hinzugefuegt
 
 - **Minecraft Multi-Server Integration (Phase 14a-14o)**
-  - Unterstuetzung fuer 2 MC-Server: Better MC (Forge/NeoForge) + Vanilla/Paper
+  - Unterstuetzung fuer 2 MC-Server: Better MC (BMC3 Fabric) + Vanilla/Paper
   - Prefix-basiertes ENV-System (`MC_{SERVER_ID}_*`) fuer beliebig viele Server
   - `modules/minecraft/server.py` — MinecraftServer-Klasse mit systemd-Steuerung, RCON, Uptime-Tracking
   - `modules/minecraft/rcon.py` — Async RCON-Client mit signed ints, Reconnect, Bounded Loops
