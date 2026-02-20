@@ -15,7 +15,7 @@
     <div class="tile-grid" id="server-tiles" hx-get="/" hx-trigger="every 30s" hx-select="#server-tiles" hx-swap="outerHTML">
         {% if servers %}
             {% for server in servers %}
-            <div class="tile">
+            <a href="/server/{{ server.source_file.replace('_status.json', '').replace('.json', '') }}" class="tile" style="text-decoration: none; color: inherit; display: block;">
                 <div class="tile-header">
                     <h3 class="tile-name">{{ server.name }}</h3>
                     <span class="status-badge {% if server.status == 'online' %}status-online{% elif server.status == 'offline' %}status-offline{% else %}status-unknown{% endif %}">
@@ -36,21 +36,24 @@
                         <span class="stat-value">{{ server.type|capitalize }}</span>
                     </div>
                 </div>
-                <div class="tile-actions">
+                <div class="tile-actions" onclick="event.stopPropagation(); event.preventDefault();">
                     <button class="btn btn-sm btn-primary"
-                            hx-post="/api/server/{{ server.name }}/start"
+                            hx-post="/api/server/{{ server.source_file.replace('_status.json', '').replace('.json', '') }}/action"
+                            hx-vals='{"action": "start"}'
                             hx-confirm="Server {{ server.name }} starten?"
                             hx-swap="none">Start</button>
                     <button class="btn btn-sm btn-danger"
-                            hx-post="/api/server/{{ server.name }}/stop"
+                            hx-post="/api/server/{{ server.source_file.replace('_status.json', '').replace('.json', '') }}/action"
+                            hx-vals='{"action": "stop"}'
                             hx-confirm="Server {{ server.name }} stoppen?"
                             hx-swap="none">Stop</button>
                     <button class="btn btn-sm btn-secondary"
-                            hx-post="/api/server/{{ server.name }}/restart"
+                            hx-post="/api/server/{{ server.source_file.replace('_status.json', '').replace('.json', '') }}/action"
+                            hx-vals='{"action": "restart"}'
                             hx-confirm="Server {{ server.name }} neustarten?"
                             hx-swap="none">Restart</button>
                 </div>
-            </div>
+            </a>
             {% endfor %}
         {% else %}
             <div class="tile tile-empty">
