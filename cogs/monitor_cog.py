@@ -1,8 +1,10 @@
 """
 Monitor Cog - Monitoring slash commands
-Commands: /performance, /dashboard, /stats, /report
+Commands: /performance, /dashboard, /stats, /report, /backup stats
 """
 
+import asyncio
+import shutil
 import time
 import json
 import psutil
@@ -1324,6 +1326,115 @@ class MonitorCog(commands.Cog):
         )
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    # ------------------------------------------------------------------
+    # /backup stats (Phase 8c)
+    # ------------------------------------------------------------------
+
+    backup_grp = app_commands.Group(
+        name="backup", description="Backup-Verwaltung & Statistiken"
+    )
+
+    @backup_grp.command(name="stats", description="Backup-Statistiken aller Server")
+    @app_commands.check(lambda i: True)  # Spieler-Berechtigung (alle)
+    async def backup_stats(self, interaction: discord.Interaction):
+        """Zeigt Backup-Uebersicht fuer alle Server mit Speicherplatz-Info"""
+        await interaction.response.defer()
+
+        loop = asyncio.get_running_loop()
+
+        # Speicherplatz ermitteln (async via run_in_executor)
+        disk = await loop.run_in_executor(None, shutil.disk_usage, "/")
+        disk_total = disk.total
+        disk_used = disk.used
+        disk_free = disk.free
+        disk_percent = (disk_used / disk_total * 100) if disk_total > 0 else 0
+
+        # Embed-Farbe basierend auf Speicherplatz
+        if disk_percent >= 95:
+            color = 0xff0000  # Rot: Kritisch
+            disk_status = "KRITISCH"
+        elif disk_percent >= 80:
+            color = 0xff9900  # Gelb: Warnung
+            disk_status = "Warnung"
+        else:
+            color = 0x2ecc71  # Gruen: OK
+            disk_status = "OK"
+
+        embed = discord.Embed(
+            title="Backup-Statistiken",
+            color=color,
+        )
+
+        # Satisfactory Backups
+        sat_bm = getattr(self.bot, "backup_manager", None)
+        if sat_bm:
+            try:
+                sat_backups = await loop.run_in_executor(None, sat_bm.list_backups, 999)
+                sat_count = len(sat_backups)
+                sat_total = await loop.run_in_executor(None, sat_bm.total_size)
+                oldest = sat_backups[-1].get("created_at", "?")[:10] if sat_backups else "—"
+                newest = sat_backups[0].get("created_at", "?")[:10] if sat_backups else "—"
+                embed.add_field(
+                    name="Satisfactory",
+                    value=(
+                        f"**Anzahl:** {sat_count}\n"
+                        f"**Groesse:** {format_bytes(sat_total)}\n"
+                        f"**Aeltestes:** {oldest}\n"
+                        f"**Neuestes:** {newest}"
+                    ),
+                    inline=True,
+                )
+            except Exception as e:
+                embed.add_field(
+                    name="Satisfactory", value=f"Fehler: {e}", inline=True
+                )
+
+        # Minecraft Backups (pro Server)
+        mc_backup_mgrs = getattr(self.bot, "mc_backup_mgrs", {})
+        mc_servers = getattr(self.bot, "mc_servers", {})
+        for server_id, mgr in mc_backup_mgrs.items():
+            srv = mc_servers.get(server_id)
+            display_name = srv.display_name if srv else server_id
+            try:
+                mc_backups = await mgr.list_backups(max_results=999)
+                mc_count = len(mc_backups)
+                mc_total = sum(b.get("size_bytes", 0) for b in mc_backups)
+                oldest = mc_backups[-1].get("created", "?")[:10] if mc_backups else "—"
+                newest = mc_backups[0].get("created", "?")[:10] if mc_backups else "—"
+                embed.add_field(
+                    name=f"MC {display_name}",
+                    value=(
+                        f"**Anzahl:** {mc_count}\n"
+                        f"**Groesse:** {format_bytes(mc_total)}\n"
+                        f"**Aeltestes:** {oldest}\n"
+                        f"**Neuestes:** {newest}"
+                    ),
+                    inline=True,
+                )
+            except Exception as e:
+                embed.add_field(
+                    name=f"MC {display_name}", value=f"Fehler: {e}", inline=True
+                )
+
+        # Speicherplatz-Uebersicht
+        embed.add_field(
+            name=f"Speicherplatz ({disk_status})",
+            value=(
+                f"**Gesamt:** {format_bytes(disk_total)}\n"
+                f"**Belegt:** {format_bytes(disk_used)} ({disk_percent:.1f}%)\n"
+                f"**Frei:** {format_bytes(disk_free)}\n"
+                f"{progress_bar(disk_percent, 100, length=12)}"
+            ),
+            inline=False,
+        )
+
+        if disk_percent >= 95:
+            embed.set_footer(text="KRITISCH: Backup-Speicher fast voll!")
+        elif disk_percent >= 80:
+            embed.set_footer(text="Warnung: Backup-Speicher wird knapp")
+
+        await interaction.followup.send(embed=embed)
 
     # ------------------------------------------------------------------
     # /onedrive status | upload | list
