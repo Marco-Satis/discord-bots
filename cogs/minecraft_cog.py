@@ -1,17 +1,20 @@
 """
 Minecraft Unified Cog - Alle /mc Befehle mit Multi-Server-Support
 
-Command-Struktur:
+Command-Struktur (Phase 14: Admin-Commands ins Dashboard migriert):
   /mc status [server]                        (Server-Status - Alle)
-  /mc start|stop|restart|cancel [server]     (Server-Steuerung - Admin)
-  /mc players list|kick|ban [server]         (Spieler-Verwaltung - Spieler/Admin)
+  /mc players list|kick|ban|pardon [server]  (Spieler-Verwaltung - Spieler/Admin)
   /mc backup create|list|restore|download    (Backup-Verwaltung - Spieler/Owner)
   /mc whitelist add|remove|list [server]     (Whitelist - Admin)
-  /mc config settings|set|backup|restore     (Server-Konfiguration)
-  /mc config autosave|update|stats|modpack_check (Autosave/Update/Statistiken)
+  /mc config settings|stats|modpack_check    (Server-Konfiguration, nur Lesen)
   /mc blacklist add|remove|list|history       (Blacklist - Admin/Spieler)
+  /mc world stats [server]                   (Welt-Analyse - Alle)
   /mc command <cmd> [server]                 (RCON ausfuehren - Owner)
   /mc say [banner] [repeat]                  (Ankuendigungs-Banner - Admin)
+
+Ins Dashboard migriert (F25):
+  start, stop, restart, cancel, config set, config backup,
+  config restore, config update, config autosave
 
 Server-Auswahl: Autocomplete zeigt nur aktivierte Server an.
 Bei nur einem Server wird dieser automatisch gewaehlt.
@@ -37,11 +40,8 @@ def _sanitize_rcon_input(text: str, max_length: int = 100) -> str:
     """Sanitisiert User-Input fuer RCON-Befehle. Erlaubt nur sichere Zeichen."""
     sanitized = _re.sub(r'[^\w\s\-]', '', text, flags=_re.UNICODE)
     return sanitized[:max_length].strip()
-from modules.restart_timer import RestartTimer, TimerResult
 from modules.minecraft.server import MinecraftServer
 from modules.minecraft.backup import MinecraftBackupManager
-from modules.minecraft.settings_backup import MinecraftSettingsBackup
-from modules.minecraft.update_checker import MinecraftUpdateChecker
 from modules.minecraft.blacklist import MinecraftBlacklist
 from modules.minecraft.world_analyzer import WorldAnalyzer
 
@@ -50,15 +50,6 @@ logger = get_logger("cogs.minecraft")
 
 class MinecraftCog(commands.Cog):
     """Alle Minecraft-Server-Befehle unter /mc (Multi-Server)"""
-
-    # Erlaubte Keys fuer /mc config set (Sicherheits-Whitelist)
-    ALLOWED_CONFIG_KEYS = {
-        "difficulty", "pvp", "max-players", "view-distance",
-        "simulation-distance", "motd", "white-list", "spawn-protection",
-        "gamemode", "hardcore", "enable-command-block", "max-world-size",
-        "player-idle-timeout", "allow-flight", "level-name",
-        "spawn-npcs", "spawn-animals", "spawn-monsters",
-    }
 
     # ==================================================================
     # Group & Sub-Group Definitionen
@@ -77,7 +68,7 @@ class MinecraftCog(commands.Cog):
         name="whitelist", parent=mc, description="Whitelist-Verwaltung"
     )
     config_grp = app_commands.Group(
-        name="config", parent=mc, description="Server-Konfiguration"
+        name="config", parent=mc, description="Server-Konfiguration (nur Lesen)"
     )
     blacklist_grp = app_commands.Group(
         name="blacklist", parent=mc, description="Serveruebergreifendes Ban-System"
@@ -95,12 +86,6 @@ class MinecraftCog(commands.Cog):
         self.servers: Dict[str, MinecraftServer] = bot.mc_servers
         self.backup_mgrs: Dict[str, MinecraftBackupManager] = getattr(
             bot, 'mc_backup_mgrs', {}
-        )
-        self.settings_mgrs: Dict[str, MinecraftSettingsBackup] = getattr(
-            bot, 'mc_settings_mgrs', {}
-        )
-        self.update_checkers: Dict[str, MinecraftUpdateChecker] = getattr(
-            bot, 'mc_update_checkers', {}
         )
         self.timer_mgr = bot.timer_mgr
 
@@ -174,26 +159,6 @@ class MinecraftCog(commands.Cog):
         if len(self.backup_mgrs) == 1:
             return next(iter(self.backup_mgrs.values()))
 
-        return None
-
-    def _resolve_settings_mgr(self, server_id: Optional[str]) -> Optional[MinecraftSettingsBackup]:
-        """Settings-Backup-Manager fuer Server ermitteln"""
-        if not self.settings_mgrs:
-            return None
-        if server_id:
-            return self.settings_mgrs.get(server_id.upper())
-        if len(self.settings_mgrs) == 1:
-            return next(iter(self.settings_mgrs.values()))
-        return None
-
-    def _resolve_update_checker(self, server_id: Optional[str]) -> Optional[MinecraftUpdateChecker]:
-        """Update-Checker fuer Server ermitteln"""
-        if not self.update_checkers:
-            return None
-        if server_id:
-            return self.update_checkers.get(server_id.upper())
-        if len(self.update_checkers) == 1:
-            return next(iter(self.update_checkers.values()))
         return None
 
     async def _require_server(
@@ -284,7 +249,7 @@ class MinecraftCog(commands.Cog):
             task.cancel()
 
     # ╔════════════════════════════════════════════════════════════════╗
-    # ║  CORE: /mc status | start | stop | restart | cancel           ║
+    # ║  CORE: /mc status (start|stop|restart|cancel -> Dashboard)    ║
     # ╚════════════════════════════════════════════════════════════════╝
 
     @mc.command(name="status", description="Server-Status anzeigen")
@@ -336,177 +301,7 @@ class MinecraftCog(commands.Cog):
 
         await interaction.followup.send(embed=embed)
 
-    @mc.command(name="start", description="Server starten")
-    @admin_only()
-    @app_commands.autocomplete(server=_server_autocomplete)
-    async def mc_start(self, interaction: discord.Interaction,
-                       server: Optional[str] = None):
-        await interaction.response.defer()
-
-        srv = await self._require_server(interaction, server)
-        if not srv:
-            return
-
-        if await srv.is_running():
-            await interaction.followup.send(
-                f"{srv.display_name} laeuft bereits!"
-            )
-            return
-
-        await interaction.followup.send(
-            f"{srv.display_name} wird gestartet..."
-        )
-        success, msg = await srv.start()
-
-        if success:
-            embed = discord.Embed(
-                title=f"{status_emoji(True)} {srv.display_name} gestartet",
-                description=msg,
-                color=0x00ff00,
-            )
-            embed.set_footer(text=f"von {interaction.user.display_name}")
-            await interaction.edit_original_response(content=None, embed=embed)
-            logger.info(f"[{srv.server_id}] Server gestartet von {interaction.user}")
-        else:
-            embed = discord.Embed(
-                title="Start fehlgeschlagen",
-                description=msg,
-                color=0xff0000,
-            )
-            await interaction.edit_original_response(content=None, embed=embed)
-
-    @mc.command(name="stop", description="Server mit Countdown stoppen")
-    @admin_only()
-    @app_commands.autocomplete(server=_server_autocomplete)
-    async def mc_stop(self, interaction: discord.Interaction,
-                      countdown: int = 10,
-                      server: Optional[str] = None):
-        await interaction.response.defer()
-
-        srv = await self._require_online_server(interaction, server)
-        if not srv:
-            return
-
-        # Timer fuer diesen Server pruefen (nur eigenen Timer-Key)
-        timer_key = f"mc_{srv.server_id.lower()}"
-        existing_timer = self.timer_mgr._timers.get(timer_key)
-        if existing_timer and existing_timer.is_active:
-            await interaction.followup.send(
-                f"Ein Timer fuer {srv.display_name} laeuft bereits. "
-                "Nutze `/mc cancel` zum Abbrechen."
-            )
-            return
-
-        await interaction.followup.send(
-            f"{srv.display_name} wird in {countdown} Minute(n) gestoppt!"
-        )
-
-        # Timer mit Server als API (fuer In-Game-Nachrichten via run_command)
-        timer = self.timer_mgr.get_or_create(
-            timer_key, api=srv, channel=interaction.channel
-        )
-
-        async def perform_stop():
-            success, msg = await srv.stop()
-            embed = discord.Embed(
-                title=(f"{status_emoji(False)} {srv.display_name} gestoppt"
-                       if success else "Stop fehlgeschlagen"),
-                description=msg,
-                color=0xff0000 if success else 0xff9900,
-            )
-            try:
-                await interaction.followup.send(embed=embed)
-            except Exception:
-                pass
-
-        # B1-Fix: on_complete fuehrt perform_stop aus, KEIN zweiter Aufruf danach
-        result = await timer.countdown(
-            duration_minutes=countdown,
-            action_name="Server Stop",
-            warnings=[10, 5, 3, 1],
-            on_complete=perform_stop
-        )
-
-        if result == TimerResult.CANCELLED:
-            try:
-                await interaction.followup.send(
-                    f"{srv.display_name} Stop abgebrochen!"
-                )
-            except Exception:
-                pass
-
-    @mc.command(name="restart", description="Server mit Countdown neustarten")
-    @admin_only()
-    @app_commands.autocomplete(server=_server_autocomplete)
-    async def mc_restart(self, interaction: discord.Interaction,
-                         countdown: int = 10,
-                         server: Optional[str] = None):
-        await interaction.response.defer()
-
-        srv = await self._require_online_server(interaction, server)
-        if not srv:
-            return
-
-        timer_key = f"mc_{srv.server_id.lower()}"
-        existing_timer = self.timer_mgr._timers.get(timer_key)
-        if existing_timer and existing_timer.is_active:
-            await interaction.followup.send(
-                f"Ein Timer fuer {srv.display_name} laeuft bereits. "
-                "Nutze `/mc cancel` zum Abbrechen."
-            )
-            return
-
-        await interaction.followup.send(
-            f"{srv.display_name} wird in {countdown} Minute(n) neugestartet!"
-        )
-
-        timer = self.timer_mgr.get_or_create(
-            timer_key, api=srv, channel=interaction.channel
-        )
-
-        async def perform_restart():
-            success, msg = await srv.restart()
-            embed = discord.Embed(
-                title=(f"{status_emoji(True)} {srv.display_name} neugestartet"
-                       if success else "Restart fehlgeschlagen"),
-                description=msg,
-                color=0x00ff00 if success else 0xff9900,
-            )
-            try:
-                await interaction.followup.send(embed=embed)
-            except Exception:
-                pass
-
-        # B1-Fix: on_complete fuehrt perform_restart aus, KEIN zweiter Aufruf
-        result = await timer.countdown(
-            duration_minutes=countdown,
-            action_name="Server Restart",
-            warnings=[10, 5, 3, 1],
-            on_complete=perform_restart
-        )
-
-        if result == TimerResult.CANCELLED:
-            try:
-                await interaction.followup.send(
-                    f"{srv.display_name} Restart abgebrochen!"
-                )
-            except Exception:
-                pass
-
-    @mc.command(name="cancel", description="Aktiven Timer abbrechen")
-    @admin_only()
-    async def mc_cancel(self, interaction: discord.Interaction):
-        active = self.timer_mgr.get_active()
-        if not active:
-            await interaction.response.send_message(
-                "Kein aktiver Timer.", ephemeral=True
-            )
-            return
-
-        active.cancel()
-        await interaction.response.send_message(
-            f"Timer abgebrochen: {active.action_name}", ephemeral=True
-        )
+    # --- F25: start, stop, restart, cancel ins Web-Dashboard migriert ---
 
     # ╔════════════════════════════════════════════════════════════════╗
     # ║  PLAYERS: /mc players list | kick | ban | pardon               ║
@@ -1122,7 +917,7 @@ class MinecraftCog(commands.Cog):
     # Entfernt: mc_difficulty, mc_weather, mc_time, mc_gamemode
 
     # ╔════════════════════════════════════════════════════════════════╗
-    # ║  CONFIG: /mc config settings | set | backup | restore | ...    ║
+    # ║  CONFIG: /mc config settings | stats | modpack_check (nur Lesen) ║
     # ╚════════════════════════════════════════════════════════════════╝
 
     @config_grp.command(name="settings", description="Server-Einstellungen anzeigen")
@@ -1196,233 +991,7 @@ class MinecraftCog(commands.Cog):
                 f"Fehler beim Lesen der Einstellungen: {e}", ephemeral=True
             )
 
-    @config_grp.command(name="set", description="Server-Einstellung aendern")
-    @admin_only()
-    @app_commands.autocomplete(server=_server_autocomplete)
-    async def config_set(self, interaction: discord.Interaction,
-                         key: str, value: str,
-                         server: Optional[str] = None):
-        """Aendert einen Wert in server.properties (erfordert Neustart)"""
-        await interaction.response.defer()
-
-        srv = await self._require_server(interaction, server)
-        if not srv:
-            return
-
-        # Sicherheits-Whitelist pruefen
-        if key.lower() not in self.ALLOWED_CONFIG_KEYS:
-            allowed = ", ".join(sorted(self.ALLOWED_CONFIG_KEYS))
-            await interaction.followup.send(
-                f"Key `{key}` ist nicht erlaubt.\n"
-                f"Erlaubte Keys: `{allowed}`",
-                ephemeral=True
-            )
-            return
-
-        try:
-            success = await srv.set_property(key.lower(), value)
-            if success:
-                embed = discord.Embed(
-                    title=f"Einstellung geaendert — {srv.display_name}",
-                    description=(
-                        f"**{key}** = `{value}`\n\n"
-                        f"⚠️ Server-Neustart erforderlich!"
-                    ),
-                    color=0x00ff00,
-                )
-                embed.set_footer(text=f"von {interaction.user.display_name}")
-                await interaction.followup.send(embed=embed)
-                logger.info(
-                    f"[{srv.server_id}] Config geaendert: {key}={value} "
-                    f"von {interaction.user}"
-                )
-            else:
-                await interaction.followup.send(
-                    f"Fehler beim Setzen von `{key}`.", ephemeral=True
-                )
-        except Exception as e:
-            await interaction.followup.send(
-                f"Fehler: {e}", ephemeral=True
-            )
-
-    @config_set.autocomplete("key")
-    async def _config_key_autocomplete(
-        self, interaction: discord.Interaction, current: str
-    ) -> list[app_commands.Choice[str]]:
-        """Autocomplete fuer Config-Keys"""
-        return [
-            app_commands.Choice(name=k, value=k)
-            for k in sorted(self.ALLOWED_CONFIG_KEYS)
-            if current.lower() in k.lower()
-        ][:25]
-
-    @config_grp.command(name="backup", description="Server-Einstellungen sichern")
-    @admin_only()
-    @app_commands.autocomplete(server=_server_autocomplete)
-    async def config_backup(self, interaction: discord.Interaction,
-                            name: Optional[str] = None,
-                            server: Optional[str] = None):
-        """Erstellt ein Backup der server.properties"""
-        await interaction.response.defer()
-
-        srv = await self._require_server(interaction, server)
-        if not srv:
-            return
-
-        mgr = self._resolve_settings_mgr(srv.server_id)
-        if not mgr:
-            await interaction.followup.send(
-                "Kein Settings-Manager fuer diesen Server.", ephemeral=True
-            )
-            return
-
-        success, msg, _ = await mgr.save_settings(
-            name=name, created_by=str(interaction.user)
-        )
-        embed = discord.Embed(
-            title=("Settings gesichert" if success else "Fehler"),
-            description=f"**{srv.display_name}**\n{msg}",
-            color=0x00ff00 if success else 0xff0000,
-        )
-        if success:
-            embed.set_footer(text=f"von {interaction.user.display_name}")
-        await interaction.followup.send(embed=embed)
-
-    @config_grp.command(name="restore", description="Server-Einstellungen wiederherstellen")
-    @owner_only()
-    @app_commands.autocomplete(server=_server_autocomplete)
-    async def config_restore(self, interaction: discord.Interaction,
-                             filename: str,
-                             server: Optional[str] = None):
-        """Stellt server.properties aus Backup wieder her"""
-        await interaction.response.defer()
-
-        srv = await self._require_server(interaction, server)
-        if not srv:
-            return
-
-        mgr = self._resolve_settings_mgr(srv.server_id)
-        if not mgr:
-            await interaction.followup.send(
-                "Kein Settings-Manager fuer diesen Server.", ephemeral=True
-            )
-            return
-
-        success, msg = await mgr.restore_settings(filename)
-        embed = discord.Embed(
-            title=("Settings wiederhergestellt" if success else "Fehler"),
-            description=f"**{srv.display_name}**\n{msg}",
-            color=0x00ff00 if success else 0xff0000,
-        )
-        if success:
-            embed.set_footer(text=f"von {interaction.user.display_name}")
-        await interaction.followup.send(embed=embed)
-
-    @config_restore.autocomplete("filename")
-    async def _config_restore_autocomplete(
-        self, interaction: discord.Interaction, current: str
-    ) -> list[app_commands.Choice[str]]:
-        """Autocomplete fuer Settings-Backup-Dateien"""
-        # Server aus bisherigen Parametern ermitteln
-        server_id = None
-        if interaction.namespace and hasattr(interaction.namespace, 'server'):
-            server_id = interaction.namespace.server
-        mgr = self._resolve_settings_mgr(server_id)
-        if not mgr:
-            return []
-        backups = mgr.list_backups()
-        return [
-            app_commands.Choice(name=b["filename"][:100], value=b["filename"])
-            for b in backups
-            if current.lower() in b["filename"].lower()
-        ][:25]
-
-    @config_grp.command(name="update", description="Server-Update pruefen/installieren")
-    @owner_only()
-    @app_commands.autocomplete(server=_server_autocomplete)
-    async def config_update(self, interaction: discord.Interaction,
-                            install: bool = False,
-                            server: Optional[str] = None):
-        """Prueft auf Paper-Updates und installiert optional"""
-        await interaction.response.defer()
-
-        srv = await self._require_server(interaction, server)
-        if not srv:
-            return
-
-        checker = self._resolve_update_checker(srv.server_id)
-        if not checker:
-            await interaction.followup.send(
-                f"Kein Update-Checker fuer {srv.display_name} verfuegbar.\n"
-                "(Nur fuer Paper-Server, nicht fuer Fabric/Forge)",
-                ephemeral=True
-            )
-            return
-
-        # Update pruefen
-        available, info = await checker.check()
-
-        if not info.get("current_version"):
-            await interaction.followup.send(
-                "MC-Version konnte nicht ermittelt werden.", ephemeral=True
-            )
-            return
-
-        embed = discord.Embed(
-            title=f"Update-Status — {srv.display_name}",
-            color=0xff9900 if available else 0x00ff00,
-        )
-        embed.add_field(
-            name="MC-Version",
-            value=info["current_version"],
-            inline=True,
-        )
-        embed.add_field(
-            name="Aktueller Build",
-            value=str(info.get("current_build", "?")),
-            inline=True,
-        )
-        embed.add_field(
-            name="Neuester Build",
-            value=str(info.get("latest_build", "?")),
-            inline=True,
-        )
-
-        if available and install:
-            # Update installieren (Server muss gestoppt sein)
-            if await srv.is_running():
-                embed.add_field(
-                    name="Installation",
-                    value="⚠️ Server muss zuerst gestoppt werden!",
-                    inline=False,
-                )
-            else:
-                embed.add_field(
-                    name="Installation",
-                    value="Update wird heruntergeladen...",
-                    inline=False,
-                )
-                await interaction.followup.send(embed=embed)
-
-                success, msg = await checker.perform_update()
-                result_embed = discord.Embed(
-                    title=("Update installiert" if success else "Update fehlgeschlagen"),
-                    description=msg,
-                    color=0x00ff00 if success else 0xff0000,
-                )
-                result_embed.set_footer(text=f"von {interaction.user.display_name}")
-                await interaction.followup.send(embed=result_embed)
-                return
-        elif available:
-            embed.add_field(
-                name="Update verfuegbar!",
-                value="Nutze `/mc config update install:True` zum Installieren.",
-                inline=False,
-            )
-        else:
-            embed.description = "Server ist auf dem neuesten Stand."
-
-        await interaction.followup.send(embed=embed)
+    # --- F25: config set, backup, restore, update ins Web-Dashboard migriert ---
 
     @config_grp.command(name="stats", description="World-Statistiken anzeigen")
     @app_commands.autocomplete(server=_server_autocomplete)
@@ -1481,80 +1050,8 @@ class MinecraftCog(commands.Cog):
 
         await interaction.followup.send(embed=embed)
 
-    @config_grp.command(name="autosave", description="Autosave-Intervall konfigurieren (save-all)")
-    @app_commands.describe(
-        intervall="Intervall in Minuten (0 = deaktivieren, min. 1)",
-        server="Server-Auswahl"
-    )
-    @admin_only()
-    @app_commands.autocomplete(server=_server_autocomplete)
-    async def config_autosave(self, interaction: discord.Interaction,
-                              intervall: int,
-                              server: Optional[str] = None):
-        """Konfiguriert periodisches save-all via RCON.
-
-        Sendet sofort save-all und startet einen Timer der regelmaessig
-        save-all ausfuehrt. Aendert NICHT server.properties.
-        """
-        await interaction.response.defer()
-
-        srv = await self._require_server(interaction, server)
-        if not srv:
-            return
-
-        if intervall < 0:
-            await interaction.followup.send(
-                "Intervall muss >= 0 sein.", ephemeral=True
-            )
-            return
-
-
-        old_interval = self._autosave_intervals.get(srv.server_id, 0)
-
-        # Bestehenden Task stoppen
-        self._stop_autosave_task(srv.server_id)
-
-        if intervall > 0:
-            # Neuen Intervall setzen und Task starten
-            self._autosave_intervals[srv.server_id] = intervall
-            self._autosave_tasks[srv.server_id] = asyncio.create_task(
-                self._autosave_loop(srv.server_id, intervall)
-            )
-
-            # Sofort save-all ausfuehren wenn Server online
-            if await srv.is_running():
-                try:
-                    await srv.rcon_command("save-all")
-                except Exception:
-                    pass
-        else:
-            # Deaktivieren
-            self._autosave_intervals.pop(srv.server_id, None)
-
-        self._save_autosave_config()
-
-        # Bestaetigungs-Embed
-        embed = discord.Embed(
-            title=f"Autosave — {srv.display_name}",
-            color=0x2ecc71 if intervall > 0 else 0xff9900,
-        )
-
-        if intervall > 0:
-            embed.description = f"Autosave alle **{intervall} Minuten** aktiviert."
-            if old_interval > 0:
-                embed.add_field(name="Vorher", value=f"{old_interval} Min", inline=True)
-            embed.add_field(name="Neu", value=f"{intervall} Min", inline=True)
-        else:
-            embed.description = "Autosave **deaktiviert**."
-            if old_interval > 0:
-                embed.add_field(name="Vorher", value=f"{old_interval} Min", inline=True)
-
-        embed.set_footer(text=f"von {interaction.user.display_name}")
-        await interaction.followup.send(embed=embed)
-        logger.info(
-            f"[{srv.server_id}] Autosave geaendert: {old_interval} -> {intervall} Min "
-            f"von {interaction.user}"
-        )
+    # --- F25: config autosave Command ins Web-Dashboard migriert ---
+    # (Autosave-Hintergrund-Loop bleibt aktiv, siehe _autosave_loop)
 
     @config_grp.command(
         name="modpack_check",

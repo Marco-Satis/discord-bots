@@ -1,26 +1,28 @@
 """
-Satisfactory Unified Cog - All /sat commands with sub-groups
+Satisfactory Unified Cog - Alle /sat Befehle mit Sub-Gruppen
 
-Command Structure:
-  /sat start|stop|restart|status|cancel          (Core - Admin/Alle)
+Phase 14 (F25): Server-Steuerung (start/stop/restart/cancel) und Admin-Config
+ins Dashboard migriert. Backup umbenannt in Savegame (/sat sav).
+
+Command-Struktur:
+  /sat status                                     (Server-Status - Alle)
   /sat players online|ban|unban|bans              (Spieler-Verwaltung)
-  /sat backup create|save|download|list|restore  (Backup-Verwaltung)
-  /sat config settings|playerlimit|autosave|console|load|update|stats (Konfiguration)
+  /sat sav save|download|list|restore|load|stats  (Savegame-Verwaltung)
+  /sat config settings                            (Einstellungen anzeigen)
   /sat blueprints upload|list|download|delete     (Blueprint-Manager)
   /sat whitelist add|remove|list                  (Whitelist)
   /sat blacklist add|remove|list                  (Blacklist)
 """
 
 import asyncio
-import time
 import discord
 from discord import app_commands
 from discord.ext import commands
-from typing import Optional, Dict
+from typing import Optional
 from pathlib import Path
 
 from utils import get_logger, format_uptime, format_bytes, status_emoji
-from utils.permissions import admin_only, spieler_only, owner_only, is_admin, is_owner, server_online_required
+from utils.permissions import admin_only, spieler_only, owner_only, is_admin, server_online_required
 from modules.restart_timer import TimerResult
 
 logger = get_logger("cogs.satisfactory")
@@ -39,11 +41,11 @@ class SatisfactoryCog(commands.Cog):
     players_grp = app_commands.Group(
         name="players", parent=sat, description="Spieler-Verwaltung"
     )
-    backup_grp = app_commands.Group(
-        name="backup", parent=sat, description="Backup & Savegame"
+    sav_grp = app_commands.Group(
+        name="sav", parent=sat, description="Savegame-Verwaltung"
     )
     config_grp = app_commands.Group(
-        name="config", parent=sat, description="Server-Konfiguration"
+        name="config", parent=sat, description="Server-Einstellungen (nur Lesen)"
     )
     blueprints_grp = app_commands.Group(
         name="blueprints", parent=sat, description="Blueprint-Manager"
@@ -59,37 +61,14 @@ class SatisfactoryCog(commands.Cog):
     # Init
     # ==================================================================
 
-    # Cooldown settings: command_name -> seconds
-    COOLDOWNS = {
-        "start": 30,
-        "restart": 60,
-        "stop": 30,
-    }
-
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.server = bot.sat_server
         self.api = bot.sat_api
         self.timer_mgr = bot.timer_mgr
-        self._cooldowns: Dict[str, float] = {}  # command_name -> last_used timestamp
-
-    def _check_cooldown(self, command: str) -> Optional[int]:
-        """Check if command is on cooldown. Returns remaining seconds or None."""
-        cooldown_secs = self.COOLDOWNS.get(command)
-        if not cooldown_secs:
-            return None
-        last_used = self._cooldowns.get(command, 0)
-        elapsed = time.monotonic() - last_used
-        if elapsed < cooldown_secs:
-            return int(cooldown_secs - elapsed)
-        return None
-
-    def _set_cooldown(self, command: str) -> None:
-        """Set cooldown timestamp for a command."""
-        self._cooldowns[command] = time.monotonic()
 
     # ╔════════════════════════════════════════════════════════════════╗
-    # ║  CORE: /sat start | stop | restart | status | cancel         ║
+    # ║  CORE: /sat status                                           ║
     # ╚════════════════════════════════════════════════════════════════╝
 
     @sat.command(name="status", description="Server-Status anzeigen")
@@ -150,198 +129,6 @@ class SatisfactoryCog(commands.Cog):
             )
 
         await interaction.followup.send(embed=embed)
-
-    @sat.command(name="start", description="Server starten")
-    @admin_only()
-    async def sat_start(self, interaction: discord.Interaction):
-        await interaction.response.defer()
-
-        remaining = self._check_cooldown("start")
-        if remaining:
-            await interaction.followup.send(
-                f"Bitte warte noch {remaining}s bevor du /sat start erneut verwendest.",
-                ephemeral=True,
-            )
-            return
-
-        if await self.server.is_running():
-            await interaction.followup.send("Server laeuft bereits!")
-            return
-
-        self._set_cooldown("start")
-        await interaction.followup.send("Server wird gestartet...")
-        success, msg = await self.server.start()
-
-        if success:
-            embed = discord.Embed(
-                title=f"{status_emoji(True)} Server gestartet",
-                description=msg,
-                color=0x00ff00,
-            )
-            embed.set_footer(text=f"von {interaction.user.display_name}")
-            await interaction.edit_original_response(content=None, embed=embed)
-            logger.info(f"Server started by {interaction.user}")
-        else:
-            await interaction.edit_original_response(content=f"Fehler: {msg}")
-
-    @sat.command(name="stop", description="Server stoppen")
-    @admin_only()
-    @server_online_required("server")
-    async def sat_stop(self, interaction: discord.Interaction):
-        await interaction.response.defer()
-
-        remaining = self._check_cooldown("stop")
-        if remaining:
-            await interaction.followup.send(
-                f"Bitte warte noch {remaining}s bevor du /sat stop erneut verwendest.",
-                ephemeral=True,
-            )
-            return
-
-        if self.timer_mgr.has_active:
-            await interaction.followup.send(
-                "Es laeuft bereits ein Timer. Nutze `/sat cancel` zuerst."
-            )
-            return
-
-        players_online = 0
-        try:
-            state = await self.api.query_server_state()
-            players_online = state.num_players
-        except Exception:
-            pass
-
-        if players_online > 0:
-            await interaction.followup.send(
-                f"{players_online} Spieler online! "
-                f"Server wird in 5 Minuten gestoppt."
-            )
-            timer = self.timer_mgr.get_or_create(
-                "satisfactory", api=self.api, channel=interaction.channel
-            )
-            result = await timer.countdown(
-                duration_minutes=5, action_name="Stop", warnings=[5, 3, 1]
-            )
-            if result == TimerResult.CANCELLED:
-                return
-            if result != TimerResult.COMPLETED:
-                await interaction.channel.send("Timer-Fehler beim Stop.")
-                return
-        else:
-            await interaction.followup.send("Server wird gestoppt...")
-
-        self._set_cooldown("stop")
-        success, msg = await self.server.stop()
-
-        if success:
-            embed = discord.Embed(
-                title=f"{status_emoji(False)} Server gestoppt",
-                description=msg,
-                color=0xff0000,
-            )
-            embed.set_footer(text=f"von {interaction.user.display_name}")
-            await interaction.channel.send(embed=embed)
-            logger.info(f"Server stopped by {interaction.user}")
-        else:
-            await interaction.channel.send(f"Fehler: {msg}")
-
-    @sat.command(name="restart", description="Server neustarten (sofort oder mit Countdown)")
-    @admin_only()
-    async def sat_restart(self, interaction: discord.Interaction):
-        remaining = self._check_cooldown("restart")
-        if remaining:
-            await interaction.response.send_message(
-                f"Bitte warte noch {remaining}s bevor du /sat restart erneut verwendest.",
-                ephemeral=True,
-            )
-            return
-
-        if not await self.server.is_running():
-            await interaction.response.defer()
-            await interaction.followup.send("Server ist offline, wird gestartet...")
-            success, msg = await self.server.start()
-            await interaction.edit_original_response(content=msg)
-            return
-
-        if self.timer_mgr.has_active:
-            await interaction.response.send_message(
-                "Es laeuft bereits ein Timer. Nutze `/sat cancel` zuerst.",
-                ephemeral=True,
-            )
-            return
-
-        # Show restart mode selection
-        self._set_cooldown("restart")
-        view = RestartModeView(self, interaction.user.id)
-        await interaction.response.send_message(
-            "🔄 **Server-Neustart** — Wie soll neugestartet werden?",
-            view=view,
-        )
-
-    async def _do_restart_countdown(self, channel, user, minutes):
-        """Execute restart with countdown"""
-        warnings = {
-            10: [10, 5, 3, 1],
-            5: [5, 3, 1],
-            3: [3, 1],
-            1: [1],
-        }
-        warn_list = warnings.get(minutes, [minutes] if minutes > 1 else [])
-
-        await channel.send(
-            f"🔄 Server-Neustart in **{minutes} Minuten**! "
-            f"Nutze `/sat cancel` zum Abbrechen."
-        )
-        timer = self.timer_mgr.get_or_create(
-            "satisfactory", api=self.api, channel=channel
-        )
-        result = await timer.countdown(
-            duration_minutes=minutes, action_name="Restart", warnings=warn_list
-        )
-
-        if result == TimerResult.CANCELLED:
-            return
-        if result != TimerResult.COMPLETED:
-            await channel.send("Timer-Fehler beim Restart.")
-            return
-
-        await self._execute_restart(channel, user)
-
-    async def _do_restart_immediate(self, channel, user):
-        """Execute restart immediately"""
-        await channel.send("⚡ Server wird **sofort** neugestartet...")
-        await self._execute_restart(channel, user)
-
-    async def _execute_restart(self, channel, user):
-        """Common restart execution"""
-        success, msg = await self.server.restart()
-
-        if success:
-            embed = discord.Embed(
-                title=f"{status_emoji(True)} Server neugestartet",
-                description=msg,
-                color=0x00ff00,
-            )
-            embed.set_footer(text=f"von {user.display_name}")
-            await channel.send(embed=embed)
-            logger.info(f"Server restarted by {user}")
-        else:
-            await channel.send(f"Restart fehlgeschlagen: {msg}")
-
-    @sat.command(name="cancel", description="Laufenden Restart/Stop abbrechen")
-    @admin_only()
-    async def sat_cancel(self, interaction: discord.Interaction):
-        active = self.timer_mgr.get_active()
-        if active:
-            active.cancel()
-            await interaction.response.send_message(
-                f"{active.action_name} wird abgebrochen..."
-            )
-            logger.info(f"Timer cancelled by {interaction.user}")
-        else:
-            await interaction.response.send_message(
-                "Kein laufender Vorgang zum Abbrechen.", ephemeral=True
-            )
 
     # ╔════════════════════════════════════════════════════════════════╗
     # ║  PLAYERS: /sat players online|ban|unban|bans                 ║
@@ -529,55 +316,10 @@ class SatisfactoryCog(commands.Cog):
         await interaction.followup.send(embed=embed)
 
     # ╔════════════════════════════════════════════════════════════════╗
-    # ║  BACKUP: /sat backup create|save|download|list|restore       ║
+    # ║  SAVEGAME: /sat sav save|download|list|restore|load|stats    ║
     # ╚════════════════════════════════════════════════════════════════╝
 
-    @backup_grp.command(name="create", description="Manuelles Backup erstellen")
-    @app_commands.describe(name="Optionaler Name fuer das Backup")
-    @spieler_only()
-    async def backup_create(
-        self, interaction: discord.Interaction, name: str = None
-    ):
-        await interaction.response.defer()
-
-        if await self.server.is_running():
-            try:
-                await self.api.save_game()
-                await interaction.followup.send(
-                    "Spiel gespeichert, erstelle Backup..."
-                )
-            except Exception:
-                await interaction.followup.send("Erstelle Backup...")
-        else:
-            await interaction.followup.send(
-                "Server offline. Erstelle Backup der vorhandenen Daten..."
-            )
-
-        success, msg, backup_path = await self.bot.backup_mgr.create_backup(
-            name=name, created_by=interaction.user.display_name
-        )
-
-        if success:
-            embed = discord.Embed(
-                title="Backup erstellt", description=msg, color=0x2ecc71
-            )
-            embed.add_field(
-                name="Backups gesamt",
-                value=str(self.bot.backup_mgr.count()),
-                inline=True,
-            )
-            embed.add_field(
-                name="Speicher gesamt",
-                value=format_bytes(self.bot.backup_mgr.total_size()),
-                inline=True,
-            )
-            embed.set_footer(text=f"von {interaction.user.display_name}")
-            await interaction.edit_original_response(content=None, embed=embed)
-            logger.info(f"Backup created by {interaction.user}: {msg}")
-        else:
-            await interaction.edit_original_response(content=f"Fehler: {msg}")
-
-    @backup_grp.command(name="save", description="Spiel speichern via API")
+    @sav_grp.command(name="save", description="Spiel speichern via API")
     @spieler_only()
     @server_online_required("server")
     async def backup_save(self, interaction: discord.Interaction):
@@ -598,7 +340,7 @@ class SatisfactoryCog(commands.Cog):
         except Exception as e:
             await interaction.followup.send(f"Fehler: {e}")
 
-    @backup_grp.command(
+    @sav_grp.command(
         name="download", description="Neuestes Savegame herunterladen"
     )
     @spieler_only()
@@ -643,7 +385,7 @@ class SatisfactoryCog(commands.Cog):
         except Exception as e:
             await interaction.followup.send(f"Download fehlgeschlagen: {e}")
 
-    @backup_grp.command(name="list", description="Alle Backups auflisten")
+    @sav_grp.command(name="list", description="Alle Backups auflisten")
     @spieler_only()
     async def backup_list(self, interaction: discord.Interaction):
         await interaction.response.defer()
@@ -674,7 +416,7 @@ class SatisfactoryCog(commands.Cog):
         )
         await interaction.followup.send(embed=embed)
 
-    @backup_grp.command(
+    @sav_grp.command(
         name="restore",
         description="Backup wiederherstellen (Server muss offline sein)",
     )
@@ -729,7 +471,7 @@ class SatisfactoryCog(commands.Cog):
         return choices[:25]
 
     # ╔════════════════════════════════════════════════════════════════╗
-    # ║  CONFIG: /sat config settings|playerlimit|autosave|...       ║
+    # ║  CONFIG: /sat config settings (nur Lesen)                    ║
     # ╚════════════════════════════════════════════════════════════════╝
 
     @config_grp.command(
@@ -814,119 +556,13 @@ class SatisfactoryCog(commands.Cog):
 
         await interaction.followup.send(embed=embed)
 
-    @config_grp.command(
-        name="playerlimit", description="Max. Spieleranzahl aendern"
-    )
-    @app_commands.describe(limit="Neues Spielerlimit")
-    @app_commands.choices(
-        limit=[
-            app_commands.Choice(name="4 Spieler", value=4),
-            app_commands.Choice(name="8 Spieler", value=8),
-            app_commands.Choice(name="16 Spieler", value=16),
-        ]
-    )
-    @admin_only()
-    @server_online_required("server")
-    async def config_playerlimit(
-        self, interaction: discord.Interaction, limit: int
-    ):
-        await interaction.response.defer()
-
-        try:
-            success = await self.api.apply_server_options(
-                {"FG.PlayerLimit": str(limit)}
-            )
-            if success:
-                embed = discord.Embed(
-                    title="Spielerlimit geaendert",
-                    description=f"Neues Limit: **{limit} Spieler**",
-                    color=0x2ecc71,
-                )
-                embed.set_footer(text=f"von {interaction.user.display_name}")
-                await interaction.followup.send(embed=embed)
-                logger.info(
-                    f"Player limit changed to {limit} by {interaction.user}"
-                )
-            else:
-                await interaction.followup.send("Aenderung fehlgeschlagen!")
-        except Exception as e:
-            await interaction.followup.send(f"Fehler: {e}")
-
-    @config_grp.command(
-        name="autosave", description="Autosave-Intervall aendern"
-    )
-    @app_commands.describe(seconds="Intervall in Sekunden (min. 30)")
-    @admin_only()
-    @server_online_required("server")
-    async def config_autosave(
-        self, interaction: discord.Interaction, seconds: int
-    ):
-        if seconds < 30:
-            await interaction.response.send_message(
-                "Minimum ist 30 Sekunden.", ephemeral=True
-            )
-            return
-
-        await interaction.response.defer()
-
-        try:
-            success = await self.api.apply_server_options(
-                {"FG.AutosaveInterval": str(seconds)}
-            )
-            if success:
-                display = f"{seconds // 60} Minuten" if seconds >= 60 else f"{seconds} Sekunden"
-
-                embed = discord.Embed(
-                    title="Autosave geaendert",
-                    description=f"Neues Intervall: **{display}**",
-                    color=0x2ecc71,
-                )
-                embed.set_footer(text=f"von {interaction.user.display_name}")
-                await interaction.followup.send(embed=embed)
-                logger.info(
-                    f"Autosave interval changed to {seconds}s by {interaction.user}"
-                )
-            else:
-                await interaction.followup.send("Aenderung fehlgeschlagen!")
-        except Exception as e:
-            await interaction.followup.send(f"Fehler: {e}")
-
-    @config_grp.command(
-        name="console", description="Konsolen-Befehl ausfuehren (Owner)"
-    )
-    @app_commands.describe(command="Server-Befehl")
-    @owner_only()
-    @server_online_required("server")
-    async def config_console(
-        self, interaction: discord.Interaction, command: str
-    ):
-        await interaction.response.defer(ephemeral=True)
-
-        try:
-            result = await self.api.run_command(command)
-            embed = discord.Embed(title="Konsolen-Befehl", color=0x95a5a6)
-            embed.add_field(
-                name="Befehl", value=f"`{command}`", inline=False
-            )
-            embed.add_field(
-                name="Ergebnis",
-                value=f"```\n{result[:1900] if result else 'Kein Output'}\n```",
-                inline=False,
-            )
-            await interaction.followup.send(embed=embed, ephemeral=True)
-            logger.info(
-                f"Console command by {interaction.user}: {command}"
-            )
-        except Exception as e:
-            await interaction.followup.send(f"Fehler: {e}", ephemeral=True)
-
-    @config_grp.command(
+    @sav_grp.command(
         name="load", description="Savegame laden (Owner)"
     )
     @app_commands.describe(savename="Name des Savegames")
     @owner_only()
     @server_online_required("server")
-    async def config_load(
+    async def sav_load(
         self, interaction: discord.Interaction, savename: str
     ):
         await interaction.response.defer()
@@ -943,7 +579,7 @@ class SatisfactoryCog(commands.Cog):
         )
         await interaction.followup.send(embed=embed, view=view)
 
-    @config_load.autocomplete("savename")
+    @sav_load.autocomplete("savename")
     async def load_autocomplete(
         self, interaction: discord.Interaction, current: str
     ):
@@ -959,151 +595,11 @@ class SatisfactoryCog(commands.Cog):
             ][:25]
         return []
 
-    @config_grp.command(
-        name="update", description="Server-Update via SteamCMD (Owner)"
-    )
-    @owner_only()
-    async def config_update(self, interaction: discord.Interaction):
-        await interaction.response.defer()
-
-        if await self.server.is_running():
-            await interaction.followup.send(
-                "Server muss offline sein fuer ein Update!\n"
-                "Nutze `/sat stop` zuerst."
-            )
-            return
-
-        await interaction.followup.send(
-            "Starte Server-Update via SteamCMD..."
-        )
-
-        # Delegate to UpdateChecker if available (🔵-7)
-        update_checker = getattr(self.bot, "update_checker", None)
-        if update_checker:
-            success, msg = await update_checker.perform_update(self.server)
-        else:
-            success, msg = await self._run_steamcmd_update()
-
-        if success:
-            embed = discord.Embed(
-                title="Server-Update abgeschlossen",
-                description=msg,
-                color=0x2ecc71,
-            )
-            embed.set_footer(text="Starte den Server mit /sat start")
-            await interaction.edit_original_response(
-                content=None, embed=embed
-            )
-            logger.info(f"Server update completed by {interaction.user}")
-        else:
-            await interaction.edit_original_response(
-                content=f"Update fehlgeschlagen: {msg}"
-            )
-
-    async def _run_steamcmd_update(self) -> tuple:
-        """Fallback SteamCMD update without UpdateChecker"""
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "sudo", "-u", self.server.server_user,
-                "/usr/games/steamcmd",
-                "+force_install_dir", str(self.server.server_path),
-                "+login", "anonymous",
-                "+app_update", "1690800", "validate",
-                "+quit",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(), timeout=600
-            )
-            output = stdout.decode()[-500:]
-
-            if proc.returncode == 0:
-                return True, f"SteamCMD Update erfolgreich.\n```\n{output}\n```"
-            else:
-                err = stderr.decode()[-500:]
-                return False, f"Exit {proc.returncode}:\n```\n{err}\n```"
-
-        except asyncio.TimeoutError:
-            return False, "Update-Timeout nach 10 Minuten!"
-        except Exception as e:
-            return False, f"Update-Fehler: {e}"
-
-    @config_grp.command(
-        name="settings_backup", description="Server-Einstellungen sichern"
-    )
-    @app_commands.describe(name="Optionaler Name fuer das Backup")
-    @admin_only()
-    @server_online_required("server")
-    async def config_settings_backup(
-        self, interaction: discord.Interaction, name: str = None
-    ):
-        await interaction.response.defer()
-
-        settings_bk = getattr(self.bot, "settings_backup", None)
-        if not settings_bk:
-            await interaction.followup.send("Settings-Backup nicht verfuegbar.")
-            return
-
-        success, msg, filepath = await settings_bk.save_settings(name=name)
-        if success:
-            embed = discord.Embed(
-                title="Settings gesichert",
-                description=msg,
-                color=0x2ecc71,
-            )
-            embed.set_footer(text=f"von {interaction.user.display_name}")
-            await interaction.followup.send(embed=embed)
-        else:
-            await interaction.followup.send(f"Fehler: {msg}")
-
-    @config_grp.command(
-        name="settings_restore", description="Server-Einstellungen wiederherstellen"
-    )
-    @app_commands.describe(filename="Name der Backup-Datei")
-    @owner_only()
-    @server_online_required("server")
-    async def config_settings_restore(
-        self, interaction: discord.Interaction, filename: str
-    ):
-        await interaction.response.defer()
-
-        settings_bk = getattr(self.bot, "settings_backup", None)
-        if not settings_bk:
-            await interaction.followup.send("Settings-Backup nicht verfuegbar.")
-            return
-
-        success, msg = await settings_bk.restore_settings(filename)
-        embed = discord.Embed(
-            title="Settings Restore" if success else "Restore fehlgeschlagen",
-            description=msg,
-            color=0x2ecc71 if success else 0xe74c3c,
-        )
-        embed.set_footer(text=f"von {interaction.user.display_name}")
-        await interaction.followup.send(embed=embed)
-
-    @config_settings_restore.autocomplete("filename")
-    async def settings_restore_autocomplete(
-        self, interaction: discord.Interaction, current: str
-    ):
-        settings_bk = getattr(self.bot, "settings_backup", None)
-        if not settings_bk:
-            return []
-        backups = settings_bk.list_backups()
-        return [
-            app_commands.Choice(
-                name=f"{b['filename']} ({b['session']})",
-                value=b["filename"],
-            )
-            for b in backups
-            if current.lower() in b["filename"].lower()
-        ][:25]
-
-    @config_grp.command(
+    @sav_grp.command(
         name="stats", description="Savegame-Statistiken anzeigen"
     )
     @spieler_only()
-    async def config_stats(self, interaction: discord.Interaction):
+    async def sav_stats(self, interaction: discord.Interaction):
         await interaction.response.defer()
 
         try:
@@ -1621,66 +1117,6 @@ class SatisfactoryCog(commands.Cog):
 # ══════════════════════════════════════════════════════════════════════
 # UI Views
 # ══════════════════════════════════════════════════════════════════════
-
-
-class RestartModeView(discord.ui.View):
-    """Buttons to choose restart mode: immediate, 5min, or 10min countdown"""
-
-    def __init__(self, cog, user_id: int):
-        super().__init__(timeout=30)
-        self.cog = cog
-        self.user_id = user_id
-
-    async def _check_user(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id != self.user_id:
-            await interaction.response.send_message(
-                "Nur der Befehlsgeber kann dies ausfuehren.", ephemeral=True
-            )
-            return False
-        return True
-
-    @discord.ui.button(label="Sofort", style=discord.ButtonStyle.danger, emoji="⚡")
-    async def restart_now(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not await self._check_user(interaction):
-            return
-        self.stop()
-        await interaction.response.edit_message(
-            content="⚡ **Sofortiger Neustart** wird ausgefuehrt...", view=None
-        )
-        await self.cog._do_restart_immediate(interaction.channel, interaction.user)
-
-    @discord.ui.button(label="5 Minuten", style=discord.ButtonStyle.primary, emoji="🕐")
-    async def restart_5min(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not await self._check_user(interaction):
-            return
-        self.stop()
-        await interaction.response.edit_message(
-            content="🕐 **Neustart in 5 Minuten** gestartet.", view=None
-        )
-        await self.cog._do_restart_countdown(interaction.channel, interaction.user, 5)
-
-    @discord.ui.button(label="10 Minuten", style=discord.ButtonStyle.secondary, emoji="🕙")
-    async def restart_10min(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not await self._check_user(interaction):
-            return
-        self.stop()
-        await interaction.response.edit_message(
-            content="🕙 **Neustart in 10 Minuten** gestartet.", view=None
-        )
-        await self.cog._do_restart_countdown(interaction.channel, interaction.user, 10)
-
-    @discord.ui.button(label="Abbrechen", style=discord.ButtonStyle.secondary, emoji="❌")
-    async def cancel_restart(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not await self._check_user(interaction):
-            return
-        self.stop()
-        await interaction.response.edit_message(
-            content="❌ Neustart abgebrochen.", view=None
-        )
-
-    async def on_timeout(self):
-        """Remove buttons after timeout"""
-        pass
 
 
 class RestoreConfirmView(discord.ui.View):

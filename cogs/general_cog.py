@@ -1,22 +1,22 @@
 """
 General Commands Cog
-/help, /server, /ping, /reload, /clear
+/help, /reload, /clear
+
+Phase 14 (F25): /server und /ping entfernt (→ Dashboard).
 """
 
 import asyncio
 import json
-import time
 
 import discord
-import psutil
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 from discord import app_commands
 from discord.ext import commands
 from utils import (
-    get_logger, format_uptime, format_bytes,
-    owner_only, admin_only, status_emoji,
+    get_logger,
+    owner_only, admin_only,
     is_owner, is_admin, is_spieler,
 )
 from utils.config import DATA_DIR
@@ -480,10 +480,6 @@ class GeneralCog(commands.Cog):
     _HELP_COMMANDS: dict[str, list[tuple[str, str, int]]] = {
         "Satisfactory — Server": [
             ("/sat status", "Server-Status", _LEVEL_ALL),
-            ("/sat start", "Server starten", _LEVEL_ADMIN),
-            ("/sat stop", "Server stoppen", _LEVEL_ADMIN),
-            ("/sat restart", "Neustart mit Countdown", _LEVEL_ADMIN),
-            ("/sat cancel", "Vorgang abbrechen", _LEVEL_ADMIN),
         ],
         "Satisfactory — Spieler": [
             ("/sat players online", "Online-Spieler", _LEVEL_ALL),
@@ -491,22 +487,16 @@ class GeneralCog(commands.Cog):
             ("/sat players unban", "Ban aufheben", _LEVEL_ADMIN),
             ("/sat players bans", "Alle Bans anzeigen", _LEVEL_SPIELER),
         ],
-        "Satisfactory — Backup": [
-            ("/sat backup create", "Backup erstellen", _LEVEL_SPIELER),
-            ("/sat backup save", "Spiel speichern", _LEVEL_SPIELER),
-            ("/sat backup download", "Savegame laden", _LEVEL_SPIELER),
-            ("/sat backup list", "Backups auflisten", _LEVEL_SPIELER),
-            ("/sat backup restore", "Backup wiederherstellen", _LEVEL_OWNER),
+        "Satisfactory — Savegames": [
+            ("/sat sav save", "Spiel speichern", _LEVEL_SPIELER),
+            ("/sat sav download", "Savegame laden", _LEVEL_SPIELER),
+            ("/sat sav list", "Savegames auflisten", _LEVEL_SPIELER),
+            ("/sat sav restore", "Savegame wiederherstellen", _LEVEL_OWNER),
+            ("/sat sav load", "Savegame laden", _LEVEL_OWNER),
+            ("/sat sav stats", "Savegame-Statistiken", _LEVEL_SPIELER),
         ],
         "Satisfactory — Config": [
             ("/sat config settings", "Einstellungen anzeigen", _LEVEL_SPIELER),
-            ("/sat config playerlimit", "Spielerlimit aendern", _LEVEL_ADMIN),
-            ("/sat config stats", "Savegame-Statistiken", _LEVEL_SPIELER),
-            ("/sat config update", "Server updaten", _LEVEL_OWNER),
-            ("/sat config console", "Server-Konsole", _LEVEL_OWNER),
-            ("/sat config autosave", "Autosave konfigurieren", _LEVEL_ADMIN),
-            ("/sat config settings_backup", "Settings sichern", _LEVEL_ADMIN),
-            ("/sat config settings_restore", "Settings wiederherstellen", _LEVEL_OWNER),
         ],
         "Satisfactory — Blueprints": [
             ("/sat blueprints upload", "Blueprint hochladen", _LEVEL_SPIELER),
@@ -520,10 +510,6 @@ class GeneralCog(commands.Cog):
         ],
         "Minecraft — Server": [
             ("/mc status [server]", "Server-Status", _LEVEL_ALL),
-            ("/mc start [server]", "Server starten", _LEVEL_ADMIN),
-            ("/mc stop [server]", "Server stoppen", _LEVEL_ADMIN),
-            ("/mc restart [server]", "Neustart mit Countdown", _LEVEL_ADMIN),
-            ("/mc cancel", "Vorgang abbrechen", _LEVEL_ADMIN),
         ],
         "Minecraft — Spieler": [
             ("/mc players list [server]", "Online-Spieler", _LEVEL_ALL),
@@ -532,17 +518,14 @@ class GeneralCog(commands.Cog):
             ("/mc players pardon", "Spieler entbannen", _LEVEL_ADMIN),
         ],
         "Minecraft — Backup & Welt": [
-            ("/mc backup create [server]", "Backup erstellen", _LEVEL_SPIELER),
             ("/mc backup list [server]", "Backups auflisten", _LEVEL_SPIELER),
             ("/mc backup download [server]", "Backup herunterladen", _LEVEL_SPIELER),
             ("/mc backup restore [server]", "Backup wiederherstellen", _LEVEL_OWNER),
         ],
         "Minecraft — Config": [
             ("/mc config settings [server]", "Einstellungen anzeigen", _LEVEL_ALL),
-            ("/mc config set <key> <value>", "Einstellung aendern", _LEVEL_ADMIN),
             ("/mc config update [server]", "Paper-Update pruefen", _LEVEL_OWNER),
             ("/mc config stats [server]", "World-Statistiken", _LEVEL_ALL),
-            ("/mc config autosave", "Autosave konfigurieren", _LEVEL_ADMIN),
             ("/mc config modpack_check", "Modpack-Updates pruefen", _LEVEL_ADMIN),
         ],
         "Minecraft — Listen": [
@@ -562,12 +545,8 @@ class GeneralCog(commands.Cog):
             ("/timeout history <spieler>", "Timeout-Historie", _LEVEL_ADMIN),
         ],
         "Mods": [
-            ("/mod list [server]", "Installierte Mods anzeigen", _LEVEL_SPIELER),
-            ("/mod info <name> [server]", "Mod-Details anzeigen", _LEVEL_SPIELER),
-            ("/mod install <name> [server]", "Mod installieren", _LEVEL_ADMIN),
-            ("/mod uninstall <name>", "Mod deinstallieren", _LEVEL_ADMIN),
-            ("/mod update", "Mods aktualisieren", _LEVEL_ADMIN),
-            ("/mod search <query>", "Mods suchen", _LEVEL_ADMIN),
+            ("/mod list [game]", "Installierte Mods anzeigen", _LEVEL_SPIELER),
+            ("/mod info <name>", "Mod-Details anzeigen", _LEVEL_SPIELER),
         ],
         "Monitor": [
             ("/performance", "System-Performance", _LEVEL_SPIELER),
@@ -580,9 +559,7 @@ class GeneralCog(commands.Cog):
         ],
         "Allgemein": [
             ("/help", "Diese Uebersicht", _LEVEL_ALL),
-            ("/server", "Server-Uebersicht", _LEVEL_ALL),
             ("/clear [anzahl] [stunden]", "Nachrichten loeschen", _LEVEL_ADMIN),
-            ("/ping", "Bot-Latenz", _LEVEL_OWNER),
             ("/reload <cog>", "Cog neuladen", _LEVEL_OWNER),
         ],
     }
@@ -652,70 +629,6 @@ class GeneralCog(commands.Cog):
 
         embed.set_footer(text="Owner > Admin > Spieler > Alle")
         await interaction.response.send_message(embed=embed, ephemeral=True)
-
-    # ------------------------------------------------------------------
-    # /server - Alle
-    # ------------------------------------------------------------------
-
-    @app_commands.command(name="server", description="Server-Uebersicht + System-Info")
-    async def server_cmd(self, interaction: discord.Interaction):
-        await interaction.response.defer()
-
-        embed = discord.Embed(
-            title="Server-Uebersicht",
-            description="Netcup RS 4000 G12 - Nuernberg, DE",
-            color=0x5865F2
-        )
-
-        # System info (in Executor um Event-Loop nicht zu blockieren)
-        loop = asyncio.get_running_loop()
-        cpu = await loop.run_in_executor(None, psutil.cpu_percent, 1)
-        mem = await loop.run_in_executor(None, psutil.virtual_memory)
-        disk = await loop.run_in_executor(None, psutil.disk_usage, "/")
-        uptime = await loop.run_in_executor(None, psutil.boot_time)
-        sys_uptime = int(time.time() - uptime)
-
-        embed.add_field(
-            name="System",
-            value=(
-                f"CPU: {cpu}% ({psutil.cpu_count()} Kerne)\n"
-                f"RAM: {format_bytes(mem.used)}/{format_bytes(mem.total)} ({mem.percent}%)\n"
-                f"Disk: {format_bytes(disk.used)}/{format_bytes(disk.total)} ({disk.percent}%)\n"
-                f"Uptime: {format_uptime(sys_uptime)}"
-            ),
-            inline=False
-        )
-
-        # Satisfactory status
-        sat_running = await self.bot.sat_server.is_running()
-        sat_text = f"{status_emoji(sat_running)} "
-        if sat_running:
-            try:
-                state = await self.bot.sat_api.query_server_state()
-                sat_text += (
-                    f"Online - {state.num_players}/{state.player_limit} Spieler | "
-                    f"Tick: {state.average_tick_rate:.1f}"
-                )
-            except Exception:
-                sat_text += "Online (API nicht erreichbar)"
-        else:
-            sat_text += "Offline"
-        embed.add_field(name="Satisfactory", value=sat_text, inline=False)
-
-        # Minecraft status (placeholder)
-        embed.add_field(name="Minecraft", value=f"{status_emoji(False)} Noch nicht eingerichtet", inline=False)
-
-        await interaction.followup.send(embed=embed)
-
-    # ------------------------------------------------------------------
-    # /ping - Owner
-    # ------------------------------------------------------------------
-
-    @app_commands.command(name="ping", description="Bot-Latenz anzeigen")
-    @owner_only()
-    async def ping_cmd(self, interaction: discord.Interaction):
-        latency = round(self.bot.latency * 1000)
-        await interaction.response.send_message(f"Pong! {latency}ms", ephemeral=True)
 
     # ------------------------------------------------------------------
     # /clear - Admin

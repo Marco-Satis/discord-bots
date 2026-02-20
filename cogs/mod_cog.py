@@ -1,16 +1,10 @@
 """
-Mod Management Cog - Phase 15
-Commands for managing game server mods (Satisfactory & Minecraft)
+Mod Management Cog - Phase 14: Nur noch Lese-Commands
 
-Commands:
-  /mod list [game]
-  /mod install <game> <mod_id> [version]
-  /mod uninstall <game> <mod_name>
-  /mod update <game> [mod_name]
-  /mod search <game> <query>
-  /mod info <mod_name>
-  /mod export <game>
-  /mod import <game> <modpack_file>
+Phase 14 (F25): Admin-Commands (install, uninstall, update, search,
+export, import) ins Dashboard migriert. Nur Lese-Commands bleiben:
+  /mod list [game]     — Installierte Mods anzeigen (Spieler)
+  /mod info <mod_name> — Mod-Details anzeigen (Spieler)
 """
 
 import discord
@@ -19,26 +13,25 @@ from discord.ext import commands
 from pathlib import Path
 from typing import Optional
 
-from utils import get_logger, admin_only, spieler_only, owner_only, truncate
+from utils import get_logger, spieler_only, truncate
 from modules.mod_manager import ModManager
 
 logger = get_logger("cogs.mod")
 
 
 class ModCog(commands.Cog):
-    """Mod management commands for Satisfactory and Minecraft"""
+    """Mod-Informationen anzeigen (Verwaltung ueber Dashboard)"""
 
-    mod = app_commands.Group(name="mod", description="Mod-Verwaltung")
+    mod = app_commands.Group(name="mod", description="Mod-Informationen")
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.mod_managers = {}  # Cache for ModManager instances
+        self.mod_managers = {}  # Cache fuer ModManager-Instanzen
 
     def _get_mod_manager(self, game: str) -> ModManager:
-        """Get or create ModManager instance for game"""
+        """ModManager-Instanz fuer ein Spiel holen oder erstellen"""
         game_lower = game.lower()
         if game_lower not in self.mod_managers:
-            # Assuming bot has game paths configured
             if game_lower == "satisfactory":
                 server_path = Path(self.bot.sat_server.server_path) if hasattr(self.bot, 'sat_server') else Path("/opt/satisfactory")
             else:  # minecraft
@@ -49,12 +42,12 @@ class ModCog(commands.Cog):
         return self.mod_managers[game_lower]
 
     # ==================================================================
-    # /mod list - List installed mods
+    # /mod list - Installierte Mods anzeigen (Spieler)
     # ==================================================================
 
     @mod.command(name="list", description="Installierte Mods auflisten")
     async def mod_list(self, interaction: discord.Interaction, game: Optional[str] = None):
-        """List all installed mods for a game"""
+        """Alle installierten Mods fuer ein Spiel anzeigen"""
         await interaction.response.defer()
 
         try:
@@ -86,14 +79,14 @@ class ModCog(commands.Cog):
                 color=0x00FF00
             )
 
-            for i, mod in enumerate(mods[:25], 1):
+            for i, mod_entry in enumerate(mods[:25], 1):
                 mod_text = (
-                    f"**Version:** {mod.get('version', 'N/A')}\n"
-                    f"**Beschreibung:** {truncate(mod.get('description', 'Keine'), 100)}\n"
-                    f"**Installiert:** {mod.get('installed_at', 'Unbekannt')[:10]}"
+                    f"**Version:** {mod_entry.get('version', 'N/A')}\n"
+                    f"**Beschreibung:** {truncate(mod_entry.get('description', 'Keine'), 100)}\n"
+                    f"**Installiert:** {mod_entry.get('installed_at', 'Unbekannt')[:10]}"
                 )
                 embed.add_field(
-                    name=f"{i}. {mod.get('name', 'Unbekannt')}",
+                    name=f"{i}. {mod_entry.get('name', 'Unbekannt')}",
                     value=mod_text,
                     inline=False
                 )
@@ -105,250 +98,14 @@ class ModCog(commands.Cog):
             logger.info(f"Listed {len(mods)} mods for {game}")
 
         except Exception as e:
-            logger.error(f"Error listing mods: {e}")
+            logger.error(f"Fehler beim Auflisten der Mods: {e}")
             await interaction.followup.send(
-                f"Fehler beim Auflisten der Mods: {str(e)}",
+                "Fehler beim Auflisten der Mods.",
                 ephemeral=True
             )
 
     # ==================================================================
-    # /mod install - Install a mod (admin)
-    # ==================================================================
-
-    @mod.command(name="install", description="Mod installieren (Admin)")
-    @admin_only()
-    async def mod_install(
-        self,
-        interaction: discord.Interaction,
-        game: str,
-        mod_id: str,
-        version: Optional[str] = None
-    ):
-        """Install a mod from repository"""
-        await interaction.response.defer()
-
-        try:
-            game = game.lower()
-            if game not in ["satisfactory", "minecraft"]:
-                await interaction.followup.send(
-                    f"Spiel nicht unterstuetzt: `{game}`",
-                    ephemeral=True
-                )
-                return
-
-            mod_mgr = self._get_mod_manager(game)
-            success, message = await mod_mgr.install_mod(mod_id, version or "latest")
-
-            color = 0x00FF00 if success else 0xFF0000
-            embed = discord.Embed(
-                title="Mod Installation",
-                description=message,
-                color=color
-            )
-            embed.set_footer(text=f"Spiel: {game.capitalize()}")
-
-            await interaction.followup.send(embed=embed)
-
-            if success:
-                logger.info(f"Mod installed: {mod_id} v{version or 'latest'} for {game}")
-            else:
-                logger.warning(f"Mod installation failed: {mod_id}")
-
-        except Exception as e:
-            logger.error(f"Error installing mod: {e}")
-            await interaction.followup.send(
-                f"Fehler bei der Installation: {str(e)}",
-                ephemeral=True
-            )
-
-    # ==================================================================
-    # /mod uninstall - Uninstall a mod (admin)
-    # ==================================================================
-
-    @mod.command(name="uninstall", description="Mod deinstallieren (Admin)")
-    @admin_only()
-    async def mod_uninstall(
-        self,
-        interaction: discord.Interaction,
-        game: str,
-        mod_name: str
-    ):
-        """Uninstall a mod"""
-        await interaction.response.defer()
-
-        try:
-            game = game.lower()
-            if game not in ["satisfactory", "minecraft"]:
-                await interaction.followup.send(
-                    f"Spiel nicht unterstuetzt: `{game}`",
-                    ephemeral=True
-                )
-                return
-
-            mod_mgr = self._get_mod_manager(game)
-            success, message = await mod_mgr.uninstall_mod(mod_name)
-
-            color = 0x00FF00 if success else 0xFF0000
-            embed = discord.Embed(
-                title="Mod Deinstallation",
-                description=message,
-                color=color
-            )
-            embed.set_footer(text=f"Spiel: {game.capitalize()}")
-
-            await interaction.followup.send(embed=embed)
-
-            if success:
-                logger.info(f"Mod uninstalled: {mod_name} from {game}")
-            else:
-                logger.warning(f"Mod uninstall failed: {mod_name}")
-
-        except Exception as e:
-            logger.error(f"Error uninstalling mod: {e}")
-            await interaction.followup.send(
-                f"Fehler bei der Deinstallation: {str(e)}",
-                ephemeral=True
-            )
-
-    # ==================================================================
-    # /mod update - Update mods (admin)
-    # ==================================================================
-
-    @mod.command(name="update", description="Mod(s) aktualisieren (Admin)")
-    @admin_only()
-    async def mod_update(
-        self,
-        interaction: discord.Interaction,
-        game: str,
-        mod_name: Optional[str] = None
-    ):
-        """Update a specific mod or check all for updates"""
-        await interaction.response.defer()
-
-        try:
-            game = game.lower()
-            if game not in ["satisfactory", "minecraft"]:
-                await interaction.followup.send(
-                    f"Spiel nicht unterstuetzt: `{game}`",
-                    ephemeral=True
-                )
-                return
-
-            mod_mgr = self._get_mod_manager(game)
-
-            if mod_name:
-                # Update specific mod
-                success, message = await mod_mgr.update_mod(mod_name)
-                color = 0x00FF00 if success else 0xFF0000
-                embed = discord.Embed(
-                    title="Mod Update",
-                    description=message,
-                    color=color
-                )
-            else:
-                # Check all mods for updates
-                updates = await mod_mgr.check_updates()
-
-                if not updates:
-                    embed = discord.Embed(
-                        title="Mod Updates",
-                        description="Alle Mods sind aktuell!",
-                        color=0x00FF00
-                    )
-                else:
-                    embed = discord.Embed(
-                        title="Mod Updates verfuegbar",
-                        description=f"{len(updates)} Mods koennen aktualisiert werden",
-                        color=0xFFA500
-                    )
-                    for update in updates[:10]:
-                        embed.add_field(
-                            name=update.get("name"),
-                            value=f"{update.get('current')} → {update.get('latest')}",
-                            inline=True
-                        )
-                    if len(updates) > 10:
-                        embed.set_footer(text=f"... und {len(updates) - 10} weitere")
-
-            embed.set_footer(text=f"Spiel: {game.capitalize()}")
-            await interaction.followup.send(embed=embed)
-            logger.info(f"Checked updates for {game} mods")
-
-        except Exception as e:
-            logger.error(f"Error updating mods: {e}")
-            await interaction.followup.send(
-                f"Fehler beim Update: {str(e)}",
-                ephemeral=True
-            )
-
-    # ==================================================================
-    # /mod search - Search for mods (spieler)
-    # ==================================================================
-
-    @mod.command(name="search", description="Mods durchsuchen")
-    @spieler_only()
-    async def mod_search(
-        self,
-        interaction: discord.Interaction,
-        game: str,
-        query: str
-    ):
-        """Search for mods in repository"""
-        await interaction.response.defer()
-
-        try:
-            game = game.lower()
-            if game not in ["satisfactory", "minecraft"]:
-                await interaction.followup.send(
-                    f"Spiel nicht unterstuetzt: `{game}`",
-                    ephemeral=True
-                )
-                return
-
-            mod_mgr = self._get_mod_manager(game)
-            results = await mod_mgr.search_mods(query, game)
-
-            if not results:
-                embed = discord.Embed(
-                    title="Mod-Suche",
-                    description=f"Keine Ergebnisse fuer `{query}`",
-                    color=0xFFA500
-                )
-                await interaction.followup.send(embed=embed)
-                return
-
-            embed = discord.Embed(
-                title=f"Mod-Suche: {query}",
-                description=f"Gefunden: {len(results)} Ergebnisse",
-                color=0x00FF00
-            )
-
-            for i, result in enumerate(results[:10], 1):
-                result_text = (
-                    f"**ID:** `{result.get('mod_id')}`\n"
-                    f"**Version:** {result.get('latest_version')}\n"
-                    f"**Downloads:** {result.get('downloads', 0):,}\n"
-                    f"**Beschreibung:** {result.get('description', 'Keine')}"
-                )
-                embed.add_field(
-                    name=f"{i}. {result.get('name')}",
-                    value=result_text,
-                    inline=False
-                )
-
-            embed.set_footer(text=f"Nutze /mod install {game} <mod_id> zum Installieren")
-            await interaction.followup.send(embed=embed)
-            logger.info(f"Searched for mods: {query} on {game}")
-
-        except Exception as e:
-            logger.error(f"Error searching mods: {e}")
-            await interaction.followup.send(
-                f"Fehler bei der Suche: {str(e)}",
-                ephemeral=True
-            )
-
-    # ==================================================================
-    # /mod info - Show mod details (spieler)
+    # /mod info - Mod-Details anzeigen (Spieler)
     # ==================================================================
 
     @mod.command(name="info", description="Mod-Details anzeigen")
@@ -358,11 +115,11 @@ class ModCog(commands.Cog):
         interaction: discord.Interaction,
         mod_name: str
     ):
-        """Show detailed info about an installed mod"""
+        """Detaillierte Informationen zu einem installierten Mod anzeigen"""
         await interaction.response.defer()
 
         try:
-            # Search in all games
+            # In allen Spielen suchen
             mod_entry = None
             game_found = None
 
@@ -409,148 +166,24 @@ class ModCog(commands.Cog):
             logger.info(f"Showed info for mod: {mod_name}")
 
         except Exception as e:
-            logger.error(f"Error getting mod info: {e}")
+            logger.error(f"Fehler beim Abrufen der Mod-Info: {e}")
             await interaction.followup.send(
-                f"Fehler beim Abrufen der Info: {str(e)}",
-                ephemeral=True
-            )
-
-    # ==================================================================
-    # /mod export - Export modpack (admin)
-    # ==================================================================
-
-    @mod.command(name="export", description="Modpack exportieren (Admin)")
-    @admin_only()
-    async def mod_export(
-        self,
-        interaction: discord.Interaction,
-        game: str,
-        name: Optional[str] = None
-    ):
-        """Export current mod list as modpack"""
-        await interaction.response.defer()
-
-        try:
-            game = game.lower()
-            if game not in ["satisfactory", "minecraft"]:
-                await interaction.followup.send(
-                    f"Spiel nicht unterstuetzt: `{game}`",
-                    ephemeral=True
-                )
-                return
-
-            modpack_name = name or f"{game}_modpack"
-            mod_mgr = self._get_mod_manager(game)
-            success, message, file_path = await mod_mgr.create_modpack(modpack_name)
-
-            if success and file_path:
-                embed = discord.Embed(
-                    title="Modpack Export",
-                    description=message,
-                    color=0x00FF00
-                )
-                embed.add_field(name="Datei", value=f"`{file_path.name}`", inline=False)
-
-                try:
-                    await interaction.followup.send(
-                        embed=embed,
-                        file=discord.File(str(file_path))
-                    )
-                except Exception:
-                    await interaction.followup.send(embed=embed)
-            else:
-                embed = discord.Embed(
-                    title="Modpack Export",
-                    description=message,
-                    color=0xFF0000
-                )
-                await interaction.followup.send(embed=embed)
-
-            if success:
-                logger.info(f"Exported modpack: {modpack_name} for {game}")
-
-        except Exception as e:
-            logger.error(f"Error exporting modpack: {e}")
-            await interaction.followup.send(
-                f"Fehler beim Export: {str(e)}",
-                ephemeral=True
-            )
-
-    # ==================================================================
-    # /mod import - Import modpack (admin)
-    # ==================================================================
-
-    @mod.command(name="import", description="Modpack importieren (Admin)")
-    @admin_only()
-    async def mod_import(
-        self,
-        interaction: discord.Interaction,
-        game: str,
-        modpack_file: str
-    ):
-        """Import mods from modpack JSON"""
-        await interaction.response.defer()
-
-        try:
-            game = game.lower()
-            if game not in ["satisfactory", "minecraft"]:
-                await interaction.followup.send(
-                    f"Spiel nicht unterstuetzt: `{game}`",
-                    ephemeral=True
-                )
-                return
-
-            # Sicherheit: Nur Dateiname erlauben (kein Path-Traversal)
-            safe_filename = Path(modpack_file).name
-            data_dir = Path(__file__).parent.parent / "data"
-            modpack_path = (data_dir / safe_filename).resolve()
-            if not modpack_path.is_relative_to(data_dir.resolve()):
-                await interaction.followup.send(
-                    "Ungueltiger Dateipfad.", ephemeral=True
-                )
-                return
-            if not modpack_path.exists():
-                await interaction.followup.send(
-                    f"Datei nicht gefunden: `{safe_filename}`",
-                    ephemeral=True
-                )
-                return
-
-            mod_mgr = self._get_mod_manager(game)
-            success, message = await mod_mgr.import_modpack(modpack_path)
-
-            color = 0x00FF00 if success else 0xFF0000
-            embed = discord.Embed(
-                title="Modpack Import",
-                description=message,
-                color=color
-            )
-            embed.set_footer(text=f"Spiel: {game.capitalize()}")
-
-            await interaction.followup.send(embed=embed)
-
-            if success:
-                logger.info(f"Imported modpack: {modpack_file} for {game}")
-
-        except Exception as e:
-            logger.error(f"Error importing modpack: {e}")
-            await interaction.followup.send(
-                f"Fehler beim Import: {str(e)}",
+                "Fehler beim Abrufen der Mod-Informationen.",
                 ephemeral=True
             )
 
     async def cog_app_command_error(self, interaction: discord.Interaction,
                                      error: app_commands.AppCommandError) -> None:
-        """Handle errors for all commands in this cog."""
+        """Fehlerbehandlung fuer alle Commands in diesem Cog."""
         if isinstance(error, app_commands.CheckFailure):
             if not interaction.response.is_done():
                 await interaction.response.send_message(
                     "Keine Berechtigung fuer diesen Befehl.", ephemeral=True
                 )
             return
-        logger.error(f"Command error in {interaction.command.name if interaction.command else 'unknown'}: {error}", exc_info=True)
+        logger.error(f"Command-Fehler in {interaction.command.name if interaction.command else 'unknown'}: {error}", exc_info=True)
         try:
-            msg = f"Ein Fehler ist aufgetreten: {error}"
+            msg = "Ein Fehler ist aufgetreten."
             if interaction.response.is_done():
                 await interaction.followup.send(msg, ephemeral=True)
             else:
