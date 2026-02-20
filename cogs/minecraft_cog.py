@@ -863,31 +863,176 @@ class MinecraftCog(commands.Cog):
     # ║  (difficulty, weather, time, gamemode entfernt — nur In-Game)  ║
     # ╚════════════════════════════════════════════════════════════════╝
 
-    @mc.command(name="say", description="Nachricht im Spiel ansagen")
+    @mc.command(name="say", description="Ankuendigung im Spiel senden (Banner + Chat)")
     @admin_only()
+    @app_commands.describe(
+        message="Nachricht an alle Spieler",
+        banner="Title-Banner auf dem Bildschirm anzeigen (Standard: true)",
+        repeat="Nachricht X-mal wiederholen (alle 30s, fuer Restart-Warnungen)",
+        server="Server-Auswahl"
+    )
     @app_commands.autocomplete(server=_server_autocomplete)
     async def mc_say(self, interaction: discord.Interaction,
                      message: str,
+                     banner: bool = True,
+                     repeat: Optional[int] = None,
                      server: Optional[str] = None):
+        """Sendet eine Ankuendigung an alle Spieler.
+
+        Mit banner=True (Standard) wird ein grosser Title-Banner auf dem
+        Bildschirm angezeigt. Mit repeat=X wird die Nachricht als Countdown
+        wiederholt (z.B. fuer Restart-Warnungen).
+        """
         await interaction.response.defer()
 
         srv = await self._require_online_server(interaction, server)
         if not srv:
             return
 
-        try:
-            safe_message = _sanitize_rcon_input(message, 200)
-            await srv.rcon_command(f"say {safe_message}")
+        safe_message = _sanitize_rcon_input(message, 200)
+        if not safe_message:
+            await interaction.followup.send(
+                "Nachricht darf nicht leer sein.", ephemeral=True
+            )
+            return
+
+        # Repeat-Modus: Wiederholte Ankuendigungen (z.B. Restart-Countdown)
+        if repeat and repeat > 0:
+            repeat = min(repeat, 30)  # Max 30 Wiederholungen (15 Min)
+            await interaction.followup.send(
+                f"Ankuendigung wird {repeat}x alle 30s gesendet auf {srv.display_name}..."
+            )
+            # Background-Task starten
+            task = asyncio.create_task(
+                self._repeat_announcement(srv, safe_message, repeat, banner)
+            )
+            # Task-Referenz speichern damit er nicht garbage-collected wird
+            self._active_announcements = getattr(self, '_active_announcements', {})
+            self._active_announcements[srv.server_id] = task
+
             embed = discord.Embed(
-                title=f"Nachricht gesendet — {srv.display_name}",
-                description=message,
+                title=f"Wiederholte Ankuendigung gestartet — {srv.display_name}",
+                description=(
+                    f"**Nachricht:** {safe_message}\n"
+                    f"**Wiederholungen:** {repeat}x (alle 30s)\n"
+                    f"**Banner:** {'Ja (erste Nachricht)' if banner else 'Nein'}"
+                ),
+                color=0xff9900,
+            )
+            embed.set_footer(text=f"von {interaction.user.display_name}")
+            await interaction.edit_original_response(content=None, embed=embed)
+            return
+
+        # Einzelne Ankuendigung senden
+        try:
+            await self._send_announcement(srv, safe_message, banner)
+
+            embed = discord.Embed(
+                title=f"Ankuendigung gesendet — {srv.display_name}",
+                description=f"**Nachricht:** {safe_message}",
                 color=0x00ff00,
             )
+            if banner:
+                embed.add_field(
+                    name="Banner", value="Title + Subtitle + Actionbar + Chat", inline=False
+                )
+            else:
+                embed.add_field(name="Banner", value="Nur Chat", inline=False)
             embed.set_footer(text=f"von {interaction.user.display_name}")
             await interaction.followup.send(embed=embed)
         except Exception as e:
             await interaction.followup.send(
                 f"Fehler beim Senden: {e}", ephemeral=True
+            )
+            logger.error(f"[{srv.server_id}] Ankuendigung fehlgeschlagen: {e}")
+
+    async def _send_announcement(
+        self, srv: MinecraftServer, message: str, banner: bool
+    ) -> None:
+        """Sendet eine Ankuendigung an alle Spieler eines Servers.
+
+        Bei banner=True werden Title, Subtitle, Actionbar und Chat gesendet.
+        Bei banner=False wird nur die Chat-Nachricht gesendet.
+        """
+        if banner:
+            # Fade-In 1s (20 Ticks), Anzeige 5s (100 Ticks), Fade-Out 2s (40 Ticks)
+            await srv.rcon_command('title @a times 20 100 40')
+            # Grosser Title-Text
+            await srv.rcon_command(
+                'title @a title {"text":"Ankuendigung","color":"gold","bold":true}'
+            )
+            # Untertitel mit eigentlicher Nachricht
+            title_json = json.dumps({"text": message, "color": "white"})
+            await srv.rcon_command(f'title @a subtitle {title_json}')
+            # Actionbar (bleibt laenger sichtbar)
+            actionbar_json = json.dumps({"text": message, "color": "yellow"})
+            await srv.rcon_command(f'title @a actionbar {actionbar_json}')
+
+        # Chat-Nachricht (immer)
+        prefix = "[Ankuendigung] " if banner else ""
+        await srv.rcon_command(f'say {prefix}{message}')
+
+    async def _repeat_announcement(
+        self, srv: MinecraftServer, message: str,
+        count: int, banner_first: bool
+    ) -> None:
+        """Wiederholt eine Ankuendigung alle 30 Sekunden.
+
+        Die erste Nachricht kann einen Banner enthalten, alle weiteren
+        verwenden nur Actionbar + Chat um nicht zu nerven.
+        Zählt als Countdown herunter wenn die Nachricht 'Restart' oder
+        'Neustart' enthaelt.
+        """
+        try:
+            is_restart = any(
+                w in message.lower()
+                for w in ["restart", "neustart", "wartung", "maintenance"]
+            )
+
+            for i in range(count):
+                # Server-Check: Abbrechen wenn offline
+                if not await srv.is_running():
+                    logger.info(
+                        f"[{srv.server_id}] Ankuendigungs-Wiederholung abgebrochen "
+                        f"(Server offline)"
+                    )
+                    break
+
+                remaining = count - i
+                if is_restart:
+                    # Countdown-Nachricht (Minuten berechnen: remaining * 30s)
+                    minutes_left = (remaining * 30) / 60
+                    if minutes_left >= 1:
+                        countdown_msg = f"{message} (noch {minutes_left:.0f} Min)"
+                    else:
+                        seconds_left = remaining * 30
+                        countdown_msg = f"{message} (noch {seconds_left}s)"
+                else:
+                    countdown_msg = message
+
+                if i == 0 and banner_first:
+                    # Erste Nachricht: Voller Banner
+                    await self._send_announcement(srv, countdown_msg, banner=True)
+                else:
+                    # Folgende: Nur Actionbar + Chat
+                    actionbar_json = json.dumps(
+                        {"text": countdown_msg, "color": "yellow"}
+                    )
+                    await srv.rcon_command(f'title @a actionbar {actionbar_json}')
+                    await srv.rcon_command(f'say [Ankuendigung] {countdown_msg}')
+
+                # Warten (ausser nach letzter Nachricht)
+                if i < count - 1:
+                    await asyncio.sleep(30)
+
+            logger.info(
+                f"[{srv.server_id}] Wiederholte Ankuendigung abgeschlossen ({count}x)"
+            )
+        except asyncio.CancelledError:
+            logger.info(f"[{srv.server_id}] Ankuendigungs-Wiederholung abgebrochen")
+        except Exception as e:
+            logger.error(
+                f"[{srv.server_id}] Fehler bei Ankuendigungs-Wiederholung: {e}"
             )
 
     # --- F22: difficulty, weather, time, gamemode entfernt (v3.2.0) ---
