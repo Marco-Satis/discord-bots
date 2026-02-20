@@ -227,6 +227,47 @@ class DiscordNotifier:
             NotifyLevel.INFO,
         )
 
+    async def notify_player_update(
+        self, old_build: str, new_build: str, channel_id: Optional[int] = None
+    ) -> None:
+        """Benachrichtigt Spieler ueber erfolgreiches Server-Update.
+
+        Postet im Spieler-Channel (oder Admin-Channel als Fallback).
+        """
+        description = (
+            f"Der Satisfactory Server wurde aktualisiert und ist wieder online.\n\n"
+            f"**Vorherige Version:** Build {old_build}\n"
+            f"**Neue Version:** Build {new_build}"
+        )
+        if channel_id:
+            await self.send(
+                channel_id,
+                "Server-Update installiert",
+                description,
+                NotifyLevel.SUCCESS,
+            )
+        else:
+            await self.send_admin(
+                "Server-Update installiert",
+                description,
+                NotifyLevel.SUCCESS,
+            )
+
+    async def notify_update_rollback(
+        self, version: str, reason: str
+    ) -> None:
+        """Benachrichtigt Admins ueber fehlgeschlagenes Update mit Rollback."""
+        await self.send_admin(
+            "Auto-Update FEHLGESCHLAGEN — Rollback ausgefuehrt",
+            (
+                f"Das Update auf Version {version} ist fehlgeschlagen.\n"
+                f"**Grund:** {reason}\n\n"
+                f"Das Pre-Update-Backup wurde wiederhergestellt und der Server neu gestartet."
+            ),
+            NotifyLevel.ERROR,
+            ping_role=True,
+        )
+
     # ------------------------------------------------------------------
     # Scheduled events
     # ------------------------------------------------------------------

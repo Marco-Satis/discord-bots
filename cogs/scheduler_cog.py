@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo
 import aiofiles
 
 from utils.logger import get_logger
-from utils.config import get_config, DATA_DIR
+from utils.config import get_config, get_env, DATA_DIR
 from utils.permissions import is_admin, admin_only
 from modules.notifications.discord_notifier import NotifyLevel
 
@@ -439,8 +439,8 @@ class SchedulerCog(commands.Cog):
                     auto_hint = ""
                     if self._auto_update_enabled:
                         auto_hint = (
-                            f"\n\nAuto-Update ist aktiv und wird um "
-                            f"{self._auto_update_hour:02d}:00 installiert."
+                            "\n\nAuto-Update ist aktiv und wird beim naechsten "
+                            "'Server leer'-Moment installiert."
                         )
                     await self.notifier.notify_update_available(
                         info.get("installed_buildid", "?"),
@@ -462,32 +462,39 @@ class SchedulerCog(commands.Cog):
     # ------------------------------------------------------------------
 
     async def _check_auto_update_install(self, now: datetime):
-        """Install pending update at configured hour if conditions are met"""
+        """Auto-Update sofort ausfuehren wenn Server leer oder offline.
+
+        Phase 10e (F20): Uhrzeitbedingung entfernt — Update wird bei
+        naechstem "Server leer"-Moment oder Offline-Zustand installiert.
+        Auto-Rollback bei fehlgeschlagenem Update (3 Min Health-Check).
+        Spieler-Benachrichtigung nach erfolgreichem Update.
+        """
         if not self.update_checker or not self.sat_server:
             return
 
-        # Only at configured hour
-        if now.hour != self._auto_update_hour or now.minute > 5:
-            return
-
-        # Already updated today?
-        if self._last_auto_update and self._last_auto_update.date() == now.date():
-            return
-
-        # Check if server is running
         running = await self.sat_server.is_running()
 
-        # If require_empty, check players
-        if running and self._auto_update_require_empty:
+        # Server laeuft + Spieler online → Update verschieben
+        if running:
             if self.health_checker and self.health_checker.status.players_online > 0:
-                logger.info(
-                    f"Auto-Update delayed: "
-                    f"{self.health_checker.status.players_online} players online"
-                )
-                return
+                return  # Warten bis Server leer
 
-        logger.info("Auto-Update starting...")
+        # Cooldown: Nicht oefter als alle 30 Minuten versuchen
+        if self._last_auto_update and (now - self._last_auto_update).total_seconds() < 1800:
+            return
+
+        logger.info("Auto-Update startet (Server leer oder offline)...")
         self._last_auto_update = now
+
+        # Alte Build-ID merken (fuer Spieler-Benachrichtigung)
+        old_build = "?"
+        try:
+            _, info = await self.update_checker.check()
+            old_build = info.get("installed_buildid", "?")
+        except Exception:
+            pass
+
+        pre_update_backup_path = None
 
         try:
             if self.notifier:
@@ -497,7 +504,8 @@ class SchedulerCog(commands.Cog):
                     level=NotifyLevel.WARNING if running else NotifyLevel.INFO,
                 )
 
-            # 1. Backup before update
+            # 1. Backup vor Update erstellen
+            was_running = running
             if running and self.backup_manager:
                 try:
                     await self.sat_api.save_game()
@@ -508,24 +516,23 @@ class SchedulerCog(commands.Cog):
                 success, msg, backup_path = await self.backup_manager.create_backup(
                     name="pre-update", created_by="auto-update"
                 )
-                if success:
-                    logger.info(f"Pre-update backup: {backup_path.name if backup_path else msg}")
+                if success and backup_path:
+                    pre_update_backup_path = backup_path
+                    logger.info(f"Pre-Update Backup: {backup_path.name}")
 
-            # 2. Stop server if running
-            was_running = running
+            # 2. Server stoppen falls laufend
             if running:
-                # Send in-game warning via console command
                 try:
                     await self.sat_api.run_command(
                         "ServerChat Server wird in 2 Minuten fuer ein Update neu gestartet!"
                     )
                 except Exception:
-                    pass  # Chat command might not be supported
-                await asyncio.sleep(120)  # 2 min warning
+                    pass
+                await asyncio.sleep(120)  # 2 Min Warnung
 
                 stop_ok, stop_msg = await self.sat_server.stop()
                 if not stop_ok:
-                    logger.error(f"Auto-Update: Server stop failed: {stop_msg}")
+                    logger.error(f"Auto-Update: Server Stop fehlgeschlagen: {stop_msg}")
                     if self.notifier:
                         await self.notifier.send_admin(
                             "Auto-Update FEHLGESCHLAGEN",
@@ -536,20 +543,35 @@ class SchedulerCog(commands.Cog):
                     return
                 await asyncio.sleep(10)
 
-            # 3. Perform update
+            # 3. Update durchfuehren
             update_ok, update_msg = await self.update_checker.perform_update(self.sat_server)
 
             if update_ok:
                 self._pending_update = False
                 logger.info(f"Auto-Update: {update_msg}")
 
-                # 4. Restart server if it was running
+                # 4. Server starten falls er lief
                 if was_running:
                     start_ok, start_msg = await self.sat_server.start()
+                    if not start_ok:
+                        logger.error(f"Server Start nach Update fehlgeschlagen: {start_msg}")
+
+                    # 5. Health-Check (3 Minuten warten, dann pruefen)
                     if start_ok:
-                        logger.info("Server nach Update gestartet")
-                    else:
-                        logger.error(f"Server start nach Update fehlgeschlagen: {start_msg}")
+                        rollback_needed = await self._health_check_after_update()
+                        if rollback_needed and pre_update_backup_path:
+                            await self._perform_rollback(
+                                pre_update_backup_path, update_msg
+                            )
+                            return
+
+                # 6. Erfolgsbenachrichtigung
+                new_build = "?"
+                try:
+                    _, new_info = await self.update_checker.check()
+                    new_build = new_info.get("installed_buildid", "?")
+                except Exception:
+                    pass
 
                 server_state = "gestartet" if was_running else "war offline"
                 if self.notifier:
@@ -558,21 +580,31 @@ class SchedulerCog(commands.Cog):
                         f"{update_msg}\n\nServer {server_state}.",
                         NotifyLevel.SUCCESS,
                     )
+                    # Spieler-Channel Benachrichtigung
+                    player_channel_id = get_env(
+                        "PUBLIC_STATUS_CHANNEL_ID", cast=int
+                    )
+                    await self.notifier.notify_player_update(
+                        old_build, new_build, player_channel_id
+                    )
 
                 if self.email_notifier:
                     await self.email_notifier._send_email(
-                        "✅ Auto-Update erfolgreich",
+                        "Auto-Update erfolgreich",
                         f"{update_msg}\nServer {server_state}.",
                         "auto_update_success",
                     )
             else:
                 logger.error(f"Auto-Update fehlgeschlagen: {update_msg}")
 
-                # Try to restart anyway if it was running
-                if was_running:
+                # Rollback versuchen wenn Backup vorhanden
+                if was_running and pre_update_backup_path:
+                    await self._perform_rollback(pre_update_backup_path, update_msg)
+                elif was_running:
+                    # Kein Backup — trotzdem versuchen zu starten
                     await self.sat_server.start()
 
-                if self.notifier:
+                if self.notifier and not pre_update_backup_path:
                     await self.notifier.send_admin(
                         "Auto-Update FEHLGESCHLAGEN",
                         update_msg,
@@ -581,12 +613,104 @@ class SchedulerCog(commands.Cog):
                     )
 
         except Exception as e:
-            logger.error(f"Auto-Update error: {e}", exc_info=True)
-            # Try to start server in case it was stopped
+            logger.error(f"Auto-Update Fehler: {e}", exc_info=True)
             try:
                 await self.sat_server.start()
             except Exception:
                 pass
+
+    async def _health_check_after_update(self) -> bool:
+        """Prueft ob der Server nach einem Update innerhalb von 3 Minuten
+        wieder erreichbar ist.
+
+        Returns:
+            True wenn Rollback noetig (Server nicht erreichbar),
+            False wenn Server OK
+        """
+        logger.info("Post-Update Health-Check: Warte 3 Minuten...")
+        # 6 Pruefungen alle 30 Sekunden = 3 Minuten
+        for i in range(6):
+            await asyncio.sleep(30)
+            try:
+                if await self.sat_server.is_running():
+                    # API-Check fuer tiefere Pruefung
+                    if self.sat_api:
+                        try:
+                            await self.sat_api.query_server_state()
+                            logger.info(
+                                f"Post-Update Health-Check OK (nach {(i+1)*30}s)"
+                            )
+                            return False  # Kein Rollback noetig
+                        except Exception:
+                            continue  # API noch nicht bereit
+                    else:
+                        logger.info(
+                            f"Post-Update Health-Check OK (nach {(i+1)*30}s)"
+                        )
+                        return False
+            except Exception:
+                continue
+
+        logger.error("Post-Update Health-Check FEHLGESCHLAGEN nach 3 Minuten")
+        return True  # Rollback noetig
+
+    async def _perform_rollback(self, backup_path, update_msg: str) -> None:
+        """Fuehrt einen automatischen Rollback nach fehlgeschlagenem Update durch.
+
+        1. Server stoppen (falls haengend)
+        2. Pre-Update-Backup wiederherstellen
+        3. Server neu starten
+        4. Admin-Benachrichtigung
+        """
+        logger.warning("Auto-Rollback: Stelle Pre-Update-Backup wieder her...")
+
+        try:
+            # Server stoppen falls er haengt
+            try:
+                await self.sat_server.stop()
+                await asyncio.sleep(5)
+            except Exception:
+                pass
+
+            # Backup wiederherstellen
+            restore_ok = False
+            if self.backup_manager:
+                restore_ok, restore_msg = await self.backup_manager.restore(
+                    backup_path.name if hasattr(backup_path, 'name') else str(backup_path)
+                )
+                if restore_ok:
+                    logger.info(f"Rollback: Backup wiederhergestellt — {restore_msg}")
+                else:
+                    logger.error(f"Rollback: Restore fehlgeschlagen — {restore_msg}")
+
+            # Server neu starten
+            start_ok, start_msg = await self.sat_server.start()
+
+            if self.notifier:
+                if restore_ok and start_ok:
+                    await self.notifier.notify_update_rollback(
+                        update_msg, "Server nach Update nicht erreichbar"
+                    )
+                elif not start_ok:
+                    await self.notifier.send_admin(
+                        "KRITISCH: Auto-Update + Rollback fehlgeschlagen",
+                        f"Update fehlgeschlagen: {update_msg}\n"
+                        f"Rollback-Restore: {'OK' if restore_ok else 'FEHLER'}\n"
+                        f"Server-Start: FEHLER — {start_msg}\n\n"
+                        f"Manueller Eingriff noetig!",
+                        level=NotifyLevel.CRITICAL,
+                        ping_role=True,
+                    )
+
+        except Exception as e:
+            logger.error(f"Rollback-Fehler: {e}", exc_info=True)
+            if self.notifier:
+                await self.notifier.send_admin(
+                    "KRITISCH: Rollback fehlgeschlagen",
+                    f"Fehler beim Rollback: {e}\nManueller Eingriff noetig!",
+                    level=NotifyLevel.CRITICAL,
+                    ping_role=True,
+                )
 
     # ------------------------------------------------------------------
     # Minecraft: Daily Restart
