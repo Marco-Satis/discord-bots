@@ -1,0 +1,69 @@
+<!-- Phase 13f: WordFilter Konfiguration -->
+{% if success is defined and success %}
+<div class="alert alert-success">{{ success }}</div>
+{% endif %}
+{% if error is defined and error %}
+<div class="alert alert-danger">{{ error }}</div>
+{% endif %}
+
+<form hx-post="/admin-bot/save/wordfilter" hx-target="#tab-content" hx-swap="innerHTML">
+    <section class="config-section">
+        <h2 class="section-title">Wortfilter Konfiguration</h2>
+        <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 1.25rem;">
+            Filtert Nachrichten anhand von Wortlisten und Regex-Mustern.
+        </p>
+
+        <h3 class="subsection-title">Exakte Woerter</h3>
+        <p style="color: var(--text-muted); font-size: 0.8rem; margin-bottom: 0.5rem;">
+            Nachrichten die exakt eines dieser Woerter enthalten werden gefiltert (ein Wort pro Zeile).
+        </p>
+        <div class="form-group">
+            <textarea name="exact_words" rows="5"
+                      placeholder="Ein Wort pro Zeile">{{ config.exact_words|join('\n') if config.exact_words is defined and config.exact_words else '' }}</textarea>
+        </div>
+
+        <h3 class="subsection-title">Teilwoerter</h3>
+        <p style="color: var(--text-muted); font-size: 0.8rem; margin-bottom: 0.5rem;">
+            Nachrichten die diese Zeichenketten als Teil enthalten werden gefiltert.
+        </p>
+        <div class="form-group">
+            <textarea name="partial_words" rows="5"
+                      placeholder="Ein Teilwort pro Zeile">{{ config.partial_words|join('\n') if config.partial_words is defined and config.partial_words else '' }}</textarea>
+        </div>
+
+        <h3 class="subsection-title">Regex-Muster</h3>
+        <p style="color: var(--text-muted); font-size: 0.8rem; margin-bottom: 0.5rem;">
+            Regulaere Ausdruecke fuer erweiterte Filterung (ein Muster pro Zeile).
+        </p>
+        <div class="form-group">
+            <textarea name="regex_patterns" rows="4"
+                      placeholder="Ein Regex-Muster pro Zeile">{{ config.regex_patterns|join('\n') if config.regex_patterns is defined and config.regex_patterns else '' }}</textarea>
+        </div>
+    </section>
+
+    <section class="config-section">
+        <h2 class="section-title">Aktionen &amp; Ausnahmen</h2>
+
+        <div class="input-grid">
+            <div class="form-group">
+                <label for="wf_action">Aktion bei Verstoss</label>
+                <select id="wf_action" name="action">
+                    <option value="delete" {% if config.action is defined and config.action == 'delete' %}selected{% endif %}>Nachricht loeschen</option>
+                    <option value="warn" {% if config.action is defined and config.action == 'warn' %}selected{% endif %}>Verwarnung</option>
+                    <option value="mute" {% if config.action is defined and config.action == 'mute' %}selected{% endif %}>Stummschaltung</option>
+                    <option value="kick" {% if config.action is defined and config.action == 'kick' %}selected{% endif %}>Kick</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="wf_exempt_roles">Ausgenommene Rollen-IDs (kommagetrennt)</label>
+                <input type="text" id="wf_exempt_roles" name="exempt_roles"
+                       value="{{ config.exempt_roles|join(', ') if config.exempt_roles is defined and config.exempt_roles else '' }}"
+                       placeholder="z.B. 123456789, 987654321">
+            </div>
+        </div>
+    </section>
+
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Speichern</button>
+    </div>
+</form>

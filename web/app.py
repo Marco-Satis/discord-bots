@@ -129,12 +129,18 @@ from web.routes.dashboard import router as dashboard_router      # noqa: E402
 from web.routes.errors_route import router as errors_router      # noqa: E402
 from web.routes.config_route import router as config_router      # noqa: E402
 from web.routes.system_route import router as system_router      # noqa: E402
+from web.routes.server_detail import router as server_detail_router  # noqa: E402
+from web.routes.analytics_route import router as analytics_router    # noqa: E402
+from web.routes.admin_bot_route import router as admin_bot_router    # noqa: E402
 
 app.include_router(auth_router)
 app.include_router(dashboard_router)
 app.include_router(errors_router)
 app.include_router(config_router)
 app.include_router(system_router)
+app.include_router(server_detail_router)
+app.include_router(analytics_router)
+app.include_router(admin_bot_router)
 
 
 # --- Startup/Shutdown Events ---

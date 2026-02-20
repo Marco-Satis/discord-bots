@@ -1,0 +1,66 @@
+<!-- Phase 13g: Giveaway-System Konfiguration -->
+{% if success is defined and success %}
+<div class="alert alert-success">{{ success }}</div>
+{% endif %}
+{% if error is defined and error %}
+<div class="alert alert-danger">{{ error }}</div>
+{% endif %}
+
+<form hx-post="/admin-bot/save/giveaways" hx-target="#tab-content" hx-swap="innerHTML">
+    <section class="config-section">
+        <h2 class="section-title">Giveaway-System Konfiguration</h2>
+        <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 1.25rem;">
+            Verlosungen per Embed und Button/Reaktion — automatische Gewinner-Ziehung nach Ablauf.
+        </p>
+
+        <div class="input-grid">
+            <div class="form-group">
+                <label for="default_duration_hours">Standard-Dauer (Stunden)</label>
+                <input type="number" id="default_duration_hours" name="default_duration_hours"
+                       value="{{ config.default_duration_hours|default(24, true) }}"
+                       min="1" max="720">
+            </div>
+            <div class="form-group">
+                <label for="default_winner_count">Standard-Gewinner-Anzahl</label>
+                <input type="number" id="default_winner_count" name="default_winner_count"
+                       value="{{ config.default_winner_count|default(1, true) }}"
+                       min="1" max="20">
+            </div>
+            <div class="form-group">
+                <label for="giveaway_channel_id">Standard Giveaway-Channel ID</label>
+                <input type="text" id="giveaway_channel_id" name="giveaway_channel_id"
+                       value="{{ config.giveaway_channel_id|default('', true) }}"
+                       placeholder="z.B. 111111111111111111">
+            </div>
+            <div class="form-group">
+                <label for="required_role_id">Pflicht-Rolle fuer Teilnahme (optional)</label>
+                <input type="text" id="required_role_id" name="required_role_id"
+                       value="{{ config.required_role_id|default('', true) }}"
+                       placeholder="Rollen-ID (leer = keine Pflicht)">
+            </div>
+        </div>
+
+        <div class="toggle-grid" style="margin-top: 1.25rem;">
+            <div class="toggle-item">
+                <label class="toggle-switch">
+                    <input type="checkbox" name="dm_winners"
+                           {% if config.dm_winners is defined and config.dm_winners %}checked{% endif %}>
+                    <span class="toggle-slider"></span>
+                </label>
+                <span class="toggle-label">Gewinner per DM benachrichtigen</span>
+            </div>
+            <div class="toggle-item">
+                <label class="toggle-switch">
+                    <input type="checkbox" name="allow_multiple_entries"
+                           {% if config.allow_multiple_entries is defined and config.allow_multiple_entries %}checked{% endif %}>
+                    <span class="toggle-slider"></span>
+                </label>
+                <span class="toggle-label">Mehrfach-Teilnahme erlauben</span>
+            </div>
+        </div>
+    </section>
+
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Speichern</button>
+    </div>
+</form>

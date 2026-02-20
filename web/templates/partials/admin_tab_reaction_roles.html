@@ -1,0 +1,69 @@
+<!-- Phase 13g: Reaction Roles Konfiguration -->
+{% if success is defined and success %}
+<div class="alert alert-success">{{ success }}</div>
+{% endif %}
+{% if error is defined and error %}
+<div class="alert alert-danger">{{ error }}</div>
+{% endif %}
+
+<form hx-post="/admin-bot/save/reaction_roles" hx-target="#tab-content" hx-swap="innerHTML">
+    <section class="config-section">
+        <h2 class="section-title">Reaction Roles Konfiguration</h2>
+        <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 1.25rem;">
+            Rollen-Zuweisung per Emoji-Reaktion auf Embeds. Panels werden ueber Discord-Commands
+            (<code>/reactionrole create</code>, <code>/reactionrole add</code>) verwaltet.
+        </p>
+
+        <div class="toggle-grid">
+            <div class="toggle-item">
+                <label class="toggle-switch">
+                    <input type="checkbox" name="allow_multiple"
+                           {% if config.allow_multiple is defined and config.allow_multiple %}checked{% endif %}>
+                    <span class="toggle-slider"></span>
+                </label>
+                <span class="toggle-label">Mehrere Rollen gleichzeitig erlauben</span>
+            </div>
+            <div class="toggle-item">
+                <label class="toggle-switch">
+                    <input type="checkbox" name="dm_notification"
+                           {% if config.dm_notification is defined and config.dm_notification %}checked{% endif %}>
+                    <span class="toggle-slider"></span>
+                </label>
+                <span class="toggle-label">DM-Benachrichtigung bei Rollen-Aenderung</span>
+            </div>
+        </div>
+
+        <!-- Aktive Panels anzeigen (nur Lesen) -->
+        <h3 style="color: var(--text-primary); font-size: 1rem; margin: 1.5rem 0 0.75rem; font-weight: 600;">Aktive Reaction-Role-Panels</h3>
+        {% if config.panels and config.panels|length > 0 %}
+        <div class="table-wrapper">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Channel</th>
+                        <th>Message ID</th>
+                        <th>Rollen</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for panel in config.panels %}
+                    <tr>
+                        <td>{{ panel.channel_id|default('N/A') }}</td>
+                        <td style="font-family: monospace; font-size: 0.85rem;">{{ panel.message_id|default('N/A') }}</td>
+                        <td>{{ panel.roles|length if panel.roles else 0 }} Rollen</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p style="color: var(--text-muted); padding: 1rem; font-style: italic;">
+            Keine Reaction-Role-Panels konfiguriert. Verwende <code>/reactionrole create</code> in Discord.
+        </p>
+        {% endif %}
+    </section>
+
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Speichern</button>
+    </div>
+</form>

@@ -1,0 +1,85 @@
+<!-- Phase 13g: AntiSpam Konfiguration -->
+{% if success is defined and success %}
+<div class="alert alert-success">{{ success }}</div>
+{% endif %}
+{% if error is defined and error %}
+<div class="alert alert-danger">{{ error }}</div>
+{% endif %}
+
+<form hx-post="/admin-bot/save/antispam" hx-target="#tab-content" hx-swap="innerHTML">
+    <section class="config-section">
+        <h2 class="section-title">AntiSpam Konfiguration</h2>
+        <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 1.25rem;">
+            Erkennt und unterbindet Spam in Discord-Channels (Nachrichten-Flooding, Duplikate, Massen-Mentions).
+        </p>
+
+        <div class="input-grid">
+            <div class="form-group">
+                <label for="max_messages">Max. Nachrichten pro Intervall</label>
+                <input type="number" id="max_messages" name="max_messages"
+                       value="{{ config.max_messages|default(5, true) }}"
+                       min="2" max="50">
+            </div>
+            <div class="form-group">
+                <label for="interval_seconds">Intervall (Sekunden)</label>
+                <input type="number" id="interval_seconds" name="interval_seconds"
+                       value="{{ config.interval_seconds|default(5, true) }}"
+                       min="1" max="60">
+            </div>
+            <div class="form-group">
+                <label for="duplicate_threshold">Duplikat-Schwelle</label>
+                <input type="number" id="duplicate_threshold" name="duplicate_threshold"
+                       value="{{ config.duplicate_threshold|default(3, true) }}"
+                       min="2" max="20">
+            </div>
+            <div class="form-group">
+                <label for="mention_limit">Mention-Limit pro Nachricht</label>
+                <input type="number" id="mention_limit" name="mention_limit"
+                       value="{{ config.mention_limit|default(5, true) }}"
+                       min="1" max="50">
+            </div>
+            <div class="form-group">
+                <label for="emoji_limit">Emoji-Limit pro Nachricht</label>
+                <input type="number" id="emoji_limit" name="emoji_limit"
+                       value="{{ config.emoji_limit|default(10, true) }}"
+                       min="1" max="100">
+            </div>
+            <div class="form-group">
+                <label for="mute_duration_minutes">Mute-Dauer (Minuten)</label>
+                <input type="number" id="mute_duration_minutes" name="mute_duration_minutes"
+                       value="{{ config.mute_duration_minutes|default(10, true) }}"
+                       min="1" max="1440">
+            </div>
+            <div class="form-group">
+                <label for="action">Massnahme bei Spam</label>
+                <select id="action" name="action">
+                    <option value="delete" {% if config.action == 'delete' %}selected{% endif %}>Nachricht loeschen</option>
+                    <option value="mute" {% if config.action == 'mute' %}selected{% endif %}>Mute (Timeout)</option>
+                    <option value="warn" {% if config.action == 'warn' %}selected{% endif %}>Warnung vergeben</option>
+                    <option value="kick" {% if config.action == 'kick' %}selected{% endif %}>Kick</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="exempt_roles">Ausgenommene Rollen (IDs, kommasepariert)</label>
+                <input type="text" id="exempt_roles" name="exempt_roles"
+                       value="{{ config.exempt_roles|join(', ') if config.exempt_roles else '' }}"
+                       placeholder="z.B. 123456789, 987654321">
+            </div>
+        </div>
+
+        <div class="toggle-grid" style="margin-top: 1.25rem;">
+            <div class="toggle-item">
+                <label class="toggle-switch">
+                    <input type="checkbox" name="duplicate_detection"
+                           {% if config.duplicate_detection is defined and config.duplicate_detection %}checked{% endif %}>
+                    <span class="toggle-slider"></span>
+                </label>
+                <span class="toggle-label">Duplikat-Erkennung aktivieren</span>
+            </div>
+        </div>
+    </section>
+
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Speichern</button>
+    </div>
+</form>

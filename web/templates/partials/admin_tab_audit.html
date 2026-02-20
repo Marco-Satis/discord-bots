@@ -1,0 +1,114 @@
+<!-- Phase 13g: Audit-Logging Konfiguration -->
+{% if success is defined and success %}
+<div class="alert alert-success">{{ success }}</div>
+{% endif %}
+{% if error is defined and error %}
+<div class="alert alert-danger">{{ error }}</div>
+{% endif %}
+
+<form hx-post="/admin-bot/save/audit" hx-target="#tab-content" hx-swap="innerHTML">
+    <section class="config-section">
+        <h2 class="section-title">Audit-Logging Konfiguration</h2>
+        <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 1.25rem;">
+            Separate Log-Channels pro Kategorie — verfolge alle Server-Ereignisse.
+        </p>
+
+        <!-- Log-Channels -->
+        <h3 style="color: var(--text-primary); font-size: 1rem; margin: 0 0 0.75rem; font-weight: 600;">Log-Channels</h3>
+        <div class="input-grid">
+            <div class="form-group">
+                <label for="moderation_log_channel">Moderation-Log Channel ID</label>
+                <input type="text" id="moderation_log_channel" name="moderation_log_channel"
+                       value="{{ config.moderation_log_channel|default('', true) }}"
+                       placeholder="Warns, Mutes, Kicks, Bans">
+            </div>
+            <div class="form-group">
+                <label for="join_leave_log_channel">Join/Leave-Log Channel ID</label>
+                <input type="text" id="join_leave_log_channel" name="join_leave_log_channel"
+                       value="{{ config.join_leave_log_channel|default('', true) }}"
+                       placeholder="Member Joins und Leaves">
+            </div>
+            <div class="form-group">
+                <label for="member_update_log_channel">Member-Update-Log Channel ID</label>
+                <input type="text" id="member_update_log_channel" name="member_update_log_channel"
+                       value="{{ config.member_update_log_channel|default('', true) }}"
+                       placeholder="Nickname-/Avatar-Aenderungen">
+            </div>
+            <div class="form-group">
+                <label for="role_change_log_channel">Rollen-Log Channel ID</label>
+                <input type="text" id="role_change_log_channel" name="role_change_log_channel"
+                       value="{{ config.role_change_log_channel|default('', true) }}"
+                       placeholder="Rollen hinzugefuegt/entfernt">
+            </div>
+            <div class="form-group">
+                <label for="server_change_log_channel">Server-Log Channel ID</label>
+                <input type="text" id="server_change_log_channel" name="server_change_log_channel"
+                       value="{{ config.server_change_log_channel|default('', true) }}"
+                       placeholder="Channel/Rollen erstellt/geloescht">
+            </div>
+            <div class="form-group">
+                <label for="message_log_channel">Nachrichten-Log Channel ID</label>
+                <input type="text" id="message_log_channel" name="message_log_channel"
+                       value="{{ config.message_log_channel|default('', true) }}"
+                       placeholder="Geloeschte/bearbeitete Nachrichten">
+            </div>
+        </div>
+
+        <!-- Feature-Toggles -->
+        <h3 style="color: var(--text-primary); font-size: 1rem; margin: 1.5rem 0 0.75rem; font-weight: 600;">Aktive Kategorien</h3>
+        <div class="toggle-grid">
+            <div class="toggle-item">
+                <label class="toggle-switch">
+                    <input type="checkbox" name="moderation_enabled"
+                           {% if config.moderation_enabled is defined and config.moderation_enabled %}checked{% endif %}>
+                    <span class="toggle-slider"></span>
+                </label>
+                <span class="toggle-label">Moderation (Warns, Bans, Kicks)</span>
+            </div>
+            <div class="toggle-item">
+                <label class="toggle-switch">
+                    <input type="checkbox" name="join_leave_enabled"
+                           {% if config.join_leave_enabled is defined and config.join_leave_enabled %}checked{% endif %}>
+                    <span class="toggle-slider"></span>
+                </label>
+                <span class="toggle-label">Join / Leave</span>
+            </div>
+            <div class="toggle-item">
+                <label class="toggle-switch">
+                    <input type="checkbox" name="member_update_enabled"
+                           {% if config.member_update_enabled is defined and config.member_update_enabled %}checked{% endif %}>
+                    <span class="toggle-slider"></span>
+                </label>
+                <span class="toggle-label">Member-Updates (Nickname, Avatar)</span>
+            </div>
+            <div class="toggle-item">
+                <label class="toggle-switch">
+                    <input type="checkbox" name="role_change_enabled"
+                           {% if config.role_change_enabled is defined and config.role_change_enabled %}checked{% endif %}>
+                    <span class="toggle-slider"></span>
+                </label>
+                <span class="toggle-label">Rollen-Aenderungen</span>
+            </div>
+            <div class="toggle-item">
+                <label class="toggle-switch">
+                    <input type="checkbox" name="server_change_enabled"
+                           {% if config.server_change_enabled is defined and config.server_change_enabled %}checked{% endif %}>
+                    <span class="toggle-slider"></span>
+                </label>
+                <span class="toggle-label">Server-Aenderungen</span>
+            </div>
+            <div class="toggle-item">
+                <label class="toggle-switch">
+                    <input type="checkbox" name="message_enabled"
+                           {% if config.message_enabled is defined and config.message_enabled %}checked{% endif %}>
+                    <span class="toggle-slider"></span>
+                </label>
+                <span class="toggle-label">Nachrichten (geloescht/bearbeitet)</span>
+            </div>
+        </div>
+    </section>
+
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Speichern</button>
+    </div>
+</form>

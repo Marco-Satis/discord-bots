@@ -1,0 +1,519 @@
+"""
+Phase 13f: Admin Bot Setup — Konfigurationsseite fuer alle Admin-Bot-Module.
+
+10 Tabs fuer die Verwaltung aller Admin-Bot-Features:
+Temp Voice, TeamSpeak, WordFilter, AntiSpam, Warn-System,
+Reaction Roles, Leveling, Tickets, Audit-Logging, Giveaways.
+"""
+
+import json
+from pathlib import Path
+
+from fastapi import APIRouter, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
+
+from utils.config import PROJECT_ROOT, DATA_DIR, get_config, save_config
+from utils.logger import get_logger
+from web.auth import get_current_user
+
+logger = get_logger("web.routes.admin_bot")
+
+TEMPLATE_DIR = Path(__file__).parent.parent / "templates"
+templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
+
+router = APIRouter(tags=["Admin Bot Setup"])
+
+# Zuordnung Tab-Name → Datenverzeichnis und Dateiname
+MODULE_FILE_MAP = {
+    "temp_voice":     ("temp_voice",     "config.json"),
+    "teamspeak":      ("teamspeak",      "config.json"),
+    "wordfilter":     ("moderation",     "wordfilter.json"),
+    "antispam":       ("moderation",     "antispam.json"),
+    "warn":           ("moderation",     "warn_config.json"),
+    "reaction_roles": ("reaction_roles", "config.json"),
+    "leveling":       ("leveling",       "config.json"),
+    "tickets":        ("tickets",        "config.json"),
+    "audit":          ("audit",          "config.json"),
+    "giveaways":      ("giveaway",       "config.json"),
+}
+
+# Standard-Konfigurationen fuer jedes Modul (Fallback wenn Datei fehlt)
+DEFAULT_CONFIGS = {
+    "temp_voice": {
+        "hub_channel_id": "",
+        "category_id": "",
+        "default_limit": 0,
+        "allow_owner_rename": True,
+        "allow_owner_limit_change": True,
+        "afk_auto_delete": False,
+        "afk_timeout_minutes": 5,
+    },
+    "teamspeak": {
+        "ts_enabled": False,
+        "host": "",
+        "port": 10011,
+        "username": "",
+        "password": "",
+        "virtual_server_id": 1,
+        "chat_bridge": {
+            "discord_channel_id": "",
+            "ts_channel_id": "",
+            "enabled": False,
+        },
+        "auto_channels": [],
+    },
+    "wordfilter": {
+        "exact_words": [],
+        "partial_words": [],
+        "regex_patterns": [],
+        "action": "delete",
+        "exempt_roles": [],
+    },
+    "antispam": {
+        "max_messages": 5,
+        "interval_seconds": 5,
+        "duplicate_detection": False,
+        "duplicate_threshold": 3,
+        "mention_limit": 5,
+        "emoji_limit": 10,
+        "action": "mute",
+        "mute_duration_minutes": 10,
+        "exempt_roles": [],
+    },
+    "warn": {
+        "levels": [
+            {"points": 1, "action": "warn", "duration": 0},
+            {"points": 3, "action": "mute", "duration": 60},
+            {"points": 5, "action": "kick", "duration": 0},
+            {"points": 7, "action": "ban", "duration": 0},
+        ],
+        "decay_days": 30,
+        "log_channel_id": "",
+    },
+    "reaction_roles": {
+        "allow_multiple": True,
+        "dm_notification": True,
+        "panels": [],
+    },
+    "leveling": {
+        "xp_per_message_min": 15,
+        "xp_per_message_max": 25,
+        "xp_cooldown_seconds": 60,
+        "voice_xp_per_minute": 5,
+        "channel_multipliers": [],
+        "role_rewards": [],
+        "leaderboard_display_count": 10,
+    },
+    "tickets": {
+        "button_channel_id": "",
+        "support_role_ids": "",
+        "ticket_category_id": "",
+        "auto_close_hours": 0,
+        "transcript_enabled": False,
+        "transcript_channel_id": "",
+    },
+    "audit": {
+        "moderation_log_channel": "",
+        "join_leave_log_channel": "",
+        "member_update_log_channel": "",
+        "role_change_log_channel": "",
+        "server_change_log_channel": "",
+        "message_log_channel": "",
+        "moderation_enabled": True,
+        "join_leave_enabled": True,
+        "member_update_enabled": True,
+        "role_change_enabled": True,
+        "server_change_enabled": True,
+        "message_enabled": True,
+    },
+    "giveaways": {
+        "default_duration_hours": 24,
+        "default_winner_count": 1,
+        "required_role_id": "",
+        "allow_multiple_entries": False,
+        "dm_winners": True,
+        "giveaway_channel_id": "",
+    },
+}
+
+
+def _load_module_config(module_name: str) -> dict:
+    """Laedt die Konfiguration eines Moduls aus data/{module}/config.json."""
+    if module_name not in MODULE_FILE_MAP:
+        logger.warning(f"Unbekanntes Modul: {module_name}")
+        return DEFAULT_CONFIGS.get(module_name, {})
+
+    folder, filename = MODULE_FILE_MAP[module_name]
+    config_path = DATA_DIR / folder / filename
+
+    try:
+        if config_path.exists():
+            with open(config_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                # Standard-Werte ergaenzen fuer fehlende Schluessel
+                defaults = DEFAULT_CONFIGS.get(module_name, {})
+                for key, value in defaults.items():
+                    if key not in data:
+                        data[key] = value
+                return data
+    except (json.JSONDecodeError, IOError) as e:
+        logger.warning(f"Konnte Modul-Config '{module_name}' nicht laden: {e}")
+
+    return dict(DEFAULT_CONFIGS.get(module_name, {}))
+
+
+def _save_module_config(module_name: str, config: dict) -> bool:
+    """Speichert die Konfiguration eines Moduls."""
+    if module_name not in MODULE_FILE_MAP:
+        logger.error(f"Speichern fehlgeschlagen — unbekanntes Modul: {module_name}")
+        return False
+
+    folder, filename = MODULE_FILE_MAP[module_name]
+    config_path = DATA_DIR / folder / filename
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(config, f, ensure_ascii=False, indent=2)
+        logger.info(f"Modul-Config '{module_name}' gespeichert: {config_path}")
+        return True
+    except IOError as e:
+        logger.error(f"Fehler beim Speichern von '{module_name}': {e}")
+        return False
+
+
+def _parse_form_temp_voice(form) -> dict:
+    """Parst Formular-Daten fuer das Temp-Voice-Modul."""
+    return {
+        "hub_channel_id": form.get("hub_channel_id", "").strip(),
+        "category_id": form.get("category_id", "").strip(),
+        "default_limit": int(form.get("default_limit", 0) or 0),
+        "allow_owner_rename": "allow_owner_rename" in form,
+        "allow_owner_limit_change": "allow_owner_limit_change" in form,
+        "afk_auto_delete": "afk_auto_delete" in form,
+        "afk_timeout_minutes": int(form.get("afk_timeout_minutes", 5) or 5),
+    }
+
+
+def _parse_form_teamspeak(form) -> dict:
+    """Parst Formular-Daten fuer das TeamSpeak-Modul."""
+    # Auto-Channels aus mehrzeiligem Textfeld parsen
+    auto_channels_raw = form.get("auto_channels", "").strip()
+    auto_channels = [ch.strip() for ch in auto_channels_raw.split("\n") if ch.strip()]
+
+    return {
+        "ts_enabled": "ts_enabled" in form,
+        "host": form.get("host", "").strip(),
+        "port": int(form.get("port", 10011) or 10011),
+        "username": form.get("username", "").strip(),
+        "password": form.get("password", "").strip(),
+        "virtual_server_id": int(form.get("virtual_server_id", 1) or 1),
+        "chat_bridge": {
+            "discord_channel_id": form.get("bridge_discord_channel_id", "").strip(),
+            "ts_channel_id": form.get("bridge_ts_channel_id", "").strip(),
+            "enabled": "bridge_enabled" in form,
+        },
+        "auto_channels": auto_channels,
+    }
+
+
+def _parse_form_wordfilter(form) -> dict:
+    """Parst Formular-Daten fuer den Wortfilter."""
+    def _lines_to_list(text: str) -> list:
+        return [w.strip() for w in text.split("\n") if w.strip()]
+
+    exempt_raw = form.get("exempt_roles", "").strip()
+    exempt_roles = [r.strip() for r in exempt_raw.split(",") if r.strip()]
+
+    return {
+        "exact_words": _lines_to_list(form.get("exact_words", "")),
+        "partial_words": _lines_to_list(form.get("partial_words", "")),
+        "regex_patterns": _lines_to_list(form.get("regex_patterns", "")),
+        "action": form.get("action", "delete"),
+        "exempt_roles": exempt_roles,
+    }
+
+
+def _parse_form_antispam(form) -> dict:
+    """Parst Formular-Daten fuer das AntiSpam-Modul."""
+    exempt_raw = form.get("exempt_roles", "").strip()
+    exempt_roles = [r.strip() for r in exempt_raw.split(",") if r.strip()]
+
+    return {
+        "max_messages": int(form.get("max_messages", 5) or 5),
+        "interval_seconds": int(form.get("interval_seconds", 5) or 5),
+        "duplicate_detection": "duplicate_detection" in form,
+        "duplicate_threshold": int(form.get("duplicate_threshold", 3) or 3),
+        "mention_limit": int(form.get("mention_limit", 5) or 5),
+        "emoji_limit": int(form.get("emoji_limit", 10) or 10),
+        "action": form.get("action", "mute"),
+        "mute_duration_minutes": int(form.get("mute_duration_minutes", 10) or 10),
+        "exempt_roles": exempt_roles,
+    }
+
+
+def _parse_form_warn(form) -> dict:
+    """Parst Formular-Daten fuer das Warn-System."""
+    # Dynamische Warn-Level aus Formular lesen
+    levels = []
+    idx = 0
+    while True:
+        points_key = f"level_points_{idx}"
+        action_key = f"level_action_{idx}"
+        duration_key = f"level_duration_{idx}"
+        if points_key not in form:
+            break
+        try:
+            levels.append({
+                "points": int(form.get(points_key, 1) or 1),
+                "action": form.get(action_key, "warn"),
+                "duration": int(form.get(duration_key, 0) or 0),
+            })
+        except (ValueError, TypeError):
+            pass
+        idx += 1
+
+    # Fallback: Mindestens Standard-Level beibehalten
+    if not levels:
+        levels = DEFAULT_CONFIGS["warn"]["levels"]
+
+    return {
+        "levels": levels,
+        "decay_days": int(form.get("decay_days", 30) or 30),
+        "log_channel_id": form.get("log_channel_id", "").strip(),
+    }
+
+
+def _parse_form_reaction_roles(form) -> dict:
+    """Parst Formular-Daten fuer Reaction Roles."""
+    # Panels bleiben unveraendert (werden ueber Discord verwaltet)
+    existing = _load_module_config("reaction_roles")
+    return {
+        "allow_multiple": "allow_multiple" in form,
+        "dm_notification": "dm_notification" in form,
+        "panels": existing.get("panels", []),
+    }
+
+
+def _parse_form_leveling(form) -> dict:
+    """Parst Formular-Daten fuer das Leveling-System."""
+    # Channel-Multipliers aus dynamischen Feldern lesen
+    channel_multipliers = []
+    idx = 0
+    while True:
+        ch_key = f"cm_channel_{idx}"
+        mult_key = f"cm_multiplier_{idx}"
+        if ch_key not in form:
+            break
+        ch_val = form.get(ch_key, "").strip()
+        mult_val = form.get(mult_key, "1.0").strip()
+        if ch_val:
+            try:
+                channel_multipliers.append({
+                    "channel_id": ch_val,
+                    "multiplier": float(mult_val or 1.0),
+                })
+            except (ValueError, TypeError):
+                pass
+        idx += 1
+
+    # Role-Rewards aus dynamischen Feldern lesen
+    role_rewards = []
+    idx = 0
+    while True:
+        lvl_key = f"rr_level_{idx}"
+        role_key = f"rr_role_{idx}"
+        if lvl_key not in form:
+            break
+        lvl_val = form.get(lvl_key, "").strip()
+        role_val = form.get(role_key, "").strip()
+        if lvl_val and role_val:
+            try:
+                role_rewards.append({
+                    "level": int(lvl_val),
+                    "role_id": role_val,
+                })
+            except (ValueError, TypeError):
+                pass
+        idx += 1
+
+    return {
+        "xp_per_message_min": int(form.get("xp_per_message_min", 15) or 15),
+        "xp_per_message_max": int(form.get("xp_per_message_max", 25) or 25),
+        "xp_cooldown_seconds": int(form.get("xp_cooldown_seconds", 60) or 60),
+        "voice_xp_per_minute": int(form.get("voice_xp_per_minute", 5) or 5),
+        "channel_multipliers": channel_multipliers,
+        "role_rewards": role_rewards,
+        "leaderboard_display_count": int(form.get("leaderboard_display_count", 10) or 10),
+    }
+
+
+def _parse_form_tickets(form) -> dict:
+    """Parst Formular-Daten fuer das Ticket-System."""
+    return {
+        "button_channel_id": form.get("button_channel_id", "").strip(),
+        "support_role_ids": form.get("support_role_ids", "").strip(),
+        "ticket_category_id": form.get("ticket_category_id", "").strip(),
+        "auto_close_hours": int(form.get("auto_close_hours", 0) or 0),
+        "transcript_enabled": "transcript_enabled" in form,
+        "transcript_channel_id": form.get("transcript_channel_id", "").strip(),
+    }
+
+
+def _parse_form_audit(form) -> dict:
+    """Parst Formular-Daten fuer das Audit-Logging."""
+    return {
+        "moderation_log_channel": form.get("moderation_log_channel", "").strip(),
+        "join_leave_log_channel": form.get("join_leave_log_channel", "").strip(),
+        "member_update_log_channel": form.get("member_update_log_channel", "").strip(),
+        "role_change_log_channel": form.get("role_change_log_channel", "").strip(),
+        "server_change_log_channel": form.get("server_change_log_channel", "").strip(),
+        "message_log_channel": form.get("message_log_channel", "").strip(),
+        "moderation_enabled": "moderation_enabled" in form,
+        "join_leave_enabled": "join_leave_enabled" in form,
+        "member_update_enabled": "member_update_enabled" in form,
+        "role_change_enabled": "role_change_enabled" in form,
+        "server_change_enabled": "server_change_enabled" in form,
+        "message_enabled": "message_enabled" in form,
+    }
+
+
+def _parse_form_giveaways(form) -> dict:
+    """Parst Formular-Daten fuer das Giveaway-Modul."""
+    return {
+        "default_duration_hours": int(form.get("default_duration_hours", 24) or 24),
+        "default_winner_count": int(form.get("default_winner_count", 1) or 1),
+        "required_role_id": form.get("required_role_id", "").strip(),
+        "allow_multiple_entries": "allow_multiple_entries" in form,
+        "dm_winners": "dm_winners" in form,
+        "giveaway_channel_id": form.get("giveaway_channel_id", "").strip(),
+    }
+
+
+# Zuordnung Modul-Name → Parser-Funktion
+FORM_PARSERS = {
+    "temp_voice":     _parse_form_temp_voice,
+    "teamspeak":      _parse_form_teamspeak,
+    "wordfilter":     _parse_form_wordfilter,
+    "antispam":       _parse_form_antispam,
+    "warn":           _parse_form_warn,
+    "reaction_roles": _parse_form_reaction_roles,
+    "leveling":       _parse_form_leveling,
+    "tickets":        _parse_form_tickets,
+    "audit":          _parse_form_audit,
+    "giveaways":      _parse_form_giveaways,
+}
+
+# Zuordnung Tab-Name → Template-Partial-Dateiname
+TAB_TEMPLATES = {
+    "temp_voice":     "partials/admin_tab_temp_voice.html",
+    "teamspeak":      "partials/admin_tab_teamspeak.html",
+    "wordfilter":     "partials/admin_tab_wordfilter.html",
+    "antispam":       "partials/admin_tab_antispam.html",
+    "warn":           "partials/admin_tab_warn.html",
+    "reaction_roles": "partials/admin_tab_reaction_roles.html",
+    "leveling":       "partials/admin_tab_leveling.html",
+    "tickets":        "partials/admin_tab_tickets.html",
+    "audit":          "partials/admin_tab_audit.html",
+    "giveaways":      "partials/admin_tab_giveaways.html",
+}
+
+
+# --- Routen ---
+
+@router.get("/admin-bot", response_class=HTMLResponse)
+async def admin_bot_page(request: Request):
+    """
+    Hauptseite des Admin Bot Setup mit 10 Tabs.
+    Laedt standardmaessig den ersten Tab (Temp Voice).
+    """
+    user = get_current_user(request)
+    if user is None:
+        return RedirectResponse(url="/auth/login", status_code=302)
+
+    # Standard-Tab: Temp Voice
+    config = _load_module_config("temp_voice")
+
+    return templates.TemplateResponse("admin_bot.html", {
+        "request": request,
+        "user": user,
+        "active_tab": "temp_voice",
+        "config": config,
+        "success": "",
+        "error": "",
+    })
+
+
+@router.get("/admin-bot/tab/{tab_name}", response_class=HTMLResponse)
+async def admin_bot_tab(request: Request, tab_name: str):
+    """
+    HTMX-Partial: Laedt den Inhalt eines einzelnen Tabs.
+    Wird per HTMX-Request in den Tab-Content-Bereich geladen.
+    """
+    user = get_current_user(request)
+    if user is None:
+        return RedirectResponse(url="/auth/login", status_code=302)
+
+    if tab_name not in TAB_TEMPLATES:
+        return HTMLResponse(
+            content='<div class="alert alert-danger">Unbekannter Tab.</div>',
+            status_code=404,
+        )
+
+    config = _load_module_config(tab_name)
+    template_name = TAB_TEMPLATES[tab_name]
+
+    return templates.TemplateResponse(template_name, {
+        "request": request,
+        "config": config,
+        "success": "",
+        "error": "",
+    })
+
+
+@router.post("/admin-bot/save/{module_name}", response_class=HTMLResponse)
+async def admin_bot_save(request: Request, module_name: str):
+    """
+    Speichert die Einstellungen eines Moduls.
+    Liest Formular-Daten, parst sie modulspezifisch und speichert als JSON.
+    """
+    user = get_current_user(request)
+    if user is None:
+        return RedirectResponse(url="/auth/login", status_code=302)
+
+    if module_name not in FORM_PARSERS or module_name not in TAB_TEMPLATES:
+        return HTMLResponse(
+            content='<div class="alert alert-danger">Unbekanntes Modul.</div>',
+            status_code=404,
+        )
+
+    template_name = TAB_TEMPLATES[module_name]
+    success_msg = ""
+    error_msg = ""
+
+    try:
+        form = await request.form()
+        parser = FORM_PARSERS[module_name]
+        config = parser(form)
+
+        if _save_module_config(module_name, config):
+            success_msg = "Einstellungen erfolgreich gespeichert."
+            logger.info(
+                f"Admin-Bot Modul '{module_name}' gespeichert von "
+                f"{user.get('username', 'Unbekannt')}"
+            )
+        else:
+            error_msg = "Fehler beim Speichern der Einstellungen."
+
+    except Exception as e:
+        logger.error(f"Fehler beim Speichern von '{module_name}': {e}")
+        error_msg = f"Fehler beim Speichern: {e}"
+        config = _load_module_config(module_name)
+
+    return templates.TemplateResponse(template_name, {
+        "request": request,
+        "config": config,
+        "success": success_msg,
+        "error": error_msg,
+    })

@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block title %}Admin Bot Setup{% endblock %}
+{% block nav_admin_bot %}active{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Admin Bot Setup</h1>
+    <p class="page-subtitle">Konfiguration aller Admin-Bot-Module</p>
+</div>
+
+<!-- Tab Navigation -->
+<div class="tab-nav">
+    <button class="tab-btn active"
+            hx-get="/admin-bot/tab/temp_voice"
+            hx-target="#tab-content"
+            hx-swap="innerHTML"
+            onclick="switchTab(this)">Temp Voice</button>
+    <button class="tab-btn"
+            hx-get="/admin-bot/tab/teamspeak"
+            hx-target="#tab-content"
+            hx-swap="innerHTML"
+            onclick="switchTab(this)">TeamSpeak</button>
+    <button class="tab-btn"
+            hx-get="/admin-bot/tab/wordfilter"
+            hx-target="#tab-content"
+            hx-swap="innerHTML"
+            onclick="switchTab(this)">WordFilter</button>
+    <button class="tab-btn"
+            hx-get="/admin-bot/tab/antispam"
+            hx-target="#tab-content"
+            hx-swap="innerHTML"
+            onclick="switchTab(this)">AntiSpam</button>
+    <button class="tab-btn"
+            hx-get="/admin-bot/tab/warn"
+            hx-target="#tab-content"
+            hx-swap="innerHTML"
+            onclick="switchTab(this)">Warn-System</button>
+    <button class="tab-btn"
+            hx-get="/admin-bot/tab/reaction_roles"
+            hx-target="#tab-content"
+            hx-swap="innerHTML"
+            onclick="switchTab(this)">Reaction Roles</button>
+    <button class="tab-btn"
+            hx-get="/admin-bot/tab/leveling"
+            hx-target="#tab-content"
+            hx-swap="innerHTML"
+            onclick="switchTab(this)">Leveling</button>
+    <button class="tab-btn"
+            hx-get="/admin-bot/tab/tickets"
+            hx-target="#tab-content"
+            hx-swap="innerHTML"
+            onclick="switchTab(this)">Tickets</button>
+    <button class="tab-btn"
+            hx-get="/admin-bot/tab/audit"
+            hx-target="#tab-content"
+            hx-swap="innerHTML"
+            onclick="switchTab(this)">Audit</button>
+    <button class="tab-btn"
+            hx-get="/admin-bot/tab/giveaways"
+            hx-target="#tab-content"
+            hx-swap="innerHTML"
+            onclick="switchTab(this)">Giveaways</button>
+</div>
+
+<!-- Tab Content (geladen via HTMX) -->
+<div id="tab-content" class="tab-content">
+    {% include "partials/admin_tab_temp_voice.html" %}
+</div>
+
+<script>
+    /** Wechselt den aktiven Tab-Button */
+    function switchTab(btn) {
+        document.querySelectorAll('.tab-btn').forEach(function(b) {
+            b.classList.remove('active');
+        });
+        btn.classList.add('active');
+    }
+</script>
+
+<style>
+    /* --- Tab-Navigation --- */
+    .tab-nav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.25rem;
+        margin-bottom: 1.5rem;
+        border-bottom: 2px solid var(--border-color);
+        padding-bottom: 0;
+    }
+
+    .tab-btn {
+        padding: 0.6rem 1.1rem;
+        background: transparent;
+        color: var(--text-secondary);
+        border: none;
+        border-bottom: 2px solid transparent;
+        margin-bottom: -2px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all var(--transition);
+        white-space: nowrap;
+    }
+
+    .tab-btn:hover {
+        color: var(--text-primary);
+        background: rgba(83, 52, 131, 0.1);
+    }
+
+    .tab-btn.active {
+        color: var(--text-primary);
+        border-bottom-color: var(--accent);
+    }
+
+    .tab-content {
+        min-height: 300px;
+    }
+
+    /* --- Responsive Tab-Navigation --- */
+    @media (max-width: 768px) {
+        .tab-nav {
+            gap: 0.15rem;
+        }
+        .tab-btn {
+            padding: 0.5rem 0.7rem;
+            font-size: 0.75rem;
+        }
+    }
+</style>
+{% endblock %}

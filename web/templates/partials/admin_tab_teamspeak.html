@@ -1,0 +1,111 @@
+<!-- Phase 13f: TeamSpeak Konfiguration -->
+{% if success is defined and success %}
+<div class="alert alert-success">{{ success }}</div>
+{% endif %}
+{% if error is defined and error %}
+<div class="alert alert-danger">{{ error }}</div>
+{% endif %}
+
+<form hx-post="/admin-bot/save/teamspeak" hx-target="#tab-content" hx-swap="innerHTML">
+    <section class="config-section">
+        <h2 class="section-title">TeamSpeak Konfiguration</h2>
+        <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 1.25rem;">
+            Verbindet den Bot mit einem TeamSpeak-Server fuer Chat-Bridge und Auto-Channels.
+        </p>
+
+        <div class="toggle-grid" style="margin-bottom: 1.25rem;">
+            <div class="toggle-item">
+                <label class="toggle-switch">
+                    <input type="checkbox" name="ts_enabled"
+                           {% if config.ts_enabled is defined and config.ts_enabled %}checked{% endif %}>
+                    <span class="toggle-slider"></span>
+                </label>
+                <span class="toggle-label">TeamSpeak-Integration aktiviert</span>
+            </div>
+        </div>
+
+        <h3 class="subsection-title">Server-Verbindung</h3>
+        <div class="input-grid">
+            <div class="form-group">
+                <label for="host">Host / IP</label>
+                <input type="text" id="host" name="host"
+                       value="{{ config.host|default('', true) }}"
+                       placeholder="z.B. ts3.example.com">
+            </div>
+            <div class="form-group">
+                <label for="port">ServerQuery Port</label>
+                <input type="number" id="port" name="port"
+                       value="{{ config.port|default(10011, true) }}"
+                       min="1" max="65535">
+            </div>
+            <div class="form-group">
+                <label for="username">ServerQuery Benutzername</label>
+                <input type="text" id="username" name="username"
+                       value="{{ config.username|default('', true) }}"
+                       placeholder="z.B. serveradmin">
+            </div>
+            <div class="form-group">
+                <label for="password">ServerQuery Passwort</label>
+                <input type="password" id="password" name="password"
+                       value="{{ config.password|default('', true) }}"
+                       placeholder="Passwort">
+            </div>
+            <div class="form-group">
+                <label for="virtual_server_id">Virtual Server ID</label>
+                <input type="number" id="virtual_server_id" name="virtual_server_id"
+                       value="{{ config.virtual_server_id|default(1, true) }}"
+                       min="1">
+            </div>
+        </div>
+    </section>
+
+    <section class="config-section">
+        <h2 class="section-title">Chat-Bridge</h2>
+        <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 1.25rem;">
+            Leitet Nachrichten zwischen einem Discord-Channel und einem TS-Channel weiter.
+        </p>
+
+        <div class="toggle-grid" style="margin-bottom: 1.25rem;">
+            <div class="toggle-item">
+                <label class="toggle-switch">
+                    <input type="checkbox" name="bridge_enabled"
+                           {% if config.chat_bridge is defined and config.chat_bridge.enabled %}checked{% endif %}>
+                    <span class="toggle-slider"></span>
+                </label>
+                <span class="toggle-label">Chat-Bridge aktiviert</span>
+            </div>
+        </div>
+
+        <div class="input-grid">
+            <div class="form-group">
+                <label for="bridge_discord_channel_id">Discord Channel ID</label>
+                <input type="text" id="bridge_discord_channel_id" name="bridge_discord_channel_id"
+                       value="{{ config.chat_bridge.discord_channel_id|default('', true) if config.chat_bridge is defined else '' }}"
+                       placeholder="z.B. 111111111111111111">
+            </div>
+            <div class="form-group">
+                <label for="bridge_ts_channel_id">TS Channel ID</label>
+                <input type="text" id="bridge_ts_channel_id" name="bridge_ts_channel_id"
+                       value="{{ config.chat_bridge.ts_channel_id|default('', true) if config.chat_bridge is defined else '' }}"
+                       placeholder="z.B. 1">
+            </div>
+        </div>
+    </section>
+
+    <section class="config-section">
+        <h2 class="section-title">Auto-Channels</h2>
+        <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 1.25rem;">
+            TS-Channel-IDs die automatisch erstellt/verwaltet werden (ein Eintrag pro Zeile).
+        </p>
+
+        <div class="form-group">
+            <label for="auto_channels">Auto-Channel-IDs</label>
+            <textarea id="auto_channels" name="auto_channels" rows="4"
+                      placeholder="Eine Channel-ID pro Zeile">{{ config.auto_channels|join('\n') if config.auto_channels is defined and config.auto_channels else '' }}</textarea>
+        </div>
+    </section>
+
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Speichern</button>
+    </div>
+</form>
