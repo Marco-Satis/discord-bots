@@ -62,6 +62,7 @@ from modules.minecraft.chat_bridge import MinecraftChatBridge
 from modules.minecraft.settings_backup import MinecraftSettingsBackup
 from modules.minecraft.update_checker import MinecraftUpdateChecker
 from modules.monitoring.web_status import WebStatusGenerator
+from modules.minecraft.modpack_updater import ModpackUpdater
 
 load_env()
 
@@ -479,6 +480,26 @@ else:
     logger.info("Web-Status-Seite deaktiviert (WEB_STATUS_ENABLED != true)")
 
 bot.web_status_generator = web_status_generator
+
+# ------------------------------------------------------------------
+# Modpack-Update-Checker (Phase 8h)
+# ------------------------------------------------------------------
+
+modpack_updater = ModpackUpdater(
+    modpack_id=get_env("MC_BMC_MODPACK_ID", ""),
+    current_version=get_env("MC_BMC_MODPACK_VERSION", ""),
+    source=get_env("MC_BMC_MODPACK_SOURCE", "modrinth"),
+    curseforge_api_key=get_env("CURSEFORGE_API_KEY", ""),
+)
+if modpack_updater.enabled:
+    logger.info(
+        f"Modpack-Updater aktiviert: {modpack_updater.source} "
+        f"(ID: {modpack_updater.modpack_id}, Version: {modpack_updater.current_version})"
+    )
+else:
+    logger.info("Modpack-Updater deaktiviert (MC_BMC_MODPACK_ID/VERSION nicht gesetzt)")
+
+bot.modpack_updater = modpack_updater
 
 # State - persistent status message ID
 _status_message_id = None

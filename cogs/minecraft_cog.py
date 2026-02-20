@@ -8,7 +8,7 @@ Command-Struktur:
   /mc backup create|list|restore|download    (Backup-Verwaltung - Spieler/Owner)
   /mc whitelist add|remove|list [server]     (Whitelist - Admin)
   /mc config settings|set|backup|restore     (Server-Konfiguration)
-  /mc config autosave|update|stats           (Autosave/Update/Statistiken)
+  /mc config autosave|update|stats|modpack_check (Autosave/Update/Statistiken)
   /mc blacklist add|remove|list|history       (Blacklist - Admin/Spieler)
   /mc command <cmd> [server]                 (RCON ausfuehren - Owner)
   /mc say|difficulty|weather|time|gamemode   (Admin-Befehle)
@@ -1469,6 +1469,70 @@ class MinecraftCog(commands.Cog):
             f"[{srv.server_id}] Autosave geaendert: {old_interval} -> {intervall} Min "
             f"von {interaction.user}"
         )
+
+    @config_grp.command(
+        name="modpack_check",
+        description="Manuell auf Modpack-Updates pruefen"
+    )
+    @admin_only()
+    async def config_modpack_check(self, interaction: discord.Interaction):
+        """Manueller Modpack-Update-Check via Modrinth/CurseForge"""
+        await interaction.response.defer()
+
+        updater = getattr(self.bot, 'modpack_updater', None)
+        if not updater or not updater.enabled:
+            await interaction.followup.send(
+                "Modpack-Updater nicht konfiguriert.\n"
+                "Setze `MC_BMC_MODPACK_ID` und `MC_BMC_MODPACK_VERSION` in der .env",
+                ephemeral=True,
+            )
+            return
+
+        try:
+            available, info = await updater.check()
+
+            if "error" in info:
+                embed = discord.Embed(
+                    title="Modpack-Check Fehler",
+                    description=info["error"],
+                    color=0xff0000,
+                )
+            elif available:
+                embed = discord.Embed(
+                    title="Modpack-Update verfuegbar!",
+                    color=0xffa500,
+                )
+                embed.add_field(
+                    name="Aktuell", value=info.get("current", "?"), inline=True
+                )
+                embed.add_field(
+                    name="Neu", value=info.get("latest", "?"), inline=True
+                )
+                embed.add_field(
+                    name="Quelle", value=info.get("source", "?"), inline=True
+                )
+                if info.get("changelog_url"):
+                    embed.add_field(
+                        name="Changelog",
+                        value=info["changelog_url"],
+                        inline=False,
+                    )
+            else:
+                embed = discord.Embed(
+                    title="Modpack ist aktuell",
+                    description=f"Version: {info.get('current', '?')}",
+                    color=0x00ff00,
+                )
+                embed.add_field(
+                    name="Quelle", value=info.get("source", "?"), inline=True
+                )
+
+            embed.set_footer(text=f"Geprueft: {info.get('checked_at', '?')[:16]}")
+            await interaction.followup.send(embed=embed)
+        except Exception as e:
+            await interaction.followup.send(
+                f"Modpack-Check fehlgeschlagen: {e}", ephemeral=True
+            )
 
     # ╔════════════════════════════════════════════════════════════════╗
     # ║  BACKUP DOWNLOAD: /mc backup download                          ║

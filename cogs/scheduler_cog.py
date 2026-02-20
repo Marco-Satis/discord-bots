@@ -85,6 +85,10 @@ class SchedulerCog(commands.Cog):
         self._mc_last_update_check: dict[str, Optional[datetime]] = {}
         self._mc_last_config_backup: dict[str, Optional[datetime]] = {}
 
+        # Modpack-Update-Check (Phase 8h)
+        self._modpack_check_interval_hours = sched.get("modpack_check_interval_hours", 12)
+        self._last_modpack_check: Optional[datetime] = None
+
         # Scheduled Messages (Phase 8f)
         self._scheduled_messages: List[Dict[str, Any]] = []
         self._next_schedule_id = 1
@@ -154,6 +158,10 @@ class SchedulerCog(commands.Cog):
     def mc_update_checkers(self):
         return getattr(self.bot, "mc_update_checkers", {})
 
+    @property
+    def modpack_updater(self):
+        return getattr(self.bot, "modpack_updater", None)
+
     # ------------------------------------------------------------------
     # Cog lifecycle
     # ------------------------------------------------------------------
@@ -205,6 +213,9 @@ class SchedulerCog(commands.Cog):
 
             # Weekly report check
             await self._check_weekly_report(now)
+
+            # Modpack-Update-Check (Phase 8h)
+            await self._check_modpack_update(now)
 
             # Scheduled Messages (Phase 8f)
             await self._check_scheduled_messages(now)
@@ -1118,6 +1129,41 @@ class SchedulerCog(commands.Cog):
             )
 
         await interaction.followup.send(embed=embed)
+
+    # ------------------------------------------------------------------
+    # Modpack-Update-Check (Phase 8h)
+    # ------------------------------------------------------------------
+
+    async def _check_modpack_update(self, now: datetime):
+        """Periodischer Modpack-Update-Check via Modrinth/CurseForge"""
+        updater = self.modpack_updater
+        if not updater or not updater.enabled:
+            return
+
+        interval = timedelta(hours=self._modpack_check_interval_hours)
+        if self._last_modpack_check and (now - self._last_modpack_check) < interval:
+            return
+
+        self._last_modpack_check = now
+
+        try:
+            available, info = await updater.check()
+
+            if available and self.notifier:
+                await self.notifier.send_admin(
+                    "BMC Modpack-Update verfuegbar!",
+                    f"**Aktuell:** {info.get('current', '?')}\n"
+                    f"**Neu:** {info.get('latest', '?')}\n"
+                    f"**Name:** {info.get('name', '?')}\n"
+                    f"**Quelle:** {info.get('source', '?')}\n"
+                    f"**Changelog:** {info.get('changelog_url', '?')}",
+                    NotifyLevel.WARNING,
+                )
+                logger.info(
+                    f"Modpack-Update: {info.get('current')} -> {info.get('latest')}"
+                )
+        except Exception as e:
+            logger.debug(f"Modpack-Check Fehler: {e}")
 
     # ------------------------------------------------------------------
     # Scheduled Messages (Phase 8f)
