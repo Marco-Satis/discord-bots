@@ -1,9 +1,12 @@
 """
 Permission system for Discord commands
 Levels: Owner > Admin > Spieler > Alle
+
+Zusaetzlich: server_online_required() Decorator fuer Commands die einen laufenden Server benoetigen.
 """
 
 import os
+import functools
 from discord import app_commands, Interaction
 
 OWNER_ID = int(os.getenv("OWNER_ID", "0"))
@@ -72,3 +75,47 @@ def spieler_only():
             return False
         return True
     return app_commands.check(predicate)
+
+
+def server_online_required(server_attr: str):
+    """Decorator: Prueft ob ein Server laeuft bevor der Command ausgefuehrt wird.
+
+    Sucht das Server-Objekt zuerst auf dem Cog (self), dann auf self.bot.
+    Das Server-Objekt muss eine async-Methode ``is_running()`` haben.
+
+    Handhabt automatisch sowohl deferred als auch nicht-deferred Interactions:
+    - Wenn bereits deferred: Fehlermeldung via followup
+    - Wenn nicht deferred: Fehlermeldung via send_message (ephemeral)
+
+    Fuer MC Multi-Server (dynamische Server-Auswahl) stattdessen
+    ``MinecraftCog._require_online_server()`` verwenden.
+
+    Beispiel::
+
+        @server_online_required("server")
+        async def my_command(self, interaction):
+            # Server ist garantiert online
+            ...
+
+    Args:
+        server_attr: Name des Server-Attributs (z.B. ``"server"``, ``"sat_server"``)
+    """
+    def decorator(func):
+        @functools.wraps(func)
+        async def wrapper(self, interaction: Interaction, *args, **kwargs):
+            server = getattr(self, server_attr, None)
+            if server is None:
+                server = getattr(self.bot, server_attr, None)
+
+            if server is not None and not await server.is_running():
+                name = getattr(server, "display_name", "Server")
+                if interaction.response.is_done():
+                    await interaction.followup.send(f"{name} ist offline.")
+                else:
+                    await interaction.response.send_message(
+                        f"{name} ist offline.", ephemeral=True
+                    )
+                return
+            return await func(self, interaction, *args, **kwargs)
+        return wrapper
+    return decorator

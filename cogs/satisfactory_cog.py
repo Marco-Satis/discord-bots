@@ -186,6 +186,7 @@ class SatisfactoryCog(commands.Cog):
 
     @sat.command(name="stop", description="Server stoppen")
     @admin_only()
+    @server_online_required("server")
     async def sat_stop(self, interaction: discord.Interaction):
         await interaction.response.defer()
 
@@ -195,10 +196,6 @@ class SatisfactoryCog(commands.Cog):
                 f"Bitte warte noch {remaining}s bevor du /sat stop erneut verwendest.",
                 ephemeral=True,
             )
-            return
-
-        if not await self.server.is_running():
-            await interaction.followup.send("Server ist nicht gestartet.")
             return
 
         if self.timer_mgr.has_active:
@@ -829,14 +826,11 @@ class SatisfactoryCog(commands.Cog):
         ]
     )
     @admin_only()
+    @server_online_required("server")
     async def config_playerlimit(
         self, interaction: discord.Interaction, limit: int
     ):
         await interaction.response.defer()
-
-        if not await self.server.is_running():
-            await interaction.followup.send("Server muss online sein.")
-            return
 
         try:
             success = await self.api.apply_server_options(
@@ -863,6 +857,7 @@ class SatisfactoryCog(commands.Cog):
     )
     @app_commands.describe(seconds="Intervall in Sekunden (min. 30)")
     @admin_only()
+    @server_online_required("server")
     async def config_autosave(
         self, interaction: discord.Interaction, seconds: int
     ):
@@ -873,10 +868,6 @@ class SatisfactoryCog(commands.Cog):
             return
 
         await interaction.response.defer()
-
-        if not await self.server.is_running():
-            await interaction.followup.send("Server muss online sein.")
-            return
 
         try:
             success = await self.api.apply_server_options(
@@ -905,16 +896,11 @@ class SatisfactoryCog(commands.Cog):
     )
     @app_commands.describe(command="Server-Befehl")
     @owner_only()
+    @server_online_required("server")
     async def config_console(
         self, interaction: discord.Interaction, command: str
     ):
         await interaction.response.defer(ephemeral=True)
-
-        if not await self.server.is_running():
-            await interaction.followup.send(
-                "Server ist offline.", ephemeral=True
-            )
-            return
 
         try:
             result = await self.api.run_command(command)
@@ -939,14 +925,11 @@ class SatisfactoryCog(commands.Cog):
     )
     @app_commands.describe(savename="Name des Savegames")
     @owner_only()
+    @server_online_required("server")
     async def config_load(
         self, interaction: discord.Interaction, savename: str
     ):
         await interaction.response.defer()
-
-        if not await self.server.is_running():
-            await interaction.followup.send("Server muss online sein.")
-            return
 
         view = LoadConfirmView(self, interaction, savename)
         embed = discord.Embed(
@@ -1051,14 +1034,11 @@ class SatisfactoryCog(commands.Cog):
     )
     @app_commands.describe(name="Optionaler Name fuer das Backup")
     @admin_only()
+    @server_online_required("server")
     async def config_settings_backup(
         self, interaction: discord.Interaction, name: str = None
     ):
         await interaction.response.defer()
-
-        if not await self.server.is_running():
-            await interaction.followup.send("Server muss online sein.")
-            return
 
         settings_bk = getattr(self.bot, "settings_backup", None)
         if not settings_bk:
@@ -1082,14 +1062,11 @@ class SatisfactoryCog(commands.Cog):
     )
     @app_commands.describe(filename="Name der Backup-Datei")
     @owner_only()
+    @server_online_required("server")
     async def config_settings_restore(
         self, interaction: discord.Interaction, filename: str
     ):
         await interaction.response.defer()
-
-        if not await self.server.is_running():
-            await interaction.followup.send("Server muss online sein.")
-            return
 
         settings_bk = getattr(self.bot, "settings_backup", None)
         if not settings_bk:

@@ -180,6 +180,23 @@ class MinecraftCog(commands.Cog):
                 )
         return server
 
+    async def _require_online_server(
+        self, interaction: discord.Interaction, server_id: Optional[str]
+    ) -> Optional[MinecraftServer]:
+        """Server ermitteln UND pruefen ob er laeuft.
+
+        Kombiniert _require_server() + is_running()-Check in einer Methode.
+        Gibt None zurueck und sendet Fehlermeldung wenn Server nicht gefunden
+        oder offline ist. (Phase 8a: Server-Offline-Decorator Refactoring)
+        """
+        srv = await self._require_server(interaction, server_id)
+        if srv is None:
+            return None
+        if not await srv.is_running():
+            await interaction.followup.send(f"{srv.display_name} ist offline.")
+            return None
+        return srv
+
     # ╔════════════════════════════════════════════════════════════════╗
     # ║  CORE: /mc status | start | stop | restart | cancel           ║
     # ╚════════════════════════════════════════════════════════════════╝
@@ -280,14 +297,8 @@ class MinecraftCog(commands.Cog):
                       server: Optional[str] = None):
         await interaction.response.defer()
 
-        srv = await self._require_server(interaction, server)
+        srv = await self._require_online_server(interaction, server)
         if not srv:
-            return
-
-        if not await srv.is_running():
-            await interaction.followup.send(
-                f"{srv.display_name} ist nicht gestartet."
-            )
             return
 
         # Timer fuer diesen Server pruefen (nur eigenen Timer-Key)
@@ -346,14 +357,8 @@ class MinecraftCog(commands.Cog):
                          server: Optional[str] = None):
         await interaction.response.defer()
 
-        srv = await self._require_server(interaction, server)
+        srv = await self._require_online_server(interaction, server)
         if not srv:
-            return
-
-        if not await srv.is_running():
-            await interaction.followup.send(
-                f"{srv.display_name} ist nicht gestartet."
-            )
             return
 
         timer_key = f"mc_{srv.server_id.lower()}"
@@ -427,14 +432,8 @@ class MinecraftCog(commands.Cog):
                               server: Optional[str] = None):
         await interaction.response.defer()
 
-        srv = await self._require_server(interaction, server)
+        srv = await self._require_online_server(interaction, server)
         if not srv:
-            return
-
-        if not await srv.is_running():
-            await interaction.followup.send(
-                f"{srv.display_name} ist offline."
-            )
             return
 
         try:
@@ -473,12 +472,8 @@ class MinecraftCog(commands.Cog):
                       server: Optional[str] = None):
         await interaction.response.defer()
 
-        srv = await self._require_server(interaction, server)
+        srv = await self._require_online_server(interaction, server)
         if not srv:
-            return
-
-        if not await srv.is_running():
-            await interaction.followup.send(f"{srv.display_name} ist offline.")
             return
 
         try:
@@ -507,12 +502,8 @@ class MinecraftCog(commands.Cog):
                      server: Optional[str] = None):
         await interaction.response.defer()
 
-        srv = await self._require_server(interaction, server)
+        srv = await self._require_online_server(interaction, server)
         if not srv:
-            return
-
-        if not await srv.is_running():
-            await interaction.followup.send(f"{srv.display_name} ist offline.")
             return
 
         try:
@@ -541,12 +532,8 @@ class MinecraftCog(commands.Cog):
                         server: Optional[str] = None):
         await interaction.response.defer()
 
-        srv = await self._require_server(interaction, server)
+        srv = await self._require_online_server(interaction, server)
         if not srv:
-            return
-
-        if not await srv.is_running():
-            await interaction.followup.send(f"{srv.display_name} ist offline.")
             return
 
         try:
@@ -577,12 +564,8 @@ class MinecraftCog(commands.Cog):
                                server: Optional[str] = None):
         await interaction.response.defer()
 
-        srv = await self._require_server(interaction, server)
+        srv = await self._require_online_server(interaction, server)
         if not srv:
-            return
-
-        if not await srv.is_running():
-            await interaction.followup.send(f"{srv.display_name} ist offline.")
             return
 
         try:
@@ -609,12 +592,8 @@ class MinecraftCog(commands.Cog):
                                   server: Optional[str] = None):
         await interaction.response.defer()
 
-        srv = await self._require_server(interaction, server)
+        srv = await self._require_online_server(interaction, server)
         if not srv:
-            return
-
-        if not await srv.is_running():
-            await interaction.followup.send(f"{srv.display_name} ist offline.")
             return
 
         try:
@@ -639,12 +618,8 @@ class MinecraftCog(commands.Cog):
                                 server: Optional[str] = None):
         await interaction.response.defer()
 
-        srv = await self._require_server(interaction, server)
+        srv = await self._require_online_server(interaction, server)
         if not srv:
-            return
-
-        if not await srv.is_running():
-            await interaction.followup.send(f"{srv.display_name} ist offline.")
             return
 
         try:
@@ -812,12 +787,8 @@ class MinecraftCog(commands.Cog):
                      server: Optional[str] = None):
         await interaction.response.defer()
 
-        srv = await self._require_server(interaction, server)
+        srv = await self._require_online_server(interaction, server)
         if not srv:
-            return
-
-        if not await srv.is_running():
-            await interaction.followup.send(f"{srv.display_name} ist offline.")
             return
 
         try:
@@ -850,12 +821,8 @@ class MinecraftCog(commands.Cog):
             return
 
         await interaction.response.defer()
-        srv = await self._require_server(interaction, server)
+        srv = await self._require_online_server(interaction, server)
         if not srv:
-            return
-
-        if not await srv.is_running():
-            await interaction.followup.send(f"{srv.display_name} ist offline.")
             return
 
         try:
@@ -885,12 +852,8 @@ class MinecraftCog(commands.Cog):
             return
 
         await interaction.response.defer()
-        srv = await self._require_server(interaction, server)
+        srv = await self._require_online_server(interaction, server)
         if not srv:
-            return
-
-        if not await srv.is_running():
-            await interaction.followup.send(f"{srv.display_name} ist offline.")
             return
 
         try:
@@ -929,12 +892,8 @@ class MinecraftCog(commands.Cog):
                 return
 
         await interaction.response.defer()
-        srv = await self._require_server(interaction, server)
+        srv = await self._require_online_server(interaction, server)
         if not srv:
-            return
-
-        if not await srv.is_running():
-            await interaction.followup.send(f"{srv.display_name} ist offline.")
             return
 
         try:
@@ -965,12 +924,8 @@ class MinecraftCog(commands.Cog):
             return
 
         await interaction.response.defer()
-        srv = await self._require_server(interaction, server)
+        srv = await self._require_online_server(interaction, server)
         if not srv:
-            return
-
-        if not await srv.is_running():
-            await interaction.followup.send(f"{srv.display_name} ist offline.")
             return
 
         try:
@@ -1494,12 +1449,8 @@ class MinecraftCog(commands.Cog):
                          server: Optional[str] = None):
         await interaction.response.defer()
 
-        srv = await self._require_server(interaction, server)
+        srv = await self._require_online_server(interaction, server)
         if not srv:
-            return
-
-        if not await srv.is_running():
-            await interaction.followup.send(f"{srv.display_name} ist offline.")
             return
 
         try:
