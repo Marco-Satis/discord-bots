@@ -18,7 +18,7 @@ import asyncio
 import discord
 from discord import app_commands
 from discord.ext import commands
-from typing import Optional
+from typing import Optional  # noqa: F401 (genutzt in Subklassen)
 from pathlib import Path
 
 from utils import get_logger, format_uptime, format_bytes, status_emoji
@@ -430,7 +430,7 @@ class SatisfactoryCog(commands.Cog):
         if await self.server.is_running():
             await interaction.followup.send(
                 "Server muss offline sein fuer ein Restore!\n"
-                "Nutze `/sat stop` zuerst."
+                "Stoppe den Server zuerst ueber das Dashboard."
             )
             return
 
@@ -1154,7 +1154,7 @@ class RestoreConfirmView(discord.ui.View):
                 description=msg,
                 color=0x2ecc71,
             )
-            embed.set_footer(text="Starte den Server mit /sat start")
+            embed.set_footer(text="Starte den Server ueber das Dashboard")
             await interaction.edit_original_response(
                 content=None, embed=embed
             )
@@ -1272,7 +1272,7 @@ class BlueprintRestartView(discord.ui.View):
 
         if self.cog.bot.timer_mgr.has_active:
             await interaction.response.send_message(
-                "Es laeuft bereits ein Timer. Nutze `/sat cancel` zuerst.",
+                "Es laeuft bereits ein Timer.",
                 ephemeral=True,
             )
             return

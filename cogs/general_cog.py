@@ -524,7 +524,6 @@ class GeneralCog(commands.Cog):
         ],
         "Minecraft — Config": [
             ("/mc config settings [server]", "Einstellungen anzeigen", _LEVEL_ALL),
-            ("/mc config update [server]", "Paper-Update pruefen", _LEVEL_OWNER),
             ("/mc config stats [server]", "World-Statistiken", _LEVEL_ALL),
             ("/mc config modpack_check", "Modpack-Updates pruefen", _LEVEL_ADMIN),
         ],
