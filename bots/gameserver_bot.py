@@ -138,6 +138,10 @@ if bot.mc_servers:
             server_id=_sid,
         )
 
+# Phase 8e: MC Blacklist (serveruebergreifend)
+from modules.minecraft.blacklist import MinecraftBlacklist
+bot.mc_blacklist = MinecraftBlacklist()
+
 # Mod management
 bot.sat_mod_mgr = ModManager("satisfactory",
                              server_path=bot.sat_server.server_path,
@@ -284,6 +288,7 @@ async def setup_hook():
     await bot.blueprint_mgr.load()
     await bot.backup_mgr.load()
     await bot.word_filter.load()
+    await bot.mc_blacklist.load()
     logger.info("All managers initialized")
     await load_cogs()
 

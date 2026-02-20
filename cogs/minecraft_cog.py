@@ -9,6 +9,7 @@ Command-Struktur:
   /mc whitelist add|remove|list [server]     (Whitelist - Admin)
   /mc config settings|set|backup|restore     (Server-Konfiguration)
   /mc config autosave|update|stats           (Autosave/Update/Statistiken)
+  /mc blacklist add|remove|list|history       (Blacklist - Admin/Spieler)
   /mc command <cmd> [server]                 (RCON ausfuehren - Owner)
   /mc say|difficulty|weather|time|gamemode   (Admin-Befehle)
 
@@ -40,6 +41,7 @@ from modules.minecraft.server import MinecraftServer
 from modules.minecraft.backup import MinecraftBackupManager
 from modules.minecraft.settings_backup import MinecraftSettingsBackup
 from modules.minecraft.update_checker import MinecraftUpdateChecker
+from modules.minecraft.blacklist import MinecraftBlacklist
 
 logger = get_logger("cogs.minecraft")
 
@@ -75,6 +77,9 @@ class MinecraftCog(commands.Cog):
     config_grp = app_commands.Group(
         name="config", parent=mc, description="Server-Konfiguration"
     )
+    blacklist_grp = app_commands.Group(
+        name="blacklist", parent=mc, description="Serveruebergreifendes Ban-System"
+    )
 
     # ==================================================================
     # Init
@@ -93,6 +98,9 @@ class MinecraftCog(commands.Cog):
             bot, 'mc_update_checkers', {}
         )
         self.timer_mgr = bot.timer_mgr
+
+        # Blacklist-System (Phase 8e)
+        self.blacklist = getattr(bot, 'mc_blacklist', None)
 
         # Autosave-System (Phase 8b)
         self._autosave_file = DATA_DIR / "mc_autosave.json"
@@ -577,6 +585,14 @@ class MinecraftCog(commands.Cog):
             safe_player = _sanitize_rcon_input(player)
             safe_reason = _sanitize_rcon_input(reason, 200)
             await srv.rcon_command(f"ban {safe_player} {safe_reason}")
+
+            # Automatisch Blacklist-Eintrag erstellen (Phase 8e)
+            if self.blacklist:
+                await self.blacklist.add(
+                    safe_player, safe_reason,
+                    str(interaction.user), servers=[srv.server_id],
+                )
+
             embed = discord.Embed(
                 title="Spieler gebannt",
                 description=f"**{safe_player}** wurde auf {srv.display_name} gebannt.\n"
@@ -1620,6 +1636,220 @@ class MinecraftCog(commands.Cog):
                 color=0xff0000,
             )
             await interaction.followup.send(embed=embed)
+
+    # ╔════════════════════════════════════════════════════════════════╗
+    # ║  BLACKLIST: /mc blacklist add | remove | list | history        ║
+    # ╚════════════════════════════════════════════════════════════════╝
+
+    @blacklist_grp.command(
+        name="add", description="Spieler auf die Blacklist setzen (serveruebergreifend)"
+    )
+    @admin_only()
+    async def mc_blacklist_add(self, interaction: discord.Interaction,
+                               spieler: str,
+                               grund: str,
+                               server: Optional[str] = None):
+        """Ban auf allen oder einem bestimmten Server"""
+        await interaction.response.defer()
+
+        if not self.blacklist:
+            await interaction.followup.send(
+                "Blacklist-System nicht initialisiert.", ephemeral=True
+            )
+            return
+
+        safe_player = _sanitize_rcon_input(spieler)
+        safe_reason = _sanitize_rcon_input(grund, 200)
+
+        if not safe_player:
+            await interaction.followup.send(
+                "Ungueltiger Spielername.", ephemeral=True
+            )
+            return
+
+        # Server-Liste bestimmen
+        server_ids = [server.upper()] if server else None
+
+        added = await self.blacklist.add(
+            safe_player, safe_reason,
+            str(interaction.user), servers=server_ids,
+        )
+
+        if not added:
+            await interaction.followup.send(
+                f"**{safe_player}** ist bereits auf der Blacklist.", ephemeral=True
+            )
+            return
+
+        # Ban via RCON an Server senden
+        results = await self.blacklist.sync_ban_to_servers(
+            safe_player, safe_reason, self.servers, server_ids,
+        )
+
+        # Ergebnis-Embed
+        server_status = []
+        for sid, success in results.items():
+            name = self.servers[sid].display_name if sid in self.servers else sid
+            server_status.append(f"{'✅' if success else '⚠️'} {name}")
+
+        embed = discord.Embed(
+            title="Spieler auf Blacklist gesetzt",
+            description=(
+                f"**Spieler:** {discord.utils.escape_mentions(safe_player)}\n"
+                f"**Grund:** {discord.utils.escape_mentions(safe_reason)}\n"
+                f"**Server:** {', '.join(server_ids) if server_ids else 'ALLE'}"
+            ),
+            color=0xff0000,
+        )
+        if server_status:
+            embed.add_field(
+                name="RCON-Status", value="\n".join(server_status), inline=False
+            )
+        embed.set_footer(text=f"von {interaction.user.display_name}")
+        await interaction.followup.send(embed=embed)
+        logger.info(f"Blacklist: {safe_player} hinzugefuegt von {interaction.user}")
+
+    @blacklist_grp.command(
+        name="remove", description="Spieler von der Blacklist entfernen"
+    )
+    @admin_only()
+    async def mc_blacklist_remove(self, interaction: discord.Interaction,
+                                  spieler: str):
+        """Entbannt auf allen Servern"""
+        await interaction.response.defer()
+
+        if not self.blacklist:
+            await interaction.followup.send(
+                "Blacklist-System nicht initialisiert.", ephemeral=True
+            )
+            return
+
+        safe_player = _sanitize_rcon_input(spieler)
+        removed = await self.blacklist.remove(safe_player)
+
+        if not removed:
+            await interaction.followup.send(
+                f"**{safe_player}** ist nicht auf der Blacklist.", ephemeral=True
+            )
+            return
+
+        # Pardon via RCON an alle Server
+        results = await self.blacklist.sync_unban_to_servers(
+            safe_player, self.servers
+        )
+
+        server_status = []
+        for sid, success in results.items():
+            name = self.servers[sid].display_name if sid in self.servers else sid
+            server_status.append(f"{'✅' if success else '⚠️'} {name}")
+
+        embed = discord.Embed(
+            title="Spieler von Blacklist entfernt",
+            description=f"**{discord.utils.escape_mentions(safe_player)}** wurde entbannt.",
+            color=0x00ff00,
+        )
+        if server_status:
+            embed.add_field(
+                name="RCON-Status", value="\n".join(server_status), inline=False
+            )
+        embed.set_footer(text=f"von {interaction.user.display_name}")
+        await interaction.followup.send(embed=embed)
+        logger.info(f"Blacklist: {safe_player} entfernt von {interaction.user}")
+
+    @blacklist_grp.command(
+        name="list", description="Alle aktiven Bans anzeigen"
+    )
+    @spieler_only()
+    async def mc_blacklist_list(self, interaction: discord.Interaction):
+        """Zeigt alle aktiven Blacklist-Eintraege"""
+        await interaction.response.defer(ephemeral=True)
+
+        if not self.blacklist:
+            await interaction.followup.send(
+                "Blacklist-System nicht initialisiert.", ephemeral=True
+            )
+            return
+
+        active = self.blacklist.get_active_list()
+        if not active:
+            await interaction.followup.send("Keine aktiven Bans.", ephemeral=True)
+            return
+
+        lines = []
+        for ban in active:
+            name = discord.utils.escape_mentions(ban["player_name"])
+            reason = discord.utils.escape_mentions(ban.get("reason", "—"))
+            ts = ban.get("timestamp", "?")[:10]
+            servers = ", ".join(ban.get("servers", ["ALL"]))
+            lines.append(f"**{name}** — {reason} (Server: {servers}, {ts})")
+
+        # Discord Embed max. 4096 Zeichen — bei vielen Bans aufteilen
+        text = "\n".join(lines)
+        if len(text) > 4000:
+            text = text[:4000] + "\n…"
+
+        embed = discord.Embed(
+            title=f"MC Blacklist ({len(active)} aktive Bans)",
+            description=text,
+            color=0xff5555,
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @blacklist_grp.command(
+        name="history", description="Ban-Historie eines Spielers anzeigen"
+    )
+    @spieler_only()
+    async def mc_blacklist_history(self, interaction: discord.Interaction,
+                                   spieler: str):
+        """Zeigt alle Bans (aktiv + inaktiv) eines Spielers"""
+        await interaction.response.defer(ephemeral=True)
+
+        if not self.blacklist:
+            await interaction.followup.send(
+                "Blacklist-System nicht initialisiert.", ephemeral=True
+            )
+            return
+
+        safe_player = _sanitize_rcon_input(spieler)
+        history = self.blacklist.get_history(safe_player)
+
+        if not history:
+            await interaction.followup.send(
+                f"Keine Ban-Historie fuer **{discord.utils.escape_mentions(safe_player)}**.",
+                ephemeral=True,
+            )
+            return
+
+        lines = []
+        for entry in history:
+            status = "🔴 Aktiv" if entry.get("active", True) else "⚪ Aufgehoben"
+            reason = discord.utils.escape_mentions(entry.get("reason", "—"))
+            banned_by = discord.utils.escape_mentions(entry.get("banned_by", "?"))
+            ts = entry.get("timestamp", "?")[:16].replace("T", " ")
+            servers = ", ".join(entry.get("servers", ["ALL"]))
+            line = (
+                f"{status}\n"
+                f"  Grund: {reason}\n"
+                f"  Von: {banned_by}\n"
+                f"  Server: {servers}\n"
+                f"  Datum: {ts}"
+            )
+            if not entry.get("active", True) and entry.get("unbanned_at"):
+                unban_ts = entry["unbanned_at"][:16].replace("T", " ")
+                line += f"\n  Entbannt: {unban_ts}"
+            lines.append(line)
+
+        text = "\n\n".join(lines)
+        if len(text) > 4000:
+            text = text[:4000] + "\n…"
+
+        embed = discord.Embed(
+            title=f"Ban-Historie: {discord.utils.escape_mentions(safe_player)}",
+            description=text,
+            color=0xff9900,
+        )
+        embed.set_footer(text=f"{len(history)} Eintraege gesamt")
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
     # ==================================================================
     # Fehlerbehandlung
