@@ -60,8 +60,15 @@ ADMIN_DATA_DIR = DATA_DIR / "admin"
 bot.admin_data_dir = ADMIN_DATA_DIR
 
 # Cogs die beim Start geladen werden
-# (werden in Phase 11b-11h hinzugefuegt)
-INITIAL_COGS: list[str] = []
+INITIAL_COGS: list[str] = [
+    "cogs.moderation_cog",      # Phase 11b: WordFilter + AntiSpam
+    "cogs.warn_cog",            # Phase 11c: Warn-System
+    "cogs.reaction_roles_cog",  # Phase 11d: Reaction Roles
+    "cogs.leveling_cog",        # Phase 11e: Leveling/XP-System
+    "cogs.tickets_cog",         # Phase 11f: Ticket-System
+    "cogs.audit_cog",           # Phase 11g: Audit-Logging
+    "cogs.giveaway_cog",        # Phase 11h: Giveaway-System
+]
 
 
 # ------------------------------------------------------------------
