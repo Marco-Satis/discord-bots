@@ -4,6 +4,58 @@ Alle relevanten Aenderungen am Discord Bot System werden hier dokumentiert.
 
 ---
 
+## [3.2.0] — 2026-02-20
+
+### Hinzugefuegt
+
+- **Phase 13: Web-Dashboard (F13)**
+  - Vollstaendiges Admin-Dashboard mit FastAPI + HTMX + Jinja2
+  - Discord OAuth2 Login mit Guild-/Rollen-Pruefung + Passwort-Fallback (bcrypt)
+  - Dashboard-Uebersicht: Server-Kacheln, System-Performance, Bot-Status, Event-Feed
+  - Server-Detail: Spielerliste, RCON-Konsole, Backups, Savegame-Info, Mods, Config, Analyse
+  - Fehler-Uebersicht: Letzte ERROR/WARNING aus allen Bot-Logs
+  - Admin Bot Setup: 10 Konfigurations-Tabs (Temp Voice, TS, WordFilter, AntiSpam, Warns, Reaction Roles, Leveling, Tickets, Audit, Giveaways)
+  - Config-Panel: Feature-Toggles, Benachrichtigungs-Routing-Matrix, Login-Verwaltung, Bot-Profile
+  - System-Seite: Echtzeit-Systeminfo (CPU, RAM, Disk) + Webmin-iframe-Einbettung
+  - Stats Collector: Hintergrund-Task fuer Performance-Daten (5-Min-Intervall, Ringbuffer)
+  - Analyse-API: REST-Endpunkte fuer Uptime, Performance, Spieler-Aktivitaet, Backup-Stats
+  - 11 Python-Module (web/), 26 HTML-Templates, Dark-Theme
+
+- **Phase 14: Command-Aufraeumung (F25)**
+  - Server-Steuerung (start/stop/restart/cancel) aus Discord entfernt → Dashboard
+  - Admin-Config-Commands (set, update, autosave, settings_backup/restore) entfernt → Dashboard
+  - `/sat backup` umbenannt zu `/sat sav` (Savegame-Verwaltung)
+  - `/server` und `/ping` entfernt (Dashboard zeigt alles)
+  - Mod-Admin-Commands (install/uninstall/update/search/export/import) entfernt → Dashboard
+  - Maintenance-Commands komplett ins Dashboard migriert
+  - Hilfe-Uebersicht aktualisiert (rollenbasiert, nur verbleibende Commands)
+  - ~2100 Zeilen Code entfernt, nur Lese-Commands bleiben in Discord
+
+- **Phase 10-12: Diverse Verbesserungen**
+  - MC IP-Ban wie SAT (UFW-Firewall, F23)
+  - MC Ankuendigungs-Banner /mc say (F21)
+  - MC Gameplay-Commands entfernt (F22: difficulty/weather/time/gamemode → nur In-Game)
+  - SAT Auto-Update Verbesserung (F20: sofort bei leerem Server)
+
+### Sicherheit
+
+- XSS-Schutz: html.escape() fuer alle User-Inputs in HTMLResponse
+- CSRF-Schutz: SameSite=lax Cookies + OAuth2 State-Token (session.pop)
+- Exception-Leak-Prevention: Interne Fehlermeldungen nur im Server-Log
+- Rate-Limiting: Max 5 Login-Versuche pro 15 Minuten
+- JWT-Session: httpOnly Cookies, 24h Ablaufzeit
+- Unused-Import-Cleanup in allen Web-Modulen
+
+### Geaendert
+
+- Satisfactory: backup_grp → sav_grp, config_load → sav_load, config_stats → sav_stats
+- Minecraft: config_grp Beschreibung auf "nur Lesen" gesetzt
+- Mod-Cog: Nur noch list + info Commands (Spieler-sichtbar)
+- Maintenance-Cog: Leere Huelle (alle Commands ins Dashboard)
+- .env.example: Neue Dashboard-Variablen (WEB_*, DISCORD_CLIENT_*, WEB_WEBMIN_URL)
+
+---
+
 ## [3.1.0] — 2026-02-20
 
 ### Hinzugefuegt

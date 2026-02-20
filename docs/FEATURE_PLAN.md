@@ -1,6 +1,6 @@
 # Feature-Plan — Discord Bot System v3.x+
 
-> **Stand:** 20. Februar 2026 | **Basis:** v3.1.0
+> **Stand:** 20. Februar 2026 | **Basis:** v3.2.0
 
 ---
 
@@ -996,20 +996,20 @@ Der `/help`-Befehl zeigt aktuell alle Commands an, auch solche die der Nutzer ni
 | # | Feature | Prio | Aufwand | Status |
 |---|---------|------|---------|--------|
 | 11 | MC World-Analyse | P2 | 4-5h | Geplant |
-| 13 | Web-Dashboard (inkl. #14 Config-Panel) | P3 | 25-35h | Geplant |
+| 13 | Web-Dashboard (inkl. #14 Config-Panel) | P3 | 25-35h | **Erledigt (v3.2.0)** |
 | 16 | TeamSpeak-Integration (3 Phasen) | P3 | 15-22h | Geplant (Admin Bot) |
 | 17 | Discord Temp Voice Channels | P2 | 6-8h | Geplant (Admin Bot) |
 | 18 | Admin Bot — Maki-Ersatz (Moderation, Roles, Leveling, Tickets, Logging, Giveaways) | P3 | 20-30h | Geplant |
 | 19 | Discord + TS Server-Backup (Struktur-Snapshot) | P2 | 8-12h | Geplant (Admin Bot) |
 | 20 | SAT Auto-Update (sofort bei leerem Server + Spieler-Benachrichtigung) | P2 | 2-3h | Geplant |
 | 21 | MC Ankuendigungs-Banner (/mc say + In-Game) | P2 | 1-2h | Geplant |
-| 22 | MC Gameplay-Commands entfernen (nur In-Game) | P2 | 0.5h | Geplant |
+| 22 | MC Gameplay-Commands entfernen (nur In-Game) | P2 | 0.5h | **Erledigt (v3.2.0)** |
 | 23 | MC IP-Ban wie SAT (UFW-Firewall) | P2 | 1-2h | Geplant |
 | 24 | Timeout-System (Temp-Ban alle Server + Restzeit + Channel) | P2 | 4-6h | Geplant |
-| 25 | Command-Aufraeumung (Loeschen, Umbenennen, Dashboard-Migration) | P2 | 3-4h | Geplant |
-| 26 | Rollenbasierter Help-Befehl | P2 | 1-2h | Geplant |
+| 25 | Command-Aufraeumung (Loeschen, Umbenennen, Dashboard-Migration) | P2 | 3-4h | **Erledigt (v3.2.0)** |
+| 26 | Rollenbasierter Help-Befehl | P2 | 1-2h | **Erledigt (v3.2.0)** |
 
-### Erledigte Features (v3.1.0)
+### Erledigte Features (v3.2.0)
 
 | # | Feature | Phase |
 |---|---------|-------|
@@ -1021,6 +1021,11 @@ Der `/help`-Befehl zeigt aktuell alle Commands an, auch solche die der Nutzer ni
 | 8 | Config-Backup Rotation + GPG | Phase 8d |
 | 10 | MC Blacklist-System | Phase 8e |
 | 12 | MC Autosave-Command | Phase 8b |
+| 13 | Web-Dashboard (inkl. #14 Config-Panel) | Phase 13 |
+| 14 | Discord-Bot-Konfiguration via Web-UI | Phase 13h |
+| 22 | MC Gameplay-Commands entfernen | Phase 14 |
+| 25 | Command-Aufraeumung (Dashboard-Migration) | Phase 14 |
+| 26 | Rollenbasierter Help-Befehl | Phase 14 |
 
 ---
 
