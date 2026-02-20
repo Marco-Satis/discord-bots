@@ -4,7 +4,8 @@ Bot 3 of 3 — unabhaengig von Gameservern
 
 Architektur:
   - Cog-basiertes Design mit Hot-Reloading
-  - Features: Moderation, Reaction Roles, Leveling, Tickets, Audit, Giveaways
+  - Features: Moderation, Reaction Roles, Leveling, Tickets, Audit, Giveaways,
+              Temp Voice, TeamSpeak, Server Backup
   - Berechtigungen: Owner > Admin > Spieler > Alle
 """
 
@@ -68,6 +69,9 @@ INITIAL_COGS: list[str] = [
     "cogs.tickets_cog",         # Phase 11f: Ticket-System
     "cogs.audit_cog",           # Phase 11g: Audit-Logging
     "cogs.giveaway_cog",        # Phase 11h: Giveaway-System
+    "cogs.temp_voice_cog",      # Phase 12a: Temp Voice Channels
+    "cogs.teamspeak_cog",       # Phase 12b-d: TeamSpeak-Integration
+    "cogs.server_backup_cog",   # Phase 12e: Server-Backup
 ]
 
 
