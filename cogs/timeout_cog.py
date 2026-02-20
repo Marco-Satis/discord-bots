@@ -1,17 +1,32 @@
 """
-Timeout Cog
-/timeout [spieler] [dauer_min] [grund]
-Kicks player from game server AND sets Discord timeout simultaneously
+Timeout Cog — Serveruebergreifendes temporaeres Ban-System
+
+Command-Struktur:
+  /timeout <spieler> <dauer> [grund] [server]   (Timeout setzen - Admin)
+  /timeout status [spieler]                      (Restzeit abfragen - Alle)
+  /timeout aufheben <spieler>                    (Timeout aufheben - Admin)
+  /timeout list                                  (Alle aktiven Timeouts - Admin)
+  /timeout history <spieler>                     (Timeout-Historie - Admin)
+
+Neues Verhalten gegenueber v3.1.0:
+- Multi-Server Ban: SAT + MC (BMC/Vanilla) gleichzeitig
+- IP-Ban via UFW + RCON-Ban (MC)
+- Persistenz in data/timeouts.json
+- Background-Task prueft alle 60s auf abgelaufene Timeouts
+- DM-Benachrichtigung an Spieler
+- Spieler koennen eigene Restzeit abfragen
 """
 
 import re as _re
+from datetime import datetime, timedelta
+from typing import Optional
 
 import discord
 from discord import app_commands
-from discord.ext import commands
-from datetime import timedelta
-from typing import Optional
-from utils import get_logger, admin_only
+from discord.ext import commands, tasks
+
+from modules.timeout_manager import TimeoutManager
+from utils import get_logger, admin_only, DATA_DIR, is_admin
 
 
 def _sanitize_input(text: str, max_length: int = 100) -> str:
@@ -19,153 +34,749 @@ def _sanitize_input(text: str, max_length: int = 100) -> str:
     sanitized = _re.sub(r'[^\w\s\-]', '', text, flags=_re.UNICODE)
     return sanitized[:max_length].strip()
 
+
 logger = get_logger("cogs.timeout")
+
+# Server-Optionen fuer den Autocomplete
+_SERVER_CHOICES = [
+    app_commands.Choice(name="Alle Server", value="alle"),
+    app_commands.Choice(name="Satisfactory", value="sat"),
+    app_commands.Choice(name="Minecraft BMC", value="bmc"),
+    app_commands.Choice(name="Minecraft Vanilla", value="vanilla"),
+]
 
 
 class TimeoutCog(commands.Cog):
-    """Cross-platform timeout: Game kick + Discord timeout"""
+    """Serveruebergreifendes Timeout-System mit Multi-Server-Ban"""
+
+    timeout_grp = app_commands.Group(
+        name="timeout",
+        description="Temporaeres Ban-System (Multi-Server)",
+    )
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.server = bot.sat_server
-        self.api = bot.sat_api
+        self.sat_server = bot.sat_server
+        self.sat_api = bot.sat_api
+        self.timeout_mgr = TimeoutManager(DATA_DIR / "timeouts.json")
 
-    @app_commands.command(
-        name="timeout",
-        description="Spieler vom Server kicken + Discord-Timeout setzen"
+    async def cog_load(self) -> None:
+        """Background-Task starten wenn Cog geladen wird"""
+        self.check_expired_timeouts.start()
+        logger.info("Timeout-Background-Task gestartet")
+
+    async def cog_unload(self) -> None:
+        """Background-Task stoppen wenn Cog entladen wird"""
+        self.check_expired_timeouts.cancel()
+
+    # ==================================================================
+    # Background-Task: Abgelaufene Timeouts aufheben
+    # ==================================================================
+
+    @tasks.loop(seconds=60)
+    async def check_expired_timeouts(self) -> None:
+        """Prueft alle 60 Sekunden ob Timeouts abgelaufen sind"""
+        expired = self.timeout_mgr.get_expired()
+        if not expired:
+            return
+
+        for entry in expired:
+            discord_id = entry.get("discord_id")
+            player_name = entry.get("player_name", "?")
+            servers = entry.get("servers", [])
+
+            if not discord_id:
+                continue
+
+            logger.info(f"Timeout abgelaufen: {player_name} (Discord: {discord_id})")
+
+            # Server-Bans aufheben
+            await self._unban_from_servers(player_name, servers, entry.get("ip"))
+
+            # Discord-Timeout wird automatisch von Discord aufgehoben
+
+            # Timeout in Manager als abgelaufen markieren
+            await self.timeout_mgr.lift_timeout(discord_id)
+
+            # Spieler per DM benachrichtigen
+            await self._notify_player_dm(
+                discord_id,
+                "Dein Timeout ist abgelaufen",
+                "Du kannst wieder auf allen Servern spielen.",
+                color=0x2ecc71,
+            )
+
+    @check_expired_timeouts.before_loop
+    async def before_check_expired(self) -> None:
+        """Warten bis Bot bereit ist"""
+        await self.bot.wait_until_ready()
+
+    # ==================================================================
+    # /timeout <spieler> <dauer> [grund] [server]
+    # ==================================================================
+
+    @timeout_grp.command(
+        name="setzen",
+        description="Spieler temporaer von Servern sperren",
     )
     @app_commands.describe(
         spieler="Name des Spielers (Game + Discord)",
         dauer_min="Timeout-Dauer in Minuten",
-        grund="Grund fuer den Timeout"
+        grund="Grund fuer den Timeout",
+        server="Auf welchen Servern sperren (Standard: alle)",
     )
+    @app_commands.choices(server=_SERVER_CHOICES)
     @admin_only()
-    async def timeout(self, interaction: discord.Interaction,
-                      spieler: str, dauer_min: int,
-                      grund: str = "Kein Grund angegeben"):
+    async def timeout_setzen(
+        self,
+        interaction: discord.Interaction,
+        spieler: str,
+        dauer_min: int,
+        grund: str = "Kein Grund angegeben",
+        server: app_commands.Choice[str] = None,
+    ) -> None:
         await interaction.response.defer()
 
+        # Validierung
         if dauer_min < 1:
-            await interaction.followup.send("Dauer muss mindestens 1 Minute sein.", ephemeral=True)
+            await interaction.followup.send(
+                "Dauer muss mindestens 1 Minute sein.", ephemeral=True
+            )
             return
-        if dauer_min > 40320:  # Discord max: 28 days
-            await interaction.followup.send("Max. 28 Tage (40320 Minuten).", ephemeral=True)
+        if dauer_min > 40320:  # Discord max: 28 Tage
+            await interaction.followup.send(
+                "Max. 28 Tage (40320 Minuten).", ephemeral=True
+            )
             return
 
-        results = {
-            "game_kick": False,
-            "discord_timeout": False,
-            "game_error": None,
-            "discord_error": None
-        }
+        safe_spieler = _sanitize_input(spieler)
+        target_servers = self._resolve_servers(server)
 
-        # 1. Kick from game server
-        if await self.server.is_running():
-            try:
-                safe_spieler = _sanitize_input(spieler)
-                result = await self.api.run_command(f"KickPlayer {safe_spieler}")
-                if "Error" not in str(result):
-                    results["game_kick"] = True
-                else:
-                    results["game_error"] = result
-            except Exception as e:
-                results["game_error"] = str(e)
-        else:
-            results["game_error"] = "Server offline"
+        # Discord-Member finden
+        discord_member = self._find_member(interaction.guild, spieler)
+        discord_id = discord_member.id if discord_member else 0
 
-        # 2. Set Discord timeout
-        # Try to find the Discord member by display name or username
-        discord_member = None
-        if interaction.guild:
-            # Search by display name (case-insensitive)
-            spieler_lower = spieler.lower()
-            for member in interaction.guild.members:
-                if (member.display_name.lower() == spieler_lower or
-                        member.name.lower() == spieler_lower):
-                    discord_member = member
-                    break
-
-        if discord_member:
-            try:
-                duration = timedelta(minutes=dauer_min)
-                await discord_member.timeout(
-                    duration,
-                    reason=f"Timeout von {interaction.user.display_name}: {grund}"
-                )
-                results["discord_timeout"] = True
-            except discord.Forbidden:
-                results["discord_error"] = "Keine Berechtigung (Bot-Rolle zu niedrig?)"
-            except discord.HTTPException as e:
-                results["discord_error"] = str(e)
-        else:
-            results["discord_error"] = f"Discord-User '{spieler}' nicht gefunden"
-
-        # Build response embed
-        embed = discord.Embed(
-            title="Timeout gesetzt",
-            color=0xe67e22
+        # Timeout im Manager speichern
+        success, message, action_results = await self.timeout_mgr.set_timeout(
+            player_name=safe_spieler,
+            discord_id=discord_id,
+            duration_minutes=dauer_min,
+            reason=grund,
+            set_by=interaction.user.display_name,
+            set_by_id=interaction.user.id,
+            servers=target_servers,
+            bot=self.bot,
         )
-        embed.add_field(name="Spieler", value=spieler, inline=True)
 
-        if dauer_min >= 60:
-            display_duration = f"{dauer_min // 60}h {dauer_min % 60}m"
-        else:
-            display_duration = f"{dauer_min} Min"
-        embed.add_field(name="Dauer", value=display_duration, inline=True)
-        embed.add_field(name="Grund", value=grund, inline=False)
+        if not success:
+            await interaction.followup.send(message, ephemeral=True)
+            return
 
-        # Game kick status
-        if results["game_kick"]:
-            embed.add_field(name="Game-Kick", value="✅ Gekickt", inline=True)
-        else:
-            embed.add_field(
-                name="Game-Kick",
-                value=f"❌ {results['game_error'] or 'Fehlgeschlagen'}",
-                inline=True
+        # Aktionen ausfuehren auf den Servern
+        ban_results = await self._ban_on_servers(
+            safe_spieler, target_servers, dauer_min, grund
+        )
+        action_results.extend(ban_results)
+
+        # Discord-Timeout setzen
+        discord_result = await self._set_discord_timeout(
+            discord_member, dauer_min, grund, interaction.user
+        )
+        action_results.append(discord_result)
+
+        # Spieler per DM benachrichtigen
+        if discord_member:
+            if dauer_min >= 60:
+                display_dur = f"{dauer_min // 60}h {dauer_min % 60}m"
+            else:
+                display_dur = f"{dauer_min} Minuten"
+            await self._notify_player_dm(
+                discord_member.id,
+                f"Du wurdest fuer {display_dur} von allen Servern gesperrt",
+                f"**Grund:** {grund}\n\nDein Zugang wird automatisch wiederhergestellt.",
+                color=0xe74c3c,
             )
 
-        # Discord timeout status
-        if results["discord_timeout"]:
-            embed.add_field(
-                name="Discord-Timeout",
-                value=f"✅ {discord_member.display_name}",
-                inline=True
-            )
-        else:
-            embed.add_field(
-                name="Discord-Timeout",
-                value=f"❌ {results['discord_error'] or 'Fehlgeschlagen'}",
-                inline=True
-            )
-
-        embed.set_footer(text=f"von {interaction.user.display_name}")
-
-        # Overall color based on results
-        if results["game_kick"] and results["discord_timeout"]:
-            embed.color = 0x2ecc71  # Green - both succeeded
-        elif results["game_kick"] or results["discord_timeout"]:
-            embed.color = 0xe67e22  # Orange - partial success
-        else:
-            embed.color = 0xe74c3c  # Red - both failed
-
+        # Response-Embed erstellen
+        embed = self._build_timeout_embed(
+            safe_spieler, dauer_min, grund, action_results, interaction.user
+        )
         await interaction.followup.send(embed=embed)
 
         logger.info(
-            f"Timeout: {spieler} ({dauer_min}min) by {interaction.user} "
-            f"- Game: {results['game_kick']}, Discord: {results['discord_timeout']} "
-            f"- Reason: {grund}"
+            f"Timeout: {safe_spieler} ({dauer_min}min) by {interaction.user} "
+            f"- Server: {target_servers} - Grund: {grund}"
         )
 
-    async def cog_app_command_error(self, interaction: discord.Interaction,
-                                     error: app_commands.AppCommandError) -> None:
-        """Handle errors for all commands in this cog."""
+    # ==================================================================
+    # /timeout status [spieler]
+    # ==================================================================
+
+    @timeout_grp.command(
+        name="status",
+        description="Timeout-Status abfragen (eigenen oder fremden)",
+    )
+    @app_commands.describe(
+        spieler="Discord-User (leer = eigenen Status anzeigen)"
+    )
+    async def timeout_status(
+        self,
+        interaction: discord.Interaction,
+        spieler: Optional[discord.Member] = None,
+    ) -> None:
+        await interaction.response.defer(ephemeral=True)
+
+        # Admins koennen andere abfragen, normale User nur sich selbst
+        if spieler and spieler.id != interaction.user.id:
+            if not is_admin(interaction):
+                await interaction.followup.send(
+                    "Du kannst nur deinen eigenen Timeout-Status abfragen.",
+                    ephemeral=True,
+                )
+                return
+            target = spieler
+        else:
+            target = interaction.user
+
+        timeout_data = self.timeout_mgr.get_active_timeout(target.id)
+
+        if not timeout_data:
+            await interaction.followup.send(
+                f"{'Du hast' if target == interaction.user else f'**{target.display_name}** hat'} "
+                f"keinen aktiven Timeout.",
+                ephemeral=True,
+            )
+            return
+
+        # Timeout-Info Embed
+        embed = discord.Embed(
+            title="Aktiver Timeout",
+            color=0xe74c3c,
+        )
+
+        embed.add_field(
+            name="Spieler",
+            value=target.display_name,
+            inline=True,
+        )
+
+        # Restzeit berechnen
+        expires_str = timeout_data.get("expires_at", "")
+        try:
+            expires_at = datetime.fromisoformat(expires_str)
+            remaining = expires_at - datetime.now()
+            if remaining.total_seconds() > 0:
+                hours, remainder = divmod(int(remaining.total_seconds()), 3600)
+                minutes, seconds = divmod(remainder, 60)
+                if hours > 0:
+                    restzeit = f"{hours}h {minutes}m"
+                else:
+                    restzeit = f"{minutes}m {seconds}s"
+            else:
+                restzeit = "Laeuft gleich ab..."
+        except (ValueError, TypeError):
+            restzeit = "?"
+
+        embed.add_field(name="Restzeit", value=restzeit, inline=True)
+        embed.add_field(
+            name="Grund",
+            value=timeout_data.get("reason", "Kein Grund"),
+            inline=False,
+        )
+
+        set_at = timeout_data.get("set_at", "?")
+        try:
+            set_dt = datetime.fromisoformat(set_at)
+            set_at = set_dt.strftime("%d.%m.%Y %H:%M")
+        except (ValueError, TypeError):
+            pass
+
+        embed.add_field(name="Gesperrt seit", value=set_at, inline=True)
+
+        try:
+            expires_display = expires_at.strftime("%d.%m.%Y %H:%M")
+        except Exception:
+            expires_display = expires_str
+        embed.add_field(name="Gesperrt bis", value=expires_display, inline=True)
+
+        servers = timeout_data.get("servers", [])
+        if servers:
+            server_labels = {
+                "sat": "Satisfactory",
+                "bmc": "Minecraft BMC",
+                "vanilla": "Minecraft Vanilla",
+            }
+            server_names = [server_labels.get(s, s) for s in servers]
+            embed.add_field(
+                name="Betroffene Server",
+                value=", ".join(server_names),
+                inline=False,
+            )
+
+        embed.set_footer(text=f"Gesetzt von {timeout_data.get('set_by', '?')}")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    # ==================================================================
+    # /timeout aufheben <spieler>
+    # ==================================================================
+
+    @timeout_grp.command(
+        name="aufheben",
+        description="Timeout eines Spielers vorzeitig aufheben",
+    )
+    @app_commands.describe(spieler="Discord-User dessen Timeout aufgehoben werden soll")
+    @admin_only()
+    async def timeout_aufheben(
+        self,
+        interaction: discord.Interaction,
+        spieler: discord.Member,
+    ) -> None:
+        await interaction.response.defer()
+
+        was_active, timeout_data = await self.timeout_mgr.lift_timeout(
+            spieler.id,
+            ended_by=interaction.user.display_name,
+        )
+
+        if not was_active:
+            await interaction.followup.send(
+                f"**{spieler.display_name}** hat keinen aktiven Timeout.",
+                ephemeral=True,
+            )
+            return
+
+        player_name = timeout_data.get("player_name", spieler.display_name)
+        servers = timeout_data.get("servers", [])
+        ip = timeout_data.get("ip")
+
+        # Server-Bans aufheben
+        await self._unban_from_servers(player_name, servers, ip)
+
+        # Discord-Timeout aufheben
+        try:
+            await spieler.timeout(None, reason="Timeout vorzeitig aufgehoben")
+        except (discord.Forbidden, discord.HTTPException) as e:
+            logger.warning(f"Discord-Timeout aufheben fehlgeschlagen: {e}")
+
+        # Spieler per DM benachrichtigen
+        await self._notify_player_dm(
+            spieler.id,
+            "Dein Timeout wurde vorzeitig aufgehoben",
+            "Du kannst wieder auf allen Servern spielen.",
+            color=0x2ecc71,
+        )
+
+        embed = discord.Embed(
+            title="Timeout aufgehoben",
+            description=(
+                f"Timeout fuer **{player_name}** wurde vorzeitig aufgehoben.\n"
+                f"Alle Server-Bans wurden entfernt."
+            ),
+            color=0x2ecc71,
+        )
+        embed.set_footer(text=f"von {interaction.user.display_name}")
+        await interaction.followup.send(embed=embed)
+
+        logger.info(
+            f"Timeout aufgehoben: {player_name} von {interaction.user.display_name}"
+        )
+
+    # ==================================================================
+    # /timeout list
+    # ==================================================================
+
+    @timeout_grp.command(
+        name="list",
+        description="Alle aktiven Timeouts anzeigen",
+    )
+    @admin_only()
+    async def timeout_list(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+
+        active = self.timeout_mgr.get_all_active()
+
+        if not active:
+            await interaction.followup.send(
+                "Keine aktiven Timeouts.", ephemeral=True
+            )
+            return
+
+        embed = discord.Embed(
+            title=f"Aktive Timeouts ({len(active)})",
+            color=0xe67e22,
+        )
+
+        for entry in active:
+            player_name = entry.get("player_name", "?")
+            reason = entry.get("reason", "?")
+            servers = ", ".join(entry.get("servers", []))
+
+            # Restzeit berechnen
+            expires_str = entry.get("expires_at", "")
+            try:
+                expires_at = datetime.fromisoformat(expires_str)
+                remaining = expires_at - datetime.now()
+                if remaining.total_seconds() > 0:
+                    hours, remainder = divmod(int(remaining.total_seconds()), 3600)
+                    mins, _ = divmod(remainder, 60)
+                    restzeit = f"{hours}h {mins}m" if hours > 0 else f"{mins}m"
+                else:
+                    restzeit = "abgelaufen"
+            except (ValueError, TypeError):
+                restzeit = "?"
+
+            embed.add_field(
+                name=player_name,
+                value=(
+                    f"**Restzeit:** {restzeit}\n"
+                    f"**Grund:** {reason}\n"
+                    f"**Server:** {servers}"
+                ),
+                inline=False,
+            )
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    # ==================================================================
+    # /timeout history <spieler>
+    # ==================================================================
+
+    @timeout_grp.command(
+        name="history",
+        description="Timeout-Historie eines Spielers anzeigen",
+    )
+    @app_commands.describe(spieler="Discord-User (leer = alle)")
+    @admin_only()
+    async def timeout_history(
+        self,
+        interaction: discord.Interaction,
+        spieler: Optional[discord.Member] = None,
+    ) -> None:
+        await interaction.response.defer(ephemeral=True)
+
+        discord_id = spieler.id if spieler else None
+        history = self.timeout_mgr.get_history(discord_id)
+
+        if not history:
+            name = spieler.display_name if spieler else "alle"
+            await interaction.followup.send(
+                f"Keine Timeout-Historie fuer {name}.", ephemeral=True
+            )
+            return
+
+        title = (
+            f"Timeout-Historie — {spieler.display_name}"
+            if spieler
+            else "Timeout-Historie (letzte 20)"
+        )
+        embed = discord.Embed(title=title, color=0x5865F2)
+
+        for entry in history[:10]:  # Max 10 im Embed
+            player_name = entry.get("player_name", "?")
+            reason = entry.get("reason", "?")
+            ended_reason = entry.get("ended_reason", "?")
+            ended_by = entry.get("ended_by")
+
+            # Datum formatieren
+            set_at = entry.get("set_at", "?")
+            try:
+                set_dt = datetime.fromisoformat(set_at)
+                set_at = set_dt.strftime("%d.%m.%Y %H:%M")
+            except (ValueError, TypeError):
+                pass
+
+            ended_str = ended_reason
+            if ended_reason == "manual" and ended_by:
+                ended_str = f"Aufgehoben von {ended_by}"
+            elif ended_reason == "expired":
+                ended_str = "Automatisch abgelaufen"
+
+            embed.add_field(
+                name=f"{player_name} — {set_at}",
+                value=(
+                    f"**Grund:** {reason}\n"
+                    f"**Ende:** {ended_str}"
+                ),
+                inline=False,
+            )
+
+        if len(history) > 10:
+            embed.set_footer(text=f"... und {len(history) - 10} weitere")
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    # ==================================================================
+    # Hilfsmethoden
+    # ==================================================================
+
+    def _find_member(
+        self, guild: Optional[discord.Guild], name: str
+    ) -> Optional[discord.Member]:
+        """Discord-Member anhand von Display-Name oder Username finden"""
+        if not guild:
+            return None
+        name_lower = name.lower()
+        for member in guild.members:
+            if (
+                member.display_name.lower() == name_lower
+                or member.name.lower() == name_lower
+            ):
+                return member
+        return None
+
+    def _resolve_servers(
+        self, server_choice: Optional[app_commands.Choice[str]] = None
+    ) -> list[str]:
+        """Server-Auswahl in Liste von Server-IDs aufloesen"""
+        if not server_choice or server_choice.value == "alle":
+            # Alle verfuegbaren Server
+            servers = ["sat"]
+            mc_servers = getattr(self.bot, "mc_servers", {})
+            for sid in mc_servers:
+                servers.append(sid.lower())
+            return servers
+        return [server_choice.value]
+
+    async def _ban_on_servers(
+        self,
+        player_name: str,
+        servers: list[str],
+        dauer_min: int,
+        grund: str,
+    ) -> list[str]:
+        """Spieler auf allen angegebenen Servern bannen. Gibt Status-Zeilen zurueck."""
+        results: list[str] = []
+
+        for srv in servers:
+            if srv == "sat":
+                result = await self._ban_sat(player_name, grund)
+                results.append(f"SAT: {result}")
+            else:
+                result = await self._ban_mc(player_name, srv, grund)
+                results.append(f"MC-{srv.upper()}: {result}")
+
+        return results
+
+    async def _ban_sat(self, player_name: str, grund: str) -> str:
+        """SAT-Server: Kick + IP-Ban via UFW"""
+        # Kick vom SAT-Server
+        kick_ok = False
+        try:
+            if await self.sat_server.is_running():
+                result = await self.sat_api.run_command(
+                    f"KickPlayer {player_name}"
+                )
+                if "Error" not in str(result):
+                    kick_ok = True
+        except Exception as e:
+            logger.warning(f"SAT-Kick fehlgeschlagen: {e}")
+
+        # IP-Ban via PlayerIPTracker (falls verfuegbar auf diesem Bot)
+        ip_banned = False
+        sat_tracker = getattr(self.bot, "player_ip_tracker", None)
+        if sat_tracker:
+            success, msg = await sat_tracker.ban_player(
+                player_name, grund, "Timeout-System"
+            )
+            ip_banned = success
+
+        if kick_ok and ip_banned:
+            return "Gekickt + IP gesperrt"
+        elif kick_ok:
+            return "Gekickt (IP-Ban nicht moeglich)"
+        elif ip_banned:
+            return "IP gesperrt (Server offline)"
+        else:
+            return "Kick fehlgeschlagen"
+
+    async def _ban_mc(self, player_name: str, server_id: str, grund: str) -> str:
+        """MC-Server: RCON ban + IP-Ban via UFW"""
+        mc_servers = getattr(self.bot, "mc_servers", {})
+        srv = mc_servers.get(server_id.upper()) or mc_servers.get(server_id)
+        if not srv:
+            return f"Server nicht gefunden"
+
+        # RCON ban
+        rcon_ok = False
+        try:
+            result = await srv.rcon_command(f"ban {player_name} {grund}")
+            if result is not None:
+                rcon_ok = True
+        except Exception as e:
+            logger.warning(f"MC RCON ban fehlgeschlagen ({server_id}): {e}")
+
+        # IP-Ban via MC IP-Tracker
+        ip_banned = False
+        mc_trackers = getattr(self.bot, "mc_ip_trackers", {})
+        tracker = mc_trackers.get(server_id.upper()) or mc_trackers.get(server_id)
+        if tracker:
+            success, msg = await tracker.ban_player(
+                player_name, grund, "Timeout-System"
+            )
+            ip_banned = success
+
+        if rcon_ok and ip_banned:
+            return "RCON-Ban + IP gesperrt"
+        elif rcon_ok:
+            return "RCON-Ban (IP nicht bekannt)"
+        elif ip_banned:
+            return "IP gesperrt (RCON fehlgeschlagen)"
+        else:
+            return "Ban fehlgeschlagen"
+
+    async def _unban_from_servers(
+        self,
+        player_name: str,
+        servers: list[str],
+        ip: Optional[str] = None,
+    ) -> None:
+        """Spieler auf allen angegebenen Servern entbannen"""
+        for srv in servers:
+            if srv == "sat":
+                await self._unban_sat(player_name)
+            else:
+                await self._unban_mc(player_name, srv)
+
+    async def _unban_sat(self, player_name: str) -> None:
+        """SAT IP-Ban aufheben"""
+        sat_tracker = getattr(self.bot, "player_ip_tracker", None)
+        if sat_tracker:
+            try:
+                await sat_tracker.unban_player(player_name)
+            except Exception as e:
+                logger.warning(f"SAT-Unban fehlgeschlagen: {e}")
+
+    async def _unban_mc(self, player_name: str, server_id: str) -> None:
+        """MC-Server: RCON pardon + IP-Unban"""
+        mc_servers = getattr(self.bot, "mc_servers", {})
+        srv = mc_servers.get(server_id.upper()) or mc_servers.get(server_id)
+        if srv:
+            try:
+                await srv.rcon_command(f"pardon {player_name}")
+            except Exception as e:
+                logger.warning(f"MC RCON pardon fehlgeschlagen ({server_id}): {e}")
+
+        mc_trackers = getattr(self.bot, "mc_ip_trackers", {})
+        tracker = mc_trackers.get(server_id.upper()) or mc_trackers.get(server_id)
+        if tracker:
+            try:
+                await tracker.unban_player(player_name)
+            except Exception as e:
+                logger.warning(f"MC IP-Unban fehlgeschlagen ({server_id}): {e}")
+
+    async def _set_discord_timeout(
+        self,
+        member: Optional[discord.Member],
+        dauer_min: int,
+        grund: str,
+        admin: discord.Member,
+    ) -> str:
+        """Discord-Timeout setzen. Gibt Status-String zurueck."""
+        if not member:
+            return "Discord-Timeout: User nicht gefunden"
+
+        try:
+            duration = timedelta(minutes=dauer_min)
+            await member.timeout(
+                duration,
+                reason=f"Timeout von {admin.display_name}: {grund}",
+            )
+            return f"Discord-Timeout: {member.display_name} gesperrt"
+        except discord.Forbidden:
+            return "Discord-Timeout: Keine Berechtigung"
+        except discord.HTTPException as e:
+            return f"Discord-Timeout: {e}"
+
+    async def _notify_player_dm(
+        self,
+        discord_id: int,
+        title: str,
+        description: str,
+        color: int = 0xe74c3c,
+    ) -> None:
+        """Spieler per DM benachrichtigen (fehlertolerant)"""
+        if not discord_id:
+            return
+
+        try:
+            user = self.bot.get_user(discord_id) or await self.bot.fetch_user(
+                discord_id
+            )
+            embed = discord.Embed(
+                title=title,
+                description=description,
+                color=color,
+                timestamp=datetime.now(),
+            )
+            await user.send(embed=embed)
+        except (discord.Forbidden, discord.HTTPException, discord.NotFound):
+            logger.debug(f"DM an {discord_id} konnte nicht gesendet werden")
+        except Exception as e:
+            logger.warning(f"DM-Benachrichtigung fehlgeschlagen: {e}")
+
+    def _build_timeout_embed(
+        self,
+        player_name: str,
+        dauer_min: int,
+        grund: str,
+        action_results: list[str],
+        admin: discord.Member,
+    ) -> discord.Embed:
+        """Response-Embed fuer /timeout setzen erstellen"""
+        embed = discord.Embed(
+            title="Timeout gesetzt",
+            color=0xe67e22,
+        )
+        embed.add_field(name="Spieler", value=player_name, inline=True)
+
+        if dauer_min >= 60:
+            display_dur = f"{dauer_min // 60}h {dauer_min % 60}m"
+        else:
+            display_dur = f"{dauer_min} Min"
+        embed.add_field(name="Dauer", value=display_dur, inline=True)
+        embed.add_field(name="Grund", value=grund, inline=False)
+
+        # Aktionen anzeigen
+        if action_results:
+            embed.add_field(
+                name="Aktionen",
+                value="\n".join(f"• {r}" for r in action_results),
+                inline=False,
+            )
+
+        # Farbe je nach Erfolg
+        success_count = sum(
+            1 for r in action_results
+            if any(w in r for w in ["Gekickt", "gesperrt", "Ban", "gesetzt"])
+        )
+        if success_count == len(action_results):
+            embed.color = 0x2ecc71  # Gruen
+        elif success_count > 0:
+            embed.color = 0xe67e22  # Orange
+        else:
+            embed.color = 0xe74c3c  # Rot
+
+        embed.set_footer(text=f"von {admin.display_name}")
+        return embed
+
+    # ==================================================================
+    # Fehlerbehandlung
+    # ==================================================================
+
+    async def cog_app_command_error(
+        self,
+        interaction: discord.Interaction,
+        error: app_commands.AppCommandError,
+    ) -> None:
+        """Zentrale Fehlerbehandlung fuer alle Commands in dieser Cog"""
         if isinstance(error, app_commands.CheckFailure):
             if not interaction.response.is_done():
                 await interaction.response.send_message(
                     "Keine Berechtigung fuer diesen Befehl.", ephemeral=True
                 )
             return
-        logger.error(f"Command error in {interaction.command.name if interaction.command else 'unknown'}: {error}", exc_info=True)
+        cmd_name = interaction.command.name if interaction.command else "unknown"
+        logger.error(f"Command error in {cmd_name}: {error}", exc_info=True)
         try:
             msg = f"Ein Fehler ist aufgetreten: {error}"
             if interaction.response.is_done():
