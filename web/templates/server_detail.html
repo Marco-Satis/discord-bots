@@ -1,0 +1,450 @@
+{% extends "base.html" %}
+
+{% block title %}{{ server.name }} — Detail{% endblock %}
+
+{% block content %}
+<!-- Zurueck-Button und Header -->
+<div class="page-header" style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
+    <a href="/" class="btn btn-secondary btn-sm" style="flex-shrink: 0;">&larr; Zurueck</a>
+    <div style="flex: 1;">
+        <h1 style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+            <!-- Status-Indikator (gruener/roter Punkt) -->
+            <span style="
+                display: inline-block;
+                width: 14px;
+                height: 14px;
+                border-radius: 50%;
+                flex-shrink: 0;
+                {% if server.status == 'online' %}
+                background: var(--success);
+                box-shadow: 0 0 8px var(--success);
+                {% elif server.status == 'offline' %}
+                background: var(--danger);
+                {% else %}
+                background: var(--text-muted);
+                {% endif %}
+            "></span>
+            {{ server.name }}
+            <!-- Typ-Badge -->
+            <span class="status-badge" style="font-size: 0.7rem; background: rgba(83, 52, 131, 0.3); color: var(--accent-light);">
+                {{ server.type|upper }}
+            </span>
+            <!-- Status-Badge -->
+            <span class="status-badge {% if server.status == 'online' %}status-online{% elif server.status == 'offline' %}status-offline{% else %}status-unknown{% endif %}">
+                {{ server.status|capitalize if server.status else 'Unbekannt' }}
+            </span>
+        </h1>
+        <p class="page-subtitle">
+            Spieler: {{ server.players_online }}/{{ server.max_players }}
+            &middot; Uptime: {{ server.uptime }}
+            {% if server.address != 'N/A' %}&middot; {{ server.address }}{% if server.port != 'N/A' %}:{{ server.port }}{% endif %}{% endif %}
+        </p>
+    </div>
+</div>
+
+<!-- Schnellaktionen -->
+<section class="section">
+    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
+        <button class="btn btn-primary btn-sm"
+                hx-post="/api/server/{{ server.server_id }}/action"
+                hx-vals='{"action": "start"}'
+                hx-target="#action-result"
+                hx-swap="innerHTML"
+                hx-confirm="Server {{ server.name }} starten?">
+            &#9654; Start
+        </button>
+        <button class="btn btn-danger btn-sm"
+                hx-post="/api/server/{{ server.server_id }}/action"
+                hx-vals='{"action": "stop"}'
+                hx-target="#action-result"
+                hx-swap="innerHTML"
+                hx-confirm="Server {{ server.name }} stoppen? Alle Spieler werden getrennt.">
+            &#9632; Stop
+        </button>
+        <button class="btn btn-warning btn-sm"
+                hx-post="/api/server/{{ server.server_id }}/action"
+                hx-vals='{"action": "restart"}'
+                hx-target="#action-result"
+                hx-swap="innerHTML"
+                hx-confirm="Server {{ server.name }} neustarten?">
+            &#8635; Restart
+        </button>
+        <button class="btn btn-secondary btn-sm"
+                hx-post="/api/server/{{ server.server_id }}/action"
+                hx-vals='{"action": "maintenance"}'
+                hx-target="#action-result"
+                hx-swap="innerHTML"
+                hx-confirm="Wartungsmodus fuer {{ server.name }} aktivieren?">
+            &#9874; Wartung
+        </button>
+    </div>
+    <div id="action-result" style="margin-top: 0.75rem;"></div>
+</section>
+
+<!-- Tab-Navigation -->
+<section class="section">
+    <div class="detail-tabs" style="
+        display: flex;
+        gap: 0;
+        border-bottom: 2px solid var(--border-color);
+        margin-bottom: 1.5rem;
+        flex-wrap: wrap;
+    ">
+        <button class="detail-tab active"
+                onclick="switchTab(this, 'tab-players')"
+                style="
+                    padding: 0.6rem 1.25rem;
+                    background: none;
+                    border: none;
+                    border-bottom: 2px solid transparent;
+                    margin-bottom: -2px;
+                    color: var(--text-secondary);
+                    font-size: 0.9rem;
+                    font-weight: 600;
+                    cursor: pointer;
+                    transition: all 0.2s ease;
+                ">
+            Spieler
+        </button>
+        {% if server.has_rcon %}
+        <button class="detail-tab"
+                onclick="switchTab(this, 'tab-rcon')"
+                style="
+                    padding: 0.6rem 1.25rem;
+                    background: none;
+                    border: none;
+                    border-bottom: 2px solid transparent;
+                    margin-bottom: -2px;
+                    color: var(--text-secondary);
+                    font-size: 0.9rem;
+                    font-weight: 600;
+                    cursor: pointer;
+                    transition: all 0.2s ease;
+                ">
+            RCON Console
+        </button>
+        {% endif %}
+        <button class="detail-tab"
+                onclick="switchTab(this, 'tab-backups')"
+                style="
+                    padding: 0.6rem 1.25rem;
+                    background: none;
+                    border: none;
+                    border-bottom: 2px solid transparent;
+                    margin-bottom: -2px;
+                    color: var(--text-secondary);
+                    font-size: 0.9rem;
+                    font-weight: 600;
+                    cursor: pointer;
+                    transition: all 0.2s ease;
+                ">
+            Backups
+        </button>
+        <button class="detail-tab"
+                onclick="switchTab(this, 'tab-world')"
+                style="
+                    padding: 0.6rem 1.25rem;
+                    background: none;
+                    border: none;
+                    border-bottom: 2px solid transparent;
+                    margin-bottom: -2px;
+                    color: var(--text-secondary);
+                    font-size: 0.9rem;
+                    font-weight: 600;
+                    cursor: pointer;
+                    transition: all 0.2s ease;
+                ">
+            World/Savegame
+        </button>
+        <button class="detail-tab"
+                onclick="switchTab(this, 'tab-config')"
+                style="
+                    padding: 0.6rem 1.25rem;
+                    background: none;
+                    border: none;
+                    border-bottom: 2px solid transparent;
+                    margin-bottom: -2px;
+                    color: var(--text-secondary);
+                    font-size: 0.9rem;
+                    font-weight: 600;
+                    cursor: pointer;
+                    transition: all 0.2s ease;
+                ">
+            Server Config
+        </button>
+        <button class="detail-tab"
+                onclick="switchTab(this, 'tab-updates')"
+                style="
+                    padding: 0.6rem 1.25rem;
+                    background: none;
+                    border: none;
+                    border-bottom: 2px solid transparent;
+                    margin-bottom: -2px;
+                    color: var(--text-secondary);
+                    font-size: 0.9rem;
+                    font-weight: 600;
+                    cursor: pointer;
+                    transition: all 0.2s ease;
+                ">
+            Update Status
+        </button>
+    </div>
+
+    <!-- Tab: Spieler -->
+    <div id="tab-players" class="tab-content" style="display: block;">
+        <div hx-get="/api/server/{{ server.server_id }}/players"
+             hx-trigger="load, every 10s"
+             hx-swap="innerHTML">
+            <p style="color: var(--text-muted); padding: 1rem;">Spielerliste wird geladen...</p>
+        </div>
+    </div>
+
+    <!-- Tab: RCON Console (nur Minecraft) -->
+    {% if server.has_rcon %}
+    <div id="tab-rcon" class="tab-content" style="display: none;">
+        <div class="config-section">
+            <h3 class="subsection-title">RCON Console &mdash; {{ server.name }}</h3>
+            <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 1rem;">
+                Sende Minecraft-Server-Befehle ueber RCON. Beispiele: <code style="background: var(--bg-primary); padding: 0.15rem 0.4rem; border-radius: 3px;">list</code>,
+                <code style="background: var(--bg-primary); padding: 0.15rem 0.4rem; border-radius: 3px;">say Hallo</code>,
+                <code style="background: var(--bg-primary); padding: 0.15rem 0.4rem; border-radius: 3px;">whitelist list</code>
+            </p>
+
+            <!-- RCON-Ausgabe -->
+            <div id="rcon-output" style="
+                background: #0d0d1a;
+                border: 1px solid var(--border-color);
+                border-radius: var(--radius);
+                padding: 1rem;
+                min-height: 200px;
+                max-height: 400px;
+                overflow-y: auto;
+                font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+                font-size: 0.85rem;
+                line-height: 1.6;
+                margin-bottom: 1rem;
+            ">
+                <div class="rcon-line" style="color: var(--text-muted);">
+                    [Console] Bereit. Befehle werden hier angezeigt.
+                </div>
+            </div>
+
+            <!-- RCON-Eingabe -->
+            <form hx-post="/api/server/{{ server.server_id }}/rcon"
+                  hx-target="#rcon-output"
+                  hx-swap="beforeend scroll:#rcon-output:bottom"
+                  style="display: flex; gap: 0.5rem;"
+                  onsubmit="setTimeout(function(){ document.getElementById('rcon-input').value = ''; }, 50);">
+                <input type="text"
+                       id="rcon-input"
+                       name="command"
+                       placeholder="Befehl eingeben..."
+                       autocomplete="off"
+                       style="
+                           flex: 1;
+                           padding: 0.55rem 0.75rem;
+                           background: var(--bg-input);
+                           border: 1px solid var(--border-color);
+                           border-radius: var(--radius-sm);
+                           color: var(--text-primary);
+                           font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+                           font-size: 0.9rem;
+                       ">
+                <button type="submit" class="btn btn-primary">Senden</button>
+            </form>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Tab: Backups -->
+    <div id="tab-backups" class="tab-content" style="display: none;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <h3 class="subsection-title" style="margin: 0;">Backups</h3>
+            <button class="btn btn-primary btn-sm"
+                    hx-post="/api/server/{{ server.server_id }}/action"
+                    hx-vals='{"action": "backup"}'
+                    hx-target="#action-result"
+                    hx-swap="innerHTML"
+                    hx-confirm="Backup fuer {{ server.name }} erstellen?">
+                + Backup erstellen
+            </button>
+        </div>
+        <div hx-get="/api/server/{{ server.server_id }}/backups"
+             hx-trigger="load"
+             hx-swap="innerHTML">
+            <p style="color: var(--text-muted); padding: 1rem;">Backup-Liste wird geladen...</p>
+        </div>
+    </div>
+
+    <!-- Tab: World/Savegame Info -->
+    <div id="tab-world" class="tab-content" style="display: none;">
+        <div class="config-section">
+            <h3 class="subsection-title">
+                {% if server.type == 'minecraft' %}Welt-Informationen{% elif server.type == 'satisfactory' %}Session-Informationen{% else %}Server-Informationen{% endif %}
+            </h3>
+            {% if server.world_info %}
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 0.75rem;">
+                {% for key, value in server.world_info.items() %}
+                <div style="
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    padding: 0.6rem 0;
+                    border-bottom: 1px solid var(--border-color);
+                ">
+                    <span style="color: var(--text-secondary); font-size: 0.85rem;">{{ key }}</span>
+                    <span style="font-weight: 600; font-size: 0.9rem;">{{ value }}</span>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p style="color: var(--text-muted); padding: 1rem;">Keine Welt-/Savegame-Daten verfuegbar.</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Tab: Server Config -->
+    <div id="tab-config" class="tab-content" style="display: none;">
+        <div class="config-section">
+            <h3 class="subsection-title">Server-Konfiguration (nur Lesen)</h3>
+            {% if server.server_config %}
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0.75rem;">
+                {% for key, value in server.server_config.items() %}
+                <div style="
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    padding: 0.6rem 0;
+                    border-bottom: 1px solid var(--border-color);
+                ">
+                    <span style="color: var(--text-secondary); font-size: 0.85rem;">{{ key }}</span>
+                    <span style="font-weight: 600; font-size: 0.9rem;">
+                        {% if value is sameas true %}
+                            <span style="color: var(--success);">Aktiviert</span>
+                        {% elif value is sameas false %}
+                            <span style="color: var(--danger);">Deaktiviert</span>
+                        {% else %}
+                            {{ value }}
+                        {% endif %}
+                    </span>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p style="color: var(--text-muted); padding: 1rem;">Keine Konfigurationsdaten verfuegbar.</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Tab: Update Status -->
+    <div id="tab-updates" class="tab-content" style="display: none;">
+        <div class="config-section">
+            <h3 class="subsection-title">Update-Status</h3>
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem;">
+                <!-- Aktuelle Version -->
+                <div class="stat-card">
+                    <h4>Aktuelle Version</h4>
+                    <span style="font-size: 1.2rem; font-weight: 700; color: var(--text-primary);">
+                        {{ server.update_info.current_version }}
+                    </span>
+                </div>
+                <!-- Verfuegbare Version -->
+                <div class="stat-card">
+                    <h4>Verfuegbare Version</h4>
+                    <span style="font-size: 1.2rem; font-weight: 700;
+                        {% if server.update_info.update_available %}color: var(--warning);{% else %}color: var(--text-primary);{% endif %}
+                    ">
+                        {{ server.update_info.available_version }}
+                    </span>
+                </div>
+                <!-- Update-Status -->
+                <div class="stat-card">
+                    <h4>Status</h4>
+                    {% if server.update_info.update_available %}
+                    <span style="
+                        display: inline-block;
+                        padding: 0.3rem 0.8rem;
+                        background: rgba(243, 156, 18, 0.2);
+                        color: var(--warning);
+                        border-radius: 12px;
+                        font-size: 0.85rem;
+                        font-weight: 600;
+                    ">Update verfuegbar</span>
+                    {% else %}
+                    <span style="
+                        display: inline-block;
+                        padding: 0.3rem 0.8rem;
+                        background: rgba(46, 204, 113, 0.2);
+                        color: var(--success);
+                        border-radius: 12px;
+                        font-size: 0.85rem;
+                        font-weight: 600;
+                    ">Aktuell</span>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Tab-Umschaltung JavaScript -->
+<style>
+    .detail-tab.active {
+        color: var(--text-primary) !important;
+        border-bottom-color: var(--accent) !important;
+    }
+    .detail-tab:hover {
+        color: var(--text-primary) !important;
+        background: var(--bg-hover);
+    }
+    .rcon-line {
+        padding: 0.2rem 0;
+        color: var(--text-primary);
+    }
+    .rcon-timestamp {
+        color: var(--text-muted);
+        margin-right: 0.5rem;
+    }
+    .rcon-input {
+        color: var(--accent-light);
+    }
+    .rcon-output {
+        color: var(--success);
+    }
+    .rcon-error {
+        color: var(--danger);
+    }
+    code {
+        font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    }
+</style>
+
+<script>
+function switchTab(btn, tabId) {
+    // Alle Tabs ausblenden
+    document.querySelectorAll('.tab-content').forEach(function(tab) {
+        tab.style.display = 'none';
+    });
+    // Alle Tab-Buttons deaktivieren
+    document.querySelectorAll('.detail-tab').forEach(function(t) {
+        t.classList.remove('active');
+    });
+    // Gewaehlten Tab anzeigen
+    document.getElementById(tabId).style.display = 'block';
+    btn.classList.add('active');
+}
+
+// RCON-Eingabe: Enter-Taste zum Absenden
+document.addEventListener('DOMContentLoaded', function() {
+    var rconInput = document.getElementById('rcon-input');
+    if (rconInput) {
+        rconInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                rconInput.closest('form').dispatchEvent(new Event('submit', { bubbles: true }));
+            }
+        });
+    }
+});
+</script>
+{% endblock %}

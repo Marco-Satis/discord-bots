@@ -1,0 +1,57 @@
+<!-- HTMX-Partial: Backup-Liste fuer Server-Detailseite -->
+<div class="table-wrapper">
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Dateiname</th>
+                <th>Groesse</th>
+                <th>Datum</th>
+                <th>Aktionen</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for backup in backups %}
+            <tr>
+                <td>
+                    <span style="font-family: monospace; font-size: 0.85rem;">{{ backup.filename }}</span>
+                </td>
+                <td>{{ backup.size_display }}</td>
+                <td class="col-timestamp">{{ backup.date }}</td>
+                <td>
+                    <div style="display: flex; gap: 0.35rem;">
+                        <button class="btn btn-sm btn-secondary"
+                                hx-post="/api/server/{{ server_id }}/action"
+                                hx-vals='{"action": "download_backup", "filename": "{{ backup.filename }}"}'
+                                hx-target="#action-result"
+                                hx-swap="innerHTML"
+                                style="padding: 0.2rem 0.5rem; font-size: 0.75rem;">
+                            Download
+                        </button>
+                        <button class="btn btn-sm btn-danger"
+                                hx-post="/api/server/{{ server_id }}/action"
+                                hx-vals='{"action": "delete_backup", "filename": "{{ backup.filename }}"}'
+                                hx-target="#action-result"
+                                hx-swap="innerHTML"
+                                hx-confirm="Backup {{ backup.filename }} wirklich loeschen? Diese Aktion kann nicht rueckgaengig gemacht werden."
+                                style="padding: 0.2rem 0.5rem; font-size: 0.75rem;">
+                            Loeschen
+                        </button>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+            {% if not backups %}
+            <tr>
+                <td colspan="4" class="empty-row" style="color: var(--text-muted);">
+                    Keine Backups vorhanden
+                </td>
+            </tr>
+            {% endif %}
+        </tbody>
+    </table>
+</div>
+{% if backups %}
+<p style="color: var(--text-muted); font-size: 0.8rem; margin-top: 0.5rem; text-align: right;">
+    {{ backups|length }} Backup(s) gefunden
+</p>
+{% endif %}

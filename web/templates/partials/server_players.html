@@ -1,0 +1,59 @@
+<!-- HTMX-Partial: Spielerliste fuer Server-Detailseite -->
+<div class="table-wrapper">
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Spieler</th>
+                <th>Seit</th>
+                <th>Aktionen</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for player in players %}
+            <tr>
+                <td>
+                    <span style="font-weight: 600;">{{ player.name }}</span>
+                    {% if player.uuid is defined and player.uuid %}
+                    <br><small style="color: var(--text-muted); font-family: monospace; font-size: 0.75rem;">{{ player.uuid }}</small>
+                    {% endif %}
+                </td>
+                <td class="col-timestamp">{{ player.joined if player.joined is defined else 'N/A' }}</td>
+                <td>
+                    <div style="display: flex; gap: 0.35rem;">
+                        <button class="btn btn-sm btn-warning"
+                                hx-post="/api/server/{{ server_id }}/action"
+                                hx-vals='{"action": "kick", "target": "{{ player.name }}"}'
+                                hx-target="#action-result"
+                                hx-swap="innerHTML"
+                                hx-confirm="Spieler {{ player.name }} kicken?"
+                                style="padding: 0.2rem 0.5rem; font-size: 0.75rem;">
+                            Kick
+                        </button>
+                        <button class="btn btn-sm btn-danger"
+                                hx-post="/api/server/{{ server_id }}/action"
+                                hx-vals='{"action": "ban", "target": "{{ player.name }}"}'
+                                hx-target="#action-result"
+                                hx-swap="innerHTML"
+                                hx-confirm="Spieler {{ player.name }} bannen? Diese Aktion kann nicht einfach rueckgaengig gemacht werden."
+                                style="padding: 0.2rem 0.5rem; font-size: 0.75rem;">
+                            Ban
+                        </button>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+            {% if not players %}
+            <tr>
+                <td colspan="3" class="empty-row" style="color: var(--text-muted);">
+                    Keine Spieler online
+                </td>
+            </tr>
+            {% endif %}
+        </tbody>
+    </table>
+</div>
+{% if players %}
+<p style="color: var(--text-muted); font-size: 0.8rem; margin-top: 0.5rem; text-align: right;">
+    {{ players|length }} Spieler online &middot; Automatische Aktualisierung alle 10 Sekunden
+</p>
+{% endif %}
