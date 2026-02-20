@@ -14,7 +14,11 @@ from pathlib import Path
 from typing import Optional
 from discord import app_commands
 from discord.ext import commands
-from utils import get_logger, format_uptime, format_bytes, owner_only, admin_only, status_emoji
+from utils import (
+    get_logger, format_uptime, format_bytes,
+    owner_only, admin_only, status_emoji,
+    is_owner, is_admin, is_spieler,
+)
 from utils.config import DATA_DIR
 
 logger = get_logger("cogs.general")
@@ -462,91 +466,189 @@ class GeneralCog(commands.Cog):
             asyncio.create_task(_send())
 
     # ------------------------------------------------------------------
-    # /help - Alle
+    # /help - Alle (rollenbasiert)
     # ------------------------------------------------------------------
 
-    @app_commands.command(name="help", description="Alle Commands anzeigen")
+    # Berechtigungsstufen fuer Command-Filterung
+    _LEVEL_ALL = 0
+    _LEVEL_SPIELER = 1
+    _LEVEL_ADMIN = 2
+    _LEVEL_OWNER = 3
+
+    # Command-Datenstruktur: (command, beschreibung, level)
+    # Wird dynamisch gefiltert basierend auf User-Rolle
+    _HELP_COMMANDS: dict[str, list[tuple[str, str, int]]] = {
+        "Satisfactory — Server": [
+            ("/sat status", "Server-Status", _LEVEL_ALL),
+            ("/sat start", "Server starten", _LEVEL_ADMIN),
+            ("/sat stop", "Server stoppen", _LEVEL_ADMIN),
+            ("/sat restart", "Neustart mit Countdown", _LEVEL_ADMIN),
+            ("/sat cancel", "Vorgang abbrechen", _LEVEL_ADMIN),
+        ],
+        "Satisfactory — Spieler": [
+            ("/sat players online", "Online-Spieler", _LEVEL_ALL),
+            ("/sat players ban", "Spieler bannen", _LEVEL_ADMIN),
+            ("/sat players unban", "Ban aufheben", _LEVEL_ADMIN),
+            ("/sat players bans", "Alle Bans anzeigen", _LEVEL_SPIELER),
+        ],
+        "Satisfactory — Backup": [
+            ("/sat backup create", "Backup erstellen", _LEVEL_SPIELER),
+            ("/sat backup save", "Spiel speichern", _LEVEL_SPIELER),
+            ("/sat backup download", "Savegame laden", _LEVEL_SPIELER),
+            ("/sat backup list", "Backups auflisten", _LEVEL_SPIELER),
+            ("/sat backup restore", "Backup wiederherstellen", _LEVEL_OWNER),
+        ],
+        "Satisfactory — Config": [
+            ("/sat config settings", "Einstellungen anzeigen", _LEVEL_SPIELER),
+            ("/sat config playerlimit", "Spielerlimit aendern", _LEVEL_ADMIN),
+            ("/sat config stats", "Savegame-Statistiken", _LEVEL_SPIELER),
+            ("/sat config update", "Server updaten", _LEVEL_OWNER),
+            ("/sat config console", "Server-Konsole", _LEVEL_OWNER),
+            ("/sat config autosave", "Autosave konfigurieren", _LEVEL_ADMIN),
+            ("/sat config settings_backup", "Settings sichern", _LEVEL_ADMIN),
+            ("/sat config settings_restore", "Settings wiederherstellen", _LEVEL_OWNER),
+        ],
+        "Satisfactory — Blueprints": [
+            ("/sat blueprints upload", "Blueprint hochladen", _LEVEL_SPIELER),
+            ("/sat blueprints list", "Blueprints anzeigen", _LEVEL_SPIELER),
+            ("/sat blueprints download", "Blueprint laden", _LEVEL_SPIELER),
+            ("/sat blueprints delete", "Blueprint loeschen", _LEVEL_SPIELER),
+        ],
+        "Satisfactory — Listen": [
+            ("/sat whitelist add|remove|list", "Whitelist verwalten", _LEVEL_ADMIN),
+            ("/sat blacklist add|remove|list", "Blacklist verwalten", _LEVEL_ADMIN),
+        ],
+        "Minecraft — Server": [
+            ("/mc status [server]", "Server-Status", _LEVEL_ALL),
+            ("/mc start [server]", "Server starten", _LEVEL_ADMIN),
+            ("/mc stop [server]", "Server stoppen", _LEVEL_ADMIN),
+            ("/mc restart [server]", "Neustart mit Countdown", _LEVEL_ADMIN),
+            ("/mc cancel", "Vorgang abbrechen", _LEVEL_ADMIN),
+        ],
+        "Minecraft — Spieler": [
+            ("/mc players list [server]", "Online-Spieler", _LEVEL_ALL),
+            ("/mc players kick", "Spieler kicken", _LEVEL_ADMIN),
+            ("/mc players ban", "Spieler bannen (RCON + IP)", _LEVEL_ADMIN),
+            ("/mc players pardon", "Spieler entbannen", _LEVEL_ADMIN),
+        ],
+        "Minecraft — Backup & Welt": [
+            ("/mc backup create [server]", "Backup erstellen", _LEVEL_SPIELER),
+            ("/mc backup list [server]", "Backups auflisten", _LEVEL_SPIELER),
+            ("/mc backup download [server]", "Backup herunterladen", _LEVEL_SPIELER),
+            ("/mc backup restore [server]", "Backup wiederherstellen", _LEVEL_OWNER),
+        ],
+        "Minecraft — Config": [
+            ("/mc config settings [server]", "Einstellungen anzeigen", _LEVEL_ALL),
+            ("/mc config set <key> <value>", "Einstellung aendern", _LEVEL_ADMIN),
+            ("/mc config update [server]", "Paper-Update pruefen", _LEVEL_OWNER),
+            ("/mc config stats [server]", "World-Statistiken", _LEVEL_ALL),
+            ("/mc config autosave", "Autosave konfigurieren", _LEVEL_ADMIN),
+            ("/mc config modpack_check", "Modpack-Updates pruefen", _LEVEL_ADMIN),
+        ],
+        "Minecraft — Listen": [
+            ("/mc whitelist add|remove|list", "Whitelist verwalten", _LEVEL_ADMIN),
+            ("/mc blacklist add|remove|list", "Blacklist verwalten", _LEVEL_ADMIN),
+            ("/mc blacklist history", "Ban-Historie einsehen", _LEVEL_SPIELER),
+        ],
+        "Minecraft — Admin": [
+            ("/mc say <nachricht>", "Ankuendigung senden (Banner)", _LEVEL_ADMIN),
+            ("/mc command <cmd>", "RCON-Befehl ausfuehren", _LEVEL_OWNER),
+        ],
+        "Moderation": [
+            ("/timeout <spieler> <dauer> [grund]", "Multi-Server Temp-Ban", _LEVEL_ADMIN),
+            ("/timeout status", "Eigene Timeout-Info", _LEVEL_ALL),
+            ("/timeout aufheben <spieler>", "Timeout aufheben", _LEVEL_ADMIN),
+            ("/timeout list", "Alle aktiven Timeouts", _LEVEL_ADMIN),
+            ("/timeout history <spieler>", "Timeout-Historie", _LEVEL_ADMIN),
+        ],
+        "Mods": [
+            ("/mod list [server]", "Installierte Mods anzeigen", _LEVEL_SPIELER),
+            ("/mod info <name> [server]", "Mod-Details anzeigen", _LEVEL_SPIELER),
+            ("/mod install <name> [server]", "Mod installieren", _LEVEL_ADMIN),
+            ("/mod uninstall <name>", "Mod deinstallieren", _LEVEL_ADMIN),
+            ("/mod update", "Mods aktualisieren", _LEVEL_ADMIN),
+            ("/mod search <query>", "Mods suchen", _LEVEL_ADMIN),
+        ],
+        "Monitor": [
+            ("/performance", "System-Performance", _LEVEL_SPIELER),
+            ("/stats [spieler]", "Spieler-Statistiken", _LEVEL_SPIELER),
+            ("/report [tage]", "Wochen-/Monatsbericht", _LEVEL_SPIELER),
+            ("/dashboard", "Dashboard aktualisieren", _LEVEL_ADMIN),
+            ("/scheduler", "Scheduler-Status", _LEVEL_ADMIN),
+            ("/email test|status", "Email-Benachrichtigungen", _LEVEL_ADMIN),
+            ("/onedrive status|upload|list", "Cloud-Backup", _LEVEL_ADMIN),
+        ],
+        "Allgemein": [
+            ("/help", "Diese Uebersicht", _LEVEL_ALL),
+            ("/server", "Server-Uebersicht", _LEVEL_ALL),
+            ("/clear [anzahl] [stunden]", "Nachrichten loeschen", _LEVEL_ADMIN),
+            ("/ping", "Bot-Latenz", _LEVEL_OWNER),
+            ("/reload <cog>", "Cog neuladen", _LEVEL_OWNER),
+        ],
+    }
+
+    # Beschriftungen fuer Berechtigungsstufen im Embed
+    _LEVEL_LABELS = {
+        _LEVEL_SPIELER: "(Spieler)",
+        _LEVEL_ADMIN: "(Admin)",
+        _LEVEL_OWNER: "(Owner)",
+    }
+
+    def _get_user_level(self, interaction: discord.Interaction) -> int:
+        """Ermittelt die hoechste Berechtigungsstufe des Users"""
+        if is_owner(interaction):
+            return self._LEVEL_OWNER
+        if is_admin(interaction):
+            return self._LEVEL_ADMIN
+        if is_spieler(interaction):
+            return self._LEVEL_SPIELER
+        return self._LEVEL_ALL
+
+    @app_commands.command(name="help", description="Verfuegbare Commands anzeigen")
     async def help_cmd(self, interaction: discord.Interaction):
+        """Zeigt nur Commands an, fuer die der User die Berechtigung hat."""
+        user_level = self._get_user_level(interaction)
+
+        # Rollenlabel fuer Titel
+        level_names = {
+            self._LEVEL_ALL: "Alle",
+            self._LEVEL_SPIELER: "Spieler",
+            self._LEVEL_ADMIN: "Admin",
+            self._LEVEL_OWNER: "Owner",
+        }
+        role_name = level_names.get(user_level, "Alle")
+
         embed = discord.Embed(
-            title="Befehls-Uebersicht",
-            color=0x5865F2
+            title=f"Befehls-Uebersicht — {role_name}",
+            description="Nur Commands die du ausfuehren darfst werden angezeigt.",
+            color=0x5865F2,
         )
 
-        # Satisfactory Core
-        core_cmds = (
-            "`/sat status` - Server-Status\n"
-            "`/sat start` - Server starten (Admin)\n"
-            "`/sat stop` - Server stoppen (Admin)\n"
-            "`/sat restart` - Neustart mit Countdown (Admin)\n"
-            "`/sat cancel` - Vorgang abbrechen (Admin)"
-        )
-        embed.add_field(name="Satisfactory - Server", value=core_cmds, inline=False)
+        # MC-Server vorhanden?
+        has_mc = bool(getattr(self.bot, 'mc_servers', {}))
 
-        # Satisfactory Players
-        player_cmds = (
-            "`/sat players online` - Online-Spieler\n"
-            "`/sat players ban` - Spieler bannen (Admin)\n"
-            "`/sat players unban` - Ban aufheben (Admin)\n"
-            "`/sat players bans` - Alle Bans anzeigen"
-        )
-        embed.add_field(name="Spieler", value=player_cmds, inline=False)
+        for category, commands_list in self._HELP_COMMANDS.items():
+            # MC-Kategorien nur anzeigen wenn MC-Server konfiguriert
+            if category.startswith("Minecraft") and not has_mc:
+                continue
 
-        # Backup & Config
-        backup_cmds = (
-            "`/sat backup create` - Backup erstellen\n"
-            "`/sat backup save` - Spiel speichern\n"
-            "`/sat backup download` - Savegame laden\n"
-            "`/sat backup list` - Backups auflisten\n"
-            "`/sat backup restore` - Restore (Owner)"
-        )
-        embed.add_field(name="Backup", value=backup_cmds, inline=False)
+            # Nur Commands filtern die der User ausfuehren darf
+            visible = []
+            for cmd_name, cmd_desc, cmd_level in commands_list:
+                if cmd_level <= user_level:
+                    # Berechtigungslabel nur fuer Admins/Owner sichtbar
+                    label = ""
+                    if user_level >= self._LEVEL_ADMIN and cmd_level > self._LEVEL_ALL:
+                        label = f" {self._LEVEL_LABELS.get(cmd_level, '')}"
+                    visible.append(f"`{cmd_name}` — {cmd_desc}{label}")
 
-        config_cmds = (
-            "`/sat config settings` - Einstellungen\n"
-            "`/sat config playerlimit` - Spielerlimit (Admin)\n"
-            "`/sat config stats` - Savegame-Statistiken\n"
-            "`/sat config update` - Server updaten (Owner)\n"
-            "`/sat config console` - Konsole (Owner)"
-        )
-        embed.add_field(name="Konfiguration", value=config_cmds, inline=False)
-
-        # Blueprints & Lists
-        bp_cmds = (
-            "`/sat blueprints upload` - Blueprint hochladen\n"
-            "`/sat blueprints list` - Blueprints anzeigen\n"
-            "`/sat blueprints download` - Blueprint laden\n"
-            "`/sat blueprints delete` - Blueprint loeschen"
-        )
-        embed.add_field(name="Blueprints", value=bp_cmds, inline=False)
-
-        # Timeout
-        embed.add_field(
-            name="Moderation",
-            value="`/timeout [spieler] [min] [grund]` - Game-Kick + Discord-Timeout (Admin)",
-            inline=False
-        )
-
-        # Monitor
-        monitor_cmds = (
-            "`/performance` - System-Performance (Spieler)\n"
-            "`/stats [spieler]` - Spieler-Statistiken (Spieler)\n"
-            "`/report [tage]` - Wochen-/Monatsbericht (Spieler)\n"
-            "`/dashboard` - Dashboard aktualisieren (Admin)\n"
-            "`/scheduler` - Scheduler-Status (Admin)\n"
-            "`/email test|status` - Email-Benachrichtigungen (Admin)\n"
-            "`/onedrive status|upload|list` - Cloud-Backup (Admin)"
-        )
-        embed.add_field(name="Monitor", value=monitor_cmds, inline=False)
-
-        # General
-        general_cmds = (
-            "`/help` - Diese Uebersicht\n"
-            "`/server` - Server-Uebersicht\n"
-            "`/clear [anzahl] [stunden] [von] [bis]` - Nachrichten loeschen, nochmal = Abbruch (Admin)\n"
-            "`/ping` - Bot-Latenz (Owner)\n"
-            "`/reload` - Cog neuladen (Owner)"
-        )
-        embed.add_field(name="Allgemein", value=general_cmds, inline=False)
+            # Kategorie nur anzeigen wenn mindestens ein Command sichtbar
+            if visible:
+                embed.add_field(
+                    name=category,
+                    value="\n".join(visible),
+                    inline=False,
+                )
 
         embed.set_footer(text="Owner > Admin > Spieler > Alle")
         await interaction.response.send_message(embed=embed, ephemeral=True)
