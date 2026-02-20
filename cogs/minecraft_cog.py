@@ -859,7 +859,8 @@ class MinecraftCog(commands.Cog):
             logger.error(f"[{srv.server_id}] Restore fehlgeschlagen: {e}")
 
     # ╔════════════════════════════════════════════════════════════════╗
-    # ║  ADMIN BEFEHLE: say, difficulty, weather, time, gamemode       ║
+    # ║  ADMIN BEFEHLE: say                                            ║
+    # ║  (difficulty, weather, time, gamemode entfernt — nur In-Game)  ║
     # ╚════════════════════════════════════════════════════════════════╝
 
     @mc.command(name="say", description="Nachricht im Spiel ansagen")
@@ -889,146 +890,9 @@ class MinecraftCog(commands.Cog):
                 f"Fehler beim Senden: {e}", ephemeral=True
             )
 
-    @mc.command(name="difficulty", description="Schwierigkeitsgrad einstellen")
-    @admin_only()
-    @app_commands.autocomplete(server=_server_autocomplete)
-    async def mc_difficulty(self, interaction: discord.Interaction,
-                            level: str,
-                            server: Optional[str] = None):
-        valid_levels = ["peaceful", "easy", "normal", "hard"]
-        if level.lower() not in valid_levels:
-            await interaction.response.send_message(
-                f"Ungueltig. Valide: {', '.join(valid_levels)}",
-                ephemeral=True
-            )
-            return
-
-        await interaction.response.defer()
-        srv = await self._require_online_server(interaction, server)
-        if not srv:
-            return
-
-        try:
-            await srv.rcon_command(f"difficulty {level.lower()}")
-            embed = discord.Embed(
-                title=f"Schwierigkeit geaendert — {srv.display_name}",
-                description=f"Neue Schwierigkeit: **{level}**",
-                color=0x00ff00,
-            )
-            embed.set_footer(text=f"von {interaction.user.display_name}")
-            await interaction.followup.send(embed=embed)
-        except Exception as e:
-            await interaction.followup.send(f"Fehler: {e}", ephemeral=True)
-
-    @mc.command(name="weather", description="Wetter einstellen")
-    @admin_only()
-    @app_commands.autocomplete(server=_server_autocomplete)
-    async def mc_weather(self, interaction: discord.Interaction,
-                         weather_type: str,
-                         server: Optional[str] = None):
-        valid_types = ["clear", "rain", "thunder"]
-        if weather_type.lower() not in valid_types:
-            await interaction.response.send_message(
-                f"Ungueltig. Valide: {', '.join(valid_types)}",
-                ephemeral=True
-            )
-            return
-
-        await interaction.response.defer()
-        srv = await self._require_online_server(interaction, server)
-        if not srv:
-            return
-
-        try:
-            await srv.rcon_command(f"weather {weather_type.lower()}")
-            embed = discord.Embed(
-                title=f"Wetter geaendert — {srv.display_name}",
-                description=f"Neues Wetter: **{weather_type}**",
-                color=0x00ff00,
-            )
-            embed.set_footer(text=f"von {interaction.user.display_name}")
-            await interaction.followup.send(embed=embed)
-        except Exception as e:
-            await interaction.followup.send(f"Fehler: {e}", ephemeral=True)
-
-    @mc.command(name="time", description="Tageszeit einstellen")
-    @admin_only()
-    @app_commands.autocomplete(server=_server_autocomplete)
-    async def mc_time(self, interaction: discord.Interaction,
-                      value: str,
-                      server: Optional[str] = None):
-        valid_presets = ["day", "night", "noon", "midnight"]
-        if value.lower() not in valid_presets:
-            try:
-                time_val = int(value)
-                if not (0 <= time_val <= 24000):
-                    await interaction.response.send_message(
-                        "Zeit muss zwischen 0 und 24000 liegen.",
-                        ephemeral=True
-                    )
-                    return
-            except ValueError:
-                await interaction.response.send_message(
-                    f"Ungueltig. Presets: {', '.join(valid_presets)} oder 0-24000",
-                    ephemeral=True
-                )
-                return
-
-        await interaction.response.defer()
-        srv = await self._require_online_server(interaction, server)
-        if not srv:
-            return
-
-        try:
-            await srv.rcon_command(f"time set {value}")
-            embed = discord.Embed(
-                title=f"Zeit geaendert — {srv.display_name}",
-                description=f"Neue Zeit: **{value}**",
-                color=0x00ff00,
-            )
-            embed.set_footer(text=f"von {interaction.user.display_name}")
-            await interaction.followup.send(embed=embed)
-        except Exception as e:
-            await interaction.followup.send(f"Fehler: {e}", ephemeral=True)
-
-    @mc.command(name="gamemode", description="Spielmodus setzen")
-    @admin_only()
-    @app_commands.autocomplete(server=_server_autocomplete)
-    async def mc_gamemode(self, interaction: discord.Interaction,
-                          mode: str,
-                          player: Optional[str] = None,
-                          server: Optional[str] = None):
-        valid_modes = ["survival", "creative", "adventure", "spectator"]
-        if mode.lower() not in valid_modes:
-            await interaction.response.send_message(
-                f"Ungueltig. Valide: {', '.join(valid_modes)}",
-                ephemeral=True
-            )
-            return
-
-        await interaction.response.defer()
-        srv = await self._require_online_server(interaction, server)
-        if not srv:
-            return
-
-        try:
-            if player:
-                safe_player = _sanitize_rcon_input(player)
-                cmd = f"gamemode {mode.lower()} {safe_player}"
-            else:
-                cmd = f"gamemode {mode.lower()}"
-            await srv.rcon_command(cmd)
-
-            target = player or "Alle"
-            embed = discord.Embed(
-                title=f"Spielmodus geaendert — {srv.display_name}",
-                description=f"**{target}**: {mode}",
-                color=0x00ff00,
-            )
-            embed.set_footer(text=f"von {interaction.user.display_name}")
-            await interaction.followup.send(embed=embed)
-        except Exception as e:
-            await interaction.followup.send(f"Fehler: {e}", ephemeral=True)
+    # --- F22: difficulty, weather, time, gamemode entfernt (v3.2.0) ---
+    # Diese Gameplay-Commands werden direkt In-Game verwendet.
+    # Entfernt: mc_difficulty, mc_weather, mc_time, mc_gamemode
 
     # ╔════════════════════════════════════════════════════════════════╗
     # ║  CONFIG: /mc config settings | set | backup | restore | ...    ║
