@@ -59,7 +59,8 @@ intents.members = True
 bot = commands.Bot(
     command_prefix="!",
     intents=intents,
-    help_command=None  # We use our own /help
+    help_command=None,  # We use our own /help
+    allowed_mentions=discord.AllowedMentions.none(),
 )
 
 # Attach shared instances to bot for cog access

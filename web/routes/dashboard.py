@@ -16,6 +16,8 @@ from utils.config import PROJECT_ROOT, DATA_DIR, MONITOR_DATA_DIR
 from utils.logger import get_logger
 from web.auth import get_current_user
 
+EVENTS_FILE = MONITOR_DATA_DIR / "events.json"
+
 logger = get_logger("web.routes.dashboard")
 
 TEMPLATE_DIR = Path(__file__).parent.parent / "templates"
@@ -37,8 +39,11 @@ def _load_json_safe(filepath: Path) -> dict:
 
 def _collect_server_status() -> list[dict]:
     """
-    Sammelt Server-Status-Daten aus data/monitor/ JSON-Dateien.
+    Sammelt Server-Status-Daten aus data/monitor/*_status.json Dateien.
     Gibt eine Liste von Server-Status-Dicts zurueck.
+
+    Liest NUR Dateien die auf _status.json enden — ignoriert
+    stats_history.json, events.json, *_players.json usw.
     """
     servers = []
     monitor_dir = MONITOR_DATA_DIR
@@ -47,17 +52,25 @@ def _collect_server_status() -> list[dict]:
         logger.debug(f"Monitor-Verzeichnis nicht gefunden: {monitor_dir}")
         return servers
 
-    # Alle JSON-Dateien im Monitor-Verzeichnis durchsuchen
-    for json_file in sorted(monitor_dir.glob("*.json")):
+    # Nur *_status.json Dateien lesen (vom StatusWriter erzeugt)
+    # bot_status.json ausschliessen (wird unter Bot-Status angezeigt)
+    for json_file in sorted(monitor_dir.glob("*_status.json")):
+        if json_file.name == "bot_status.json":
+            continue
         data = _load_json_safe(json_file)
         if data:
+            # Server-ID aus Dateiname: satisfactory_status.json → satisfactory
+            server_id = json_file.stem.replace("_status", "")
             servers.append({
-                "name": data.get("name", json_file.stem),
+                "id": data.get("id", server_id),
+                "name": data.get("name", server_id),
                 "status": data.get("status", "unknown"),
                 "players": data.get("players", 0),
                 "max_players": data.get("max_players", 0),
                 "uptime": data.get("uptime", "N/A"),
                 "type": data.get("type", "unknown"),
+                "cpu_percent": data.get("cpu_percent", 0),
+                "memory_mb": data.get("memory_mb", 0),
                 "source_file": json_file.name,
             })
 
@@ -163,3 +176,24 @@ async def dashboard_overview(request: Request):
         "bots": bot_status,
         "events": recent_events,
     })
+
+
+@router.post("/api/events/clear", response_class=HTMLResponse)
+async def clear_events(request: Request):
+    """Loescht alle Ereignisse aus dem Event-Log."""
+    user = get_current_user(request)
+    if user is None:
+        return HTMLResponse('<div class="alert alert-danger">Nicht authentifiziert</div>', status_code=401)
+
+    try:
+        EVENTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(EVENTS_FILE, "w", encoding="utf-8") as f:
+            json.dump({"events": [], "last_update": ""}, f)
+        logger.info(f"Ereignis-Log geleert von {user.get('username', 'Unbekannt')}")
+        return HTMLResponse(
+            '<div class="alert alert-success" style="margin-bottom: 0.5rem;">Ereignis-Log geleert.</div>'
+            '<p class="empty-text">Keine Ereignisse vorhanden.</p>'
+        )
+    except Exception as e:
+        logger.error(f"Fehler beim Leeren des Event-Logs: {e}")
+        return HTMLResponse('<div class="alert alert-danger">Fehler beim Leeren des Event-Logs.</div>')

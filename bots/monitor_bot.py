@@ -62,6 +62,7 @@ from modules.minecraft.chat_bridge import MinecraftChatBridge
 from modules.minecraft.settings_backup import MinecraftSettingsBackup
 from modules.minecraft.update_checker import MinecraftUpdateChecker
 from modules.monitoring.web_status import WebStatusGenerator
+from modules.monitoring.status_writer import StatusWriter
 from modules.minecraft.modpack_updater import ModpackUpdater
 from modules.monitoring.stats_collector import StatsCollector
 
@@ -104,7 +105,10 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
-bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
+bot = commands.Bot(
+    command_prefix="!", intents=intents, help_command=None,
+    allowed_mentions=discord.AllowedMentions.none(),
+)
 
 # ------------------------------------------------------------------
 # Service Initialization
@@ -508,6 +512,10 @@ bot.modpack_updater = modpack_updater
 
 stats_collector = StatsCollector(interval=300)  # Alle 5 Minuten
 bot.stats_collector = stats_collector
+
+# StatusWriter: Schreibt Server-/Bot-Status als JSON fuer das Web-Dashboard
+status_writer = StatusWriter(bot, interval=30)  # Alle 30 Sekunden
+bot.status_writer = status_writer
 
 # State - persistent status message ID
 _status_message_id = None
@@ -1783,6 +1791,10 @@ async def on_ready():
     # StatsCollector als Hintergrund-Task starten (nur beim ersten Start)
     if not stats_collector._running:
         await stats_collector.start()
+
+    # StatusWriter als Hintergrund-Task starten (schreibt JSON fuer Dashboard)
+    if not status_writer._running:
+        await status_writer.start()
 
     if _first_ready:
         logger.info("All background tasks started")

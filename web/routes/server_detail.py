@@ -5,6 +5,7 @@ Zeigt detaillierte Informationen zu einem Server:
 Spielerliste, RCON-Console, Backups, World-Info, Server-Steuerung.
 """
 
+import asyncio
 import html as html_escape_module
 import json
 from pathlib import Path
@@ -14,9 +15,10 @@ from fastapi import APIRouter, Request, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from utils.config import PROJECT_ROOT, DATA_DIR, MONITOR_DATA_DIR, get_config
+from utils.config import PROJECT_ROOT, DATA_DIR, MONITOR_DATA_DIR, get_config, get_env
 from utils.logger import get_logger
 from web.auth import get_current_user
+from modules.minecraft.rcon import MinecraftRCON
 
 logger = get_logger("web.routes.server_detail")
 
@@ -43,6 +45,14 @@ SERVER_TYPES = {
 
 # Backup-Verzeichnis (unterhalb von data/)
 BACKUP_BASE_DIR = DATA_DIR / "backups"
+
+# Server-ID → systemd Service-Name Zuordnung
+SERVICE_NAMES = {
+    "satisfactory": "satisfactory.service",
+    "mc_bmc": "minecraft-bmc.service",
+    "mc_vanilla": "minecraft-vanilla.service",
+    "teamspeak": "teamspeak.service",
+}
 
 
 def _load_json_safe(filepath: Path) -> dict:
@@ -126,47 +136,86 @@ def _get_server_info(server_id: str) -> dict:
     config = get_config()
 
     # Server-spezifische Konfigurationseintraege zusammenstellen
+    features = config.get("features", {})
+    scheduler = config.get("scheduler", {})
+    thresholds = config.get("thresholds", {})
+
+    restart_str = "Deaktiviert"
+    if scheduler.get("daily_restart_enabled"):
+        restart_str = f"{scheduler.get('daily_restart_hour', 4)}:{scheduler.get('daily_restart_minute', 0):02d} Uhr"
+
     server_config = {}
     if server_type == "minecraft":
         server_config = {
-            "Auto-Backup": config.get("features", {}).get("auto_backup", False),
-            "Auto-Update": config.get("features", {}).get("auto_update", False),
-            "Taglicher Neustart": config.get("restart", {}).get("daily_time", "N/A"),
-            "Health-Check Intervall": f"{config.get('intervals', {}).get('health_check_seconds', 120)}s",
-            "Backup-Intervall": f"{config.get('intervals', {}).get('auto_backup_seconds', 21600)}s",
-            "Max. lokale Backups": config.get("backup", {}).get("max_local", 20),
+            "Service-Name": status_data.get("service_name", "N/A"),
+            "Server-Version": status_data.get("version", "N/A"),
+            "Port": status_data.get("port", "N/A"),
+            "Max. Spieler": status_data.get("max_players", 20),
+            "Auto-Backup": features.get("auto_backup", False),
+            "Auto-Update": features.get("auto_update", False),
+            "Taeglicher Neustart": restart_str,
+            "Backup-Intervall": f"{scheduler.get('auto_backup_interval_hours', 6)} Stunden",
+            "Max. lokale Backups": scheduler.get("max_local_backups", 20),
+            "Max. Cloud-Backups": scheduler.get("max_cloud_backups", 10),
+            "Spieler-Tracking": features.get("player_tracking", False),
+            "Chat-Bridge": features.get("chat_bridge", False),
+            "Savegame-Schutz": features.get("savegame_protection", False),
+            "Status-Embed": features.get("status_embed", False),
         }
     elif server_type == "satisfactory":
         server_config = {
-            "Auto-Backup": config.get("features", {}).get("auto_backup", False),
-            "Auto-Update": config.get("features", {}).get("auto_update", False),
-            "Taglicher Neustart": config.get("restart", {}).get("daily_time", "N/A"),
-            "Health-Check Intervall": f"{config.get('intervals', {}).get('health_check_seconds', 120)}s",
+            "API erreichbar": status_data.get("api_reachable", "N/A"),
+            "Prozess laeuft": status_data.get("process_running", "N/A"),
+            "PID": status_data.get("pid", "N/A"),
+            "Max. Spieler": status_data.get("max_players", 0),
+            "Auto-Backup": features.get("auto_backup", False),
+            "Auto-Update": features.get("auto_update", False),
+            "Taeglicher Neustart": restart_str,
+            "Backup-Intervall": f"{scheduler.get('auto_backup_interval_hours', 6)} Stunden",
+            "Max. lokale Backups": scheduler.get("max_local_backups", 20),
+            "CPU-Warnung bei": f"{thresholds.get('cpu_warning', 80)}%",
+            "RAM-Warnung bei": f"{thresholds.get('ram_warning', 85)}%",
+            "Disk-Warnung bei": f"{thresholds.get('disk_warning', 90)}%",
+            "Tick-Rate-Warnung": f"< {thresholds.get('tick_rate_warning', 20)}",
+            "Spieler-Tracking": features.get("player_tracking", False),
+            "OneDrive-Backup": features.get("onedrive_backup", False),
+            "E-Mail-Benachrichtigungen": features.get("email_notifications", False),
+            "Steam-Changelog": features.get("steam_changelog", False),
+            "Graceful Degradation": features.get("graceful_degradation", False),
         }
     elif server_type == "teamspeak":
         server_config = {
-            "Health-Check Intervall": f"{config.get('intervals', {}).get('health_check_seconds', 120)}s",
+            "Service": "teamspeak.service",
+            "Port": "9987 (Voice) / 30033 (FileTransfer)",
         }
 
-    # World/Savegame-Info aus Status-Daten extrahieren
-    world_info = status_data.get("world_info", {})
-    if not world_info:
-        # Fallback: Standardwerte basierend auf Server-Typ
-        if server_type == "minecraft":
-            world_info = {
-                "Seed": status_data.get("seed", "N/A"),
-                "Weltalter": status_data.get("world_age", "N/A"),
-                "Weltgroesse": status_data.get("world_size", "N/A"),
-                "Schwierigkeit": status_data.get("difficulty", "N/A"),
-                "Spielmodus": status_data.get("gamemode", "N/A"),
-            }
-        elif server_type == "satisfactory":
-            world_info = {
-                "Session-Name": status_data.get("session_name", "N/A"),
-                "Spielstand": status_data.get("save_name", "N/A"),
-                "Spielzeit": status_data.get("play_time", "N/A"),
-                "Tier": status_data.get("tier", "N/A"),
-            }
+    # World/Savegame-Info aus Status-Daten
+    world_info = {}
+    if server_type == "minecraft":
+        world_info = {
+            "Server-Version": status_data.get("version", "N/A"),
+            "Status": status_data.get("status", "unknown").capitalize(),
+            "Spieler Online": f"{status_data.get('players', 0)}/{status_data.get('max_players', 20)}",
+            "Service-Name": status_data.get("service_name", "N/A"),
+            "Adresse": f"{status_data.get('address', 'N/A')}:{status_data.get('port', 'N/A')}",
+            "Offline-Checks": status_data.get("offline_checks", 0),
+            "Letztes Update": status_data.get("last_update", "N/A"),
+        }
+    elif server_type == "satisfactory":
+        tick = status_data.get("tick_rate")
+        world_info = {
+            "Session-Name": status_data.get("session_name", "N/A"),
+            "Status": status_data.get("status", "unknown").capitalize(),
+            "Spieler Online": f"{status_data.get('players', 0)}/{status_data.get('max_players', 0)}",
+            "Tick-Rate": f"{tick} FPS" if tick else "N/A",
+            "CPU-Auslastung": f"{status_data.get('cpu_percent', 0)}%",
+            "RAM-Verbrauch": f"{status_data.get('memory_mb', 0)} MB",
+            "Uptime": status_data.get("uptime", "N/A"),
+            "Adresse": f"{status_data.get('address', 'N/A')}:{status_data.get('port', 'N/A')}",
+            "PID": status_data.get("pid", "N/A"),
+            "API erreichbar": status_data.get("api_reachable", "N/A"),
+            "Letztes Update": status_data.get("last_update", "N/A"),
+        }
 
     # Update-Informationen
     update_info = {
@@ -304,15 +353,63 @@ async def server_action(request: Request, server_id: str, action: str = Form("")
 
     logger.info(f"Server-Aktion angefragt: {action} fuer {display_name} von Benutzer {user.get('username', 'Unbekannt')}")
 
-    # Platzhalter-Antwort — tatsaechliche Integration folgt spaeter
-    html = f"""
-    <div class="alert alert-warning">
-        <strong>Feature in Entwicklung:</strong>
-        Die Aktion &laquo;{action_display}&raquo; fuer <strong>{display_name}</strong>
-        wurde empfangen, aber die Server-Steuerung ist noch nicht mit dem Dashboard verbunden.
-        Diese Funktion wird aktiviert, sobald die Bots neben dem Dashboard laufen.
-    </div>
-    """
+    # systemd Service-Name ermitteln
+    service_name = SERVICE_NAMES.get(server_id)
+    if not service_name:
+        return HTMLResponse(
+            content=f'<div class="alert alert-danger">Kein Service fuer {display_name} konfiguriert.</div>',
+            status_code=400,
+        )
+
+    # systemctl-Aktion ausfuehren
+    systemctl_action = action
+    if action == "maintenance":
+        systemctl_action = "stop"
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "sudo", "systemctl", systemctl_action, service_name,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
+
+        if proc.returncode == 0:
+            html = f"""
+            <div class="alert alert-success">
+                <strong>Erfolgreich:</strong>
+                {action_display} fuer <strong>{display_name}</strong> wurde ausgefuehrt.
+            </div>
+            """
+            logger.info(f"Server-Aktion erfolgreich: {action} {service_name}")
+        else:
+            error_text = stderr.decode("utf-8", errors="replace").strip()
+            html = f"""
+            <div class="alert alert-danger">
+                <strong>Fehler:</strong>
+                {action_display} fuer <strong>{display_name}</strong> fehlgeschlagen.<br>
+                <code>{html_escape_module.escape(error_text[:500])}</code>
+            </div>
+            """
+            logger.error(f"Server-Aktion fehlgeschlagen: {action} {service_name} — {error_text}")
+
+    except asyncio.TimeoutError:
+        html = f"""
+        <div class="alert alert-warning">
+            <strong>Timeout:</strong>
+            {action_display} fuer <strong>{display_name}</strong> hat zu lange gedauert (30s Timeout).
+        </div>
+        """
+        logger.warning(f"Server-Aktion Timeout: {action} {service_name}")
+    except Exception as e:
+        html = f"""
+        <div class="alert alert-danger">
+            <strong>Fehler:</strong>
+            {action_display} konnte nicht ausgefuehrt werden: {html_escape_module.escape(str(e)[:300])}
+        </div>
+        """
+        logger.error(f"Server-Aktion Exception: {action} {service_name} — {e}")
+
     return HTMLResponse(content=html)
 
 
@@ -355,6 +452,7 @@ async def server_mods_partial(request: Request, server_id: str):
         "request": request,
         "mods": mods,
         "server_id": server_id,
+        "server_type": server_type,
     })
 
 
@@ -397,10 +495,11 @@ async def server_mods_export(request: Request, server_id: str):
 @router.post("/api/server/{server_id}/mods/search", response_class=HTMLResponse)
 async def server_mods_search(request: Request, server_id: str):
     """
-    Mod-Suche — Platzhalter-Endpunkt fuer Mod-Suche ueber Modrinth/CurseForge.
+    Mod-Suche — Platzhalter-Endpunkt.
 
-    Die tatsaechliche API-Integration erfolgt wenn die Bots neben dem
-    Dashboard laufen und der ModManager direkt angesprochen werden kann.
+    Unterstuetzt je nach Server-Typ verschiedene Quellen:
+    - Minecraft: Modrinth / CurseForge
+    - Satisfactory: ficsit.app (Satisfactory Mod Repository)
     """
     user = get_current_user(request)
     if user is None:
@@ -504,7 +603,8 @@ async def server_rcon(request: Request, server_id: str, command: str = Form(""))
             status_code=400,
         )
 
-    if not command.strip():
+    command = command.strip()[:500]  # Laengenbeschraenkung gegen DoS
+    if not command:
         return HTMLResponse(
             content='<div class="rcon-line rcon-error">&gt; Bitte einen Befehl eingeben.</div>',
         )
@@ -512,17 +612,59 @@ async def server_rcon(request: Request, server_id: str, command: str = Form(""))
     display_name = _get_server_display_name(server_id)
     logger.info(f"RCON-Befehl fuer {display_name}: {command} (von {user.get('username', 'Unbekannt')})")
 
-    # Platzhalter-Antwort — tatsaechliche RCON-Integration folgt spaeter
     timestamp = datetime.now().strftime("%H:%M:%S")
     safe_command = html_escape_module.escape(command)
-    resp_html = f"""
-    <div class="rcon-line">
-        <span class="rcon-timestamp">[{timestamp}]</span>
-        <span class="rcon-input">&gt; {safe_command}</span>
-    </div>
-    <div class="rcon-line rcon-response">
-        <span class="rcon-timestamp">[{timestamp}]</span>
-        <span class="rcon-output">[Feature in Entwicklung] Befehl empfangen: &laquo;{safe_command}&raquo; — RCON-Verbindung wird aktiviert, sobald die Bots neben dem Dashboard laufen.</span>
-    </div>
-    """
+
+    # RCON-Konfiguration aus ENV laden (MC_BMC_ oder MC_VANILLA_ Prefix)
+    rcon_prefixes = {
+        "mc_bmc": "MC_BMC_",
+        "mc_vanilla": "MC_VANILLA_",
+    }
+    prefix = rcon_prefixes.get(server_id, "")
+    rcon_host = get_env(f"{prefix}RCON_HOST", "127.0.0.1")
+    rcon_port = int(get_env(f"{prefix}RCON_PORT", "25575"))
+    rcon_password = get_env(f"{prefix}RCON_PASSWORD", "")
+
+    if not rcon_password:
+        resp_html = f"""
+        <div class="rcon-line">
+            <span class="rcon-timestamp">[{timestamp}]</span>
+            <span class="rcon-input">&gt; {safe_command}</span>
+        </div>
+        <div class="rcon-line rcon-error">
+            <span class="rcon-timestamp">[{timestamp}]</span>
+            <span class="rcon-output">Fehler: RCON-Passwort nicht konfiguriert ({prefix}RCON_PASSWORD).</span>
+        </div>
+        """
+        return HTMLResponse(content=resp_html)
+
+    try:
+        async with MinecraftRCON(rcon_host, rcon_port, rcon_password, timeout=5.0) as rcon:
+            response = await rcon.command(command)
+
+        safe_response = html_escape_module.escape(response[:2000]) if response else "(keine Antwort)"
+        resp_html = f"""
+        <div class="rcon-line">
+            <span class="rcon-timestamp">[{timestamp}]</span>
+            <span class="rcon-input">&gt; {safe_command}</span>
+        </div>
+        <div class="rcon-line rcon-response">
+            <span class="rcon-timestamp">[{timestamp}]</span>
+            <span class="rcon-output">{safe_response}</span>
+        </div>
+        """
+    except Exception as e:
+        error_msg = html_escape_module.escape(str(e)[:300])
+        resp_html = f"""
+        <div class="rcon-line">
+            <span class="rcon-timestamp">[{timestamp}]</span>
+            <span class="rcon-input">&gt; {safe_command}</span>
+        </div>
+        <div class="rcon-line rcon-error">
+            <span class="rcon-timestamp">[{timestamp}]</span>
+            <span class="rcon-output">RCON-Fehler: {error_msg}</span>
+        </div>
+        """
+        logger.error(f"RCON-Fehler fuer {display_name}: {e}")
+
     return HTMLResponse(content=resp_html)

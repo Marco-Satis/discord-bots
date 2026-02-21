@@ -38,6 +38,7 @@ WEB_SECRET_KEY = get_env("WEB_SECRET_KEY", "CHANGE_ME_INSECURE_DEFAULT_KEY")
 WEB_ADMIN_USER = get_env("WEB_ADMIN_USER", "admin")
 WEB_ADMIN_PASS_HASH = get_env("WEB_ADMIN_PASS_HASH", "")
 GUILD_ID = get_env("GUILD_ID", "")
+WEB_HTTPS = get_env("WEB_HTTPS", "true", cast=bool)
 
 # Discord OAuth2 Endpunkte
 DISCORD_AUTH_URL = "https://discord.com/api/oauth2/authorize"
@@ -295,7 +296,7 @@ async def discord_oauth_callback(request: Request, code: str = "", state: str = 
                 httponly=True,
                 samesite="lax",
                 max_age=JWT_EXPIRY_HOURS * 3600,
-                # secure=True  # In Produktion aktivieren
+                secure=WEB_HTTPS,
             )
             return response
 
@@ -383,6 +384,7 @@ async def login_post(request: Request, username: str = Form(""), password: str =
         httponly=True,
         samesite="lax",
         max_age=JWT_EXPIRY_HOURS * 3600,
+        secure=WEB_HTTPS,
     )
     return response
 

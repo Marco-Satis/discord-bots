@@ -37,8 +37,8 @@ from utils.permissions import admin_only, spieler_only, owner_only
 
 
 def _sanitize_rcon_input(text: str, max_length: int = 100) -> str:
-    """Sanitisiert User-Input fuer RCON-Befehle. Erlaubt nur sichere Zeichen."""
-    sanitized = _re.sub(r'[^\w\s\-]', '', text, flags=_re.UNICODE)
+    """Sanitisiert User-Input fuer RCON-Befehle. Erlaubt nur ASCII-sichere Zeichen."""
+    sanitized = _re.sub(r'[^a-zA-Z0-9_\s\-]', '', text)
     return sanitized[:max_length].strip()
 from modules.minecraft.server import MinecraftServer
 from modules.minecraft.backup import MinecraftBackupManager
