@@ -817,10 +817,13 @@ class TeamSpeakCog(commands.Cog):
         if not content:
             return
 
-        await self.chat_bridge.send_to_ts(
-            author=message.author.display_name,
-            message=content,
-        )
+        try:
+            await self.chat_bridge.send_to_ts(
+                author=message.author.display_name,
+                message=content,
+            )
+        except Exception as e:
+            logger.debug(f"Chat-Bridge Fehler (Discord→TS): {e}")
 
     # ------------------------------------------------------------------
     # Error Handler

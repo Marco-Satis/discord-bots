@@ -109,6 +109,8 @@ class StatsTracker:
             "ts": datetime.now().isoformat(),
             "count": count,
         })
+        if len(self._data["player_counts"]) % 1000 == 0:
+            self._cleanup_old()
         self._save()
 
     def record_savegame_size(self, size_mb: float) -> None:
@@ -117,6 +119,8 @@ class StatsTracker:
             "ts": datetime.now().isoformat(),
             "size_mb": round(size_mb, 2),
         })
+        if len(self._data["savegame_sizes"]) % 1000 == 0:
+            self._cleanup_old()
         self._save()
 
     # Alias fuer MC-Nutzung (World-Groesse statt Savegame)
@@ -128,6 +132,8 @@ class StatsTracker:
             "ts": datetime.now().isoformat(),
             "number": crash_number,
         })
+        if len(self._data["crashes"]) % 100 == 0:
+            self._cleanup_old()
         self._save()
 
     # ------------------------------------------------------------------

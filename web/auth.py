@@ -199,7 +199,7 @@ async def discord_oauth_callback(request: Request, code: str = "", state: str = 
         return RedirectResponse(url="/auth/login?error=Kein+Code+erhalten", status_code=302)
 
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(15.0)) as client:
             # Access-Token anfordern
             token_resp = await client.post(DISCORD_TOKEN_URL, data={
                 "client_id": DISCORD_CLIENT_ID,
