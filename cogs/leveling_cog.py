@@ -55,7 +55,13 @@ class LevelingCog(commands.Cog):
         self._voice_tracking: dict[int, int] = {}
 
     async def cog_load(self) -> None:
-        """Voice-XP-Task starten wenn Cog geladen wird."""
+        """DB-Daten laden und Voice-XP-Task starten."""
+        # F28: Leveling-Daten aus SQLite laden (ueberschreibt JSON-Fallback)
+        try:
+            await self.leveling.load_from_db()
+            logger.info("Leveling-Daten aus SQLite geladen")
+        except Exception as e:
+            logger.warning(f"SQLite-Load fehlgeschlagen, nutze JSON-Fallback: {e}")
         self.voice_xp_task.start()
         logger.info("Leveling-Cog geladen, Voice-XP-Task gestartet")
 

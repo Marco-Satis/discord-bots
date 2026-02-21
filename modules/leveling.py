@@ -5,11 +5,24 @@ Verwaltet Erfahrungspunkte (XP) und Level fuer Server-Mitglieder.
 XP werden durch Nachrichten und Voice-Aktivitaet gesammelt.
 Bei Level-Ups koennen automatisch Rollen vergeben werden.
 
-Persistenz:
-  - Userdaten:   data/admin/leveling.json
-  - Einstellungen: data/admin/leveling_config.json
+Dual-Read Mode: Schreibt in SQLite leveling-Tabelle,
+liest primaer aus SQLite mit JSON-Fallback.
 
-Datenformat (leveling.json):
+Persistenz:
+  - Userdaten:    SQLite leveling-Tabelle (primaer)
+  - Userdaten:    data/admin/leveling.json (Fallback fuer initialen Load)
+  - Einstellungen: data/admin/leveling_config.json (bleibt JSON)
+
+SQLite-Tabelle leveling:
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id TEXT UNIQUE NOT NULL,
+  xp INTEGER DEFAULT 0,
+  level INTEGER DEFAULT 0,
+  messages INTEGER DEFAULT 0,
+  voice_minutes INTEGER DEFAULT 0,
+  last_xp_time TIMESTAMP
+
+Datenformat (leveling.json — nur noch Fallback):
 {
   "user_id_str": {
     "xp": 0,
@@ -25,6 +38,7 @@ Level-Formel: xp_needed = 5 * level^2 + 50 * level + 100
 
 from __future__ import annotations
 
+import asyncio
 import json
 import random
 from datetime import datetime
@@ -33,6 +47,7 @@ from typing import Any
 
 from utils.logger import get_logger
 from utils.config import ADMIN_DATA_DIR
+from modules.database.db_manager import get_db
 
 logger = get_logger("leveling_manager")
 
@@ -58,13 +73,21 @@ class LevelingManager:
     """
     Verwaltet XP, Level und Belohnungen fuer Server-Mitglieder.
 
+    Dual-Read Mode:
+    - Liest primaer aus SQLite (leveling-Tabelle)
+    - Faellt auf JSON zurueck wenn SQLite leer/nicht verfuegbar
+    - Schreibt alle Aenderungen in SQLite (fire-and-forget)
+    - _save() ist ein No-Op (kein JSON-Schreiben mehr)
+    - Konfiguration bleibt vollstaendig in JSON
+
     Funktionen:
     - XP fuer Nachrichten vergeben (mit Cooldown und Zufallsrange)
     - XP fuer Voice-Aktivitaet vergeben
     - Automatische Level-Berechnung
     - Channel-Multiplikatoren (z.B. 2x XP in bestimmten Kanaelen)
     - Rollen-Belohnungen bei Level-Ups
-    - Leaderboard-Abfrage
+    - Leaderboard-Abfrage (SQLite-Query)
+    - Rang-Abfrage (SQLite-Query)
 
     Der Manager kuemmert sich um die Datenverwaltung.
     Das Vergeben von Rollen und Senden von Nachrichten
@@ -78,7 +101,7 @@ class LevelingManager:
     ) -> None:
         """
         Args:
-            data_file: Pfad zur User-Daten-JSON (Standard: data/admin/leveling.json)
+            data_file: Pfad zur User-Daten-JSON (Fallback: data/admin/leveling.json)
             config_file: Pfad zur Config-JSON (Standard: data/admin/leveling_config.json)
         """
         self.data_file = data_file or LEVELING_FILE
@@ -89,34 +112,131 @@ class LevelingManager:
         self._load_config()
 
     # ------------------------------------------------------------------
-    # Persistence — User-Daten
+    # Persistence — User-Daten (JSON-Fallback)
     # ------------------------------------------------------------------
 
     def _load(self) -> None:
-        """Leveling-Daten von Disk laden."""
+        """Leveling-Daten von JSON laden (Fallback fuer initialen Start)."""
         try:
             if self.data_file.exists():
                 with open(self.data_file, "r", encoding="utf-8") as f:
                     self._data = json.load(f)
                 logger.info(
-                    f"Leveling-Daten geladen: {len(self._data)} User"
+                    f"Leveling-Daten aus JSON geladen: {len(self._data)} User (Fallback)"
                 )
             else:
-                logger.info("Keine Leveling-Datei vorhanden, starte leer")
+                logger.info("Keine Leveling-JSON-Datei vorhanden, starte leer")
         except (json.JSONDecodeError, IOError) as e:
             logger.error(f"Leveling-Daten laden fehlgeschlagen: {e}")
 
     def _save(self) -> None:
-        """Leveling-Daten auf Disk speichern."""
-        try:
-            self.data_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.data_file, "w", encoding="utf-8") as f:
-                json.dump(self._data, f, indent=2, ensure_ascii=False)
-        except IOError as e:
-            logger.error(f"Leveling-Daten speichern fehlgeschlagen: {e}")
+        """No-Op — Daten werden nur noch in SQLite geschrieben."""
+        pass
 
     # ------------------------------------------------------------------
-    # Persistence — Konfiguration
+    # Persistence — SQLite (primaer)
+    # ------------------------------------------------------------------
+
+    async def load_from_db(self) -> bool:
+        """
+        Leveling-Daten aus SQLite laden und in _data uebernehmen.
+
+        Returns:
+            True wenn erfolgreich geladen, False bei Fehler (JSON-Fallback bleibt)
+        """
+        try:
+            db = await get_db()
+            cursor = await db.execute(
+                "SELECT user_id, xp, level, messages, voice_minutes, last_xp_time "
+                "FROM leveling"
+            )
+            rows = await cursor.fetchall()
+
+            if not rows and not self.data_file.exists():
+                # Weder DB noch JSON haben Daten — frischer Start
+                self._data = {}
+                logger.info("Keine Leveling-Daten in DB oder JSON — starte leer")
+                return True
+
+            if not rows:
+                # DB leer, aber JSON koennte Daten haben — Fallback nutzen
+                logger.info("Keine Leveling-Daten in SQLite, verwende JSON-Fallback")
+                return False
+
+            # SQLite-Daten in internes Format konvertieren
+            loaded: dict[str, dict[str, Any]] = {}
+            for row in rows:
+                user_id = str(row["user_id"])
+                loaded[user_id] = {
+                    "xp": row["xp"] or 0,
+                    "level": row["level"] or 0,
+                    "total_messages": row["messages"] or 0,
+                    "voice_minutes": row["voice_minutes"] or 0,
+                    "last_xp_at": row["last_xp_time"],
+                }
+
+            self._data = loaded
+            logger.info(f"Leveling-Daten aus SQLite geladen: {len(loaded)} User")
+            return True
+
+        except Exception as e:
+            logger.error(f"Leveling-Daten aus SQLite laden fehlgeschlagen: {e}")
+            return False
+
+    # ------------------------------------------------------------------
+    # Fire-and-Forget — sync -> async Bruecke
+    # ------------------------------------------------------------------
+
+    def _fire_and_forget(self, coro) -> None:
+        """
+        Plant eine async Coroutine als fire-and-forget Task.
+        Wird aus synchronem Code aufgerufen (add_message_xp, etc.).
+        """
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.create_task(coro)
+            else:
+                logger.debug("Event-Loop nicht aktiv, ueberspringe DB-Write")
+        except RuntimeError:
+            logger.debug("Kein Event-Loop verfuegbar, ueberspringe DB-Write")
+
+    async def _db_upsert_user(self, user_id: int, user_data: dict[str, Any]) -> None:
+        """
+        User-Daten in SQLite einfuegen oder aktualisieren (INSERT OR REPLACE).
+
+        Args:
+            user_id: Discord-User-ID
+            user_data: Dict mit xp, level, total_messages, voice_minutes, last_xp_at
+        """
+        try:
+            db = await get_db()
+            await db.execute(
+                """
+                INSERT INTO leveling (user_id, xp, level, messages, voice_minutes, last_xp_time)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    xp = excluded.xp,
+                    level = excluded.level,
+                    messages = excluded.messages,
+                    voice_minutes = excluded.voice_minutes,
+                    last_xp_time = excluded.last_xp_time
+                """,
+                (
+                    str(user_id),
+                    user_data.get("xp", 0),
+                    user_data.get("level", 0),
+                    user_data.get("total_messages", 0),
+                    user_data.get("voice_minutes", 0),
+                    user_data.get("last_xp_at"),
+                ),
+            )
+            await db.commit()
+        except Exception as e:
+            logger.error(f"SQLite-Upsert fuer User {user_id} fehlgeschlagen: {e}")
+
+    # ------------------------------------------------------------------
+    # Persistence — Konfiguration (bleibt JSON)
     # ------------------------------------------------------------------
 
     def _load_config(self) -> None:
@@ -231,6 +351,8 @@ class LevelingManager:
         Cooldowns werden 0 XP vergeben.
         Optional wird ein Channel-Multiplikator angewendet.
 
+        Schreibt Aenderungen via fire-and-forget in SQLite.
+
         Args:
             user_id: Discord-User-ID
             channel_id: Optional, Channel-ID fuer Multiplikator
@@ -253,7 +375,8 @@ class LevelingManager:
                 last_xp = datetime.fromisoformat(last_xp_str)
                 elapsed = (now - last_xp).total_seconds()
                 if elapsed < cooldown:
-                    self._save()
+                    # Nur messages zaehlt hoch, kein XP — trotzdem DB-Update
+                    self._fire_and_forget(self._db_upsert_user(user_id, user))
                     return 0, False
             except (ValueError, TypeError):
                 pass  # Ungueltiges Datum ignorieren, XP trotzdem geben
@@ -274,7 +397,9 @@ class LevelingManager:
         user["last_xp_at"] = now.isoformat()
 
         leveled_up = self._check_level_up(user)
-        self._save()
+
+        # Fire-and-forget: SQLite-Update
+        self._fire_and_forget(self._db_upsert_user(user_id, user))
 
         return xp, leveled_up
 
@@ -289,6 +414,8 @@ class LevelingManager:
     ) -> tuple[int, bool]:
         """
         XP fuer Voice-Aktivitaet vergeben.
+
+        Schreibt Aenderungen via fire-and-forget in SQLite.
 
         Args:
             user_id: Discord-User-ID
@@ -310,7 +437,9 @@ class LevelingManager:
         user["voice_minutes"] += minutes
 
         leveled_up = self._check_level_up(user)
-        self._save()
+
+        # Fire-and-forget: SQLite-Update
+        self._fire_and_forget(self._db_upsert_user(user_id, user))
 
         return xp, leveled_up
 
@@ -323,6 +452,7 @@ class LevelingManager:
         XP eines Users direkt setzen (Admin-Funktion).
 
         Berechnet das Level automatisch neu.
+        Schreibt Aenderungen via fire-and-forget in SQLite.
 
         Args:
             user_id: Discord-User-ID
@@ -346,7 +476,9 @@ class LevelingManager:
         while user["xp"] >= self.xp_for_level(user["level"]):
             user["level"] += 1
 
-        self._save()
+        # Fire-and-forget: SQLite-Update
+        self._fire_and_forget(self._db_upsert_user(user_id, user))
+
         logger.info(f"XP manuell gesetzt: User {user_id} -> {amount} XP (Level {user['level']})")
 
     # ------------------------------------------------------------------
@@ -450,12 +582,15 @@ class LevelingManager:
         return float(multipliers.get(str(channel_id), 1.0))
 
     # ------------------------------------------------------------------
-    # Leaderboard
+    # Leaderboard (SQLite-Query mit In-Memory-Fallback)
     # ------------------------------------------------------------------
 
     def get_leaderboard(self, limit: int = 10) -> list[dict[str, Any]]:
         """
         Top-Spieler nach XP sortiert zurueckgeben.
+
+        Versucht SQLite-Query (fire-and-forget Pattern nicht moeglich
+        da Rueckgabewert benoetigt). Faellt auf In-Memory-Daten zurueck.
 
         Args:
             limit: Maximale Anzahl Eintraege (Standard: 10)
@@ -464,6 +599,8 @@ class LevelingManager:
             Liste von Dicts mit user_id, xp, level, total_messages, voice_minutes
             Sortiert nach XP absteigend
         """
+        # Versuche synchronen Zugriff auf SQLite-Ergebnis via In-Memory-Cache
+        # Die _data wird durch load_from_db() aus SQLite befuellt
         entries: list[dict[str, Any]] = []
 
         for uid, data in self._data.items():
@@ -479,9 +616,59 @@ class LevelingManager:
         entries.sort(key=lambda e: e["xp"], reverse=True)
         return entries[:limit]
 
+    async def get_leaderboard_db(self, limit: int = 10) -> list[dict[str, Any]]:
+        """
+        Top-Spieler direkt aus SQLite abfragen (async Version).
+
+        Fuer Verwendung in async-Kontexten (z.B. Slash-Commands).
+        Faellt auf In-Memory-Daten zurueck bei DB-Fehler.
+
+        Args:
+            limit: Maximale Anzahl Eintraege (Standard: 10)
+
+        Returns:
+            Liste von Dicts mit user_id, xp, level, total_messages, voice_minutes
+            Sortiert nach XP absteigend
+        """
+        try:
+            db = await get_db()
+            cursor = await db.execute(
+                "SELECT user_id, xp, level, messages, voice_minutes "
+                "FROM leveling "
+                "ORDER BY xp DESC "
+                "LIMIT ?",
+                (limit,),
+            )
+            rows = await cursor.fetchall()
+
+            if not rows:
+                # DB leer — Fallback auf In-Memory
+                return self.get_leaderboard(limit)
+
+            entries: list[dict[str, Any]] = []
+            for row in rows:
+                entries.append({
+                    "user_id": int(row["user_id"]),
+                    "xp": row["xp"] or 0,
+                    "level": row["level"] or 0,
+                    "total_messages": row["messages"] or 0,
+                    "voice_minutes": row["voice_minutes"] or 0,
+                })
+            return entries
+
+        except Exception as e:
+            logger.error(f"Leaderboard aus SQLite laden fehlgeschlagen: {e}")
+            return self.get_leaderboard(limit)
+
+    # ------------------------------------------------------------------
+    # Rank (SQLite-Query mit In-Memory-Fallback)
+    # ------------------------------------------------------------------
+
     def get_rank(self, user_id: int) -> int:
         """
         Position eines Users im Leaderboard zurueckgeben.
+
+        Verwendet In-Memory-Daten (aus SQLite geladen via load_from_db).
 
         Args:
             user_id: Discord-User-ID
@@ -504,6 +691,54 @@ class LevelingManager:
 
         # User nicht in den Daten
         return len(sorted_users) + 1
+
+    async def get_rank_db(self, user_id: int) -> int:
+        """
+        Position eines Users direkt aus SQLite abfragen (async Version).
+
+        Verwendet COUNT WHERE xp > user_xp fuer effiziente Berechnung.
+        Faellt auf In-Memory-Daten zurueck bei DB-Fehler.
+
+        Args:
+            user_id: Discord-User-ID
+
+        Returns:
+            1-basierte Position (1 = erster Platz).
+            Gibt Gesamtzahl+1 zurueck wenn User nicht gefunden.
+        """
+        try:
+            db = await get_db()
+            uid = str(user_id)
+
+            # Zuerst XP des Users holen
+            cursor = await db.execute(
+                "SELECT xp FROM leveling WHERE user_id = ?",
+                (uid,),
+            )
+            row = await cursor.fetchone()
+
+            if not row:
+                # User nicht in der DB — Fallback
+                cursor = await db.execute("SELECT COUNT(*) FROM leveling")
+                count_row = await cursor.fetchone()
+                total = count_row[0] if count_row else 0
+                return total + 1
+
+            user_xp = row["xp"] or 0
+
+            # Anzahl der User mit mehr XP zaehlen
+            cursor = await db.execute(
+                "SELECT COUNT(*) FROM leveling WHERE xp > ?",
+                (user_xp,),
+            )
+            count_row = await cursor.fetchone()
+            rank = (count_row[0] if count_row else 0) + 1
+
+            return rank
+
+        except Exception as e:
+            logger.error(f"Rang aus SQLite laden fehlgeschlagen: {e}")
+            return self.get_rank(user_id)
 
     @property
     def config(self) -> dict[str, Any]:

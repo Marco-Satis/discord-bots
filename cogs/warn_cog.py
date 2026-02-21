@@ -45,9 +45,10 @@ class WarnCog(commands.Cog):
         )
 
     async def cog_load(self) -> None:
-        """Background-Task starten wenn Cog geladen wird"""
+        """SQLite-Daten laden und Background-Task starten wenn Cog geladen wird"""
+        await self.warn_mgr.load_from_db()
         self.check_expired_warns.start()
-        logger.info("Warn-Cog geladen, Background-Task gestartet")
+        logger.info("Warn-Cog geladen, SQLite-Daten geladen, Background-Task gestartet")
 
     async def cog_unload(self) -> None:
         """Background-Task stoppen wenn Cog entladen wird"""

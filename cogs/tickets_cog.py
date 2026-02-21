@@ -165,11 +165,17 @@ class TicketsCog(commands.Cog):
         )
 
     async def cog_load(self) -> None:
-        """Persistente Views beim Laden registrieren."""
+        """Persistente Views beim Laden registrieren und DB-Daten laden."""
         # Views muessen beim Bot registriert werden damit sie
         # nach einem Neustart wieder funktionieren
         self.bot.add_view(TicketCreateView())
         self.bot.add_view(TicketCloseView())
+        # F28: Tickets aus SQLite laden (ueberschreibt JSON-Fallback)
+        try:
+            await self.ticket_mgr.load_from_db()
+            logger.info("Ticket-Daten aus SQLite geladen")
+        except Exception as e:
+            logger.warning(f"SQLite-Load fehlgeschlagen, nutze JSON-Fallback: {e}")
         logger.info("Ticket-Cog geladen, persistente Views registriert")
 
     # ==================================================================
@@ -206,7 +212,7 @@ class TicketsCog(commands.Cog):
             content += "[Anhaenge: " + ", ".join(attachment_urls) + "]"
 
         if content:
-            self.ticket_mgr.add_transcript_entry(
+            await self.ticket_mgr.add_transcript_entry(
                 ticket["ticket_id"],
                 author=message.author.display_name,
                 content=content,
@@ -254,7 +260,7 @@ class TicketsCog(commands.Cog):
             return
 
         # Ticket im Manager erstellen
-        ticket = self.ticket_mgr.create_ticket(
+        ticket = await self.ticket_mgr.create_ticket(
             user_id=user.id,
             subject=subject,
         )
@@ -320,7 +326,7 @@ class TicketsCog(commands.Cog):
             return
 
         # Channel-ID im Ticket speichern
-        self.ticket_mgr.update_ticket_channel(ticket_id, channel.id)
+        await self.ticket_mgr.update_ticket_channel(ticket_id, channel.id)
 
         # Willkommens-Embed senden
         embed = discord.Embed(
@@ -352,7 +358,7 @@ class TicketsCog(commands.Cog):
 
         # Beschreibung als ersten Transcript-Eintrag speichern
         if description:
-            self.ticket_mgr.add_transcript_entry(
+            await self.ticket_mgr.add_transcript_entry(
                 ticket_id,
                 author=user.display_name,
                 content=description,
@@ -437,7 +443,7 @@ class TicketsCog(commands.Cog):
         closed_by = interaction.user
 
         # Ticket im Manager schliessen
-        closed_ticket = self.ticket_mgr.close_ticket(
+        closed_ticket = await self.ticket_mgr.close_ticket(
             ticket_id,
             closed_by=closed_by.id,
             reason=reason,

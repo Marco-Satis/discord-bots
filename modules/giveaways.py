@@ -1,13 +1,13 @@
 """
-Giveaway Manager — Phase 11h
+Giveaway Manager — Phase 11h (SQLite Dual-Read)
 Verwaltung von Giveaways (Verlosungen) mit Persistenz.
 
-Speichert aktive und beendete Giveaways in data/admin/giveaways.json.
-Der Manager kuemmert sich um die Daten-Logik (Teilnehmer, Gewinner,
-Ablaufzeiten). Das Senden von Embeds und Button-Handling wird vom
-Cog uebernommen.
+SQLite Dual-Read mode:
+  - WRITE: Only to SQLite (JSON writes disabled)
+  - READ: SQLite primary, JSON fallback
+  - JSON file is NOT deleted (kept for fallback)
 
-Dateiformat (data/admin/giveaways.json):
+Dateiformat (data/admin/giveaways.json) — fallback only:
 {
   "message_id_str": {
     "channel_id": int,
@@ -30,6 +30,7 @@ Dateiformat (data/admin/giveaways.json):
 
 from __future__ import annotations
 
+import asyncio
 import json
 import random
 from datetime import datetime, timedelta
@@ -38,10 +39,11 @@ from typing import Any, Optional
 
 from utils.logger import get_logger
 from utils.config import ADMIN_DATA_DIR
+from modules.database.db_manager import get_db
 
 logger = get_logger("modules.giveaways")
 
-# Pfad zur Giveaway-Datendatei
+# Pfad zur Giveaway-Datendatei (kept for JSON fallback reads)
 DATA_FILE = ADMIN_DATA_DIR / "giveaways.json"
 
 
@@ -49,13 +51,15 @@ class GiveawayManager:
     """
     Verwaltung von Giveaways (Verlosungen).
 
+    SQLite Dual-Read: Writes only to SQLite, reads SQLite first with JSON fallback.
+
     Funktionen:
     - Giveaway erstellen mit optionalen Anforderungen
     - Teilnehmer hinzufuegen/entfernen (Toggle)
     - Gewinner ziehen (zufaellig)
     - Giveaway vorzeitig beenden / erneut ziehen / abbrechen
     - Abgelaufene Giveaways ermitteln (fuer Background-Task)
-    - Persistenz via JSON-Datei
+    - Persistenz via SQLite (primaer) + JSON (Fallback)
     """
 
     def __init__(self) -> None:
@@ -67,31 +71,153 @@ class GiveawayManager:
     # ------------------------------------------------------------------
 
     def _load(self) -> None:
-        """Giveaway-Daten von Disk laden"""
+        """Giveaway-Daten von JSON laden (Fallback — wird von load_from_db ueberschrieben)"""
         try:
             if DATA_FILE.exists():
                 with open(DATA_FILE, "r", encoding="utf-8") as f:
                     self._data = json.load(f)
                 active = sum(1 for g in self._data.values() if not g.get("ended"))
                 logger.info(
-                    f"Giveaway-Daten geladen: {len(self._data)} gesamt, "
+                    f"JSON-Fallback geladen: {len(self._data)} Giveaways gesamt, "
                     f"{active} aktiv"
                 )
             else:
                 self._data = {}
-                logger.info("Keine Giveaway-Datei vorhanden, starte leer")
+                logger.info("Keine Giveaway-JSON-Datei vorhanden, starte leer")
         except (json.JSONDecodeError, IOError) as e:
-            logger.error(f"Giveaway-Daten laden fehlgeschlagen: {e}")
+            logger.error(f"Giveaway-JSON-Daten laden fehlgeschlagen: {e}")
             self._data = {}
 
-    def _save(self) -> None:
-        """Giveaway-Daten auf Disk speichern"""
+    async def load_from_db(self) -> bool:
+        """
+        Laedt Giveaways + Teilnehmer aus SQLite (primaere Datenquelle).
+        Faellt auf JSON-Daten zurueck (bereits in _load geladen) bei Fehler.
+
+        Returns:
+            True wenn SQLite-Daten erfolgreich geladen, False bei Fallback auf JSON
+        """
         try:
-            ADMIN_DATA_DIR.mkdir(parents=True, exist_ok=True)
-            with open(DATA_FILE, "w", encoding="utf-8") as f:
-                json.dump(self._data, f, indent=2, ensure_ascii=False)
-        except IOError as e:
-            logger.error(f"Giveaway-Daten speichern fehlgeschlagen: {e}")
+            db = await get_db()
+
+            # --- Giveaways laden ---
+            cursor = await db.execute(
+                "SELECT id, message_id, channel_id, guild_id, prize, "
+                "winner_count, ends_at, ended, created_at "
+                "FROM giveaways "
+                "ORDER BY created_at DESC"
+            )
+            rows = await cursor.fetchall()
+
+            if not rows and not DATA_FILE.exists():
+                # Keine Daten in DB und keine JSON-Datei — frischer Start
+                self._data = {}
+                logger.info("Keine Giveaway-Daten in DB oder JSON — starte leer")
+                return True
+
+            if not rows:
+                # DB leer aber JSON koennte Daten haben — Caller faellt zurueck
+                logger.info(
+                    "Keine Giveaways in SQLite, verwende JSON-Fallback "
+                    f"({len(self._data)} Eintraege)"
+                )
+                return False
+
+            # --- Alle Teilnehmer in einem Rutsch laden ---
+            participant_cursor = await db.execute(
+                "SELECT giveaway_id, user_id FROM giveaway_participants"
+            )
+            participant_rows = await participant_cursor.fetchall()
+
+            # Teilnehmer nach giveaway_id gruppieren
+            participants_map: dict[int, list[int]] = {}
+            for p_row in participant_rows:
+                gid = p_row[0]  # giveaway_id (INTEGER)
+                uid_str = p_row[1]  # user_id (TEXT)
+                try:
+                    uid = int(uid_str)
+                except (ValueError, TypeError):
+                    continue
+                participants_map.setdefault(gid, []).append(uid)
+
+            # --- In-Memory-Daten aufbauen ---
+            db_data: dict[str, dict[str, Any]] = {}
+            for row in rows:
+                db_id = row[0]          # id (INTEGER PK)
+                msg_id = str(row[1])    # message_id (TEXT)
+                channel_id = row[2]     # channel_id (TEXT)
+                guild_id = row[3]       # guild_id (TEXT)
+                prize = row[4]          # prize (TEXT)
+                winner_count = row[5]   # winner_count (INTEGER)
+                ends_at = row[6]        # ends_at (TIMESTAMP)
+                ended = row[7]          # ended (BOOLEAN)
+                created_at = row[8]     # created_at (TIMESTAMP)
+
+                # Teilnehmer fuer dieses Giveaway
+                giveaway_participants = participants_map.get(db_id, [])
+
+                # JSON-Fallback-Daten fuer Felder die nicht in der DB sind
+                json_entry = self._data.get(msg_id, {})
+
+                entry: dict[str, Any] = {
+                    "channel_id": int(channel_id) if channel_id else 0,
+                    "guild_id": int(guild_id) if guild_id else 0,
+                    "prize": prize or "",
+                    "winners_count": winner_count or 1,
+                    "ends_at": ends_at or "",
+                    "created_at": created_at or "",
+                    "host_id": json_entry.get("host_id", 0),
+                    "participants": giveaway_participants,
+                    "winner_ids": json_entry.get("winner_ids", []),
+                    "ended": bool(ended),
+                    "requirements": json_entry.get("requirements", {
+                        "min_level": 0,
+                        "role_id": None,
+                        "min_days": 0,
+                    }),
+                    # Felder aus JSON-Fallback uebernehmen (nicht in DB-Schema)
+                    "cancelled": json_entry.get("cancelled", False),
+                    "ended_at": json_entry.get("ended_at"),
+                    "rerolled_at": json_entry.get("rerolled_at"),
+                    "_db_id": db_id,  # Interner Verweis auf die SQLite-ID
+                }
+
+                db_data[msg_id] = entry
+
+            self._data = db_data
+            active = sum(1 for g in self._data.values() if not g.get("ended"))
+            logger.info(
+                f"SQLite geladen: {len(self._data)} Giveaways gesamt, "
+                f"{active} aktiv, "
+                f"{sum(len(g.get('participants', [])) for g in self._data.values())} Teilnehmer"
+            )
+            return True
+
+        except Exception as e:
+            logger.warning(
+                f"SQLite-Laden fehlgeschlagen, verwende JSON-Fallback: {e}"
+            )
+            # _data hat bereits JSON-Fallback aus _load()
+            return False
+
+    def _save(self) -> None:
+        """No-op: JSON-Schreiben deaktiviert. Alle Schreibzugriffe gehen nach SQLite."""
+        # JSON-Datei wird als Fallback beibehalten (nicht ueberschrieben).
+        pass
+
+    # ------------------------------------------------------------------
+    # Async DB Helper
+    # ------------------------------------------------------------------
+
+    def _fire_and_forget(self, coro) -> None:
+        """Schedule an async DB write from synchronous code."""
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.create_task(coro)
+            else:
+                logger.debug("Event loop not running, skipping DB write")
+        except RuntimeError:
+            logger.debug("No event loop available, skipping DB write")
 
     # ------------------------------------------------------------------
     # Giveaway erstellen
@@ -157,6 +283,12 @@ class GiveawayManager:
         self._data[message_id_str] = giveaway
         self._save()
 
+        # SQLite: INSERT giveaway
+        self._fire_and_forget(self._db_create_giveaway(
+            message_id_str, channel_id, guild_id, prize,
+            max(1, winners_count), ends_at.isoformat(), now.isoformat()
+        ))
+
         logger.info(
             f"Giveaway erstellt: '{prize}' (Message: {message_id}, "
             f"Dauer: {duration_minutes}min, Gewinner: {winners_count}, "
@@ -164,6 +296,26 @@ class GiveawayManager:
         )
 
         return giveaway
+
+    async def _db_create_giveaway(
+        self, message_id: str, channel_id: int, guild_id: int,
+        prize: str, winner_count: int, ends_at: str, created_at: str
+    ) -> None:
+        """INSERT giveaway into SQLite."""
+        try:
+            db = await get_db()
+            await db.execute(
+                "INSERT OR IGNORE INTO giveaways "
+                "(message_id, channel_id, guild_id, prize, winner_count, "
+                "ends_at, ended, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, FALSE, ?)",
+                (message_id, str(channel_id), str(guild_id),
+                 prize, winner_count, ends_at, created_at)
+            )
+            await db.commit()
+            logger.debug(f"DB: Giveaway {message_id} erstellt")
+        except Exception as e:
+            logger.error(f"DB: Giveaway erstellen fehlgeschlagen: {e}")
 
     # ------------------------------------------------------------------
     # Teilnehmer verwalten
@@ -196,11 +348,46 @@ class GiveawayManager:
         giveaway["participants"].append(user_id)
         self._save()
 
+        # SQLite: INSERT participant
+        self._fire_and_forget(
+            self._db_add_participant(message_id_str, user_id)
+        )
+
         logger.debug(
             f"Giveaway {message_id}: Teilnehmer hinzugefuegt ({user_id}), "
             f"gesamt: {len(giveaway['participants'])}"
         )
         return True
+
+    async def _db_add_participant(self, message_id: str, user_id: int) -> None:
+        """INSERT participant into giveaway_participants via giveaway message_id."""
+        try:
+            db = await get_db()
+            # Resolve giveaway_id from message_id
+            cursor = await db.execute(
+                "SELECT id FROM giveaways WHERE message_id = ?",
+                (message_id,)
+            )
+            row = await cursor.fetchone()
+            if not row:
+                logger.warning(
+                    f"DB: Giveaway {message_id} nicht in DB gefunden "
+                    f"(add_participant)"
+                )
+                return
+
+            giveaway_id = row[0]
+            await db.execute(
+                "INSERT OR IGNORE INTO giveaway_participants "
+                "(giveaway_id, user_id) VALUES (?, ?)",
+                (giveaway_id, str(user_id))
+            )
+            await db.commit()
+            logger.debug(
+                f"DB: Teilnehmer {user_id} zu Giveaway {message_id} hinzugefuegt"
+            )
+        except Exception as e:
+            logger.error(f"DB: Teilnehmer hinzufuegen fehlgeschlagen: {e}")
 
     def remove_participant(self, message_id: int, user_id: int) -> bool:
         """
@@ -229,11 +416,46 @@ class GiveawayManager:
         giveaway["participants"].remove(user_id)
         self._save()
 
+        # SQLite: DELETE participant
+        self._fire_and_forget(
+            self._db_remove_participant(message_id_str, user_id)
+        )
+
         logger.debug(
             f"Giveaway {message_id}: Teilnehmer entfernt ({user_id}), "
             f"gesamt: {len(giveaway['participants'])}"
         )
         return True
+
+    async def _db_remove_participant(self, message_id: str, user_id: int) -> None:
+        """DELETE participant from giveaway_participants via giveaway message_id."""
+        try:
+            db = await get_db()
+            # Resolve giveaway_id from message_id
+            cursor = await db.execute(
+                "SELECT id FROM giveaways WHERE message_id = ?",
+                (message_id,)
+            )
+            row = await cursor.fetchone()
+            if not row:
+                logger.warning(
+                    f"DB: Giveaway {message_id} nicht in DB gefunden "
+                    f"(remove_participant)"
+                )
+                return
+
+            giveaway_id = row[0]
+            await db.execute(
+                "DELETE FROM giveaway_participants "
+                "WHERE giveaway_id = ? AND user_id = ?",
+                (giveaway_id, str(user_id))
+            )
+            await db.commit()
+            logger.debug(
+                f"DB: Teilnehmer {user_id} aus Giveaway {message_id} entfernt"
+            )
+        except Exception as e:
+            logger.error(f"DB: Teilnehmer entfernen fehlgeschlagen: {e}")
 
     def is_participant(self, message_id: int, user_id: int) -> bool:
         """
@@ -304,6 +526,11 @@ class GiveawayManager:
         giveaway["winner_ids"] = winner_ids
         self._save()
 
+        # SQLite: UPDATE ended=TRUE
+        self._fire_and_forget(
+            self._db_end_giveaway(message_id_str)
+        )
+
         prize = giveaway.get("prize", "?")
         logger.info(
             f"Giveaway beendet: '{prize}' (Message: {message_id}, "
@@ -312,6 +539,19 @@ class GiveawayManager:
         )
 
         return True, winner_ids
+
+    async def _db_end_giveaway(self, message_id: str) -> None:
+        """UPDATE giveaway ended=TRUE in SQLite."""
+        try:
+            db = await get_db()
+            await db.execute(
+                "UPDATE giveaways SET ended = TRUE WHERE message_id = ?",
+                (message_id,)
+            )
+            await db.commit()
+            logger.debug(f"DB: Giveaway {message_id} als beendet markiert")
+        except Exception as e:
+            logger.error(f"DB: Giveaway beenden fehlgeschlagen: {e}")
 
     def reroll(self, message_id: int) -> tuple[bool, list[int]]:
         """
@@ -361,6 +601,13 @@ class GiveawayManager:
         giveaway["rerolled_at"] = datetime.now().isoformat()
         self._save()
 
+        # SQLite: Giveaway bleibt ended=TRUE, kein extra DB-Update noetig
+        # (winner_ids sind nicht in der DB-Tabelle, nur in-memory)
+        logger.debug(
+            f"DB: Reroll fuer Giveaway {message_id} — keine DB-Aenderung "
+            f"(winner_ids nur in-memory)"
+        )
+
         prize = giveaway.get("prize", "?")
         logger.info(
             f"Giveaway Reroll: '{prize}' (Message: {message_id}, "
@@ -395,6 +642,11 @@ class GiveawayManager:
         giveaway["ended_at"] = datetime.now().isoformat()
         giveaway["winner_ids"] = []
         self._save()
+
+        # SQLite: UPDATE ended=TRUE (cancel = ended without winners)
+        self._fire_and_forget(
+            self._db_end_giveaway(message_id_str)
+        )
 
         prize = giveaway.get("prize", "?")
         logger.info(f"Giveaway abgebrochen: '{prize}' (Message: {message_id})")
@@ -532,6 +784,38 @@ class GiveawayManager:
 
         if to_remove:
             self._save()
+            # SQLite: DELETE old giveaways
+            self._fire_and_forget(
+                self._db_cleanup_old(to_remove)
+            )
             logger.info(f"{len(to_remove)} alte Giveaways entfernt")
 
         return len(to_remove)
+
+    async def _db_cleanup_old(self, message_ids: list[str]) -> None:
+        """DELETE old giveaways and their participants from SQLite."""
+        try:
+            db = await get_db()
+            for msg_id in message_ids:
+                # Erst giveaway_id ermitteln fuer Teilnehmer-Loesung
+                cursor = await db.execute(
+                    "SELECT id FROM giveaways WHERE message_id = ?",
+                    (msg_id,)
+                )
+                row = await cursor.fetchone()
+                if row:
+                    giveaway_id = row[0]
+                    await db.execute(
+                        "DELETE FROM giveaway_participants WHERE giveaway_id = ?",
+                        (giveaway_id,)
+                    )
+                await db.execute(
+                    "DELETE FROM giveaways WHERE message_id = ?",
+                    (msg_id,)
+                )
+            await db.commit()
+            logger.debug(
+                f"DB: {len(message_ids)} alte Giveaways + Teilnehmer geloescht"
+            )
+        except Exception as e:
+            logger.error(f"DB: Alte Giveaways loeschen fehlgeschlagen: {e}")

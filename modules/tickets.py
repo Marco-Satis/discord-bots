@@ -6,17 +6,26 @@ Tickets werden als private Channels in einer konfigurierbaren
 Kategorie erstellt und koennen nach dem Schliessen als Transcript
 in einen Log-Channel gesendet werden.
 
-Persistenz:
-  - Ticket-Daten:  data/admin/tickets.json
-  - Konfiguration: data/admin/ticket_config.json
+Persistenz (Dual-Read):
+  - Primaer:       SQLite via db_manager (tickets / ticket_messages Tabellen)
+  - JSON-Fallback: data/admin/tickets.json  (nur Lesen beim Start, kein Schreiben)
+  - Konfiguration: data/admin/ticket_config.json  (bleibt JSON)
 
-Datenformat (tickets.json):
+Ablauf beim Start:
+  1. __init__ laedt JSON-Fallback in _data (synchron)
+  2. Cog ruft load_from_db() auf — ueberschreibt _data mit SQLite-Daten
+
+Schreiboperationen gehen NUR noch in die SQLite-Datenbank.
+_save() ist ein No-Op (JSON-Ticket-Schreibung deaktiviert).
+
+Datenformat (In-Memory _data):
 {
   "next_id": 1,
   "tickets": {
     "ticket_id_str": {
-      "channel_id": 123456,
-      "user_id": 789012,
+      "ticket_id": int,
+      "channel_id": int,
+      "user_id": int,
       "subject": "Betreff",
       "created_at": "2025-01-01T00:00:00",
       "status": "open",
@@ -29,7 +38,7 @@ Datenformat (tickets.json):
   }
 }
 
-Konfiguration (ticket_config.json):
+Konfiguration (ticket_config.json — bleibt JSON):
 {
   "support_roles": [role_id, ...],
   "ticket_category_id": category_channel_id,
@@ -46,6 +55,7 @@ from typing import Any
 
 from utils.logger import get_logger
 from utils.config import ADMIN_DATA_DIR
+from modules.database.db_manager import get_db
 
 logger = get_logger("ticket_manager")
 
@@ -67,6 +77,11 @@ class TicketManager:
     """
     Verwaltet Support-Tickets mit Persistenz und Transcripts.
 
+    Dual-Read-Modus:
+    - Lesen:    Aus dem In-Memory-Cache (_data), befuellt via SQLite
+                oder JSON-Fallback
+    - Schreiben: Direkt in die SQLite-Datenbank + In-Memory-Update
+
     Funktionen:
     - Tickets erstellen und schliessen
     - Transcript-Eintraege speichern
@@ -85,22 +100,23 @@ class TicketManager:
     ) -> None:
         """
         Args:
-            data_file: Pfad zur Ticket-Daten-JSON (Standard: data/admin/tickets.json)
+            data_file: Pfad zur Ticket-Daten-JSON (Fallback, Standard: data/admin/tickets.json)
             config_file: Pfad zur Config-JSON (Standard: data/admin/ticket_config.json)
         """
         self.data_file = data_file or TICKETS_FILE
         self.config_file = config_file or TICKET_CONFIG_FILE
         self._data: dict[str, Any] = {"next_id": 1, "tickets": {}}
         self._config: dict[str, Any] = _default_config()
+        self._db_loaded: bool = False
         self._load()
         self._load_config()
 
     # ------------------------------------------------------------------
-    # Persistence — Ticket-Daten
+    # Persistence — Ticket-Daten (JSON-Fallback, nur Lesen)
     # ------------------------------------------------------------------
 
     def _load(self) -> None:
-        """Ticket-Daten von Disk laden."""
+        """Ticket-Daten von JSON laden (Fallback fuer Erststart / Migration)."""
         try:
             if self.data_file.exists():
                 with open(self.data_file, "r", encoding="utf-8") as f:
@@ -113,25 +129,142 @@ class TicketManager:
                     if t.get("status") == "open"
                 )
                 logger.info(
-                    f"Ticket-Daten geladen: {ticket_count} Tickets "
+                    f"Ticket-Daten (JSON-Fallback) geladen: {ticket_count} Tickets "
                     f"({open_count} offen)"
                 )
             else:
-                logger.info("Keine Ticket-Datei vorhanden, starte leer")
+                logger.info("Keine Ticket-JSON vorhanden, starte leer")
         except (json.JSONDecodeError, IOError) as e:
-            logger.error(f"Ticket-Daten laden fehlgeschlagen: {e}")
+            logger.error(f"Ticket-Daten (JSON) laden fehlgeschlagen: {e}")
 
     def _save(self) -> None:
-        """Ticket-Daten auf Disk speichern."""
-        try:
-            self.data_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.data_file, "w", encoding="utf-8") as f:
-                json.dump(self._data, f, indent=2, ensure_ascii=False)
-        except IOError as e:
-            logger.error(f"Ticket-Daten speichern fehlgeschlagen: {e}")
+        """No-Op — JSON-Ticket-Schreibung deaktiviert (SQLite ist primaer)."""
+        # Schreiboperationen gehen direkt in die SQLite-Datenbank.
+        # Diese Methode bleibt als No-Op erhalten, damit bestehende Aufrufe
+        # keinen Fehler verursachen.
+        pass
 
     # ------------------------------------------------------------------
-    # Persistence — Konfiguration
+    # Persistence — SQLite (primaere Datenquelle)
+    # ------------------------------------------------------------------
+
+    async def load_from_db(self) -> None:
+        """
+        Ticket-Daten aus der SQLite-Datenbank laden und _data befuellen.
+
+        Ueberschreibt die JSON-Fallback-Daten komplett.
+        Wird typischerweise einmal beim Cog-Start aufgerufen.
+        """
+        try:
+            db = await get_db()
+
+            # Alle Tickets laden
+            cursor = await db.execute(
+                "SELECT id, channel_id, user_id, subject, status, "
+                "created_at, closed_at, closed_by FROM tickets "
+                "ORDER BY id ASC"
+            )
+            rows = await cursor.fetchall()
+
+            tickets: dict[str, Any] = {}
+            max_id = 0
+
+            for row in rows:
+                ticket_id = row[0]
+                if ticket_id > max_id:
+                    max_id = ticket_id
+
+                # channel_id und user_id als int konvertieren (DB speichert TEXT)
+                channel_id_raw = row[1]
+                user_id_raw = row[2]
+                closed_by_raw = row[7]
+
+                try:
+                    channel_id = int(channel_id_raw) if channel_id_raw else 0
+                except (ValueError, TypeError):
+                    channel_id = 0
+
+                try:
+                    user_id = int(user_id_raw) if user_id_raw else 0
+                except (ValueError, TypeError):
+                    user_id = 0
+
+                try:
+                    closed_by = int(closed_by_raw) if closed_by_raw else None
+                except (ValueError, TypeError):
+                    closed_by = None
+
+                # created_at / closed_at als ISO-String
+                created_at = row[5]
+                if created_at and not isinstance(created_at, str):
+                    created_at = str(created_at)
+
+                closed_at = row[6]
+                if closed_at and not isinstance(closed_at, str):
+                    closed_at = str(closed_at)
+
+                ticket: dict[str, Any] = {
+                    "ticket_id": ticket_id,
+                    "channel_id": channel_id,
+                    "user_id": user_id,
+                    "subject": row[3] or "",
+                    "status": row[4] or "open",
+                    "created_at": created_at or datetime.now().isoformat(),
+                    "closed_at": closed_at,
+                    "closed_by": closed_by,
+                    "transcript": [],
+                }
+
+                tickets[str(ticket_id)] = ticket
+
+            # Transcript-Nachrichten fuer alle Tickets laden
+            if tickets:
+                msg_cursor = await db.execute(
+                    "SELECT ticket_id, user_id, content, timestamp "
+                    "FROM ticket_messages ORDER BY id ASC"
+                )
+                msg_rows = await msg_cursor.fetchall()
+
+                for msg_row in msg_rows:
+                    tid_str = str(msg_row[0])
+                    if tid_str in tickets:
+                        msg_user_id = msg_row[1] or "0"
+                        msg_timestamp = msg_row[3]
+                        if msg_timestamp and not isinstance(msg_timestamp, str):
+                            msg_timestamp = str(msg_timestamp)
+
+                        entry = {
+                            "author": f"User {msg_user_id}",
+                            "author_id": int(msg_user_id) if msg_user_id else 0,
+                            "content": msg_row[2] or "",
+                            "timestamp": msg_timestamp or datetime.now().isoformat(),
+                        }
+                        tickets[tid_str]["transcript"].append(entry)
+
+            self._data = {
+                "next_id": max_id + 1,
+                "tickets": tickets,
+            }
+            self._db_loaded = True
+
+            ticket_count = len(tickets)
+            open_count = sum(
+                1 for t in tickets.values() if t.get("status") == "open"
+            )
+            logger.info(
+                f"Ticket-Daten aus SQLite geladen: {ticket_count} Tickets "
+                f"({open_count} offen)"
+            )
+
+        except Exception as e:
+            logger.error(
+                f"Ticket-Daten aus SQLite laden fehlgeschlagen: {e} "
+                f"— verwende JSON-Fallback"
+            )
+            # _data bleibt auf JSON-Fallback-Stand
+
+    # ------------------------------------------------------------------
+    # Persistence — Konfiguration (bleibt JSON)
     # ------------------------------------------------------------------
 
     def _load_config(self) -> None:
@@ -166,16 +299,16 @@ class TicketManager:
     # Ticket erstellen
     # ------------------------------------------------------------------
 
-    def create_ticket(
+    async def create_ticket(
         self,
         user_id: int,
         subject: str,
         channel_id: int = 0,
     ) -> dict[str, Any]:
         """
-        Neues Ticket erstellen und speichern.
+        Neues Ticket erstellen und in SQLite speichern.
 
-        Vergibt automatisch eine fortlaufende Ticket-ID.
+        Vergibt automatisch eine fortlaufende Ticket-ID via AUTOINCREMENT.
         Der channel_id wird typischerweise nach der Channel-Erstellung
         via update_ticket_channel() gesetzt.
 
@@ -187,11 +320,36 @@ class TicketManager:
         Returns:
             Dict mit allen Ticket-Daten (inklusive ticket_id)
         """
-        ticket_id = self._data["next_id"]
-        self._data["next_id"] += 1
+        now = datetime.now()
+
+        # In SQLite einfuegen
+        db_ticket_id: int | None = None
+        try:
+            db = await get_db()
+            cursor = await db.execute(
+                "INSERT INTO tickets (channel_id, user_id, subject, status, created_at) "
+                "VALUES (?, ?, ?, 'open', ?)",
+                (str(channel_id), str(user_id), subject, now.isoformat()),
+            )
+            await db.commit()
+            db_ticket_id = cursor.lastrowid
+            logger.info(
+                f"Ticket #{db_ticket_id} in SQLite erstellt von User {user_id}: {subject}"
+            )
+        except Exception as e:
+            logger.error(f"Ticket in SQLite erstellen fehlgeschlagen: {e}")
+
+        # Ticket-ID bestimmen: DB-ID bevorzugen, sonst Fallback auf next_id
+        if db_ticket_id is not None:
+            ticket_id = db_ticket_id
+            # next_id aktualisieren falls noetig
+            if ticket_id >= self._data["next_id"]:
+                self._data["next_id"] = ticket_id + 1
+        else:
+            ticket_id = self._data["next_id"]
+            self._data["next_id"] += 1
 
         ticket_id_str = str(ticket_id)
-        now = datetime.now()
 
         ticket: dict[str, Any] = {
             "ticket_id": ticket_id,
@@ -205,8 +363,8 @@ class TicketManager:
             "transcript": [],
         }
 
+        # In-Memory-Cache aktualisieren
         self._data["tickets"][ticket_id_str] = ticket
-        self._save()
 
         logger.info(
             f"Ticket #{ticket_id} erstellt von User {user_id}: {subject}"
@@ -217,7 +375,7 @@ class TicketManager:
     # Ticket aktualisieren
     # ------------------------------------------------------------------
 
-    def update_ticket_channel(self, ticket_id: int, channel_id: int) -> None:
+    async def update_ticket_channel(self, ticket_id: int, channel_id: int) -> None:
         """
         Channel-ID eines Tickets nachtraeglich setzen.
 
@@ -229,22 +387,36 @@ class TicketManager:
             channel_id: Discord-Channel-ID
         """
         tid = str(ticket_id)
+
+        # In-Memory-Cache aktualisieren
         if tid in self._data["tickets"]:
             self._data["tickets"][tid]["channel_id"] = channel_id
-            self._save()
+
+        # In SQLite aktualisieren
+        try:
+            db = await get_db()
+            await db.execute(
+                "UPDATE tickets SET channel_id = ? WHERE id = ?",
+                (str(channel_id), ticket_id),
+            )
+            await db.commit()
+        except Exception as e:
+            logger.error(
+                f"Ticket #{ticket_id} channel_id in SQLite aktualisieren fehlgeschlagen: {e}"
+            )
 
     # ------------------------------------------------------------------
     # Ticket schliessen
     # ------------------------------------------------------------------
 
-    def close_ticket(
+    async def close_ticket(
         self,
         ticket_id: int,
         closed_by: int,
         reason: str | None = None,
     ) -> dict[str, Any] | None:
         """
-        Ticket schliessen und Status aktualisieren.
+        Ticket schliessen und Status in SQLite aktualisieren.
 
         Args:
             ticket_id: Ticket-ID
@@ -265,19 +437,33 @@ class TicketManager:
             return dict(ticket)
 
         now = datetime.now()
+
+        # In-Memory-Cache aktualisieren
         ticket["status"] = "closed"
         ticket["closed_at"] = now.isoformat()
         ticket["closed_by"] = closed_by
 
+        # In SQLite aktualisieren
+        try:
+            db = await get_db()
+            await db.execute(
+                "UPDATE tickets SET status = 'closed', closed_at = ?, closed_by = ? "
+                "WHERE id = ?",
+                (now.isoformat(), str(closed_by), ticket_id),
+            )
+            await db.commit()
+        except Exception as e:
+            logger.error(
+                f"Ticket #{ticket_id} in SQLite schliessen fehlgeschlagen: {e}"
+            )
+
         if reason:
-            self.add_transcript_entry(
+            await self.add_transcript_entry(
                 ticket_id,
                 author="System",
                 content=f"Ticket geschlossen: {reason}",
                 author_id=0,
             )
-
-        self._save()
 
         logger.info(
             f"Ticket #{ticket_id} geschlossen von User {closed_by}"
@@ -289,7 +475,7 @@ class TicketManager:
     # Transcript
     # ------------------------------------------------------------------
 
-    def add_transcript_entry(
+    async def add_transcript_entry(
         self,
         ticket_id: int,
         author: str,
@@ -297,7 +483,7 @@ class TicketManager:
         author_id: int = 0,
     ) -> bool:
         """
-        Nachricht zum Ticket-Transcript hinzufuegen.
+        Nachricht zum Ticket-Transcript hinzufuegen (SQLite + In-Memory).
 
         Args:
             ticket_id: Ticket-ID
@@ -314,19 +500,37 @@ class TicketManager:
         if not ticket:
             return False
 
+        now = datetime.now()
+
         entry = {
             "author": author,
             "author_id": author_id,
             "content": content,
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": now.isoformat(),
         }
 
+        # In-Memory-Cache aktualisieren
         ticket["transcript"].append(entry)
-        self._save()
+
+        # In SQLite einfuegen
+        try:
+            db = await get_db()
+            await db.execute(
+                "INSERT INTO ticket_messages (ticket_id, user_id, content, timestamp) "
+                "VALUES (?, ?, ?, ?)",
+                (ticket_id, str(author_id), content, now.isoformat()),
+            )
+            await db.commit()
+        except Exception as e:
+            logger.error(
+                f"Transcript-Eintrag fuer Ticket #{ticket_id} in SQLite "
+                f"speichern fehlgeschlagen: {e}"
+            )
+
         return True
 
     # ------------------------------------------------------------------
-    # Abfragen
+    # Abfragen (lesen aus In-Memory-Cache, synchron)
     # ------------------------------------------------------------------
 
     def get_ticket(self, ticket_id: int) -> dict[str, Any] | None:
@@ -406,7 +610,7 @@ class TicketManager:
         )
 
     # ------------------------------------------------------------------
-    # Konfiguration
+    # Konfiguration (bleibt JSON)
     # ------------------------------------------------------------------
 
     @property

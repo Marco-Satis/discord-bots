@@ -6,6 +6,9 @@ Loggt Server-Events (Joins, Leaves, Rollen-Aenderungen, Nick-Aenderungen,
 Channel-Aenderungen, Moderations-Aktionen) als farbige Embeds in
 konfigurierbare Discord-Kanaele.
 
+Zusaetzlich werden alle Events persistent in der SQLite-Datenbank
+(Tabelle: audit_log) gespeichert.
+
 Konfiguration in data/admin/audit_config.json:
 {
   "mod_log_channel": 0,
@@ -15,8 +18,8 @@ Konfiguration in data/admin/audit_config.json:
   "server_log_channel": 0
 }
 
-Es werden KEINE Daten in JSON gespeichert — alle Logs gehen direkt
-an die konfigurierten Discord-Kanaele.
+Die Discord-Kanal-Konfiguration wird in audit_config.json gespeichert.
+Die Logs gehen an Discord-Kanaele UND in die SQLite-Datenbank.
 """
 
 from __future__ import annotations
@@ -28,6 +31,7 @@ from typing import Any, Optional
 
 import discord
 
+from modules.database.db_manager import get_db
 from utils.logger import get_logger
 from utils.config import ADMIN_DATA_DIR
 
@@ -75,8 +79,10 @@ class AuditLogger:
     Discord-Kanaele. Jede Log-Kategorie (Moderation, Joins, Member,
     Rollen, Server) hat einen eigenen konfigurierbaren Kanal.
 
+    Zusaetzlich werden alle Events persistent in der SQLite-Datenbank
+    (Tabelle: audit_log) gespeichert.
+
     Die Konfiguration (Channel-IDs) wird in audit_config.json gespeichert.
-    Die eigentlichen Logs gehen ausschliesslich an Discord-Kanaele.
     """
 
     def __init__(self) -> None:
@@ -198,6 +204,37 @@ class AuditLogger:
             logger.warning(f"Audit-Embed senden fehlgeschlagen ({config_key}): {e}")
             return False
 
+    async def _log_to_db(
+        self,
+        action: str,
+        user_id: Optional[str] = None,
+        user_name: Optional[str] = None,
+        target: Optional[str] = None,
+        details: Optional[str] = None,
+        source: str = "bot",
+    ) -> None:
+        """
+        Audit-Event persistent in die SQLite-Datenbank schreiben.
+
+        Args:
+            action: Art der Aktion (z.B. "mod_ban", "member_join", "role_add")
+            user_id: Discord-User-ID des Ausfuehrenden (als String)
+            user_name: Anzeigename des Ausfuehrenden
+            target: Ziel der Aktion (z.B. User-ID, Channel-Name, Rollen-Name)
+            details: Zusaetzliche Details (JSON-String oder Freitext)
+            source: Quelle des Events (Standard: "bot")
+        """
+        try:
+            db = await get_db()
+            await db.execute(
+                "INSERT INTO audit_log (user_id, user_name, action, target, details, source) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (user_id, user_name, action, target, details, source),
+            )
+            await db.commit()
+        except Exception as e:
+            logger.error(f"Audit-Log DB-Schreiben fehlgeschlagen: {e}")
+
     # ------------------------------------------------------------------
     # Log-Methoden
     # ------------------------------------------------------------------
@@ -249,6 +286,16 @@ class AuditLogger:
             embed.set_thumbnail(url=target.display_avatar.url)
 
         embed.set_footer(text=f"User-ID: {target.id}")
+
+        # SQLite-Logging
+        await self._log_to_db(
+            action=f"mod_{action.lower()}",
+            user_id=str(moderator.id),
+            user_name=str(moderator),
+            target=f"{target} ({target.id})",
+            details=reason,
+            source="mod",
+        )
 
         return await self._send_embed(bot, "mod_log_channel", embed)
 
@@ -315,6 +362,15 @@ class AuditLogger:
             embed.set_thumbnail(url=member.display_avatar.url)
 
         embed.set_footer(text=f"User-ID: {member.id}")
+
+        # SQLite-Logging
+        await self._log_to_db(
+            action="member_join",
+            user_id=str(member.id),
+            user_name=str(member),
+            target=member.guild.name if member.guild else None,
+            details=f"Account-Alter: {age_str}",
+        )
 
         return await self._send_embed(bot, "join_log_channel", embed)
 
@@ -385,6 +441,16 @@ class AuditLogger:
 
         embed.set_footer(text=f"User-ID: {member.id}")
 
+        # SQLite-Logging
+        role_names = [r.name for r in member.roles if r.name != "@everyone"]
+        await self._log_to_db(
+            action="member_leave",
+            user_id=str(member.id),
+            user_name=str(member),
+            target=member.guild.name if member.guild else None,
+            details=f"Mitgliedschaft: {membership_str}, Rollen: {', '.join(role_names) if role_names else 'Keine'}",
+        )
+
         return await self._send_embed(bot, "join_log_channel", embed)
 
     async def log_member_update(
@@ -426,6 +492,15 @@ class AuditLogger:
 
             embed.set_footer(text=f"User-ID: {after.id}")
 
+            # SQLite-Logging
+            await self._log_to_db(
+                action="nick_change",
+                user_id=str(after.id),
+                user_name=str(after),
+                target=f"{old_nick} -> {new_nick}",
+                details=f"Vorher: {old_nick}, Nachher: {new_nick}",
+            )
+
             sent = await self._send_embed(bot, "member_log_channel", embed)
             if sent:
                 logged = True
@@ -459,6 +534,14 @@ class AuditLogger:
                 embed.add_field(name="Neuer Avatar", value="Entfernt", inline=True)
 
             embed.set_footer(text=f"User-ID: {after.id}")
+
+            # SQLite-Logging
+            await self._log_to_db(
+                action="avatar_change",
+                user_id=str(after.id),
+                user_name=str(after),
+                details="Server-Avatar geaendert",
+            )
 
             sent = await self._send_embed(bot, "member_log_channel", embed)
             if sent:
@@ -518,6 +601,16 @@ class AuditLogger:
 
             embed.set_footer(text=f"User-ID: {member.id}")
 
+            # SQLite-Logging
+            role_names = [r.name for r in added_roles]
+            await self._log_to_db(
+                action="role_add",
+                user_id=str(member.id),
+                user_name=str(member),
+                target=", ".join(role_names),
+                details=f"Rollen hinzugefuegt: {', '.join(role_names)}",
+            )
+
             sent = await self._send_embed(bot, "role_log_channel", embed)
             if sent:
                 logged = True
@@ -543,6 +636,16 @@ class AuditLogger:
                 embed.set_thumbnail(url=member.display_avatar.url)
 
             embed.set_footer(text=f"User-ID: {member.id}")
+
+            # SQLite-Logging
+            role_names = [r.name for r in removed_roles]
+            await self._log_to_db(
+                action="role_remove",
+                user_id=str(member.id),
+                user_name=str(member),
+                target=", ".join(role_names),
+                details=f"Rollen entfernt: {', '.join(role_names)}",
+            )
 
             sent = await self._send_embed(bot, "role_log_channel", embed)
             if sent:
@@ -601,6 +704,15 @@ class AuditLogger:
 
         embed.set_footer(text=f"Channel-ID: {channel.id}")
 
+        # SQLite-Logging
+        db_action = "channel_create" if is_create else "channel_delete"
+        category_name = channel.category.name if hasattr(channel, "category") and channel.category else None
+        await self._log_to_db(
+            action=db_action,
+            target=f"{channel.name} ({channel.id})",
+            details=f"Typ: {channel_type}, Kategorie: {category_name or 'Keine'}",
+        )
+
         return await self._send_embed(bot, "server_log_channel", embed)
 
     async def log_role_create(
@@ -638,6 +750,13 @@ class AuditLogger:
 
         embed.set_footer(text=f"Rollen-ID: {role.id}")
 
+        # SQLite-Logging
+        await self._log_to_db(
+            action="role_create",
+            target=f"{role.name} ({role.id})",
+            details=f"Farbe: {role.color}, Mentionbar: {role.mentionable}, Hoisted: {role.hoist}",
+        )
+
         return await self._send_embed(bot, "server_log_channel", embed)
 
     async def log_role_delete(
@@ -664,5 +783,12 @@ class AuditLogger:
         embed.add_field(name="ID", value=str(role.id), inline=True)
 
         embed.set_footer(text=f"Rollen-ID: {role.id}")
+
+        # SQLite-Logging
+        await self._log_to_db(
+            action="role_delete",
+            target=f"{role.name} ({role.id})",
+            details=f"Farbe: {role.color}",
+        )
 
         return await self._send_embed(bot, "server_log_channel", embed)

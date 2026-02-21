@@ -1,7 +1,8 @@
 """
 Command Logger
 Logs every slash command execution with who, what, when.
-Writes to log file and optionally sends to Discord admin channel.
+Writes to log file, optionally sends to Discord admin channel,
+and persists structured data in SQLite (command_log table).
 """
 
 import json
@@ -10,6 +11,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 import discord
+from modules.database.db_manager import get_db
 from utils.logger import get_logger
 from utils.config import LOG_DIR
 
@@ -21,9 +23,10 @@ COMMAND_LOG_FILE = LOG_DIR / "commands.log"
 class CommandLogger:
     """
     Logs all slash command executions.
-    
+
     - File logging: Always active, appends to commands.log
     - Discord logging: Optional, sends to admin log channel
+    - SQLite logging: Always active, inserts into command_log table
     """
 
     def __init__(self, admin_channel: Optional[discord.TextChannel] = None) -> None:
@@ -49,7 +52,7 @@ class CommandLogger:
     ) -> None:  # type: ignore
         """
         Log a command execution.
-        
+
         Args:
             interaction: The Discord interaction
             command_name: Override command name (auto-detected if None)
@@ -86,6 +89,9 @@ class CommandLogger:
         # File logging
         await self._log_to_file(entry)
 
+        # SQLite logging
+        await self._log_to_sqlite(entry)
+
         # Discord logging (only for important commands)
         if self.admin_channel:
             await self._log_to_discord(entry)
@@ -113,6 +119,28 @@ class CommandLogger:
 
         except OSError as e:
             logger.error(f"Command log file write failed: {e}")
+
+    async def _log_to_sqlite(self, entry: Dict[str, Any]) -> None:  # type: ignore
+        """Persist log entry to SQLite command_log table"""
+        try:
+            db = await get_db()
+            await db.execute(
+                "INSERT INTO command_log "
+                "(command_name, user_id, user_name, guild_id, channel_id, success, error_message) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    entry["command"],
+                    str(entry["user_id"]),
+                    entry["user_name"],
+                    str(entry["guild_id"]) if entry["guild_id"] else None,
+                    str(entry["channel_id"]) if entry["channel_id"] else None,
+                    entry["success"],
+                    entry.get("error"),
+                ),
+            )
+            await db.commit()
+        except Exception as e:
+            logger.error(f"Command log SQLite write failed: {e}")
 
     async def _log_to_discord(self, entry: Dict[str, Any]) -> None:  # type: ignore
         """Send log entry to Discord admin channel"""
@@ -174,3 +202,107 @@ class CommandLogger:
         except OSError as e:
             logger.error(f"Failed to read command log: {e}")
             return []
+
+    async def get_command_stats(self, days: int = 7) -> Dict[str, Any]:
+        """
+        Query SQLite for command usage statistics over the given period.
+
+        Args:
+            days: Number of days to look back (default: 7)
+
+        Returns:
+            Dict with keys:
+                - total: Total command executions
+                - unique_users: Number of distinct users
+                - success_rate: Percentage of successful commands
+                - top_commands: List of (command_name, count) tuples, top 15
+                - top_users: List of (user_name, count) tuples, top 10
+                - failures: Total failed command executions
+                - per_day: List of (date, count) tuples for the period
+        """
+        stats: Dict[str, Any] = {
+            "total": 0,
+            "unique_users": 0,
+            "success_rate": 0.0,
+            "top_commands": [],
+            "top_users": [],
+            "failures": 0,
+            "per_day": [],
+        }
+
+        try:
+            db = await get_db()
+
+            # Total executions
+            cursor = await db.execute(
+                "SELECT COUNT(*) FROM command_log "
+                "WHERE timestamp >= datetime('now', ?)",
+                (f"-{days} days",),
+            )
+            row = await cursor.fetchone()
+            stats["total"] = row[0] if row else 0
+
+            if stats["total"] == 0:
+                return stats
+
+            # Unique users
+            cursor = await db.execute(
+                "SELECT COUNT(DISTINCT user_id) FROM command_log "
+                "WHERE timestamp >= datetime('now', ?)",
+                (f"-{days} days",),
+            )
+            row = await cursor.fetchone()
+            stats["unique_users"] = row[0] if row else 0
+
+            # Failures
+            cursor = await db.execute(
+                "SELECT COUNT(*) FROM command_log "
+                "WHERE timestamp >= datetime('now', ?) AND success = FALSE",
+                (f"-{days} days",),
+            )
+            row = await cursor.fetchone()
+            stats["failures"] = row[0] if row else 0
+
+            # Success rate
+            if stats["total"] > 0:
+                stats["success_rate"] = round(
+                    ((stats["total"] - stats["failures"]) / stats["total"]) * 100, 1
+                )
+
+            # Top commands
+            cursor = await db.execute(
+                "SELECT command_name, COUNT(*) as cnt FROM command_log "
+                "WHERE timestamp >= datetime('now', ?) "
+                "GROUP BY command_name ORDER BY cnt DESC LIMIT 15",
+                (f"-{days} days",),
+            )
+            stats["top_commands"] = [
+                (row[0], row[1]) for row in await cursor.fetchall()
+            ]
+
+            # Top users
+            cursor = await db.execute(
+                "SELECT user_name, COUNT(*) as cnt FROM command_log "
+                "WHERE timestamp >= datetime('now', ?) "
+                "GROUP BY user_id ORDER BY cnt DESC LIMIT 10",
+                (f"-{days} days",),
+            )
+            stats["top_users"] = [
+                (row[0], row[1]) for row in await cursor.fetchall()
+            ]
+
+            # Per-day breakdown
+            cursor = await db.execute(
+                "SELECT DATE(timestamp) as day, COUNT(*) as cnt FROM command_log "
+                "WHERE timestamp >= datetime('now', ?) "
+                "GROUP BY day ORDER BY day",
+                (f"-{days} days",),
+            )
+            stats["per_day"] = [
+                (row[0], row[1]) for row in await cursor.fetchall()
+            ]
+
+        except Exception as e:
+            logger.error(f"Failed to query command stats: {e}")
+
+        return stats
