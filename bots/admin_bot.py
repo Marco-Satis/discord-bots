@@ -10,9 +10,13 @@ Architektur:
 """
 
 import sys
+import json
+import time
+import asyncio
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from pathlib import Path
+from datetime import datetime, timezone
 
 # Projektroot zum Pfad hinzufuegen
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -20,6 +24,8 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from utils.config import load_env, get_env, get_config, DATA_DIR
 from utils.logger import get_logger
+from utils.selftest import execute_selftest
+from utils.shutdown import setup_signal_handlers, register_cleanup
 
 # Umgebung laden
 load_env()
@@ -72,7 +78,54 @@ INITIAL_COGS: list[str] = [
     "cogs.temp_voice_cog",      # Phase 12a: Temp Voice Channels
     "cogs.teamspeak_cog",       # Phase 12b-d: TeamSpeak-Integration
     "cogs.server_backup_cog",   # Phase 12e: Server-Backup
+    "cogs.embed_sender_cog",    # Embed-Sender (Dashboard-Queue)
 ]
+
+
+# ------------------------------------------------------------------
+# Bot-Status-Writer (Ping + Uptime fuer Dashboard)
+# ------------------------------------------------------------------
+
+_admin_bot_start_time = time.time()
+
+
+def _write_admin_bot_status():
+    """Schreibt Admin Bot Status (Ping, Uptime) als JSON fuer Dashboard."""
+    try:
+        ADMIN_DATA_DIR.mkdir(parents=True, exist_ok=True)
+        uptime_secs = int(time.time() - _admin_bot_start_time)
+        hours = uptime_secs // 3600
+        mins = (uptime_secs % 3600) // 60
+        if hours > 0:
+            uptime_str = f"{hours}h {mins}m"
+        else:
+            uptime_str = f"{mins}m"
+
+        data = {
+            "status": "online" if bot.is_ready() else "offline",
+            "ping_ms": round(bot.latency * 1000) if bot.latency else 0,
+            "uptime": uptime_str,
+            "last_update": datetime.now(timezone.utc).isoformat(),
+        }
+        tmp = ADMIN_DATA_DIR / "bot_status.json.tmp"
+        target = ADMIN_DATA_DIR / "bot_status.json"
+        with open(tmp, "w") as f:
+            json.dump(data, f)
+        tmp.replace(target)
+    except Exception as e:
+        logger.debug(f"Bot-Status schreiben fehlgeschlagen: {e}")
+
+
+@tasks.loop(seconds=30)
+async def admin_status_writer_task():
+    """Schreibt Bot-Status alle 30 Sekunden."""
+    await asyncio.to_thread(_write_admin_bot_status)
+
+
+@admin_status_writer_task.before_loop
+async def before_admin_status_writer():
+    await bot.wait_until_ready()
+    await asyncio.sleep(5)
 
 
 # ------------------------------------------------------------------
@@ -86,6 +139,10 @@ async def on_ready():
         return
     logger.info(f"Admin Bot online: {bot.user} (ID: {bot.user.id})")
     logger.info(f"Guilds: {[g.name for g in bot.guilds]}")
+
+    # Bot-Status-Writer starten (Ping fuer Dashboard)
+    if not admin_status_writer_task.is_running():
+        admin_status_writer_task.start()
 
 
 @bot.event
@@ -149,6 +206,15 @@ async def setup_hook():
 
 
 def main():
+    # F62: Startup Selftest
+    selftest_ok = execute_selftest(
+        "Admin Bot",
+        required_env=["ADMIN_BOT_TOKEN", "GUILD_ID"],
+    )
+    if not selftest_ok:
+        logger.error("Selftest fehlgeschlagen — Bot wird nicht gestartet!")
+        sys.exit(1)
+
     logger.info("Starting Admin Bot...")
     try:
         bot.run(TOKEN)

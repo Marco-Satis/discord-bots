@@ -3,9 +3,60 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ request.state.csrf_token|default('') }}">
     <title>{% block title %}Dashboard{% endblock %} — Bot Dashboard</title>
     <link rel="stylesheet" href="/static/style.css">
-    <script src="/static/htmx.min.js"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.10/dist/htmx.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script>
+        // F64: CSRF-Token fuer alle HTMX-Requests
+        document.addEventListener('DOMContentLoaded', function() {
+            var csrfToken = document.querySelector('meta[name="csrf-token"]');
+            if (csrfToken) {
+                document.body.setAttribute('hx-headers',
+                    JSON.stringify({"X-CSRF-Token": csrfToken.content}));
+            }
+        });
+
+        // F65: Session-Timeout Warnung (5 Min vor Ablauf)
+        (function() {
+            var SESSION_TIMEOUT = 3600; // 60 Minuten (Server-seitig konfiguriert)
+            var WARNING_BEFORE = 300;   // 5 Minuten vorher warnen
+            var _lastActivity = Date.now();
+
+            // Aktivitaet tracken
+            ['click', 'keypress', 'scroll', 'mousemove'].forEach(function(evt) {
+                document.addEventListener(evt, function() {
+                    _lastActivity = Date.now();
+                }, {passive: true});
+            });
+
+            setInterval(function() {
+                var idle = (Date.now() - _lastActivity) / 1000;
+                var remaining = SESSION_TIMEOUT - idle;
+
+                if (remaining <= 0) {
+                    window.location.href = '/auth/login?reason=timeout';
+                } else if (remaining <= WARNING_BEFORE) {
+                    var mins = Math.floor(remaining / 60);
+                    var secs = Math.floor(remaining % 60);
+                    var banner = document.getElementById('session-timeout-banner');
+                    if (!banner) {
+                        banner = document.createElement('div');
+                        banner.id = 'session-timeout-banner';
+                        banner.className = 'alert alert-warning';
+                        banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;text-align:center;margin:0;border-radius:0;';
+                        document.body.prepend(banner);
+                    }
+                    banner.textContent = 'Sitzung laeuft in ' + mins + ':' + (secs < 10 ? '0' : '') + secs + ' ab. Klicke irgendwo um aktiv zu bleiben.';
+                    banner.style.display = 'block';
+                } else {
+                    var banner = document.getElementById('session-timeout-banner');
+                    if (banner) banner.style.display = 'none';
+                }
+            }, 5000);
+        })();
+    </script>
 </head>
 <body>
     <!-- Sidebar-Navigation -->
@@ -49,6 +100,24 @@
                 <span class="nav-icon">&#9783;</span>
                 <span class="nav-label">System</span>
             </a>
+            <a href="/security" class="nav-item {% block nav_security %}{% endblock %}">
+                <span class="nav-icon">&#9888;</span>
+                <span class="nav-label">Sicherheit</span>
+            </a>
+
+            <div class="nav-separator">Server</div>
+            <a href="/server/satisfactory" class="nav-item nav-sub {% block nav_sat %}{% endblock %}">
+                <span class="nav-icon">&#9654;</span>
+                <span class="nav-label">Satisfactory</span>
+            </a>
+            <a href="/server/mc_bmc" class="nav-item nav-sub {% block nav_mc_bmc %}{% endblock %}">
+                <span class="nav-icon">&#9654;</span>
+                <span class="nav-label">MC Better MC</span>
+            </a>
+            <a href="/server/mc_vanilla" class="nav-item nav-sub {% block nav_mc_vanilla %}{% endblock %}">
+                <span class="nav-icon">&#9654;</span>
+                <span class="nav-label">MC Vanilla</span>
+            </a>
             <a href="/auth/logout" class="nav-item nav-logout">
                 <span class="nav-icon">&#10140;</span>
                 <span class="nav-label">Abmelden</span>
@@ -56,7 +125,7 @@
         </nav>
 
         <div class="sidebar-footer">
-            <small>Dashboard &middot; v3.2.0</small>
+            <small>Dashboard &middot; v4.0.0</small>
         </div>
     </aside>
 

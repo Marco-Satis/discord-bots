@@ -65,6 +65,16 @@ from modules.monitoring.web_status import WebStatusGenerator
 from modules.monitoring.status_writer import StatusWriter
 from modules.minecraft.modpack_updater import ModpackUpdater
 from modules.monitoring.stats_collector import StatsCollector
+from utils.selftest import execute_selftest
+from utils.shutdown import register_cleanup
+from modules.monitoring.health_checker import HealthAutoRestart
+from modules.monitoring.service_watchdog import ServiceWatchdog
+from modules.system.disk_guard import DiskGuard
+from modules.network.duckdns_monitor import DuckDNSMonitor
+from modules.network.port_monitor import PortMonitor
+from modules.security.ssl_monitor import SSLMonitor
+from modules.security.fail2ban import Fail2BanManager
+from modules.backup.integrity import BackupIntegrity
 
 load_env()
 
@@ -278,6 +288,37 @@ bot.savegame_protection = savegame_protection
 bot.degradation = degradation
 bot.steam_changelog = steam_changelog
 bot.config_validator = validator
+
+# ------------------------------------------------------------------
+# Phase 1: Neue Monitoring/Security Module (F27, F31-33, F49-52)
+# ------------------------------------------------------------------
+
+health_auto_restart = HealthAutoRestart(bot)
+bot.health_auto_restart = health_auto_restart
+
+service_watchdog = ServiceWatchdog(bot)
+bot.service_watchdog = service_watchdog
+
+disk_guard = DiskGuard(bot)
+bot.disk_guard = disk_guard
+
+duckdns_monitor = DuckDNSMonitor(
+    bot,
+    domain=get_env("WEB_DOMAIN", "marco-satisfactory.duckdns.org"),
+)
+bot.duckdns_monitor = duckdns_monitor
+
+port_monitor = PortMonitor(bot)
+bot.port_monitor = port_monitor
+
+ssl_monitor = SSLMonitor()
+bot.ssl_monitor = ssl_monitor
+
+fail2ban_mgr = Fail2BanManager()
+bot.fail2ban_mgr = fail2ban_mgr
+
+backup_integrity = BackupIntegrity()
+bot.backup_integrity = backup_integrity
 
 # ------------------------------------------------------------------
 # Minecraft Multi-Server + Chat-Bridge
@@ -877,12 +918,56 @@ _status_lock = asyncio.Lock()
 
 
 def _init_log_position():
-    """Seek to end of log to avoid replaying old events"""
+    """
+    Seek to end of log, but scan full log first to recover
+    currently online players (joins without matching leaves).
+    """
     global _log_last_pos, _log_last_size
     try:
         if _sat_log_path.exists():
             _log_last_size = _sat_log_path.stat().st_size
             _log_last_pos = _log_last_size
+
+            # Scan full log to find players still online
+            try:
+                with open(_sat_log_path, "r", encoding="utf-8", errors="replace") as f:
+                    content = f.read()
+
+                joins = set()
+                leaves = set()
+                for m in _PLAYER_JOIN_RE.finditer(content):
+                    name = m.group(1).strip()
+                    if name:
+                        joins.add(name)
+                for m in _PLAYER_LEAVE_RE.finditer(content):
+                    name = m.group(1).strip()
+                    if name:
+                        leaves.add(name)
+
+                still_online = joins - leaves
+                if still_online:
+                    logger.info(
+                        f"Log-Scan: {len(still_online)} Spieler noch online "
+                        f"erkannt: {', '.join(sorted(still_online))}"
+                    )
+                    # Synchron ins Tracker-Set schreiben (update() ist async,
+                    # deshalb direkt auf die interne Struktur zugreifen)
+                    player_tracker._online_players = still_online
+                    now_iso = datetime.now().isoformat()
+                    for name in still_online:
+                        if name not in player_tracker.players:
+                            from modules.monitoring.player_tracker import PlayerRecord
+                            player_tracker.players[name] = PlayerRecord(
+                                name=name,
+                                first_seen=now_iso,
+                                last_seen=now_iso,
+                            )
+                        record = player_tracker.players[name]
+                        record.is_online = True
+                        if not record.current_session_start:
+                            record.current_session_start = now_iso
+            except Exception as e:
+                logger.debug(f"Log-Scan fuer Online-Spieler fehlgeschlagen: {e}")
     except Exception as e:
         logger.debug(f"Log-Position initialisieren fehlgeschlagen: {e}")
 
@@ -1133,6 +1218,71 @@ async def before_login_audit():
     await bot.wait_until_ready()
     await asyncio.sleep(20)
     login_audit.init_position()
+
+
+@tasks.loop(seconds=150)
+async def health_auto_restart_task():
+    """F27: Health-Check mit Auto-Restart alle 2.5 Minuten"""
+    try:
+        await health_auto_restart.check_all_servers()
+    except Exception as e:
+        logger.debug(f"Health auto-restart task error: {e}")
+
+
+@health_auto_restart_task.before_loop
+async def before_health_auto_restart():
+    await bot.wait_until_ready()
+    await asyncio.sleep(45)  # Nach anderen Tasks starten
+
+
+@tasks.loop(seconds=86400)
+async def ssl_check_task():
+    """F32: SSL-Zertifikat taeglich pruefen"""
+    try:
+        result = await ssl_monitor.check_certificate()
+        if result.get("status") in ("warning", "critical", "expired"):
+            # Warnung an Admin-Channel
+            if ADMIN_LOG_CHANNEL_ID:
+                channel = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
+                if channel:
+                    days = result.get("days_remaining", "?")
+                    status = result.get("status", "unbekannt")
+                    color = 0xf39c12 if status == "warning" else 0xe74c3c
+                    embed = discord.Embed(
+                        title=f"SSL-Zertifikat: {status.upper()}",
+                        description=(
+                            f"Domain: `{result.get('domain', '?')}`\n"
+                            f"Verbleibend: **{days} Tage**\n"
+                            f"Aussteller: {result.get('issuer', 'unbekannt')}"
+                        ),
+                        color=color,
+                        timestamp=datetime.now(),
+                    )
+                    try:
+                        await channel.send(embed=embed)
+                    except Exception:
+                        pass
+
+        # SSL-Status als JSON fuer Dashboard schreiben
+        import json as _json
+        _ssl_dir = PROJECT_ROOT / "data" / "monitor"
+        _ssl_dir.mkdir(parents=True, exist_ok=True)
+        _ssl_tmp = _ssl_dir / "ssl_status.json.tmp"
+        _ssl_target = _ssl_dir / "ssl_status.json"
+        try:
+            with open(_ssl_tmp, "w") as f:
+                _json.dump(result, f)
+            _ssl_tmp.replace(_ssl_target)
+        except Exception:
+            pass
+    except Exception as e:
+        logger.debug(f"SSL check task error: {e}")
+
+
+@ssl_check_task.before_loop
+async def before_ssl_check():
+    await bot.wait_until_ready()
+    await asyncio.sleep(60)
 
 
 @tasks.loop(seconds=120)
@@ -1771,7 +1921,7 @@ async def on_ready():
     core_tasks = [
         health_check_task, player_log_task, update_status_embed,
         update_voice_stats, optimize_task, login_audit_task,
-        weekly_snapshot_task,
+        weekly_snapshot_task, health_auto_restart_task, ssl_check_task,
     ]
     # Web-Status-Task nur starten wenn aktiviert
     if web_status_generator:
@@ -1796,8 +1946,59 @@ async def on_ready():
     if not status_writer._running:
         await status_writer.start()
 
+    # Phase 1: Neue Monitoring-Module starten (eigene asyncio Tasks)
+    service_watchdog.start()
+    disk_guard.start()
+    duckdns_monitor.start()
+    port_monitor.start()
+
     if _first_ready:
         logger.info("All background tasks started")
+
+        # Initialen Update-Check als Background-Task starten
+        # (installierte + verfuegbare Build-ID fuer Dashboard)
+        async def _initial_update_check():
+            try:
+                # Installierte Build-ID (schnell, liest lokale Datei)
+                build_id = await update_checker._get_installed_buildid()
+                if build_id:
+                    update_checker.installed_buildid = build_id
+                    logger.info(f"SAT installierte Build-ID: {build_id}")
+
+                # Verfuegbare Build-ID via SteamCMD (kann bis 120s dauern)
+                logger.info("SteamCMD Update-Check gestartet...")
+                available = await update_checker._get_available_buildid()
+                if available:
+                    update_checker.last_known_buildid = available
+                    logger.info(f"SAT verfuegbare Build-ID: {available}")
+                    if build_id and available != build_id:
+                        update_checker.update_available = True
+                        logger.info(f"SAT Update verfuegbar: {build_id} -> {available}")
+                else:
+                    logger.warning("SteamCMD konnte verfuegbare Build-ID nicht ermitteln")
+            except Exception as e:
+                logger.warning(f"Initialer Update-Check fehlgeschlagen: {e}")
+
+        asyncio.create_task(_initial_update_check())
+
+        # Initialen MC-Version-Check starten (Paper-basierte Server)
+        async def _initial_mc_version_check():
+            try:
+                for mc_sid, mc_uc in mc_update_checkers.items():
+                    version, build = await mc_uc._get_installed_version()
+                    if version:
+                        mc_uc.current_version = version
+                        mc_uc.current_build = build
+                        build_str = f" Build {build}" if build else ""
+                        logger.info(f"MC [{mc_sid}] Version: {version}{build_str}")
+                    else:
+                        logger.debug(f"MC [{mc_sid}] Version konnte nicht ermittelt werden")
+            except Exception as e:
+                logger.debug(f"Initialer MC-Version-Check fehlgeschlagen: {e}")
+
+        if mc_update_checkers:
+            asyncio.create_task(_initial_mc_version_check())
+
         # Send startup notification only on first connect
         await notifier.send_admin(
             "Monitor Bot gestartet",
@@ -1865,6 +2066,11 @@ async def shutdown():
     logger.info("Shutting down...")
     player_tracker.close_all_sessions()
     await stats_collector.stop()
+    # Phase 1: Neue Module stoppen
+    service_watchdog.stop()
+    disk_guard.stop()
+    duckdns_monitor.stop()
+    port_monitor.stop()
     await sat_api.close()
     logger.info("Cleanup complete")
 
@@ -1874,7 +2080,26 @@ def main():
         logger.error("DISCORD_TOKEN_WATCHDOG not set in .env!")
         sys.exit(1)
 
+    # F62: Startup Selftest
+    selftest_ok = execute_selftest(
+        "Monitor Bot",
+        required_env=["DISCORD_TOKEN_WATCHDOG", "GUILD_ID"],
+    )
+    if not selftest_ok:
+        logger.error("Selftest fehlgeschlagen — Bot wird nicht gestartet!")
+        sys.exit(1)
+
     logger.info("Starting Monitor Bot...")
+
+    # F61: Cleanup-Callbacks registrieren
+    async def _cleanup_monitor():
+        try:
+            await shutdown()
+        except Exception as e:
+            logger.debug(f"Cleanup error: {e}")
+
+    register_cleanup(_cleanup_monitor)
+
     try:
         bot.run(TOKEN)
     except KeyboardInterrupt:

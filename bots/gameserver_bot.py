@@ -11,10 +11,13 @@ Architecture:
 
 import os
 import sys
+import json
+import time
 import asyncio
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from pathlib import Path
+from datetime import datetime, timezone
 
 # Add project root to path
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -22,6 +25,8 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from utils.config import load_env, get_env, get_config, DATA_DIR
 from utils.logger import get_logger
+from utils.selftest import execute_selftest
+from utils.shutdown import setup_signal_handlers, register_cleanup
 from modules.satisfactory.server import SatisfactoryServer
 from modules.satisfactory.api_client import SatisfactoryAPI
 from modules.satisfactory.whitelist import WhitelistManager
@@ -197,6 +202,53 @@ else:
 
 
 # ------------------------------------------------------------------
+# Bot-Status-Writer (Ping + Uptime fuer Dashboard)
+# ------------------------------------------------------------------
+
+_gs_bot_start_time = time.time()
+_GS_STATUS_DIR = DATA_DIR / "gameserver"
+
+
+def _write_gs_bot_status():
+    """Schreibt GameServer Bot Status (Ping, Uptime) als JSON fuer Dashboard."""
+    try:
+        _GS_STATUS_DIR.mkdir(parents=True, exist_ok=True)
+        uptime_secs = int(time.time() - _gs_bot_start_time)
+        hours = uptime_secs // 3600
+        mins = (uptime_secs % 3600) // 60
+        if hours > 0:
+            uptime_str = f"{hours}h {mins}m"
+        else:
+            uptime_str = f"{mins}m"
+
+        data = {
+            "status": "online" if bot.is_ready() else "offline",
+            "ping_ms": round(bot.latency * 1000) if bot.latency else 0,
+            "uptime": uptime_str,
+            "last_update": datetime.now(timezone.utc).isoformat(),
+        }
+        tmp = _GS_STATUS_DIR / "bot_status.json.tmp"
+        target = _GS_STATUS_DIR / "bot_status.json"
+        with open(tmp, "w") as f:
+            json.dump(data, f)
+        tmp.replace(target)
+    except Exception as e:
+        logger.debug(f"Bot-Status schreiben fehlgeschlagen: {e}")
+
+
+@tasks.loop(seconds=30)
+async def gs_status_writer_task():
+    """Schreibt Bot-Status alle 30 Sekunden."""
+    await asyncio.to_thread(_write_gs_bot_status)
+
+
+@gs_status_writer_task.before_loop
+async def before_gs_status_writer():
+    await bot.wait_until_ready()
+    await asyncio.sleep(5)
+
+
+# ------------------------------------------------------------------
 # Events
 # ------------------------------------------------------------------
 
@@ -224,6 +276,10 @@ async def on_ready():
             bot.command_logger.set_admin_channel(admin_ch)
             if getattr(bot, '_first_ready', False):
                 logger.info(f"Command logger connected to #{admin_ch.name}")
+
+    # Bot-Status-Writer starten (Ping fuer Dashboard)
+    if not gs_status_writer_task.is_running():
+        gs_status_writer_task.start()
 
     if getattr(bot, '_first_ready', False):
         bot._first_ready = False
@@ -322,32 +378,35 @@ def main():
         logger.error("DISCORD_TOKEN_MANAGER not set in .env!")
         sys.exit(1)
 
+    # F62: Startup Selftest — pruefen ob alles konfiguriert ist
+    selftest_ok = execute_selftest(
+        "GameServer Bot",
+        required_env=["DISCORD_TOKEN_MANAGER", "GUILD_ID"],
+    )
+    if not selftest_ok:
+        logger.error("Selftest fehlgeschlagen — Bot wird nicht gestartet!")
+        sys.exit(1)
+
     logger.info("Starting GameServer Bot...")
     logger.info(f"Server: {bot.sat_server.service_name}")
     logger.info(f"API: {bot.sat_api.host}:{bot.sat_api.port}")
 
-    async def shutdown():
-        """Graceful cleanup on shutdown"""
+    # F61: Cleanup-Callbacks registrieren
+    async def _cleanup_api():
         try:
             await bot.sat_api.close()
             logger.info("API session closed")
         except Exception as e:
-            logger.debug(f"Shutdown cleanup error: {e}")
+            logger.debug(f"API cleanup error: {e}")
+
+    register_cleanup(_cleanup_api)
 
     try:
         bot.run(TOKEN)
     except KeyboardInterrupt:
         logger.info("Bot stopped by user")
-        try:
-            asyncio.run(shutdown())
-        except (RuntimeError, Exception) as e:
-            logger.debug(f"Shutdown nach KeyboardInterrupt fehlgeschlagen: {e}")
     except Exception as e:
         logger.error(f"Fatal: {e}", exc_info=True)
-        try:
-            asyncio.run(shutdown())
-        except (RuntimeError, Exception) as e:
-            logger.debug(f"Shutdown nach Fatal-Error fehlgeschlagen: {e}")
         sys.exit(1)
 
 

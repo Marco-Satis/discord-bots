@@ -21,6 +21,9 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from utils.config import load_env, get_env
 from utils.logger import get_logger
+from web.middleware.csrf import CSRFMiddleware, generate_csrf_token
+from web.middleware.session_timeout import SessionTimeoutMiddleware
+from web.middleware.rate_limiter import RateLimitMiddleware
 
 # Umgebungsvariablen laden
 load_env()
@@ -59,6 +62,15 @@ app.add_middleware(
     https_only=WEB_HTTPS
 )
 
+# F64: CSRF-Schutz Middleware
+app.add_middleware(CSRFMiddleware)
+
+# F65: Session-Timeout Middleware
+app.add_middleware(SessionTimeoutMiddleware)
+
+# F48: Rate-Limiting Middleware
+app.add_middleware(RateLimitMiddleware)
+
 # CORS-Middleware fuer API-Zugriffe
 SERVER_IP = get_env("SERVER_IP", "203.0.113.10")
 DOMAIN = get_env("WEB_DOMAIN", "marco-satisfactory.duckdns.org")
@@ -74,7 +86,7 @@ app.add_middleware(
     allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE"],
-    allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
+    allow_headers=["Content-Type", "Authorization", "X-Requested-With", "X-CSRF-Token"],
 )
 
 # Statische Dateien und Templates einbinden
@@ -143,6 +155,8 @@ from web.routes.system_route import router as system_router      # noqa: E402
 from web.routes.server_detail import router as server_detail_router  # noqa: E402
 from web.routes.analytics_route import router as analytics_router    # noqa: E402
 from web.routes.admin_bot_route import router as admin_bot_router    # noqa: E402
+from web.routes.health_route import router as health_router          # noqa: E402
+from web.routes.security_route import router as security_router      # noqa: E402
 
 app.include_router(auth_router)
 app.include_router(dashboard_router)
@@ -152,6 +166,17 @@ app.include_router(system_router)
 app.include_router(server_detail_router)
 app.include_router(analytics_router)
 app.include_router(admin_bot_router)
+app.include_router(health_router)
+app.include_router(security_router)
+
+
+# F64: CSRF-Token als Template-Globale bereitstellen
+@app.middleware("http")
+async def add_csrf_to_templates(request, call_next):
+    """Stellt csrf_token fuer alle Templates bereit."""
+    request.state.csrf_token = generate_csrf_token(request)
+    response = await call_next(request)
+    return response
 
 
 # --- Startup/Shutdown Events ---

@@ -15,7 +15,15 @@
     "auto_cleanup": true,
     "savegame_protection": true,
     "graceful_degradation": true,
-    "steam_changelog": true
+    "steam_changelog": true,
+    "health_auto_restart": true,
+    "service_watchdog": true,
+    "disk_guard": true,
+    "duckdns_monitor": true,
+    "port_monitor": true,
+    "ssl_monitor": true,
+    "fail2ban_dashboard": true,
+    "backup_integrity": true
   },
   "thresholds": {
     "cpu_warning": 80,
@@ -51,7 +59,16 @@
     "auto_cleanup_hour": 2,
     "auto_cleanup_enabled": true,
     "backup_verify_day": 6,
-    "backup_verify_hour": 3
+    "backup_verify_hour": 3,
+    "health_auto_restart_enabled": true,
+    "health_auto_restart_failures": 3,
+    "health_auto_restart_cooldown": 1800,
+    "health_auto_restart_timeout": 10,
+    "service_watchdog_interval": 120,
+    "disk_guard_interval": 600,
+    "duckdns_check_interval": 86400,
+    "port_monitor_interval": 300,
+    "ssl_check_interval": 86400
   },
   "restart_timer": {
     "default_duration": 10,
