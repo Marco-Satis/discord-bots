@@ -1,6 +1,11 @@
 """
 Player Tracker Module - Join/Leave Logging & Statistics
 Tracks player sessions, playtime, and generates weekly reports
+
+Dual-Read-Modus:
+  WRITE: Only to SQLite (no more JSON writes)
+  READ:  SQLite primary, JSON fallback (read-only) if DB empty
+  JSON files are NOT deleted or renamed
 """
 
 import json
@@ -11,6 +16,7 @@ from pathlib import Path
 from typing import Optional, Callable, Awaitable, Dict, List, Set, Any
 
 from utils.logger import get_logger
+from modules.database.db_manager import get_db
 
 logger = get_logger("player_tracker")
 
@@ -46,26 +52,32 @@ class PlayerTracker:
         tracker = PlayerTracker()
         tracker.on_join = my_join_callback
         tracker.on_leave = my_leave_callback
+        await tracker.load_from_db()  # Call from bot on_ready
         await tracker.update(current_player_names)
     """
 
     MAX_SESSIONS_PER_PLAYER = 100  # Keep last N sessions
 
-    def __init__(self, data_dir: str = "data") -> None:
+    def __init__(self, data_dir: str = "data", server_type: str = "satisfactory") -> None:
         self.data_dir: Path = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.data_file: Path = self.data_dir / "player_stats.json"
+        self.server_type: str = server_type
 
         self.players: Dict[str, PlayerRecord] = {}
         self._online_players: Set[str] = set()
-        self._load()
+        self._load()  # JSON fallback — loaded synchronously at init
 
         # Callbacks: async def callback(player_name: str)
         self.on_join: Optional[Callable[[str], Awaitable]] = None
         self.on_leave: Optional[Callable[[str, int], Awaitable]] = None  # name, duration_min
 
+    # ------------------------------------------------------------------
+    # JSON fallback (read-only, synchronous, used at __init__)
+    # ------------------------------------------------------------------
+
     def _load(self) -> None:
-        """Load player data from JSON"""
+        """Load player data from JSON (fallback only — will be replaced by load_from_db)"""
         if self.data_file.exists():
             try:
                 with open(self.data_file, "r") as f:
@@ -81,27 +93,190 @@ class PlayerTracker:
                         is_online=False,  # Reset on load
                         current_session_start=None,
                     )
-                logger.info(f"Loaded {len(self.players)} player records")
+                logger.info(f"JSON-Fallback: {len(self.players)} Spieler-Datensaetze geladen")
             except (json.JSONDecodeError, OSError) as e:
-                logger.error(f"Failed to load player stats: {e}")
+                logger.error(f"Failed to load player stats from JSON: {e}")
 
     def _save(self) -> None:
-        """Save player data to JSON"""
+        """No-op — JSON writing is disabled in Dual-Read mode.
+        Kept for backward compatibility so existing callers don't break."""
+        # JSON writes disabled: all persistence goes through SQLite now.
+        pass
+
+    # ------------------------------------------------------------------
+    # SQLite primary read — call from bot on_ready
+    # ------------------------------------------------------------------
+
+    async def load_from_db(self, server_type: Optional[str] = None) -> None:
+        """
+        Load players from SQLite into self.players, replacing JSON data.
+        If the DB is empty or unavailable, the JSON fallback data remains.
+        Call this from the bot's on_ready event.
+
+        Args:
+            server_type: Override server_type filter (default: self.server_type)
+        """
+        st = server_type or self.server_type
         try:
-            data = {}
-            for name, record in self.players.items():
-                data[name] = {
-                    "name": record.name,
-                    "first_seen": record.first_seen,
-                    "last_seen": record.last_seen,
-                    "total_playtime_minutes": record.total_playtime_minutes,
-                    "session_count": record.session_count,
-                    "sessions": record.sessions[-self.MAX_SESSIONS_PER_PLAYER:],
-                }
-            with open(self.data_file, "w") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-        except OSError as e:
-            logger.error(f"Failed to save player stats: {e}")
+            db = await get_db()
+
+            # Load all players for this server_type (or all if server_type is NULL)
+            cursor = await db.execute(
+                "SELECT id, name, first_seen, last_seen, total_playtime_seconds, server_type "
+                "FROM players WHERE server_type = ? OR server_type IS NULL",
+                (st,),
+            )
+            rows = await cursor.fetchall()
+
+            if not rows:
+                logger.warning(
+                    f"SQLite hat keine Spieler fuer server_type='{st}' — "
+                    f"behalte JSON-Fallback ({len(self.players)} Datensaetze)"
+                )
+                return
+
+            # DB has data — replace in-memory dict
+            db_players: Dict[str, PlayerRecord] = {}
+
+            for row in rows:
+                player_id = row[0]
+                name = row[1]
+                first_seen = row[2] or ""
+                last_seen = row[3] or ""
+                total_seconds = row[4] or 0
+                total_minutes = total_seconds // 60
+
+                # Load recent sessions for this player
+                sess_cursor = await db.execute(
+                    "SELECT join_time, leave_time, duration_seconds "
+                    "FROM player_sessions "
+                    "WHERE player_id = ? AND server_type = ? "
+                    "ORDER BY join_time DESC LIMIT ?",
+                    (player_id, st, self.MAX_SESSIONS_PER_PLAYER),
+                )
+                sess_rows = await sess_cursor.fetchall()
+
+                sessions = []
+                for sr in reversed(sess_rows):  # Reverse to chronological order
+                    sessions.append({
+                        "join": sr[0] or "",
+                        "leave": sr[1] or "",
+                        "duration_minutes": (sr[2] or 0) // 60,
+                    })
+
+                db_players[name] = PlayerRecord(
+                    name=name,
+                    first_seen=first_seen,
+                    last_seen=last_seen,
+                    total_playtime_minutes=total_minutes,
+                    session_count=len(sessions),
+                    sessions=sessions,
+                    is_online=False,
+                    current_session_start=None,
+                )
+
+            self.players = db_players
+            logger.info(
+                f"SQLite: {len(self.players)} Spieler-Datensaetze geladen "
+                f"(server_type='{st}')"
+            )
+
+        except Exception as e:
+            logger.warning(
+                f"SQLite-Lesefehler — behalte JSON-Fallback "
+                f"({len(self.players)} Datensaetze): {e}"
+            )
+
+    # ------------------------------------------------------------------
+    # SQLite write helpers
+    # ------------------------------------------------------------------
+
+    async def _db_upsert_player(self, record: PlayerRecord) -> None:
+        """INSERT or UPDATE a player row in SQLite."""
+        try:
+            db = await get_db()
+            await db.execute(
+                """
+                INSERT INTO players (name, first_seen, last_seen, total_playtime_seconds, server_type)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(name) DO UPDATE SET
+                    last_seen = excluded.last_seen,
+                    total_playtime_seconds = excluded.total_playtime_seconds,
+                    server_type = COALESCE(excluded.server_type, players.server_type)
+                """,
+                (
+                    record.name,
+                    record.first_seen,
+                    record.last_seen,
+                    record.total_playtime_minutes * 60,
+                    self.server_type,
+                ),
+            )
+            await db.commit()
+        except Exception as e:
+            logger.warning(f"SQLite upsert player '{record.name}' fehlgeschlagen: {e}")
+
+    async def _db_insert_session(
+        self, player_name: str, join_time: str, leave_time: str, duration_seconds: int
+    ) -> None:
+        """Insert a session row into player_sessions."""
+        try:
+            db = await get_db()
+
+            # Resolve player_id
+            cursor = await db.execute(
+                "SELECT id FROM players WHERE name = ?", (player_name,)
+            )
+            row = await cursor.fetchone()
+            if not row:
+                logger.warning(
+                    f"SQLite: Spieler '{player_name}' nicht in players-Tabelle — "
+                    f"Session-Insert uebersprungen"
+                )
+                return
+            player_id = row[0]
+
+            await db.execute(
+                """
+                INSERT INTO player_sessions (player_id, server_type, join_time, leave_time, duration_seconds)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (player_id, self.server_type, join_time, leave_time, duration_seconds),
+            )
+            await db.commit()
+        except Exception as e:
+            logger.warning(
+                f"SQLite insert session fuer '{player_name}' fehlgeschlagen: {e}"
+            )
+
+    async def _db_update_player_after_leave(
+        self, record: PlayerRecord
+    ) -> None:
+        """Update last_seen and total_playtime_seconds after a leave event."""
+        try:
+            db = await get_db()
+            await db.execute(
+                """
+                UPDATE players
+                SET last_seen = ?,
+                    total_playtime_seconds = ?
+                WHERE name = ?
+                """,
+                (
+                    record.last_seen,
+                    record.total_playtime_minutes * 60,
+                    record.name,
+                ),
+            )
+            await db.commit()
+        except Exception as e:
+            logger.warning(
+                f"SQLite update player '{record.name}' nach Leave fehlgeschlagen: {e}"
+            )
+
+    # ------------------------------------------------------------------
+    # Core update loop
+    # ------------------------------------------------------------------
 
     async def update(self, current_players: Set[str]) -> None:
         """
@@ -122,7 +297,7 @@ class PlayerTracker:
             await self._handle_leave(name)
 
         if joined or left:
-            self._save()
+            self._save()  # no-op, kept for API compatibility
 
     async def _handle_join(self, name: str) -> None:
         """Handle player join event"""
@@ -141,6 +316,9 @@ class PlayerTracker:
         record.current_session_start = now
         record.last_seen = now
 
+        # Persist to SQLite
+        await self._db_upsert_player(record)
+
         if self.on_join:
             try:
                 await self.on_join(name)
@@ -153,6 +331,7 @@ class PlayerTracker:
         logger.info(f"Player left: {name}")
 
         duration_min = 0
+        duration_sec = 0
         if name in self.players:
             record = self.players[name]
             record.is_online = False
@@ -162,13 +341,17 @@ class PlayerTracker:
             if record.current_session_start:
                 try:
                     start = datetime.fromisoformat(record.current_session_start)
-                    duration_min = int((now - start).total_seconds() / 60)
+                    delta = now - start
+                    duration_sec = int(delta.total_seconds())
+                    duration_min = duration_sec // 60
                 except (ValueError, TypeError):
+                    duration_sec = 0
                     duration_min = 0
 
-            # Record session
+            # Record session in memory
+            join_time_str = record.current_session_start or now.isoformat()
             session = {
-                "join": record.current_session_start or now.isoformat(),
+                "join": join_time_str,
                 "leave": now.isoformat(),
                 "duration_minutes": duration_min,
             }
@@ -177,11 +360,24 @@ class PlayerTracker:
             record.total_playtime_minutes += duration_min
             record.current_session_start = None
 
+            # Persist to SQLite: insert session + update player
+            await self._db_insert_session(
+                player_name=name,
+                join_time=join_time_str,
+                leave_time=now.isoformat(),
+                duration_seconds=duration_sec,
+            )
+            await self._db_update_player_after_leave(record)
+
         if self.on_leave:
             try:
                 await self.on_leave(name, duration_min)
             except Exception as e:
                 logger.error(f"Leave callback error: {e}")
+
+    # ------------------------------------------------------------------
+    # Read-only stats helpers (unchanged API surface)
+    # ------------------------------------------------------------------
 
     def get_online_players(self) -> Set[str]:
         """Get currently online players"""
@@ -276,7 +472,7 @@ class PlayerTracker:
         stats = self.get_weekly_stats()
 
         lines = [
-            f"📊 **Wochenbericht** ({stats['period_start']} – {stats['period_end']})",
+            f"\U0001f4ca **Wochenbericht** ({stats['period_start']} \u2013 {stats['period_end']})",
             "",
             f"**Aktive Spieler:** {stats['active_player_count']}",
             f"**Sessions gesamt:** {stats['total_sessions']}",
@@ -287,9 +483,9 @@ class PlayerTracker:
         if stats["players"]:
             lines.append("**Spieler-Ranking:**")
             for i, (name, data) in enumerate(stats["players"].items(), 1):
-                medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
+                medal = "\U0001f947" if i == 1 else "\U0001f948" if i == 2 else "\U0001f949" if i == 3 else f"{i}."
                 lines.append(
-                    f"{medal} **{name}** — {data['playtime_hours']}h "
+                    f"{medal} **{name}** \u2014 {data['playtime_hours']}h "
                     f"({data['sessions']} Sessions)"
                 )
         else:
@@ -297,22 +493,33 @@ class PlayerTracker:
 
         return "\n".join(lines)
 
+    # ------------------------------------------------------------------
+    # Shutdown — close all open sessions
+    # ------------------------------------------------------------------
+
     def close_all_sessions(self) -> None:
-        """Close all open sessions (e.g. on shutdown/crash)"""
+        """Close all open sessions (e.g. on shutdown/crash).
+        Writes session data to SQLite via fire-and-forget asyncio task."""
         now = datetime.now()
         closed = 0
+        sessions_to_persist: list[dict] = []
+
         for name, record in self.players.items():
             if record.is_online:
                 duration_min = 0
+                duration_sec = 0
                 if record.current_session_start:
                     try:
                         start = datetime.fromisoformat(record.current_session_start)
-                        duration_min = int((now - start).total_seconds() / 60)
+                        delta = now - start
+                        duration_sec = int(delta.total_seconds())
+                        duration_min = duration_sec // 60
                     except (ValueError, TypeError):
                         pass
 
+                join_time_str = record.current_session_start or now.isoformat()
                 session = {
-                    "join": record.current_session_start or now.isoformat(),
+                    "join": join_time_str,
                     "leave": now.isoformat(),
                     "duration_minutes": duration_min,
                     "closed_reason": "tracker_shutdown",
@@ -324,9 +531,85 @@ class PlayerTracker:
                 record.current_session_start = None
                 closed += 1
 
+                # Collect data for async persistence
+                sessions_to_persist.append({
+                    "name": name,
+                    "join_time": join_time_str,
+                    "leave_time": now.isoformat(),
+                    "duration_seconds": duration_sec,
+                    "total_playtime_minutes": record.total_playtime_minutes,
+                    "last_seen": record.last_seen,
+                })
+
         # Online-Set leeren (das fehlte — verursachte Endlos-Spam)
         self._online_players.clear()
 
         if closed > 0:
-            self._save()
+            self._save()  # no-op, kept for API compatibility
             logger.info(f"{closed} Stale-Sessions geschlossen")
+
+            # Fire-and-forget: persist closed sessions to SQLite
+            if sessions_to_persist:
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        loop.create_task(self._persist_closed_sessions(sessions_to_persist))
+                    else:
+                        # If no running loop, try to run synchronously (best effort)
+                        logger.warning(
+                            "Kein laufender Event-Loop — SQLite-Persist fuer "
+                            f"{len(sessions_to_persist)} Sessions uebersprungen"
+                        )
+                except RuntimeError:
+                    logger.warning(
+                        "Event-Loop nicht verfuegbar — SQLite-Persist fuer "
+                        f"{len(sessions_to_persist)} Sessions uebersprungen"
+                    )
+
+    async def _persist_closed_sessions(self, sessions: list[dict]) -> None:
+        """Persist batch of closed sessions to SQLite (called from fire-and-forget task)."""
+        try:
+            db = await get_db()
+
+            for s in sessions:
+                # Update player record
+                try:
+                    await db.execute(
+                        """
+                        UPDATE players
+                        SET last_seen = ?,
+                            total_playtime_seconds = ?
+                        WHERE name = ?
+                        """,
+                        (
+                            s["last_seen"],
+                            s["total_playtime_minutes"] * 60,
+                            s["name"],
+                        ),
+                    )
+                except Exception as e:
+                    logger.warning(f"SQLite update player '{s['name']}' bei Shutdown fehlgeschlagen: {e}")
+
+                # Insert session
+                try:
+                    cursor = await db.execute(
+                        "SELECT id FROM players WHERE name = ?", (s["name"],)
+                    )
+                    row = await cursor.fetchone()
+                    if row:
+                        await db.execute(
+                            """
+                            INSERT INTO player_sessions
+                                (player_id, server_type, join_time, leave_time, duration_seconds)
+                            VALUES (?, ?, ?, ?, ?)
+                            """,
+                            (row[0], self.server_type, s["join_time"], s["leave_time"], s["duration_seconds"]),
+                        )
+                except Exception as e:
+                    logger.warning(f"SQLite insert session '{s['name']}' bei Shutdown fehlgeschlagen: {e}")
+
+            await db.commit()
+            logger.info(f"SQLite: {len(sessions)} Shutdown-Sessions persistiert")
+
+        except Exception as e:
+            logger.warning(f"SQLite Shutdown-Persist fehlgeschlagen: {e}")

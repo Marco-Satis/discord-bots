@@ -1,6 +1,11 @@
 """
 Player IP Tracker - Tracks player IPs from server logs
 and manages UFW-based IP bans for kick/ban functionality.
+
+SQLite Dual-Read mode:
+  - WRITE: Only to SQLite (JSON writes disabled)
+  - READ: SQLite primary, JSON fallback
+  - JSON files are NOT deleted (kept for fallback)
 """
 
 import asyncio
@@ -11,6 +16,7 @@ from datetime import datetime
 from typing import Optional, Dict, List, Tuple, Any
 
 from utils.logger import get_logger
+from modules.database.db_manager import get_db
 
 logger = get_logger("player_ip_tracker")
 
@@ -83,6 +89,8 @@ class PlayerIPTracker:
     """
     Tracks player IPs from server logs (Satisfactory und Minecraft).
     Manages UFW firewall rules for IP-based bans.
+
+    SQLite Dual-Read: Writes only to SQLite, reads SQLite first with JSON fallback.
     """
 
     def __init__(self, data_file: Path,
@@ -90,12 +98,20 @@ class PlayerIPTracker:
                  game_ports: Optional[List[int]] = None) -> None:
         """
         Args:
-            data_file: Path to JSON file storing IP mappings and bans
+            data_file: Path to JSON file storing IP mappings and bans (kept for fallback)
             game_type: "sat" fuer Satisfactory, "mc" fuer Minecraft
             game_ports: Server ports to block (default abhaengig von game_type)
         """
         self.data_file: Path = data_file
         self.game_type: str = game_type
+
+        # Derive server_type for SQLite tables
+        if game_type == "sat":
+            self.server_type: str = "satisfactory"
+        elif game_type == "mc":
+            self.server_type = "minecraft"
+        else:
+            self.server_type = game_type
 
         if game_ports:
             self.game_ports: List[int] = game_ports
@@ -113,7 +129,7 @@ class PlayerIPTracker:
         self._pending_ip: Optional[str] = None
 
     def _load(self) -> None:
-        """Load data from file"""
+        """Load data from JSON file (fallback data source)."""
         try:
             if self.data_file.exists():
                 with open(self.data_file, 'r') as f:
@@ -122,26 +138,107 @@ class PlayerIPTracker:
                 self._data.setdefault("ip_map", {})
                 self._data.setdefault("bans", {})
                 logger.info(
-                    f"Loaded {len(self._data['ip_map'])} player IPs, "
+                    f"JSON fallback loaded: {len(self._data['ip_map'])} player IPs, "
                     f"{len(self._data['bans'])} bans"
                 )
         except Exception as e:
-            logger.error(f"Failed to load IP data: {e}")
+            logger.error(f"Failed to load IP data from JSON: {e}")
+
+    async def load_from_db(self) -> None:
+        """
+        Load ip_map and bans from SQLite (primary data source).
+        Falls back to JSON data (already loaded in _load) on failure.
+        """
+        try:
+            db = await get_db()
+
+            # --- Load IP mappings ---
+            cursor = await db.execute(
+                """
+                SELECT p.name, pi.ip_address, pi.first_seen, pi.last_seen
+                FROM player_ips pi
+                JOIN players p ON pi.player_id = p.id
+                WHERE pi.server_type = ?
+                """,
+                (self.server_type,)
+            )
+            rows = await cursor.fetchall()
+
+            if rows:
+                db_ip_map: Dict[str, Any] = {}
+                for row in rows:
+                    name = row[0]  # p.name
+                    ip = row[1]    # pi.ip_address
+                    first_seen = row[2]  # pi.first_seen
+                    last_seen = row[3]   # pi.last_seen
+                    # Keep latest entry per player (rows may have multiple IPs)
+                    existing = db_ip_map.get(name)
+                    if not existing or (last_seen and last_seen > existing.get("last_seen", "")):
+                        db_ip_map[name] = {
+                            "ip": ip,
+                            "first_seen": first_seen or "",
+                            "last_seen": last_seen or "",
+                        }
+                self._data["ip_map"] = db_ip_map
+                logger.info(
+                    f"SQLite loaded: {len(db_ip_map)} player IP mappings "
+                    f"for {self.server_type}"
+                )
+            else:
+                logger.info(
+                    f"No IP mappings in SQLite for {self.server_type}, "
+                    f"using JSON fallback ({len(self._data['ip_map'])} entries)"
+                )
+
+            # --- Load active bans ---
+            cursor = await db.execute(
+                """
+                SELECT player_name, ip_address, reason, banned_by, banned_at
+                FROM bans
+                WHERE server_type = ? AND active = TRUE
+                """,
+                (self.server_type,)
+            )
+            ban_rows = await cursor.fetchall()
+
+            if ban_rows:
+                db_bans: Dict[str, Any] = {}
+                for row in ban_rows:
+                    player_name = row[0]  # player_name
+                    if player_name:
+                        db_bans[player_name] = {
+                            "ip": row[1] or "?",      # ip_address
+                            "reason": row[2] or "Kein Grund",  # reason
+                            "banned_by": row[3] or "?",  # banned_by
+                            "banned_at": row[4] or "?",  # banned_at
+                        }
+                self._data["bans"] = db_bans
+                logger.info(
+                    f"SQLite loaded: {len(db_bans)} active bans "
+                    f"for {self.server_type}"
+                )
+            else:
+                logger.info(
+                    f"No bans in SQLite for {self.server_type}, "
+                    f"using JSON fallback ({len(self._data['bans'])} entries)"
+                )
+
+        except Exception as e:
+            logger.warning(
+                f"Failed to load from SQLite, using JSON fallback: {e}"
+            )
+            # _data already has JSON fallback from _load()
 
     def _save(self) -> None:
-        """Save data to file"""
-        try:
-            self.data_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.data_file, 'w') as f:
-                json.dump(self._data, f, indent=2, ensure_ascii=False)
-        except Exception as e:
-            logger.error(f"Failed to save IP data: {e}")
+        """No-op: JSON writes are disabled. All writes go to SQLite."""
+        # JSON file is preserved as-is for fallback reads.
+        pass
 
     def process_log_line(self, line: str) -> None:
         """
         Process a single log line to extract player IP mappings.
         Call this for each new log line during monitoring.
-        Wählt automatisch SAT- oder MC-Parser basierend auf game_type.
+        Waehlt automatisch SAT- oder MC-Parser basierend auf game_type.
         """
         if self.game_type == "mc":
             self._process_mc_line(line)
@@ -203,11 +300,13 @@ class PlayerIPTracker:
             existing = self._data["ip_map"].get(name)
             if existing:
                 existing["uuid"] = uuid
-                self._save()
+                # No JSON save — UUID stored in memory only
+                # (player_ips table does not have a uuid column)
             return
 
     def _update_mapping(self, name: str, ip: str) -> None:
-        """Update IP mapping for a player"""
+        """Update IP mapping for a player. Writes to in-memory dict and fires
+        off an async SQLite write."""
         now = datetime.now().isoformat()
 
         existing = self._data["ip_map"].get(name)
@@ -223,7 +322,80 @@ class PlayerIPTracker:
             }
             logger.info(f"IP mapped: {name} -> {ip}")
 
-        self._save()
+        # Fire-and-forget async SQLite write from sync context
+        self._fire_and_forget_db_write(name, ip, now)
+
+    def _fire_and_forget_db_write(self, name: str, ip: str, now: str) -> None:
+        """Schedule an async DB write from synchronous code."""
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.create_task(self._db_update_mapping(name, ip, now))
+            else:
+                # Fallback: should not happen in bot context, but be safe
+                logger.debug("Event loop not running, skipping DB write for IP mapping")
+        except RuntimeError:
+            logger.debug("No event loop available, skipping DB write for IP mapping")
+
+    async def _db_update_mapping(self, name: str, ip: str, now: str) -> None:
+        """Write IP mapping to SQLite (player_ips + players tables)."""
+        try:
+            db = await get_db()
+
+            # Ensure player exists in players table
+            cursor = await db.execute(
+                "SELECT id FROM players WHERE name = ?",
+                (name,)
+            )
+            row = await cursor.fetchone()
+
+            if row:
+                player_id = row[0]
+                # Update last_seen
+                await db.execute(
+                    "UPDATE players SET last_seen = ? WHERE id = ?",
+                    (now, player_id)
+                )
+            else:
+                # Insert new player
+                cursor = await db.execute(
+                    """
+                    INSERT INTO players (name, first_seen, last_seen, server_type)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (name, now, now, self.server_type)
+                )
+                player_id = cursor.lastrowid
+
+            # Check if this IP already exists for this player + server_type
+            cursor = await db.execute(
+                """
+                SELECT id FROM player_ips
+                WHERE player_id = ? AND ip_address = ? AND server_type = ?
+                """,
+                (player_id, ip, self.server_type)
+            )
+            ip_row = await cursor.fetchone()
+
+            if ip_row:
+                # Update last_seen
+                await db.execute(
+                    "UPDATE player_ips SET last_seen = ? WHERE id = ?",
+                    (now, ip_row[0])
+                )
+            else:
+                # Insert new IP mapping
+                await db.execute(
+                    """
+                    INSERT INTO player_ips (player_id, ip_address, first_seen, last_seen, server_type)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (player_id, ip, now, now, self.server_type)
+                )
+
+            await db.commit()
+        except Exception as e:
+            logger.error(f"SQLite write failed for IP mapping {name}->{ip}: {e}")
 
     def get_ip(self, player_name: str) -> Optional[str]:
         """Get known IP for a player"""
@@ -268,7 +440,7 @@ class PlayerIPTracker:
         ip = self.get_ip(player_name)
         if not ip:
             return False, (
-                f"Keine IP für **{player_name}** bekannt.\n"
+                f"Keine IP fuer **{player_name}** bekannt.\n"
                 f"Der Spieler muss mindestens einmal verbunden gewesen sein."
             )
 
@@ -290,16 +462,30 @@ class PlayerIPTracker:
         # Apply UFW rules for all game ports
         success = await self._ufw_block(ip)
         if not success:
-            return False, f"UFW-Regel konnte nicht gesetzt werden für {ip}."
+            return False, f"UFW-Regel konnte nicht gesetzt werden fuer {ip}."
 
-        # Store ban
+        # Store ban in memory
+        ban_time = datetime.now().isoformat()
         self._data["bans"][player_name] = {
             "ip": ip,
             "reason": reason,
             "banned_by": banned_by,
-            "banned_at": datetime.now().isoformat(),
+            "banned_at": ban_time,
         }
-        self._save()
+
+        # Write ban to SQLite
+        try:
+            db = await get_db()
+            await db.execute(
+                """
+                INSERT INTO bans (ip_address, player_name, server_type, reason, banned_by, banned_at, active, source)
+                VALUES (?, ?, ?, ?, ?, ?, TRUE, 'tracker')
+                """,
+                (ip, player_name, self.server_type, reason, banned_by, ban_time)
+            )
+            await db.commit()
+        except Exception as e:
+            logger.error(f"SQLite write failed for ban {player_name}: {e}")
 
         logger.info(f"Player banned: {player_name} (IP: {ip}) by {banned_by}")
         return True, (
@@ -322,14 +508,27 @@ class PlayerIPTracker:
         # Remove UFW rules
         success = await self._ufw_unblock(ip)
         if not success:
-            return False, f"UFW-Regel konnte nicht entfernt werden für {ip}."
+            return False, f"UFW-Regel konnte nicht entfernt werden fuer {ip}."
 
-        # Remove ban record
+        # Remove ban record from memory
         del self._data["bans"][player_name]
-        self._save()
+
+        # Deactivate ban in SQLite
+        try:
+            db = await get_db()
+            await db.execute(
+                """
+                UPDATE bans SET active = FALSE
+                WHERE player_name = ? AND server_type = ? AND active = TRUE
+                """,
+                (player_name, self.server_type)
+            )
+            await db.commit()
+        except Exception as e:
+            logger.error(f"SQLite write failed for unban {player_name}: {e}")
 
         logger.info(f"Player unbanned: {player_name} (IP: {ip})")
-        return True, f"Ban für **{player_name}** aufgehoben (IP: `{ip}`)."
+        return True, f"Ban fuer **{player_name}** aufgehoben (IP: `{ip}`)."
 
     async def kick_player(self, player_name: str, api: Optional[Any] = None) -> Tuple[bool, str]:
         """
@@ -341,7 +540,7 @@ class PlayerIPTracker:
         ip = self.get_ip(player_name)
         if not ip:
             return False, (
-                f"Keine IP für **{player_name}** bekannt.\n"
+                f"Keine IP fuer **{player_name}** bekannt.\n"
                 f"Der Spieler muss mindestens einmal verbunden gewesen sein."
             )
 
@@ -359,7 +558,7 @@ class PlayerIPTracker:
         # Block IP
         success = await self._ufw_block(ip)
         if not success:
-            return False, f"Kick fehlgeschlagen: UFW-Fehler für {ip}."
+            return False, f"Kick fehlgeschlagen: UFW-Fehler fuer {ip}."
 
         logger.info(f"Player kicked: {player_name} (IP: {ip})")
 
@@ -374,64 +573,93 @@ class PlayerIPTracker:
         return True, f"**{player_name}** wurde gekickt (IP: `{ip}`).{save_note}"
 
     async def _ufw_block(self, ip: str) -> bool:  # Already typed
-        """Block an IP via UFW for all game ports"""
+        """Block an IP via iptables REJECT (beide Richtungen).
+        REJECT sendet ICMP unreachable - sofortige Trennung statt stilles DROP."""
         # Validate IP format to prevent command injection
         if not _validate_ip(ip):
             logger.error(f"Invalid IP format: {ip}")
             return False
 
         try:
-            # Insert deny rule before any allow rules (priority)
-            # Use create_subprocess_exec with argument list instead of shell
-            proc = await asyncio.create_subprocess_exec(
-                "sudo", "ufw", "insert", "1", "deny", "from", ip, "to", "any",
+            # 1. Eingehend: alle Pakete von dieser IP ablehnen (REJECT)
+            proc_in = await asyncio.create_subprocess_exec(
+                "sudo", "iptables", "-I", "INPUT", "-s", ip, "-j", "REJECT",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(), timeout=10
+            stdout_in, stderr_in = await asyncio.wait_for(
+                proc_in.communicate(), timeout=10
             )
 
-            if proc.returncode == 0:
-                logger.info(f"UFW blocked: {ip}")
-                return True
-            else:
-                err = stderr.decode().strip()
-                # Already exists is fine
-                if "Skipping" in err or "already exists" in (stdout.decode() + err):
-                    logger.info(f"UFW rule already exists for {ip}")
-                    return True
-                logger.error(f"UFW block failed for {ip}: {err}")
+            if proc_in.returncode != 0:
+                err = stderr_in.decode().strip()
+                logger.error(f"iptables INPUT REJECT failed for {ip}: {err}")
                 return False
+
+            # 2. Ausgehend: alle Pakete zu dieser IP ablehnen (REJECT)
+            proc_out = await asyncio.create_subprocess_exec(
+                "sudo", "iptables", "-I", "OUTPUT", "-d", ip, "-j", "REJECT",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout_out, stderr_out = await asyncio.wait_for(
+                proc_out.communicate(), timeout=10
+            )
+
+            if proc_out.returncode != 0:
+                err = stderr_out.decode().strip()
+                logger.warning(f"iptables OUTPUT REJECT failed for {ip}: {err}")
+                # Eingehend ist schon blockiert, nicht abbrechen
+
+            logger.info(f"iptables REJECT blocked: {ip} (INPUT + OUTPUT)")
+            return True
         except Exception as e:
-            logger.error(f"UFW block error: {e}")
+            logger.error(f"iptables block error: {e}")
             return False
 
     async def _ufw_unblock(self, ip: str) -> bool:  # Already typed
-        """Remove UFW block for an IP"""
+        """Remove iptables REJECT rules for an IP (beide Richtungen)."""
         # Validate IP format to prevent command injection
         if not _validate_ip(ip):
             logger.error(f"Invalid IP format: {ip}")
             return False
 
         try:
-            # Use create_subprocess_exec with argument list instead of shell
-            proc = await asyncio.create_subprocess_exec(
-                "sudo", "ufw", "delete", "deny", "from", ip, "to", "any",
+            # INPUT-Regel entfernen
+            proc_in = await asyncio.create_subprocess_exec(
+                "sudo", "iptables", "-D", "INPUT", "-s", ip, "-j", "REJECT",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(), timeout=10
+            stdout_in, stderr_in = await asyncio.wait_for(
+                proc_in.communicate(), timeout=10
             )
 
-            if proc.returncode == 0:
-                logger.info(f"UFW unblocked: {ip}")
-                return True
+            if proc_in.returncode == 0:
+                logger.info(f"iptables INPUT unblocked: {ip}")
             else:
-                err = stderr.decode().strip()
-                if "Could not delete" in (stdout.decode() + err):
-                    logger.warning(f"UFW rule not found for {ip}")
+                err = stderr_in.decode().strip()
+                if "No chain/target/match" in err or "does a matching rule" in err:
+                    logger.warning(f"iptables INPUT rule not found for {ip}")
+                else:
+                    logger.error(f"iptables INPUT unblock failed for {ip}: {err}")
+
+            # OUTPUT-Regel entfernen
+            proc_out = await asyncio.create_subprocess_exec(
+                "sudo", "iptables", "-D", "OUTPUT", "-d", ip, "-j", "REJECT",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout_out, stderr_out = await asyncio.wait_for(
+                proc_out.communicate(), timeout=10
+            )
+
+            if proc_out.returncode == 0:
+                logger.info(f"iptables OUTPUT unblocked: {ip}")
+            else:
+                err = stderr_out.decode().strip()
+                if "No chain/target/match" in err or "does a matching rule" in err:
+                    logger.warning(f"iptables OUTPUT rule not found for {ip}")
                     return True  # Already gone
                 logger.error(f"UFW unblock failed for {ip}: {err}")
                 return False
@@ -443,7 +671,44 @@ class PlayerIPTracker:
         """
         Ensure all stored bans are active in UFW.
         Call on bot startup to restore bans after reboot.
+        Loads bans from SQLite bans table (with JSON fallback).
         """
+        # Load bans from SQLite first
+        try:
+            db = await get_db()
+            cursor = await db.execute(
+                """
+                SELECT player_name, ip_address, reason, banned_by, banned_at
+                FROM bans
+                WHERE server_type = ? AND active = TRUE
+                """,
+                (self.server_type,)
+            )
+            ban_rows = await cursor.fetchall()
+
+            if ban_rows:
+                db_bans: Dict[str, Any] = {}
+                for row in ban_rows:
+                    player_name = row[0]
+                    if player_name:
+                        db_bans[player_name] = {
+                            "ip": row[1] or "?",
+                            "reason": row[2] or "Kein Grund",
+                            "banned_by": row[3] or "?",
+                            "banned_at": row[4] or "?",
+                        }
+                self._data["bans"] = db_bans
+                logger.info(
+                    f"sync_bans: Loaded {len(db_bans)} active bans from SQLite "
+                    f"for {self.server_type}"
+                )
+        except Exception as e:
+            logger.warning(
+                f"sync_bans: Failed to load bans from SQLite, "
+                f"using in-memory/JSON fallback: {e}"
+            )
+
+        # Apply all bans to iptables
         for name, info in self._data["bans"].items():
             ip = info.get("ip")
             if ip:

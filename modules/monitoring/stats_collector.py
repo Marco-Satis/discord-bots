@@ -2,7 +2,8 @@
 Phase 13c: Stats Collector — Sammelt periodisch System- und Server-Metriken.
 
 Laeuft als Hintergrund-Task im Monitor Bot und schreibt Daten
-in data/monitor/stats_history.json (Ringbuffer, max. 30 Tage).
+in die SQLite-Datenbank (Tabelle stats_history).
+Fallback: Liest aus data/monitor/stats_history.json falls DB leer (read-only).
 """
 
 import asyncio
@@ -12,12 +13,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from modules.database.db_manager import get_db
 from utils.config import DATA_DIR, MONITOR_DATA_DIR, get_config
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-# Pfad fuer die persistierte Stats-Historie
+# Pfad fuer die persistierte Stats-Historie (nur noch als Fallback fuer Lesen)
 STATS_HISTORY_FILE = MONITOR_DATA_DIR / "stats_history.json"
 
 # Maximale Anzahl Eintraege im Ringbuffer
@@ -28,8 +30,9 @@ MAX_ENTRIES = 8640
 class StatsCollector:
     """
     Sammelt periodisch System- und Server-Metriken und speichert
-    sie in einem Ringbuffer (JSON-Datei). Wird als Hintergrund-Task
-    im Monitor Bot gestartet.
+    sie in der SQLite-Datenbank (stats_history-Tabelle).
+    In-Memory-Ringbuffer dient als Cache fuer schnellen Zugriff.
+    JSON-Datei wird nur noch als read-only Fallback gelesen falls DB leer.
     """
 
     def __init__(self, interval: int = 300) -> None:
@@ -50,15 +53,15 @@ class StatsCollector:
         # Sicherstellen, dass das Datenverzeichnis existiert
         MONITOR_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-        # Vorhandene Historie beim Start laden
+        # JSON-Fallback laden (wird nur verwendet wenn DB leer ist)
         self._load_history()
         logger.info(
             f"StatsCollector initialisiert — Intervall: {self.interval}s, "
-            f"vorhandene Eintraege: {len(self._history['entries'])}"
+            f"JSON-Fallback-Eintraege: {len(self._history['entries'])}"
         )
 
     def _load_history(self) -> None:
-        """Laedt die bestehende Stats-Historie von der Festplatte."""
+        """Laedt die bestehende Stats-Historie aus der JSON-Datei (Fallback, read-only)."""
         try:
             if STATS_HISTORY_FILE.exists():
                 with open(STATS_HISTORY_FILE, "r", encoding="utf-8") as f:
@@ -68,31 +71,26 @@ class StatsCollector:
                     # max_entries aktualisieren falls sich der Wert geaendert hat
                     self._history["max_entries"] = MAX_ENTRIES
                     logger.info(
-                        f"Stats-Historie geladen: {len(self._history['entries'])} Eintraege"
+                        f"JSON-Fallback geladen: {len(self._history['entries'])} Eintraege"
                     )
         except (json.JSONDecodeError, IOError, OSError) as e:
-            logger.error(f"Fehler beim Laden der Stats-Historie: {e}")
+            logger.error(f"Fehler beim Laden der JSON-Fallback-Historie: {e}")
             # Bei Fehler mit leerer Historie starten
             self._history = {"entries": [], "max_entries": MAX_ENTRIES}
 
     async def _save_history_async(self) -> None:
-        """Speichert die Stats-Historie asynchron auf die Festplatte."""
-        try:
-            await asyncio.to_thread(self._save_history_sync)
-        except Exception as e:
-            logger.error(f"Fehler beim asynchronen Speichern der Stats-Historie: {e}")
+        """Speichert den aktuellen Eintrag in die SQLite-Datenbank."""
+        # Schreiben erfolgt jetzt direkt in collect_once() per SQLite INSERT.
+        # Diese Methode bleibt fuer Kompatibilitaet erhalten (z.B. stop()-Aufruf).
+        pass
 
     def _save_history_sync(self) -> None:
-        """Synchrones Speichern der Stats-Historie (fuer asyncio.to_thread)."""
-        try:
-            with open(STATS_HISTORY_FILE, "w", encoding="utf-8") as f:
-                json.dump(self._history, f, ensure_ascii=False, indent=2)
-        except (IOError, OSError) as e:
-            logger.error(f"Fehler beim Speichern der Stats-Historie: {e}")
+        """No-op — JSON-Schreiben wurde durch SQLite ersetzt."""
+        pass
 
     def _save_history(self, entry: dict) -> None:
         """
-        Fuegt einen neuen Eintrag zum Ringbuffer hinzu und trimmt alte Eintraege.
+        Fuegt einen neuen Eintrag zum In-Memory-Ringbuffer hinzu (Cache).
 
         Args:
             entry: Der neue Metrik-Eintrag mit Timestamp, System- und Server-Daten
@@ -158,9 +156,12 @@ class StatsCollector:
             return servers
 
         try:
-            for json_file in sorted(MONITOR_DATA_DIR.glob("*.json")):
-                # stats_history.json selbst ueberspringen
-                if json_file.name == "stats_history.json":
+            # NUR *_status.json Dateien lesen (vom StatusWriter erzeugt)
+            # Andere Dateien (*_players.json, events.json, stats_history.json) ignorieren
+            # bot_status.json explizit ausschliessen (kein Gameserver)
+            for json_file in sorted(MONITOR_DATA_DIR.glob("*_status.json")):
+                # bot_status.json ist Monitor-Bot-Status, kein Gameserver
+                if json_file.stem == "bot_status":
                     continue
 
                 try:
@@ -170,10 +171,15 @@ class StatsCollector:
                     if not isinstance(data, dict):
                         continue
 
+                    # Spieleranzahl als int sicherstellen (players.json hat Listen)
+                    players_val = data.get("players", 0)
+                    if isinstance(players_val, list):
+                        players_val = len(players_val)
+
                     server_entry = {
-                        "id": data.get("id", json_file.stem),
+                        "id": data.get("id", json_file.stem.replace("_status", "")),
                         "status": data.get("status", "unknown"),
-                        "players": data.get("players", 0),
+                        "players": players_val,
                         "cpu_percent": data.get("cpu_percent", 0.0),
                         "ram_mb": data.get("memory_mb", data.get("ram_mb", 0)),
                     }
@@ -187,10 +193,43 @@ class StatsCollector:
 
         return servers
 
+    async def _insert_into_db(self, entry: dict) -> None:
+        """
+        Fuegt einen Metrik-Eintrag in die SQLite stats_history-Tabelle ein.
+
+        Args:
+            entry: Der Metrik-Eintrag mit timestamp, system und servers
+        """
+        try:
+            db = await get_db()
+            system = entry.get("system", {})
+            server_data = json.dumps(entry.get("servers", []), ensure_ascii=False)
+
+            await db.execute(
+                """
+                INSERT INTO stats_history
+                    (timestamp, cpu_percent, ram_percent, ram_used_gb,
+                     disk_percent, disk_used_gb, server_data)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    entry["timestamp"],
+                    system.get("cpu_percent", 0.0),
+                    system.get("ram_percent", 0.0),
+                    system.get("ram_used_gb", 0.0),
+                    system.get("disk_percent", 0.0),
+                    system.get("disk_used_gb", 0.0),
+                    server_data,
+                ),
+            )
+            await db.commit()
+        except Exception as e:
+            logger.error(f"Fehler beim SQLite-INSERT (stats_history): {e}")
+
     async def collect_once(self) -> dict:
         """
         Fuehrt eine einzelne Sammelrunde durch — sammelt System- und
-        Server-Metriken, speichert den Eintrag im Ringbuffer.
+        Server-Metriken, speichert in SQLite und im In-Memory-Cache.
 
         Returns:
             Der erstellte Metrik-Eintrag
@@ -209,11 +248,11 @@ class StatsCollector:
             "servers": server_stats,
         }
 
-        # In Ringbuffer einfuegen
+        # In In-Memory-Ringbuffer einfuegen (Cache)
         self._save_history(entry)
 
-        # Asynchron auf Festplatte schreiben
-        await self._save_history_async()
+        # In SQLite-Datenbank schreiben
+        await self._insert_into_db(entry)
 
         logger.debug(
             f"Stats gesammelt — CPU: {system_stats['cpu_percent']}%, "
@@ -234,7 +273,7 @@ class StatsCollector:
         logger.info(f"StatsCollector gestartet — Intervall: {self.interval}s")
 
     async def stop(self) -> None:
-        """Stoppt die periodische Sammlung und speichert den aktuellen Stand."""
+        """Stoppt die periodische Sammlung."""
         self._running = False
 
         if self._task and not self._task.done():
@@ -244,8 +283,6 @@ class StatsCollector:
             except asyncio.CancelledError:
                 pass
 
-        # Abschliessend nochmal speichern
-        await self._save_history_async()
         logger.info("StatsCollector gestoppt")
 
     async def _collection_loop(self) -> None:
@@ -268,7 +305,8 @@ class StatsCollector:
 
     def get_history(self) -> dict:
         """
-        Gibt die gesamte Stats-Historie zurueck.
+        Gibt die In-Memory Stats-Historie zurueck (Cache).
+        Fuer DB-Abfragen get_entries_from_db() verwenden.
 
         Returns:
             Dict mit 'entries' (Liste) und 'max_entries' (int)
@@ -277,13 +315,74 @@ class StatsCollector:
 
     def get_entries(self) -> list[dict]:
         """
-        Gibt nur die Eintrags-Liste zurueck.
+        Gibt die Eintrags-Liste aus dem In-Memory-Cache zurueck.
+        Fuer DB-Abfragen get_entries_from_db() verwenden.
 
         Returns:
-            Liste aller gesammelten Metrik-Eintraege
+            Liste aller gecachten Metrik-Eintraege
         """
         return self._history.get("entries", [])
 
+    async def get_entries_from_db(self, limit: int = 8640) -> list[dict]:
+        """
+        Liest Metrik-Eintraege direkt aus der SQLite-Datenbank.
+        Primaere Lesemethode fuer Dashboard-Abfragen.
+        Faellt auf In-Memory-Daten (JSON-Fallback) zurueck wenn DB leer.
+
+        Args:
+            limit: Maximale Anzahl Eintraege (Standard: 8640 = 30 Tage)
+
+        Returns:
+            Liste von Metrik-Eintraegen im gleichen Format wie get_entries()
+        """
+        try:
+            db = await get_db()
+            cursor = await db.execute(
+                """
+                SELECT timestamp, cpu_percent, ram_percent, ram_used_gb,
+                       disk_percent, disk_used_gb, server_data
+                FROM stats_history
+                ORDER BY timestamp DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+            rows = await cursor.fetchall()
+
+            if not rows:
+                # DB leer — Fallback auf In-Memory-Daten (aus JSON geladen)
+                logger.debug(
+                    "stats_history-Tabelle leer, verwende In-Memory-Fallback "
+                    f"({len(self._history.get('entries', []))} Eintraege)"
+                )
+                return self._history.get("entries", [])
+
+            entries = []
+            for row in reversed(rows):  # Chronologisch aufsteigend
+                try:
+                    servers = json.loads(row[6]) if row[6] else []
+                except (json.JSONDecodeError, TypeError):
+                    servers = []
+
+                entries.append({
+                    "timestamp": row[0],
+                    "system": {
+                        "cpu_percent": row[1] or 0.0,
+                        "ram_percent": row[2] or 0.0,
+                        "ram_used_gb": row[3] or 0.0,
+                        "disk_percent": row[4] or 0.0,
+                        "disk_used_gb": row[5] or 0.0,
+                    },
+                    "servers": servers,
+                })
+
+            return entries
+
+        except Exception as e:
+            logger.error(f"Fehler beim Lesen aus stats_history-DB: {e}")
+            # Bei DB-Fehler auf In-Memory-Daten zurueckfallen
+            return self._history.get("entries", [])
+
     def get_entry_count(self) -> int:
-        """Gibt die Anzahl der gespeicherten Eintraege zurueck."""
+        """Gibt die Anzahl der gespeicherten Eintraege im Cache zurueck."""
         return len(self._history.get("entries", []))

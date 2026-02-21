@@ -1,6 +1,9 @@
 """
 Backup Manager for Satisfactory Server
 Creates compressed backups of savegames, handles rotation, and restore
+
+Dual-Read Mode: Writes to SQLite backup_history table,
+reads from SQLite primary with JSON fallback.
 """
 
 import json
@@ -14,6 +17,7 @@ from datetime import datetime
 from utils.logger import get_logger
 from utils.config import DATA_DIR, get_config
 from utils.formatting import format_bytes
+from modules.database.db_manager import get_db
 
 logger = get_logger("backup.manager")
 
@@ -24,32 +28,152 @@ class BackupManager:
     """Manage server backups with rotation and history tracking"""
 
     def __init__(self, savegame_path: Path, backup_path: Path,
-                 max_backups: int = 20):
+                 max_backups: int = 20, server_type: str = "satisfactory"):
         self.savegame_path = savegame_path
         self.backup_path = backup_path
         self.max_backups = max_backups
+        self.server_type = server_type
         self._history = {"backups": []}
 
     async def load(self) -> None:
-        """Load backup history"""
+        """Load backup history from SQLite, fall back to JSON"""
+        # Try SQLite first
+        loaded = await self.load_from_db()
+        if loaded:
+            return
+
+        # Fallback: load from JSON
         try:
             if BACKUP_HISTORY.exists():
                 async with aiofiles.open(BACKUP_HISTORY, "r", encoding="utf-8") as f:
                     content = await f.read()
                     self._history = json.loads(content)
+                logger.info("Backup history loaded from JSON fallback")
             else:
-                await self._save_history()
+                self._history = {"backups": []}
         except (json.JSONDecodeError, OSError) as e:
-            logger.error(f"Failed to load backup history: {e}")
+            logger.error(f"Failed to load backup history from JSON: {e}")
+
+    async def load_from_db(self) -> bool:
+        """
+        Load backup history from SQLite backup_history table.
+        Returns True if successful, False otherwise (triggers JSON fallback).
+        """
+        try:
+            db = await get_db()
+            cursor = await db.execute(
+                "SELECT id, server_type, backup_type, filename, size_bytes, "
+                "checksum, integrity_ok, cloud_synced, cloud_synced_at, created_at "
+                "FROM backup_history "
+                "WHERE server_type = ? "
+                "ORDER BY created_at DESC",
+                (self.server_type,)
+            )
+            rows = await cursor.fetchall()
+
+            if not rows and not BACKUP_HISTORY.exists():
+                # No data in DB and no JSON file — fresh start
+                self._history = {"backups": []}
+                logger.info("No backup history found in DB or JSON — starting fresh")
+                return True
+
+            if not rows:
+                # DB empty but JSON might have data — let caller fall back
+                return False
+
+            backups = []
+            for row in rows:
+                # Reconstruct the backup name from filename (strip .tar.gz)
+                filename = row["filename"]
+                name = filename
+                if name.endswith(".tar.gz"):
+                    name = name[:-7]
+                elif name.endswith(".tar"):
+                    name = name[:-4]
+
+                backup_path = self.backup_path / filename
+
+                entry = {
+                    "name": name,
+                    "filename": filename,
+                    "path": str(backup_path),
+                    "size_bytes": row["size_bytes"] or 0,
+                    "size_human": format_bytes(row["size_bytes"] or 0),
+                    "created_at": row["created_at"] or "",
+                    "created_by": "system",
+                    "type": row["backup_type"] or "auto",
+                    "db_id": row["id"],
+                    "checksum": row["checksum"],
+                    "integrity_ok": row["integrity_ok"],
+                    "cloud_synced": row["cloud_synced"],
+                    "cloud_synced_at": row["cloud_synced_at"],
+                }
+                backups.append(entry)
+
+            self._history = {"backups": backups}
+            logger.info(f"Backup history loaded from SQLite: {len(backups)} entries")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to load backup history from SQLite: {e}")
+            return False
 
     async def _save_history(self) -> None:
-        """Save backup history"""
+        """Save backup history to SQLite backup_history table"""
         try:
-            BACKUP_HISTORY.parent.mkdir(parents=True, exist_ok=True)
-            async with aiofiles.open(BACKUP_HISTORY, "w", encoding="utf-8") as f:
-                await f.write(json.dumps(self._history, indent=2))
-        except OSError as e:
-            logger.error(f"Failed to save backup history: {e}")
+            db = await get_db()
+
+            # Get existing filenames in DB for this server_type
+            cursor = await db.execute(
+                "SELECT filename FROM backup_history WHERE server_type = ?",
+                (self.server_type,)
+            )
+            existing_rows = await cursor.fetchall()
+            existing_filenames = {row["filename"] for row in existing_rows}
+
+            # Insert any new entries that are not yet in the DB
+            for entry in self._history.get("backups", []):
+                filename = entry.get("filename", "")
+                if filename and filename not in existing_filenames:
+                    backup_type = entry.get("type", "auto")
+                    size_bytes = entry.get("size_bytes", 0)
+                    created_at = entry.get("created_at", datetime.now().isoformat())
+
+                    await db.execute(
+                        "INSERT INTO backup_history "
+                        "(server_type, backup_type, filename, size_bytes, created_at) "
+                        "VALUES (?, ?, ?, ?, ?)",
+                        (self.server_type, backup_type, filename,
+                         size_bytes, created_at)
+                    )
+                    existing_filenames.add(filename)
+
+            await db.commit()
+            logger.debug("Backup history saved to SQLite")
+
+        except Exception as e:
+            logger.error(f"Failed to save backup history to SQLite: {e}")
+
+    async def _save_entry_to_db(self, entry: Dict[str, Any]) -> None:
+        """Insert a single backup entry directly into the SQLite backup_history table."""
+        try:
+            db = await get_db()
+            await db.execute(
+                "INSERT INTO backup_history "
+                "(server_type, backup_type, filename, size_bytes, created_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (
+                    self.server_type,
+                    entry.get("type", "auto"),
+                    entry.get("filename", ""),
+                    entry.get("size_bytes", 0),
+                    entry.get("created_at", datetime.now().isoformat()),
+                )
+            )
+            await db.commit()
+            logger.debug(f"Backup entry saved to SQLite: {entry.get('filename')}")
+        except Exception as e:
+            logger.error(f"Failed to save backup entry to SQLite: {e}")
 
     async def create_backup(self, name: str = None, created_by: str = "system",
                             verify: bool = True) -> Tuple[bool, str, Optional[Path]]:
@@ -88,26 +212,45 @@ class BackupManager:
                 return False, "Backup-Erstellung fehlgeschlagen!", None
 
             # Verify backup integrity
+            integrity_ok = None
             if verify:
                 valid, verify_msg = await self.verify_backup(backup_file)
+                integrity_ok = valid
                 if not valid:
                     logger.error(f"Backup verification failed: {verify_msg}")
                     backup_file.unlink(missing_ok=True)
                     return False, f"Backup erstellt aber beschaedigt: {verify_msg}", None
 
             # Record in history
+            backup_type = "manual" if name else "auto"
+            created_at = datetime.now().isoformat()
             entry = {
                 "name": backup_name,
                 "filename": backup_file.name,
                 "path": str(backup_file),
                 "size_bytes": size,
                 "size_human": format_bytes(size),
-                "created_at": datetime.now().isoformat(),
+                "created_at": created_at,
                 "created_by": created_by,
-                "type": "manual" if name else "auto"
+                "type": backup_type
             }
             self._history["backups"].append(entry)
-            await self._save_history()
+
+            # Write to SQLite
+            await self._save_entry_to_db(entry)
+
+            # Update integrity_ok in DB if verification was performed
+            if integrity_ok is not None:
+                try:
+                    db = await get_db()
+                    await db.execute(
+                        "UPDATE backup_history SET integrity_ok = ? "
+                        "WHERE server_type = ? AND filename = ?",
+                        (integrity_ok, self.server_type, backup_file.name)
+                    )
+                    await db.commit()
+                except Exception as e:
+                    logger.error(f"Failed to update integrity_ok in DB: {e}")
 
             # Rotation
             await self._rotate()
@@ -139,24 +282,40 @@ class BackupManager:
                 if bp_path.exists():
                     bp_path.unlink()
                     logger.info(f"Rotated old backup: {bp['name']}")
+
+                # Remove from SQLite
+                try:
+                    db = await get_db()
+                    await db.execute(
+                        "DELETE FROM backup_history "
+                        "WHERE server_type = ? AND filename = ?",
+                        (self.server_type, bp["filename"])
+                    )
+                    await db.commit()
+                except Exception as e:
+                    logger.error(f"Failed to remove rotated backup from DB: {e}")
+
             except OSError as e:
                 logger.error(f"Failed to rotate backup: {e}")
 
-        # Update history
+        # Update in-memory history
         keep_names = {b["name"] for b in backups[:self.max_backups]}
         self._history["backups"] = [
             b for b in self._history["backups"] if b["name"] in keep_names
         ]
-        await self._save_history()
 
     def list_backups(self, max_results: int = 50) -> List[Dict[str, Any]]:
-        """List all backups sorted by date (newest first)"""
+        """List all backups sorted by date (newest first).
+
+        Uses in-memory data loaded at startup (from SQLite or JSON fallback).
+        Also scans filesystem for untracked backups.
+        """
         backups = []
 
         # Combine history with actual files
         known_files = {b["filename"] for b in self._history.get("backups", [])}
 
-        # From history
+        # From in-memory history (loaded from SQLite or JSON)
         for bp in self._history.get("backups", []):
             bp_path = Path(bp["path"])
             if bp_path.exists():
