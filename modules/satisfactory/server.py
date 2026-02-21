@@ -4,7 +4,6 @@ Netcup RS 4000 G12 - AMD EPYC 9645
 """
 
 import asyncio
-import subprocess
 import time
 import psutil
 from pathlib import Path

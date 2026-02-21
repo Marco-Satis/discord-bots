@@ -6,7 +6,6 @@ statischen Dateien und WebSocket-Unterstuetzung.
 """
 
 import sys
-import os
 from pathlib import Path
 
 # Projekt-Root in sys.path einfuegen, damit utils/ importierbar ist
@@ -34,8 +33,8 @@ WEB_PORT = get_env("WEB_PORT", 8080, cast=int)
 WEB_SECRET_KEY = get_env("WEB_SECRET_KEY", "CHANGE_ME_INSECURE_DEFAULT_KEY")
 
 if not WEB_ENABLED:
-    print("[Web Dashboard] WEB_ENABLED ist nicht 'true'. Dashboard ist deaktiviert.")
-    print("[Web Dashboard] Setze WEB_ENABLED=true in config/.env um das Dashboard zu starten.")
+    logger.warning("WEB_ENABLED ist nicht 'true'. Dashboard ist deaktiviert.")
+    logger.warning("Setze WEB_ENABLED=true in config/.env um das Dashboard zu starten.")
     sys.exit(0)
 
 # FastAPI-App erstellen
@@ -47,6 +46,9 @@ app = FastAPI(
     redoc_url=None       # ReDoc deaktivieren in Produktion
 )
 
+# HTTPS-Modus erkennen (Nginx Reverse-Proxy setzt X-Forwarded-Proto)
+WEB_HTTPS = get_env("WEB_HTTPS", "true", cast=bool)
+
 # Session-Middleware fuer Cookie-basierte Sessions
 app.add_middleware(
     SessionMiddleware,
@@ -54,13 +56,22 @@ app.add_middleware(
     session_cookie="dashboard_session",
     max_age=86400,       # 24 Stunden
     same_site="lax",
-    https_only=False     # In Produktion auf True setzen
+    https_only=WEB_HTTPS
 )
 
 # CORS-Middleware fuer API-Zugriffe
+SERVER_IP = get_env("SERVER_IP", "203.0.113.10")
+DOMAIN = get_env("WEB_DOMAIN", "marco-satisfactory.duckdns.org")
+ALLOWED_ORIGINS = [
+    f"https://{DOMAIN}",
+    f"https://{SERVER_IP}:8443",
+    f"https://{SERVER_IP}",
+    f"http://{SERVER_IP}:8080",
+    "http://127.0.0.1:8080",
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],           # In Produktion einschraenken
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

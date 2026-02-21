@@ -827,9 +827,11 @@ class MonitorCog(commands.Cog):
             return
 
         try:
-            # Read command log
-            with open(log_file, "r", encoding="utf-8") as f:
-                all_logs = json.load(f)
+            # Read command log (async)
+            def _read_log():
+                with open(log_file, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            all_logs = await asyncio.to_thread(_read_log)
 
             if not all_logs:
                 await interaction.followup.send(

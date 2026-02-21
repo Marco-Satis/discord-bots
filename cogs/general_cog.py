@@ -518,9 +518,11 @@ class GeneralCog(commands.Cog):
             ("/mc players pardon", "Spieler entbannen", _LEVEL_ADMIN),
         ],
         "Minecraft — Backup & Welt": [
+            ("/mc backup create [server]", "Welt-Backup erstellen", _LEVEL_SPIELER),
             ("/mc backup list [server]", "Backups auflisten", _LEVEL_SPIELER),
             ("/mc backup download [server]", "Backup herunterladen", _LEVEL_SPIELER),
             ("/mc backup restore [server]", "Backup wiederherstellen", _LEVEL_OWNER),
+            ("/mc world stats [server]", "Detaillierte Welt-Analyse", _LEVEL_ALL),
         ],
         "Minecraft — Config": [
             ("/mc config settings [server]", "Einstellungen anzeigen", _LEVEL_ALL),
