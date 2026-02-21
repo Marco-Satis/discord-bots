@@ -77,6 +77,7 @@ from modules.security.fail2ban import Fail2BanManager
 from modules.backup.integrity import BackupIntegrity
 from modules.database.db_manager import init_db, close_db, check_integrity
 from modules.database.json_importer import import_all, check_import_needed
+from modules.security.ban_manager import BanManager
 
 load_env()
 
@@ -321,6 +322,10 @@ bot.fail2ban_mgr = fail2ban_mgr
 
 backup_integrity = BackupIntegrity()
 bot.backup_integrity = backup_integrity
+
+# F28-8: Ban-Manager (Boot-Restore + Ban-Expiry)
+ban_manager = BanManager()
+bot.ban_manager = ban_manager
 
 # ------------------------------------------------------------------
 # Minecraft Multi-Server + Chat-Bridge
@@ -1841,6 +1846,27 @@ async def before_weekly_snapshot():
 
 
 # ------------------------------------------------------------------
+# F28-8: Ban-Expiry Background-Task
+# ------------------------------------------------------------------
+
+@tasks.loop(seconds=60)
+async def ban_expiry_task():
+    """Prueft alle 60 Sekunden ob temporaere Bans abgelaufen sind."""
+    try:
+        expired = await ban_manager.check_expired_bans()
+        if expired > 0:
+            logger.info(f"Ban-Expiry: {expired} abgelaufene Bans entfernt")
+    except Exception as e:
+        logger.debug(f"Ban-Expiry-Task Fehler: {e}")
+
+
+@ban_expiry_task.before_loop
+async def before_ban_expiry():
+    await bot.wait_until_ready()
+    await asyncio.sleep(30)
+
+
+# ------------------------------------------------------------------
 # Web-Status-Seite Task (Phase 8g)
 # ------------------------------------------------------------------
 
@@ -1924,6 +1950,7 @@ async def on_ready():
         health_check_task, player_log_task, update_status_embed,
         update_voice_stats, optimize_task, login_audit_task,
         weekly_snapshot_task, health_auto_restart_task, ssl_check_task,
+        ban_expiry_task,
     ]
     # Web-Status-Task nur starten wenn aktiviert
     if web_status_generator:
@@ -1950,6 +1977,14 @@ async def on_ready():
             logger.info(f"JSON-Import abgeschlossen: {import_stats}")
     except Exception as e:
         logger.error(f"Datenbank-Initialisierung fehlgeschlagen: {e}")
+
+    # F28-8: Boot-Restore — iptables-Bans aus DB wiederherstellen
+    try:
+        restored = await ban_manager.restore_bans()
+        if restored > 0:
+            logger.info(f"Boot-Restore: {restored} iptables-Bans wiederhergestellt")
+    except Exception as e:
+        logger.warning(f"Ban Boot-Restore fehlgeschlagen: {e}")
 
     # StatsCollector als Hintergrund-Task starten (nur beim ersten Start)
     if not stats_collector._running:
