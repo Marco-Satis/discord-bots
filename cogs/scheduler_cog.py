@@ -1239,7 +1239,7 @@ class SchedulerCog(commands.Cog):
                     f"**Verfuegbar:** Build {info.get('available_buildid', '?')}\n\n"
                     f"Verwende `/sat update` um zu aktualisieren."
                 ),
-                color=0xffa500,
+                color=0xf39c12,
             )
         else:
             embed = discord.Embed(
@@ -1248,7 +1248,7 @@ class SchedulerCog(commands.Cog):
                     f"Build: {info.get('installed_buildid', '?')}\n"
                     f"Geprueft: {info.get('checked_at', '?')[:16]}"
                 ),
-                color=0x00ff00,
+                color=0x2ecc71,
             )
 
         await interaction.followup.send(embed=embed)

@@ -359,7 +359,7 @@ class ModerationCog(commands.Cog):
 
         embed = discord.Embed(
             title=f"Wortfilter ({status})",
-            color=0xe74c3c if self.word_filter.enabled else 0x95a5a6,
+            color=0x2ecc71 if self.word_filter.enabled else 0x95a5a6,
         )
 
         if normal_words:

@@ -15,10 +15,10 @@ logger = get_logger("discord_notifier")
 
 class NotifyLevel(Enum):
     INFO = ("info", 0x5865F2, "ℹ️")
-    SUCCESS = ("success", 0x00ff00, "✅")
-    WARNING = ("warning", 0xffa500, "⚠️")
-    ERROR = ("error", 0xff0000, "❌")
-    CRITICAL = ("critical", 0xff0000, "🚨")
+    SUCCESS = ("success", 0x2ecc71, "✅")
+    WARNING = ("warning", 0xf39c12, "⚠️")
+    ERROR = ("error", 0xe74c3c, "❌")
+    CRITICAL = ("critical", 0xe74c3c, "🚨")
 
 
 class DiscordNotifier:

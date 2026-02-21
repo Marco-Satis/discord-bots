@@ -193,7 +193,7 @@ class MonitorCog(commands.Cog):
 
             embed = discord.Embed(
                 title=f"📊 Statistiken: {stats['name']}",
-                color=0x00ff00 if stats["is_online"] else 0x888888,
+                color=0x2ecc71 if stats["is_online"] else 0x888888,
                 timestamp=datetime.now(),
             )
             embed.add_field(name="Status", value=online_str, inline=True)
@@ -771,7 +771,7 @@ class MonitorCog(commands.Cog):
                     f"**Ergebnis:** {passed}/{total} bestanden\n"
                     f"✅ {passed} | ❌ {failed}"
                 ),
-                color=0x00ff00 if failed == 0 else 0xff9900 if failed <= 2 else 0xff0000,
+                color=0x2ecc71 if failed == 0 else 0xf39c12 if failed <= 2 else 0xe74c3c,
                 timestamp=datetime.now(),
             )
 
@@ -1276,7 +1276,7 @@ class MonitorCog(commands.Cog):
 
         embed = discord.Embed(
             title="📧 Email-Konfiguration",
-            color=0x00ff00 if notifier.enabled else 0xff0000,
+            color=0x2ecc71 if notifier.enabled else 0xe74c3c,
             timestamp=datetime.now(),
         )
         embed.add_field(
@@ -1354,10 +1354,10 @@ class MonitorCog(commands.Cog):
 
         # Embed-Farbe basierend auf Speicherplatz
         if disk_percent >= 95:
-            color = 0xff0000  # Rot: Kritisch
+            color = 0xe74c3c  # Rot: Kritisch
             disk_status = "KRITISCH"
         elif disk_percent >= 80:
-            color = 0xff9900  # Gelb: Warnung
+            color = 0xf39c12  # Gelb: Warnung
             disk_status = "Warnung"
         else:
             color = 0x2ecc71  # Gruen: OK
@@ -1463,7 +1463,7 @@ class MonitorCog(commands.Cog):
 
         embed = discord.Embed(
             title="☁️ OneDrive Backup",
-            color=0x00ff00 if od.enabled and configured else 0xff0000,
+            color=0x2ecc71 if od.enabled and configured else 0xe74c3c,
             timestamp=datetime.now(),
         )
         embed.add_field(

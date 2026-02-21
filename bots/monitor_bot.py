@@ -613,7 +613,7 @@ async def _on_crash(crash_event):
                         f"Letzte {crash_replay.context_lines} Log-Zeilen vor dem Crash:\n"
                         f"```\n{summary}\n```"
                     ),
-                    color=0xff0000,
+                    color=0xe74c3c,
                     timestamp=datetime.now(),
                 )
                 embed.set_footer(text="Vollständiges Log als Datei angehängt")
@@ -697,7 +697,7 @@ async def _on_player_join(name):
             for alert in alerts:
                 desc += alert
             embed = discord.Embed(
-                description=desc, color=0xff0000,
+                description=desc, color=0xe74c3c,
                 timestamp=datetime.now(),
             )
             await channel.send(
@@ -747,7 +747,7 @@ async def _on_service_failed(name, error):
                 embed = discord.Embed(
                     title=f"\u26a0\ufe0f Service ausgefallen: {name}",
                     description=f"Fehler: {error}\n\nBot laeuft weiter mit eingeschraenkter Funktionalitaet.\nAutomatischer Retry aktiv.",
-                    color=0xffa500,
+                    color=0xf39c12,
                     timestamp=datetime.now(),
                 )
                 await channel.send(embed=embed)
@@ -762,7 +762,7 @@ async def _on_service_recovered(name):
             try:
                 embed = discord.Embed(
                     title=f"\u2705 Service wiederhergestellt: {name}",
-                    color=0x00ff00,
+                    color=0x2ecc71,
                     timestamp=datetime.now(),
                 )
                 await channel.send(embed=embed)
@@ -793,7 +793,7 @@ async def _on_crash_loop(result):
                         f"Bitte manuell pruefen und mit `/sat start` neu starten."
                         f"{lkg_text}"
                     ),
-                    color=0xff0000,
+                    color=0xe74c3c,
                     timestamp=datetime.now(),
                 )
                 content = f"<@&{NOTIFY_ROLE_ID}>" if NOTIFY_ROLE_ID else None
@@ -819,7 +819,7 @@ async def _on_unknown_login(alert):
                         f"**IP:** `{alert['ip']}`\n"
                         f"**Zeit:** {alert['timestamp'][:19]}"
                     ),
-                    color=0xff0000,
+                    color=0xe74c3c,
                     timestamp=datetime.now(),
                 )
                 content = f"<@&{NOTIFY_ROLE_ID}>" if NOTIFY_ROLE_ID else None
@@ -844,7 +844,7 @@ async def _on_failed_login_burst(alert):
                         f"**Versuche:** {alert['count']}+\n"
                         f"Fail2Ban sollte diese IP sperren."
                     ),
-                    color=0xffa500,
+                    color=0xf39c12,
                     timestamp=datetime.now(),
                 )
                 await channel.send(embed=embed)
@@ -1041,7 +1041,7 @@ async def mc_health_check_task():
                                     f"nicht erreichbar.\n"
                                     f"Service: `{srv.service_name}`"
                                 ),
-                                color=0xff0000,
+                                color=0xe74c3c,
                                 timestamp=datetime.now(),
                             )
                             await admin_ch.send(embed=embed)
@@ -1062,7 +1062,7 @@ async def mc_health_check_task():
                                         f"Server ist wieder erreichbar.\n"
                                         f"War {_mc_consecutive_offline[sid] * 2} Minuten offline."
                                     ),
-                                    color=0x00ff00,
+                                    color=0x2ecc71,
                                     timestamp=datetime.now(),
                                 )
                                 await admin_ch.send(embed=embed)
@@ -1159,7 +1159,7 @@ async def health_check_task():
                                 f"{_consecutive_offline_checks * 2} Minuten nicht erreichbar.\n"
                                 f"Erkannt um {datetime.now().strftime('%H:%M:%S')}."
                             ),
-                            color=0xff0000,
+                            color=0xe74c3c,
                             timestamp=datetime.now(),
                         )
                         await channel.send(embed=embed)
@@ -1181,7 +1181,7 @@ async def health_check_task():
                                     f"Server ist um {datetime.now().strftime('%H:%M:%S')} wieder erreichbar.\n"
                                     f"War {_consecutive_offline_checks * 2} Minuten offline."
                                 ),
-                                color=0x00ff00,
+                                color=0x2ecc71,
                                 timestamp=datetime.now(),
                             )
                             await channel.send(embed=embed)
@@ -1464,7 +1464,7 @@ async def _update_status_embed_impl():
 
     embed = discord.Embed(
         description="\n".join(lines),
-        color=0x00ff00 if running else 0xff0000,
+        color=0x2ecc71 if running else 0xe74c3c,
     )
 
     # -- Send or Edit (Lock schuetzt _status_message_id) --

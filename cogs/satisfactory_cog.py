@@ -80,7 +80,7 @@ class SatisfactoryCog(commands.Cog):
 
         embed = discord.Embed(
             title=f"{status_emoji(online)} Satisfactory Server",
-            color=0x00ff00 if online else 0xff0000,
+            color=0x2ecc71 if online else 0xe74c3c,
         )
 
         if online:

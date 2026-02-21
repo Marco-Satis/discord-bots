@@ -502,7 +502,7 @@ class WarnCog(commands.Cog):
                     f"Wende dich an einen Admin, falls du denkst, "
                     f"dass dies ein Fehler ist."
                 ),
-                color=0xff0000,
+                color=0xe74c3c,
             )
             await user.send(embed=dm_embed)
         except (discord.Forbidden, discord.HTTPException):
@@ -522,7 +522,7 @@ class WarnCog(commands.Cog):
                     f"Grund: {total_points} Warn-Punkte "
                     f"(Schwelle: {self.warn_mgr.thresholds.get('ban', 10)})"
                 ),
-                color=0xff0000,
+                color=0xe74c3c,
             )
             await interaction.followup.send(embed=embed)
             logger.info(f"Auto-Ban: {user} ({total_points} Punkte)")
