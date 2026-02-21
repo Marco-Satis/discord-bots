@@ -357,7 +357,7 @@ async def setup_hook():
     except Exception as e:
         logger.error(f"Datenbank-Initialisierung fehlgeschlagen: {e}")
 
-    # Initialize async managers
+    # Initialize async managers (JSON-Fallback laden)
     await bot.whitelist_mgr.load()
     await bot.blacklist_mgr.load()
     await bot.blueprint_mgr.load()
@@ -365,6 +365,15 @@ async def setup_hook():
     await bot.word_filter.load()
     await bot.mc_blacklist.load()
     logger.info("All managers initialized")
+
+    # F28: SQLite Dual-Read — Daten aus DB laden (ueberschreibt JSON-Fallback)
+    try:
+        await bot.whitelist_mgr.load_from_db()
+        await bot.blacklist_mgr.load_from_db()
+        await bot.mc_blacklist.load_from_db()
+        logger.info("Whitelist/Blacklist aus SQLite geladen")
+    except Exception as e:
+        logger.warning(f"SQLite-Load fuer Listen fehlgeschlagen: {e}")
     await load_cogs()
 
     # Sync slash commands (once, not on every reconnect)
