@@ -13,6 +13,7 @@ from typing import Optional
 from fastapi import APIRouter, Request, Query
 from fastapi.responses import JSONResponse, RedirectResponse
 
+from modules.database.db_manager import get_db
 from utils.config import MONITOR_DATA_DIR
 from utils.logger import get_logger
 from web.auth import get_current_user
@@ -21,7 +22,7 @@ logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/analytics", tags=["Analytics"])
 
-# Pfad zur Stats-Historie
+# Pfad zur Stats-Historie (JSON-Fallback)
 STATS_HISTORY_FILE = MONITOR_DATA_DIR / "stats_history.json"
 
 # Unterstuetzte Zeitraeume und ihre Dauer in Stunden
@@ -32,9 +33,9 @@ PERIOD_HOURS = {
 }
 
 
-def _load_stats_history() -> list[dict]:
+def _load_stats_history_json() -> list[dict]:
     """
-    Laedt die Stats-Historie aus der JSON-Datei.
+    Laedt die Stats-Historie aus der JSON-Datei (Fallback).
 
     Returns:
         Liste aller Eintraege oder leere Liste bei Fehler
@@ -46,8 +47,68 @@ def _load_stats_history() -> list[dict]:
             if isinstance(data, dict) and "entries" in data:
                 return data["entries"]
     except (json.JSONDecodeError, IOError, OSError) as e:
-        logger.warning(f"Fehler beim Laden der Stats-Historie: {e}")
+        logger.warning(f"Fehler beim Laden der Stats-Historie (JSON): {e}")
     return []
+
+
+async def _load_stats_from_db(period: str) -> list[dict]:
+    """
+    Laedt die Stats-Historie aus der SQLite-Datenbank.
+
+    Berechnet den Cutoff-Zeitstempel anhand des Zeitraums und
+    fragt die Daten direkt gefiltert ab. Bei DB-Fehler wird
+    auf die JSON-Datei zurueckgefallen.
+
+    Args:
+        period: Zeitraum-String ('24h', '7d', '30d')
+
+    Returns:
+        Liste von Eintraegen mit gleicher Struktur wie die JSON-Variante:
+        [{"timestamp": ..., "system": {...}, "servers": [...]}, ...]
+    """
+    hours = PERIOD_HOURS.get(period, 24)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    cutoff_iso = cutoff.isoformat()
+
+    try:
+        db = await get_db()
+        cursor = await db.execute(
+            "SELECT timestamp, cpu_percent, ram_percent, disk_percent, server_data "
+            "FROM stats_history "
+            "WHERE timestamp >= ? "
+            "ORDER BY timestamp ASC",
+            (cutoff_iso,),
+        )
+        rows = await cursor.fetchall()
+
+        entries = []
+        for row in rows:
+            ts, cpu, ram, disk, server_data_raw = row
+
+            # server_data JSON parsen
+            servers = []
+            if server_data_raw:
+                try:
+                    servers = json.loads(server_data_raw)
+                except (json.JSONDecodeError, TypeError):
+                    servers = []
+
+            entries.append({
+                "timestamp": ts,
+                "system": {
+                    "cpu_percent": cpu or 0,
+                    "ram_percent": ram or 0,
+                    "disk_percent": disk or 0,
+                },
+                "servers": servers if isinstance(servers, list) else [],
+            })
+
+        return entries
+
+    except Exception as e:
+        logger.warning(f"DB-Abfrage fehlgeschlagen, Fallback auf JSON: {e}")
+        all_entries = _load_stats_history_json()
+        return _filter_by_period(all_entries, period)
 
 
 def _filter_by_period(entries: list[dict], period: str) -> list[dict]:
@@ -160,8 +221,7 @@ async def analytics_system(
             content={"error": "Nicht authentifiziert"}
         )
 
-    entries = _load_stats_history()
-    entries = _filter_by_period(entries, period)
+    entries = await _load_stats_from_db(period)
     entries = _downsample(entries)
 
     labels = []
@@ -212,8 +272,7 @@ async def analytics_server(
             content={"error": "Nicht authentifiziert"}
         )
 
-    entries = _load_stats_history()
-    entries = _filter_by_period(entries, period)
+    entries = await _load_stats_from_db(period)
     entries = _downsample(entries)
 
     labels = []
@@ -278,8 +337,7 @@ async def analytics_players(
             content={"error": "Nicht authentifiziert"}
         )
 
-    entries = _load_stats_history()
-    entries = _filter_by_period(entries, period)
+    entries = await _load_stats_from_db(period)
     entries = _downsample(entries)
 
     labels = []
@@ -350,12 +408,10 @@ async def analytics_summary(request: Request):
             content={"error": "Nicht authentifiziert"}
         )
 
-    entries = _load_stats_history()
-    entries_24h = _filter_by_period(entries, "24h")
-    entries_7d = _filter_by_period(entries, "7d")
+    entries_24h = await _load_stats_from_db("24h")
+    entries_7d = await _load_stats_from_db("7d")
 
     summary = {
-        "total_entries": len(entries),
         "entries_24h": len(entries_24h),
         "entries_7d": len(entries_7d),
     }

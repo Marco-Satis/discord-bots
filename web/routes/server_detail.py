@@ -19,6 +19,9 @@ from utils.config import PROJECT_ROOT, DATA_DIR, MONITOR_DATA_DIR, get_config, g
 from utils.logger import get_logger
 from web.auth import get_current_user
 from modules.minecraft.rcon import MinecraftRCON
+from modules.database.db_manager import get_db
+# SatisfactoryAPI: KickPlayer funktioniert nicht ueber die API,
+# daher Kick/Ban per UFW IP-Block + conntrack flush
 
 logger = get_logger("web.routes.server_detail")
 
@@ -43,8 +46,12 @@ SERVER_TYPES = {
     "teamspeak": "teamspeak",
 }
 
-# Backup-Verzeichnis (unterhalb von data/)
-BACKUP_BASE_DIR = DATA_DIR / "backups"
+# Backup-Verzeichnisse pro Server (aus ENV oder Standard-Pfade)
+BACKUP_DIRS = {
+    "satisfactory": Path(get_env("BACKUP_PATH", "/home/satisfactory/backups")),
+    "mc_bmc": Path(get_env("MC_BMC_BACKUP_PATH", "/home/minecraft/backups/bmc")),
+    "mc_vanilla": Path(get_env("MC_VANILLA_BACKUP_PATH", "/home/minecraft/backups/vanilla")),
+}
 
 # Server-ID → systemd Service-Name Zuordnung
 SERVICE_NAMES = {
@@ -84,7 +91,7 @@ def _list_backups(server_id: str) -> list[dict]:
     und gibt eine Liste mit Name, Groesse und Datum zurueck.
     """
     backups = []
-    backup_dir = BACKUP_BASE_DIR / server_id
+    backup_dir = BACKUP_DIRS.get(server_id, DATA_DIR / "backups" / server_id)
 
     if not backup_dir.exists():
         logger.debug(f"Backup-Verzeichnis nicht gefunden: {backup_dir}")
@@ -92,18 +99,28 @@ def _list_backups(server_id: str) -> list[dict]:
 
     try:
         for entry in sorted(backup_dir.iterdir(), reverse=True):
-            if entry.is_file():
+            try:
                 stat = entry.stat()
-                size_mb = round(stat.st_size / (1024 * 1024), 2)
+                if entry.is_file():
+                    size_mb = round(stat.st_size / (1024 * 1024), 2)
+                elif entry.is_dir():
+                    # Verzeichnis-Groesse berechnen (rekursiv)
+                    total = sum(f.stat().st_size for f in entry.rglob("*") if f.is_file())
+                    size_mb = round(total / (1024 * 1024), 2)
+                else:
+                    continue
                 modified = datetime.fromtimestamp(stat.st_mtime)
 
                 backups.append({
                     "filename": entry.name,
                     "size_mb": size_mb,
                     "size_display": f"{size_mb} MB" if size_mb < 1024 else f"{round(size_mb / 1024, 2)} GB",
-                    "date": modified.strftime("%Y-%m-%d %H:%M:%S"),
+                    "date": modified.strftime("%d.%m.%Y %H:%M:%S"),
                     "timestamp": stat.st_mtime,
+                    "is_dir": entry.is_dir(),
                 })
+            except OSError:
+                pass
     except OSError as e:
         logger.warning(f"Fehler beim Lesen der Backups fuer {server_id}: {e}")
 
@@ -163,9 +180,11 @@ def _get_server_info(server_id: str) -> dict:
             "Status-Embed": features.get("status_embed", False),
         }
     elif server_type == "satisfactory":
+        _api_r = status_data.get("api_reachable")
+        _proc_r = status_data.get("process_running")
         server_config = {
-            "API erreichbar": status_data.get("api_reachable", "N/A"),
-            "Prozess laeuft": status_data.get("process_running", "N/A"),
+            "API erreichbar": "Ja" if _api_r is True else ("Nein" if _api_r is False else "N/A"),
+            "Prozess laeuft": "Ja" if _proc_r is True else ("Nein" if _proc_r is False else "N/A"),
             "PID": status_data.get("pid", "N/A"),
             "Max. Spieler": status_data.get("max_players", 0),
             "Auto-Backup": features.get("auto_backup", False),
@@ -203,18 +222,32 @@ def _get_server_info(server_id: str) -> dict:
         }
     elif server_type == "satisfactory":
         tick = status_data.get("tick_rate")
+        memory_mb = status_data.get("memory_mb", 0)
+        cpu_pct = status_data.get("cpu_percent", 0)
+        api_reachable = status_data.get("api_reachable")
+        last_update_raw = status_data.get("last_update", "N/A")
+
+        # ISO-Timestamp formatieren
+        last_update_str = "N/A"
+        if last_update_raw and last_update_raw != "N/A":
+            try:
+                dt = datetime.fromisoformat(last_update_raw.replace("Z", "+00:00"))
+                last_update_str = dt.strftime("%d.%m.%Y %H:%M:%S")
+            except (ValueError, TypeError):
+                last_update_str = str(last_update_raw)
+
         world_info = {
             "Session-Name": status_data.get("session_name", "N/A"),
             "Status": status_data.get("status", "unknown").capitalize(),
             "Spieler Online": f"{status_data.get('players', 0)}/{status_data.get('max_players', 0)}",
-            "Tick-Rate": f"{tick} FPS" if tick else "N/A",
-            "CPU-Auslastung": f"{status_data.get('cpu_percent', 0)}%",
-            "RAM-Verbrauch": f"{status_data.get('memory_mb', 0)} MB",
+            "Tick-Rate": f"{round(tick, 1)} FPS" if tick is not None else "N/A",
+            "CPU-Auslastung": f"{round(cpu_pct, 1)}%" if cpu_pct is not None else "N/A",
+            "RAM-Verbrauch": f"{memory_mb} MB" if memory_mb is not None else "N/A",
             "Uptime": status_data.get("uptime", "N/A"),
             "Adresse": f"{status_data.get('address', 'N/A')}:{status_data.get('port', 'N/A')}",
             "PID": status_data.get("pid", "N/A"),
-            "API erreichbar": status_data.get("api_reachable", "N/A"),
-            "Letztes Update": status_data.get("last_update", "N/A"),
+            "API erreichbar": "Ja" if api_reachable is True else ("Nein" if api_reachable is False else "N/A"),
+            "Letztes Update": last_update_str,
         }
 
     # Update-Informationen
@@ -320,13 +353,12 @@ async def server_backups_partial(request: Request, server_id: str):
 
 
 @router.post("/api/server/{server_id}/action", response_class=HTMLResponse)
-async def server_action(request: Request, server_id: str, action: str = Form("")):
+async def server_action(request: Request, server_id: str):
     """
-    Server-Steuerung: Start, Stop, Restart.
+    Server-Steuerung: Start, Stop, Restart, Kick, Ban.
 
-    Aktuell ein Platzhalter — die eigentliche Integration erfolgt
-    wenn die Bots neben dem Dashboard laufen. Gibt eine
-    Statusmeldung als HTMX-Fragment zurueck.
+    Liest action und target aus Form-Daten (HTMX hx-vals).
+    Gibt eine Statusmeldung als HTMX-Fragment zurueck.
     """
     user = get_current_user(request)
     if user is None:
@@ -335,7 +367,19 @@ async def server_action(request: Request, server_id: str, action: str = Form("")
     if server_id not in VALID_SERVER_IDS:
         return HTMLResponse(content="<p>Unbekannter Server</p>", status_code=404)
 
-    valid_actions = ("start", "stop", "restart", "maintenance")
+    # Form-Daten vollstaendig lesen (HTMX sendet hx-vals als Form-encoded)
+    try:
+        form = await request.form()
+        action = str(form.get("action", "")).strip()
+        target = str(form.get("target", "")).strip()
+    except Exception as e:
+        logger.error(f"Form-Daten lesen fehlgeschlagen: {e}")
+        return HTMLResponse(
+            content=f'<div class="alert alert-danger">Fehler beim Lesen der Formulardaten: {html_escape_module.escape(str(e)[:200])}</div>',
+            status_code=400,
+        )
+
+    valid_actions = ("start", "stop", "restart", "maintenance", "kick", "ban")
     if action not in valid_actions:
         return HTMLResponse(
             content='<div class="alert alert-danger">Ungueltige Aktion</div>',
@@ -343,17 +387,268 @@ async def server_action(request: Request, server_id: str, action: str = Form("")
         )
 
     display_name = _get_server_display_name(server_id)
+    server_type = _get_server_type(server_id)
     action_names = {
         "start": "Starten",
         "stop": "Stoppen",
         "restart": "Neustart",
         "maintenance": "Wartungsmodus",
+        "kick": "Kick",
+        "ban": "Ban",
     }
     action_display = action_names.get(action, action)
 
-    logger.info(f"Server-Aktion angefragt: {action} fuer {display_name} von Benutzer {user.get('username', 'Unbekannt')}")
+    logger.info(f"Server-Aktion angefragt: {action} fuer {display_name} von Benutzer {user.get('username', 'Unbekannt')}"
+                + (f" (Ziel: {target})" if target else ""))
 
-    # systemd Service-Name ermitteln
+    # ------------------------------------------------------------------
+    # Kick / Ban — per RCON (Minecraft) oder Platzhalter (SAT)
+    # ------------------------------------------------------------------
+    if action in ("kick", "ban"):
+        if not target:
+            return HTMLResponse(
+                content='<div class="alert alert-danger">Kein Spielername angegeben.</div>',
+            )
+
+        safe_target = html_escape_module.escape(target)
+
+        if server_type == "minecraft":
+            # RCON-Konfiguration laden
+            rcon_prefixes = {"mc_bmc": "MC_BMC_", "mc_vanilla": "MC_VANILLA_"}
+            prefix = rcon_prefixes.get(server_id, "")
+            rcon_host = get_env(f"{prefix}RCON_HOST", "127.0.0.1")
+            rcon_port = int(get_env(f"{prefix}RCON_PORT", "25575"))
+            rcon_password = get_env(f"{prefix}RCON_PASSWORD", "")
+
+            if not rcon_password:
+                return HTMLResponse(
+                    content=f'<div class="alert alert-danger">RCON-Passwort nicht konfiguriert ({prefix}RCON_PASSWORD).</div>',
+                )
+
+            rcon_cmd = f"{action} {target}"
+            if action == "ban":
+                rcon_cmd = f"ban {target} Gebannt via Dashboard"
+
+            try:
+                async with MinecraftRCON(rcon_host, rcon_port, rcon_password, timeout=5.0) as rcon:
+                    response = await rcon.command(rcon_cmd)
+
+                logger.info(f"RCON {action} erfolgreich: {target} auf {display_name}")
+                return HTMLResponse(content=f"""
+                    <div class="alert alert-success">
+                        <strong>{action_display}:</strong> {safe_target} wurde auf {display_name} {action_display.lower()}t.
+                        {f'<br><small>RCON: {html_escape_module.escape(response[:200])}</small>' if response else ''}
+                    </div>
+                """)
+            except Exception as e:
+                logger.error(f"RCON {action} fehlgeschlagen: {target} auf {display_name} — {e}")
+                return HTMLResponse(content=f"""
+                    <div class="alert alert-danger">
+                        <strong>Fehler:</strong> {action_display} fuer {safe_target} fehlgeschlagen: {html_escape_module.escape(str(e)[:200])}
+                    </div>
+                """)
+
+        elif server_type == "satisfactory":
+            # SAT: Kick/Ban per UFW IP-Block + conntrack flush
+            # (KickPlayer funktioniert nicht ueber die Satisfactory API)
+            ip_data_file = DATA_DIR / "player_ips.json"
+            blacklist_file = DATA_DIR / "blacklist.json"
+
+            # IP des Spielers aus SQLite lesen (Fallback: player_ips.json)
+            player_ip = None
+            try:
+                db = await get_db()
+                cursor = await db.execute(
+                    "SELECT ip_address FROM player_ips "
+                    "WHERE LOWER(player_name) = ? AND server_type = 'satisfactory' "
+                    "ORDER BY last_seen DESC LIMIT 1",
+                    (target.lower(),),
+                )
+                row = await cursor.fetchone()
+                if row:
+                    player_ip = row[0] if isinstance(row, (tuple, list)) else row["ip_address"]
+                    logger.debug(f"IP fuer {target} aus DB geladen: {player_ip}")
+            except Exception as e:
+                logger.warning(f"DB-Abfrage fuer Spieler-IP fehlgeschlagen: {e}")
+
+            # Fallback: player_ips.json lesen falls DB kein Ergebnis lieferte
+            if not player_ip:
+                try:
+                    if ip_data_file.exists():
+                        with open(ip_data_file, "r") as f:
+                            ip_data = json.load(f)
+                        entry = ip_data.get("ip_map", {}).get(target)
+                        if isinstance(entry, dict):
+                            player_ip = entry.get("ip")
+                        elif isinstance(entry, str):
+                            player_ip = entry
+                        if player_ip:
+                            logger.debug(f"IP fuer {target} aus JSON-Fallback geladen: {player_ip}")
+                except Exception as e:
+                    logger.warning(f"Fehler beim Lesen der IP-Daten (JSON-Fallback): {e}")
+
+            if not player_ip:
+                return HTMLResponse(content=f"""
+                    <div class="alert alert-warning">
+                        <strong>Keine IP bekannt:</strong> Fuer {safe_target} ist keine IP-Adresse hinterlegt.
+                        Der Spieler muss mindestens einmal verbunden gewesen sein.
+                    </div>
+                """)
+
+            # --- Hilfsfunktionen: iptables REJECT (sofortige Trennung) ---
+            async def _run_cmd(*args: str) -> tuple[int, str]:
+                """Fuehrt einen Shell-Befehl aus. Returns (returncode, stderr)."""
+                try:
+                    proc = await asyncio.create_subprocess_exec(
+                        *args,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                    )
+                    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=10)
+                    return proc.returncode, stderr.decode("utf-8", errors="replace").strip()
+                except Exception as e:
+                    return -1, str(e)
+
+            async def _iptables_block_ip(ip: str) -> tuple[bool, str]:
+                """Blockiert IP per iptables REJECT (beide Richtungen).
+                REJECT sendet ICMP unreachable → Client disconnected sofort."""
+                # 1. Eingehend: alle Pakete von dieser IP ablehnen
+                rc1, err1 = await _run_cmd(
+                    "sudo", "iptables", "-I", "INPUT", "-s", ip, "-j", "REJECT")
+                if rc1 != 0:
+                    return False, f"iptables INPUT fehlgeschlagen (rc={rc1}): {err1}"
+
+                # 2. Ausgehend: alle Pakete zu dieser IP ablehnen
+                rc2, err2 = await _run_cmd(
+                    "sudo", "iptables", "-I", "OUTPUT", "-d", ip, "-j", "REJECT")
+                if rc2 != 0:
+                    logger.warning(f"iptables OUTPUT fuer {ip} fehlgeschlagen (rc={rc2}): {err2}")
+
+                return True, "OK"
+
+            async def _iptables_unblock_ip(ip: str) -> None:
+                """Entfernt iptables REJECT-Regeln (beide Richtungen)."""
+                await _run_cmd("sudo", "iptables", "-D", "INPUT", "-s", ip, "-j", "REJECT")
+                await _run_cmd("sudo", "iptables", "-D", "OUTPUT", "-d", ip, "-j", "REJECT")
+
+            if action == "ban":
+                # --- Ban: iptables REJECT + Blacklist ---
+                block_ok, block_err = await _iptables_block_ip(player_ip)
+                if not block_ok:
+                    logger.error(f"iptables-Ban fehlgeschlagen: {block_err}")
+                    return HTMLResponse(content=f"""
+                        <div class="alert alert-danger">
+                            <strong>Fehler:</strong> IP-Block fuer {safe_target} ({player_ip}) konnte nicht gesetzt werden.
+                            <br><small>{html_escape_module.escape(block_err[:300])}</small>
+                        </div>
+                    """)
+
+                # Ban in SQLite speichern (bans + blacklist Tabellen)
+                ban_time = datetime.now().isoformat()
+                banned_by = user.get("username", "Dashboard")
+                try:
+                    db = await get_db()
+                    await db.execute(
+                        "INSERT INTO bans (ip_address, player_name, server_type, reason, banned_by, banned_at, active, source) "
+                        "VALUES (?, ?, 'satisfactory', 'Gebannt via Dashboard', ?, ?, TRUE, 'dashboard')",
+                        (player_ip, target, banned_by, ban_time),
+                    )
+                    await db.execute(
+                        "INSERT INTO blacklist (player_name, ip_address, server_type, reason, added_by, added_at) "
+                        "VALUES (?, ?, 'satisfactory', 'Gebannt via Dashboard', ?, ?)",
+                        (target, player_ip, banned_by, ban_time),
+                    )
+                    await db.commit()
+                    logger.info(f"Ban fuer {target} ({player_ip}) in SQLite gespeichert")
+                except Exception as e:
+                    logger.warning(f"SQLite Ban-Eintrag fehlgeschlagen: {e}")
+
+                # Backward-Compat: player_ips.json Ban-Eintrag speichern
+                try:
+                    if ip_data_file.exists():
+                        with open(ip_data_file, "r") as f:
+                            ip_data = json.load(f)
+                    else:
+                        ip_data = {"ip_map": {}, "bans": {}}
+
+                    ip_data.setdefault("bans", {})[target] = {
+                        "ip": player_ip,
+                        "reason": "Gebannt via Dashboard",
+                        "banned_by": banned_by,
+                        "banned_at": ban_time,
+                    }
+                    with open(ip_data_file, "w") as f:
+                        json.dump(ip_data, f, indent=2, ensure_ascii=False)
+                except Exception as e:
+                    logger.warning(f"JSON Ban-Eintrag speichern fehlgeschlagen (backward-compat): {e}")
+
+                # Backward-Compat: blacklist.json eintragen
+                try:
+                    bl_data = {"players": []}
+                    if blacklist_file.exists():
+                        with open(blacklist_file, "r") as f:
+                            bl_data = json.load(f)
+
+                    already = any(p["name"].lower() == target.lower() for p in bl_data.get("players", []))
+                    if not already:
+                        bl_data.setdefault("players", []).append({
+                            "name": target,
+                            "reason": "Gebannt via Dashboard",
+                            "banned_by": banned_by,
+                            "banned_at": ban_time,
+                        })
+                        with open(blacklist_file, "w") as f:
+                            json.dump(bl_data, f, indent=2, ensure_ascii=False)
+                except Exception as e:
+                    logger.warning(f"JSON Blacklist-Eintrag fehlgeschlagen (backward-compat): {e}")
+
+                logger.info(f"SAT Ban erfolgreich: {target} (IP: {player_ip}) via Dashboard")
+                return HTMLResponse(content=f"""
+                    <div class="alert alert-success">
+                        <strong>Gebannt:</strong> {safe_target} (IP: {player_ip}) wurde gebannt.
+                        <br><small>IP per UFW blockiert + Blacklist-Eintrag erstellt.</small>
+                    </div>
+                """)
+
+            else:
+                # --- Kick: iptables REJECT + 30s warten + aufheben ---
+                block_ok, block_err = await _iptables_block_ip(player_ip)
+                if not block_ok:
+                    logger.error(f"iptables-Kick fehlgeschlagen: {block_err}")
+                    return HTMLResponse(content=f"""
+                        <div class="alert alert-danger">
+                            <strong>Kick fehlgeschlagen:</strong> {safe_target} — {html_escape_module.escape(block_err[:300])}
+                        </div>
+                    """)
+
+                logger.info(f"SAT Kick: iptables REJECT fuer {target} (IP: {player_ip})")
+
+                # Im Hintergrund: 30 Sekunden warten, dann Regeln entfernen
+                async def _delayed_unblock():
+                    await asyncio.sleep(30)
+                    await _iptables_unblock_ip(player_ip)
+                    logger.info(f"SAT Kick: iptables-Regeln fuer {player_ip} entfernt (30s abgelaufen)")
+
+                asyncio.create_task(_delayed_unblock())
+
+                return HTMLResponse(content=f"""
+                    <div class="alert alert-success">
+                        <strong>Gekickt:</strong> {safe_target} (IP: {player_ip}) — Verbindung wird getrennt.
+                        <br><small>IP fuer 30 Sekunden per iptables REJECT blockiert.</small>
+                    </div>
+                """)
+
+        else:
+            # Unbekannter Server-Typ
+            return HTMLResponse(content=f"""
+                <div class="alert alert-warning">
+                    <strong>Nicht unterstuetzt:</strong> {action_display} ist fuer {display_name} aktuell nicht ueber das Dashboard verfuegbar.
+                </div>
+            """)
+
+    # ------------------------------------------------------------------
+    # Start / Stop / Restart / Maintenance — per systemctl
+    # ------------------------------------------------------------------
     service_name = SERVICE_NAMES.get(server_id)
     if not service_name:
         return HTMLResponse(
@@ -361,7 +656,6 @@ async def server_action(request: Request, server_id: str, action: str = Form("")
             status_code=400,
         )
 
-    # systemctl-Aktion ausfuehren
     systemctl_action = action
     if action == "maintenance":
         systemctl_action = "stop"

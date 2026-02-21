@@ -15,6 +15,7 @@ from fastapi.templating import Jinja2Templates
 from utils.config import PROJECT_ROOT, DATA_DIR, MONITOR_DATA_DIR
 from utils.logger import get_logger
 from web.auth import get_current_user
+from modules.database.db_manager import get_db
 
 EVENTS_FILE = MONITOR_DATA_DIR / "events.json"
 
@@ -137,9 +138,9 @@ def _collect_bot_status() -> list[dict]:
     return bots
 
 
-def _collect_recent_events() -> list[dict]:
+def _collect_recent_events_json() -> list[dict]:
     """
-    Sammelt die letzten Ereignisse aus Event-Log-Dateien.
+    Fallback: Sammelt die letzten Ereignisse aus Event-Log-Dateien (JSON).
     """
     events = []
     event_file = DATA_DIR / "monitor" / "events.json"
@@ -151,6 +152,34 @@ def _collect_recent_events() -> list[dict]:
         events = data["events"][-20:]
 
     return events
+
+
+async def _collect_recent_events_db() -> list[dict]:
+    """
+    Sammelt die letzten 20 Ereignisse aus der SQLite-Datenbank.
+    Faellt auf JSON-Datei zurueck wenn die DB nicht erreichbar ist.
+    """
+    try:
+        db = await get_db()
+        cursor = await db.execute(
+            "SELECT timestamp, event_type, category, server_id, message, details "
+            "FROM events ORDER BY timestamp DESC LIMIT 20"
+        )
+        rows = await cursor.fetchall()
+        events = []
+        for row in rows:
+            events.append({
+                "timestamp": row["timestamp"],
+                "event_type": row["event_type"],
+                "category": row["category"],
+                "server_id": row["server_id"],
+                "message": row["message"],
+                "details": row["details"],
+            })
+        return events
+    except Exception as e:
+        logger.warning(f"DB-Abfrage fuer Events fehlgeschlagen, Fallback auf JSON: {e}")
+        return _collect_recent_events_json()
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -166,7 +195,7 @@ async def dashboard_overview(request: Request):
     servers = _collect_server_status()
     system_stats = _collect_system_stats()
     bot_status = _collect_bot_status()
-    recent_events = _collect_recent_events()
+    recent_events = await _collect_recent_events_db()
 
     return templates.TemplateResponse("dashboard.html", {
         "request": request,
@@ -186,9 +215,20 @@ async def clear_events(request: Request):
         return HTMLResponse('<div class="alert alert-danger">Nicht authentifiziert</div>', status_code=401)
 
     try:
+        # SQLite: Alle Events loeschen
+        try:
+            db = await get_db()
+            await db.execute("DELETE FROM events")
+            await db.commit()
+            logger.info("Events aus SQLite geloescht")
+        except Exception as db_err:
+            logger.warning(f"SQLite DELETE fehlgeschlagen: {db_err}")
+
+        # JSON: Ebenfalls leeren (Rueckwaertskompatibilitaet)
         EVENTS_FILE.parent.mkdir(parents=True, exist_ok=True)
         with open(EVENTS_FILE, "w", encoding="utf-8") as f:
             json.dump({"events": [], "last_update": ""}, f)
+
         logger.info(f"Ereignis-Log geleert von {user.get('username', 'Unbekannt')}")
         return HTMLResponse(
             '<div class="alert alert-success" style="margin-bottom: 0.5rem;">Ereignis-Log geleert.</div>'
