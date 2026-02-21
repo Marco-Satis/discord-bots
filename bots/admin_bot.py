@@ -26,6 +26,7 @@ from utils.config import load_env, get_env, get_config, DATA_DIR
 from utils.logger import get_logger
 from utils.selftest import execute_selftest
 from utils.shutdown import setup_signal_handlers, register_cleanup
+from modules.database.db_manager import init_db, close_db
 
 # Umgebung laden
 load_env()
@@ -189,6 +190,13 @@ async def setup_hook():
     ADMIN_DATA_DIR.mkdir(parents=True, exist_ok=True)
     logger.info(f"Admin data dir: {ADMIN_DATA_DIR}")
 
+    # F28: SQLite-Datenbank initialisieren
+    try:
+        await init_db()
+        logger.info("SQLite-Datenbank initialisiert")
+    except Exception as e:
+        logger.error(f"Datenbank-Initialisierung fehlgeschlagen: {e}")
+
     # Cogs laden
     await load_cogs()
 
@@ -216,6 +224,16 @@ def main():
         sys.exit(1)
 
     logger.info("Starting Admin Bot...")
+
+    # F28/F61: DB-Close bei Shutdown registrieren
+    async def _cleanup_admin_db():
+        try:
+            await close_db()
+        except Exception as e:
+            logger.debug(f"DB cleanup error: {e}")
+
+    register_cleanup(_cleanup_admin_db)
+
     try:
         bot.run(TOKEN)
     except KeyboardInterrupt:

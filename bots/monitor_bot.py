@@ -75,6 +75,8 @@ from modules.network.port_monitor import PortMonitor
 from modules.security.ssl_monitor import SSLMonitor
 from modules.security.fail2ban import Fail2BanManager
 from modules.backup.integrity import BackupIntegrity
+from modules.database.db_manager import init_db, close_db, check_integrity
+from modules.database.json_importer import import_all, check_import_needed
 
 load_env()
 
@@ -1938,6 +1940,17 @@ async def on_ready():
     # Minecraft Chat-Bridge Channel-Map befuellen
     _build_mc_chat_channel_map()
 
+    # F28: SQLite-Datenbank initialisieren (idempotent bei Reconnect)
+    try:
+        db = await init_db()
+        # Beim ersten Start: JSON-Daten importieren falls DB leer
+        if await check_import_needed(db):
+            logger.info("Leere Datenbank erkannt — starte JSON-Import...")
+            import_stats = await import_all(db)
+            logger.info(f"JSON-Import abgeschlossen: {import_stats}")
+    except Exception as e:
+        logger.error(f"Datenbank-Initialisierung fehlgeschlagen: {e}")
+
     # StatsCollector als Hintergrund-Task starten (nur beim ersten Start)
     if not stats_collector._running:
         await stats_collector.start()
@@ -2072,6 +2085,8 @@ async def shutdown():
     duckdns_monitor.stop()
     port_monitor.stop()
     await sat_api.close()
+    # F28: Datenbank sauber schliessen (WAL-Checkpoint + Close)
+    await close_db()
     logger.info("Cleanup complete")
 
 

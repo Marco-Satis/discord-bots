@@ -23,7 +23,8 @@
     "port_monitor": true,
     "ssl_monitor": true,
     "fail2ban_dashboard": true,
-    "backup_integrity": true
+    "backup_integrity": true,
+    "sqlite_migration_complete": false
   },
   "thresholds": {
     "cpu_warning": 80,

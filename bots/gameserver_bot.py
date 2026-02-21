@@ -27,6 +27,7 @@ from utils.config import load_env, get_env, get_config, DATA_DIR
 from utils.logger import get_logger
 from utils.selftest import execute_selftest
 from utils.shutdown import setup_signal_handlers, register_cleanup
+from modules.database.db_manager import init_db, close_db
 from modules.satisfactory.server import SatisfactoryServer
 from modules.satisfactory.api_client import SatisfactoryAPI
 from modules.satisfactory.whitelist import WhitelistManager
@@ -349,6 +350,13 @@ async def load_cogs():
 
 @bot.event
 async def setup_hook():
+    # F28: SQLite-Datenbank initialisieren
+    try:
+        await init_db()
+        logger.info("SQLite-Datenbank initialisiert")
+    except Exception as e:
+        logger.error(f"Datenbank-Initialisierung fehlgeschlagen: {e}")
+
     # Initialize async managers
     await bot.whitelist_mgr.load()
     await bot.blacklist_mgr.load()
@@ -399,7 +407,14 @@ def main():
         except Exception as e:
             logger.debug(f"API cleanup error: {e}")
 
+    async def _cleanup_gs_db():
+        try:
+            await close_db()
+        except Exception as e:
+            logger.debug(f"DB cleanup error: {e}")
+
     register_cleanup(_cleanup_api)
+    register_cleanup(_cleanup_gs_db)
 
     try:
         bot.run(TOKEN)

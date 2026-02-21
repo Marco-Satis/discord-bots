@@ -24,6 +24,7 @@ from utils.logger import get_logger
 from web.middleware.csrf import CSRFMiddleware, generate_csrf_token
 from web.middleware.session_timeout import SessionTimeoutMiddleware
 from web.middleware.rate_limiter import RateLimitMiddleware
+from modules.database.db_manager import init_db, close_db
 
 # Umgebungsvariablen laden
 load_env()
@@ -184,12 +185,20 @@ async def add_csrf_to_templates(request, call_next):
 @app.on_event("startup")
 async def on_startup():
     """Wird beim Start des Servers ausgefuehrt."""
+    # F28: SQLite-Datenbank initialisieren
+    try:
+        await init_db()
+        logger.info("SQLite-Datenbank fuer Dashboard initialisiert")
+    except Exception as e:
+        logger.error(f"Datenbank-Initialisierung fehlgeschlagen: {e}")
     logger.info(f"Web Dashboard gestartet auf Port {WEB_PORT}")
 
 
 @app.on_event("shutdown")
 async def on_shutdown():
     """Wird beim Herunterfahren des Servers ausgefuehrt."""
+    # F28: Datenbank sauber schliessen
+    await close_db()
     logger.info("Web Dashboard wird heruntergefahren")
 
 

@@ -1,0 +1,179 @@
+"""
+F28: Database Manager — Zentrale SQLite-Verwaltung
+
+Stellt eine Shared Connection fuer alle Module bereit.
+WAL-Modus ermoeglicht gleichzeitiges Lesen und Schreiben
+von mehreren Prozessen (3 Bots + Dashboard).
+"""
+
+import asyncio
+from pathlib import Path
+from typing import Optional
+
+import aiosqlite
+
+from utils.config import DATA_DIR
+from utils.logger import get_logger
+
+logger = get_logger("database.manager")
+
+# Pfad zur Haupt-Datenbank
+DB_PATH = DATA_DIR / "botdata.db"
+
+# Globale Connection (eine pro Prozess)
+_connection: Optional[aiosqlite.Connection] = None
+_lock = asyncio.Lock()
+
+
+def get_db_path() -> Path:
+    """Gibt den Pfad zur Datenbank zurueck."""
+    return DB_PATH
+
+
+async def init_db(db_path: Optional[Path] = None) -> aiosqlite.Connection:
+    """
+    Initialisiert die Datenbank-Verbindung und fuehrt Schema-Migrationen aus.
+
+    Args:
+        db_path: Optionaler Pfad zur DB-Datei (Standard: data/botdata.db)
+
+    Returns:
+        Die aktive aiosqlite-Connection
+    """
+    global _connection, DB_PATH
+
+    if db_path:
+        DB_PATH = db_path
+
+    async with _lock:
+        if _connection is not None:
+            # Bereits initialisiert — Connection wiederverwenden
+            return _connection
+
+        # Datenverzeichnis sicherstellen
+        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+        logger.info(f"Oeffne Datenbank: {DB_PATH}")
+        _connection = await aiosqlite.connect(str(DB_PATH))
+
+        # WAL-Modus fuer gleichzeitigen Zugriff (3 Bots + Dashboard)
+        await _connection.execute("PRAGMA journal_mode=WAL")
+        # Synchronous=NORMAL: Guter Kompromiss zwischen Sicherheit und Performance
+        await _connection.execute("PRAGMA synchronous=NORMAL")
+        # Foreign Keys aktivieren
+        await _connection.execute("PRAGMA foreign_keys=ON")
+        # Busy Timeout: 5 Sekunden warten bei Lock
+        await _connection.execute("PRAGMA busy_timeout=5000")
+
+        # Row-Factory fuer dict-aehnlichen Zugriff
+        _connection.row_factory = aiosqlite.Row
+
+        # Schema-Migration ausfuehren
+        from modules.database.migrations import run_migrations
+        await run_migrations(_connection)
+
+        logger.info("Datenbank initialisiert (WAL-Modus, FK aktiv)")
+        return _connection
+
+
+async def get_db() -> aiosqlite.Connection:
+    """
+    Gibt die aktive Datenbank-Connection zurueck.
+    Initialisiert automatisch falls noetig.
+
+    Returns:
+        Die aktive aiosqlite-Connection
+
+    Raises:
+        RuntimeError: Wenn die DB nicht initialisiert werden konnte
+    """
+    global _connection
+
+    if _connection is not None:
+        return _connection
+
+    # Auto-Init falls noch nicht geschehen
+    return await init_db()
+
+
+async def close_db() -> None:
+    """
+    Schliesst die Datenbank-Verbindung sauber.
+    Fuehrt vorher einen WAL-Checkpoint durch.
+    """
+    global _connection
+
+    async with _lock:
+        if _connection is None:
+            return
+
+        try:
+            # WAL-Checkpoint: Alle WAL-Daten in die Hauptdatei schreiben
+            await _connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            logger.info("WAL-Checkpoint abgeschlossen")
+        except Exception as e:
+            logger.warning(f"WAL-Checkpoint fehlgeschlagen: {e}")
+
+        try:
+            await _connection.close()
+            logger.info("Datenbank-Verbindung geschlossen")
+        except Exception as e:
+            logger.error(f"Fehler beim Schliessen der Datenbank: {e}")
+        finally:
+            _connection = None
+
+
+async def check_integrity() -> bool:
+    """
+    Fuehrt einen Integritaetscheck der Datenbank durch.
+
+    Returns:
+        True wenn die Datenbank intakt ist
+    """
+    try:
+        db = await get_db()
+        cursor = await db.execute("PRAGMA integrity_check")
+        result = await cursor.fetchone()
+        ok = result[0] == "ok" if result else False
+        if ok:
+            logger.info("Datenbank-Integritaetscheck: OK")
+        else:
+            logger.error(f"Datenbank-Integritaetscheck FEHLGESCHLAGEN: {result}")
+        return ok
+    except Exception as e:
+        logger.error(f"Integritaetscheck-Fehler: {e}")
+        return False
+
+
+async def get_table_counts() -> dict:
+    """
+    Gibt die Anzahl der Eintraege pro Tabelle zurueck.
+    Nuetzlich fuer Dashboard und Monitoring.
+    """
+    db = await get_db()
+    counts = {}
+    try:
+        cursor = await db.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'search_%'"
+        )
+        tables = await cursor.fetchall()
+        for table in tables:
+            name = table[0]
+            try:
+                c = await db.execute(f"SELECT COUNT(*) FROM [{name}]")
+                row = await c.fetchone()
+                counts[name] = row[0] if row else 0
+            except Exception:
+                counts[name] = -1
+    except Exception as e:
+        logger.error(f"Fehler beim Zaehlen der Tabellen: {e}")
+    return counts
+
+
+async def get_db_size() -> int:
+    """Gibt die Datenbankgroesse in Bytes zurueck."""
+    try:
+        return DB_PATH.stat().st_size if DB_PATH.exists() else 0
+    except OSError:
+        return 0

@@ -1,0 +1,397 @@
+"""
+F28: Schema-Migrationen — Erstellt und aktualisiert das Datenbankschema.
+
+Verwendet PRAGMA user_version fuer Versionierung.
+Jede Migration ist idempotent (CREATE TABLE IF NOT EXISTS).
+"""
+
+import aiosqlite
+from utils.logger import get_logger
+
+logger = get_logger("database.migrations")
+
+# Aktuelle Schema-Version
+CURRENT_VERSION = 1
+
+
+# Komplettes Schema (23 Tabellen + Indices + FTS5)
+SCHEMA_V1 = """
+-- =====================================================
+-- Spieler-Stammdaten
+-- =====================================================
+CREATE TABLE IF NOT EXISTS players (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE NOT NULL,
+    first_seen TIMESTAMP NOT NULL,
+    last_seen TIMESTAMP NOT NULL,
+    total_playtime_seconds INTEGER DEFAULT 0,
+    server_type TEXT,
+    discord_id TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- =====================================================
+-- Spieler-Sessions (alle Join/Leave Events)
+-- =====================================================
+CREATE TABLE IF NOT EXISTS player_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    player_id INTEGER REFERENCES players(id),
+    server_type TEXT NOT NULL,
+    join_time TIMESTAMP NOT NULL,
+    leave_time TIMESTAMP,
+    duration_seconds INTEGER,
+    ip_address TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_player ON player_sessions(player_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_time ON player_sessions(join_time);
+CREATE INDEX IF NOT EXISTS idx_sessions_server ON player_sessions(server_type, join_time);
+
+-- =====================================================
+-- IP-Tracking pro Spieler
+-- =====================================================
+CREATE TABLE IF NOT EXISTS player_ips (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    player_id INTEGER REFERENCES players(id),
+    ip_address TEXT NOT NULL,
+    first_seen TIMESTAMP NOT NULL,
+    last_seen TIMESTAMP NOT NULL,
+    server_type TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_ips_player ON player_ips(player_id);
+CREATE INDEX IF NOT EXISTS idx_ips_address ON player_ips(ip_address);
+
+-- =====================================================
+-- System- und Server-Metriken (ersetzt stats_history.json)
+-- =====================================================
+CREATE TABLE IF NOT EXISTS stats_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TIMESTAMP NOT NULL,
+    cpu_percent REAL,
+    ram_percent REAL,
+    ram_used_gb REAL,
+    disk_percent REAL,
+    disk_used_gb REAL,
+    server_data TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_stats_time ON stats_history(timestamp);
+
+-- =====================================================
+-- Event-Log
+-- =====================================================
+CREATE TABLE IF NOT EXISTS events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TIMESTAMP NOT NULL,
+    event_type TEXT NOT NULL,
+    category TEXT,
+    server_id TEXT,
+    message TEXT NOT NULL,
+    details TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_events_time ON events(timestamp);
+CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type);
+CREATE INDEX IF NOT EXISTS idx_events_category ON events(category);
+
+-- =====================================================
+-- Warn-System
+-- =====================================================
+CREATE TABLE IF NOT EXISTS warns (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    moderator_id TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    points INTEGER DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP,
+    active BOOLEAN DEFAULT TRUE
+);
+CREATE INDEX IF NOT EXISTS idx_warns_user ON warns(user_id, active);
+
+-- =====================================================
+-- Tickets
+-- =====================================================
+CREATE TABLE IF NOT EXISTS tickets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel_id TEXT,
+    user_id TEXT NOT NULL,
+    subject TEXT,
+    status TEXT DEFAULT 'open',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    closed_at TIMESTAMP,
+    closed_by TEXT
+);
+CREATE TABLE IF NOT EXISTS ticket_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticket_id INTEGER REFERENCES tickets(id),
+    user_id TEXT NOT NULL,
+    content TEXT NOT NULL,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- =====================================================
+-- Leveling
+-- =====================================================
+CREATE TABLE IF NOT EXISTS leveling (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT UNIQUE NOT NULL,
+    xp INTEGER DEFAULT 0,
+    level INTEGER DEFAULT 0,
+    messages INTEGER DEFAULT 0,
+    voice_minutes INTEGER DEFAULT 0,
+    last_xp_time TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_leveling_xp ON leveling(xp DESC);
+
+-- =====================================================
+-- Giveaways
+-- =====================================================
+CREATE TABLE IF NOT EXISTS giveaways (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id TEXT UNIQUE,
+    channel_id TEXT,
+    guild_id TEXT,
+    prize TEXT NOT NULL,
+    winner_count INTEGER DEFAULT 1,
+    ends_at TIMESTAMP,
+    ended BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS giveaway_participants (
+    giveaway_id INTEGER REFERENCES giveaways(id),
+    user_id TEXT NOT NULL,
+    PRIMARY KEY (giveaway_id, user_id)
+);
+
+-- =====================================================
+-- Bans (persistent — ueberlebt Reboots!)
+-- =====================================================
+CREATE TABLE IF NOT EXISTS bans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ip_address TEXT NOT NULL,
+    player_name TEXT,
+    server_type TEXT,
+    reason TEXT,
+    banned_by TEXT,
+    banned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP,
+    active BOOLEAN DEFAULT TRUE,
+    source TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_bans_ip ON bans(ip_address, active);
+CREATE INDEX IF NOT EXISTS idx_bans_active ON bans(active, expires_at);
+
+-- =====================================================
+-- Backup-Historie
+-- =====================================================
+CREATE TABLE IF NOT EXISTS backup_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    server_type TEXT NOT NULL,
+    backup_type TEXT,
+    filename TEXT NOT NULL,
+    size_bytes INTEGER,
+    checksum TEXT,
+    integrity_ok BOOLEAN,
+    cloud_synced BOOLEAN DEFAULT FALSE,
+    cloud_synced_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- =====================================================
+-- Audit-Log
+-- =====================================================
+CREATE TABLE IF NOT EXISTS audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    user_id TEXT,
+    user_name TEXT,
+    action TEXT NOT NULL,
+    target TEXT,
+    details TEXT,
+    source TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_audit_time ON audit_log(timestamp);
+CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action);
+
+-- =====================================================
+-- Command-Log
+-- =====================================================
+CREATE TABLE IF NOT EXISTS command_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    command_name TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    user_name TEXT,
+    guild_id TEXT,
+    channel_id TEXT,
+    success BOOLEAN DEFAULT TRUE,
+    error_message TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_cmdlog_cmd ON command_log(command_name, timestamp);
+CREATE INDEX IF NOT EXISTS idx_cmdlog_user ON command_log(user_id);
+
+-- =====================================================
+-- Whitelist + Blacklist
+-- =====================================================
+CREATE TABLE IF NOT EXISTS whitelist (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    player_name TEXT NOT NULL,
+    server_type TEXT NOT NULL,
+    added_by TEXT,
+    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(player_name, server_type)
+);
+CREATE TABLE IF NOT EXISTS blacklist (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    player_name TEXT,
+    ip_address TEXT,
+    server_type TEXT NOT NULL,
+    reason TEXT,
+    added_by TEXT,
+    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- =====================================================
+-- Scheduled Tasks Historie
+-- =====================================================
+CREATE TABLE IF NOT EXISTS scheduled_tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_name TEXT NOT NULL,
+    started_at TIMESTAMP NOT NULL,
+    finished_at TIMESTAMP,
+    success BOOLEAN,
+    duration_seconds REAL,
+    details TEXT
+);
+
+-- =====================================================
+-- Custom Commands (fuer F30)
+-- =====================================================
+CREATE TABLE IF NOT EXISTS custom_commands (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE NOT NULL,
+    response TEXT NOT NULL,
+    category TEXT,
+    created_by TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP,
+    use_count INTEGER DEFAULT 0
+);
+
+-- =====================================================
+-- Spieler-Benachrichtigungen (fuer F40)
+-- =====================================================
+CREATE TABLE IF NOT EXISTS notify_subscriptions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    server_type TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, server_type, event_type)
+);
+
+-- =====================================================
+-- Config-Versioning
+-- =====================================================
+CREATE TABLE IF NOT EXISTS config_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    changed_by TEXT NOT NULL,
+    config_key TEXT NOT NULL,
+    old_value TEXT,
+    new_value TEXT,
+    reason TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_config_hist_time ON config_history(timestamp);
+CREATE INDEX IF NOT EXISTS idx_config_hist_key ON config_history(config_key);
+
+-- =====================================================
+-- Alert-Deduplizierung
+-- =====================================================
+CREATE TABLE IF NOT EXISTS alerts_sent (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    alert_type TEXT NOT NULL,
+    target TEXT,
+    first_sent TIMESTAMP NOT NULL,
+    last_sent TIMESTAMP NOT NULL,
+    send_count INTEGER DEFAULT 1,
+    resolved BOOLEAN DEFAULT FALSE,
+    resolved_at TIMESTAMP,
+    UNIQUE(alert_type, target)
+);
+CREATE INDEX IF NOT EXISTS idx_alerts_type ON alerts_sent(alert_type, resolved);
+"""
+
+# FTS5 Volltext-Index (separate Anweisung wegen VIRTUAL TABLE)
+FTS5_SCHEMA = """
+CREATE VIRTUAL TABLE IF NOT EXISTS search_index USING fts5(
+    source,
+    source_id,
+    content,
+    timestamp
+);
+"""
+
+
+async def get_schema_version(db: aiosqlite.Connection) -> int:
+    """Liest die aktuelle Schema-Version aus PRAGMA user_version."""
+    cursor = await db.execute("PRAGMA user_version")
+    row = await cursor.fetchone()
+    return row[0] if row else 0
+
+
+async def set_schema_version(db: aiosqlite.Connection, version: int) -> None:
+    """Setzt die Schema-Version via PRAGMA user_version."""
+    await db.execute(f"PRAGMA user_version = {version}")
+    await db.commit()
+
+
+async def run_migrations(db: aiosqlite.Connection) -> None:
+    """
+    Fuehrt alle ausstehenden Schema-Migrationen aus.
+    Idempotent — kann bei jedem Start aufgerufen werden.
+    """
+    current = await get_schema_version(db)
+    logger.info(f"Schema-Version: {current}, Ziel-Version: {CURRENT_VERSION}")
+
+    if current >= CURRENT_VERSION:
+        logger.info("Schema ist aktuell — keine Migration noetig")
+        return
+
+    # Version 0 → 1: Initiales Schema
+    if current < 1:
+        logger.info("Migration v0 → v1: Erstelle komplettes Schema (23 Tabellen)")
+        await _apply_schema_v1(db)
+        await set_schema_version(db, 1)
+        logger.info("Migration v0 → v1 abgeschlossen")
+
+    # Zukuenftige Migrationen hier einfuegen:
+    # if current < 2:
+    #     await _apply_migration_v2(db)
+    #     await set_schema_version(db, 2)
+
+    final = await get_schema_version(db)
+    logger.info(f"Alle Migrationen abgeschlossen. Schema-Version: {final}")
+
+
+async def _apply_schema_v1(db: aiosqlite.Connection) -> None:
+    """Erstellt das vollstaendige v1-Schema."""
+    # Hauptschema ausfuehren (aufgeteilt nach Statements)
+    await db.executescript(SCHEMA_V1)
+
+    # FTS5 separat (VIRTUAL TABLE braucht eigene Ausfuehrung)
+    try:
+        await db.executescript(FTS5_SCHEMA)
+        logger.info("FTS5 Volltext-Index erstellt")
+    except Exception as e:
+        # FTS5 ist optional — manche SQLite-Builds haben es nicht
+        logger.warning(f"FTS5 nicht verfuegbar (optional): {e}")
+
+    await db.commit()
+
+    # Tabellen zaehlen zur Verifikation
+    cursor = await db.execute(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' "
+        "AND name NOT LIKE 'sqlite_%'"
+    )
+    row = await cursor.fetchone()
+    table_count = row[0] if row else 0
+    logger.info(f"Schema erstellt: {table_count} Tabellen")

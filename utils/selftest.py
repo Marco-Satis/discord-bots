@@ -201,7 +201,7 @@ def _check_dependencies() -> SelftestResult:
     required_modules = [
         "discord", "dotenv", "aiohttp", "aiofiles", "psutil",
         "fastapi", "uvicorn", "httpx", "jwt", "bcrypt",
-        "jinja2", "multipart", "itsdangerous",
+        "jinja2", "multipart", "itsdangerous", "aiosqlite",
     ]
     missing = []
     for mod in required_modules:
