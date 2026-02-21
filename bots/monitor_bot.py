@@ -78,6 +78,7 @@ from modules.backup.integrity import BackupIntegrity
 from modules.database.db_manager import init_db, close_db, check_integrity
 from modules.database.json_importer import import_all, check_import_needed
 from modules.security.ban_manager import BanManager
+from modules.database.maintenance import DatabaseMaintenance
 
 load_env()
 
@@ -326,6 +327,10 @@ bot.backup_integrity = backup_integrity
 # F28-8: Ban-Manager (Boot-Restore + Ban-Expiry)
 ban_manager = BanManager()
 bot.ban_manager = ban_manager
+
+# F63/F56: Database Maintenance (Backup + Retention)
+db_maintenance = DatabaseMaintenance()
+bot.db_maintenance = db_maintenance
 
 # ------------------------------------------------------------------
 # Minecraft Multi-Server + Chat-Bridge
@@ -1846,6 +1851,35 @@ async def before_weekly_snapshot():
 
 
 # ------------------------------------------------------------------
+# F63/F56: Database Maintenance Task (taeglich)
+# ------------------------------------------------------------------
+
+@tasks.loop(hours=6)
+async def db_maintenance_task():
+    """F63/F56: SQLite-Backup + Daten-Retention alle 6 Stunden."""
+    try:
+        results = await db_maintenance.full_maintenance()
+        backup = results.get("backup", {})
+        retention = results.get("retention", {})
+        if backup.get("success"):
+            logger.info(
+                f"DB-Maintenance: Backup OK ({backup.get('size_mb', 0):.1f} MB), "
+                f"Rotation: {results.get('rotated_files', 0)} geloescht, "
+                f"Retention: {sum(retention.values())} Zeilen bereinigt"
+            )
+        else:
+            logger.warning(f"DB-Maintenance: Backup fehlgeschlagen — {backup.get('error', '?')}")
+    except Exception as e:
+        logger.error(f"DB-Maintenance-Task Fehler: {e}")
+
+
+@db_maintenance_task.before_loop
+async def before_db_maintenance():
+    await bot.wait_until_ready()
+    await asyncio.sleep(300)  # 5 Minuten nach Start warten
+
+
+# ------------------------------------------------------------------
 # F28-8: Ban-Expiry Background-Task
 # ------------------------------------------------------------------
 
@@ -1950,7 +1984,7 @@ async def on_ready():
         health_check_task, player_log_task, update_status_embed,
         update_voice_stats, optimize_task, login_audit_task,
         weekly_snapshot_task, health_auto_restart_task, ssl_check_task,
-        ban_expiry_task,
+        ban_expiry_task, db_maintenance_task,
     ]
     # Web-Status-Task nur starten wenn aktiviert
     if web_status_generator:
