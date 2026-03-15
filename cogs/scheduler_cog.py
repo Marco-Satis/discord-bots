@@ -1,12 +1,15 @@
 """
 Scheduler Cog - Scheduled Background Tasks
-Handles: Auto-Backup, Daily Restart, Update Checks, Weekly Report, Scheduled Messages
+Handles: Auto-Backup, Daily Restart, Update Checks, Weekly Report, Scheduled Messages,
+         MC Modpack Auto-Update (12:00/00:00), SAT SteamCMD Auto-Update (12:00/00:00),
+         Retention-Cleanup (Rollback-Ordner, Server-Pack-ZIPs, DB)
 """
 
 import os
 import asyncio
 import json
 import re
+import shutil
 from pathlib import Path
 import discord
 from discord import app_commands
@@ -21,6 +24,7 @@ from utils.logger import get_logger
 from utils.config import get_config, get_env, DATA_DIR
 from utils.permissions import is_admin, admin_only
 from modules.notifications.discord_notifier import NotifyLevel
+from modules.database.db_manager import get_db, DBHelper
 
 BERLIN_TZ = ZoneInfo("Europe/Berlin")
 SCHEDULED_MESSAGES_FILE = DATA_DIR / "scheduled_messages.json"
@@ -86,9 +90,35 @@ class SchedulerCog(commands.Cog):
         self._mc_last_update_check: dict[str, Optional[datetime]] = {}
         self._mc_last_config_backup: dict[str, Optional[datetime]] = {}
 
-        # Modpack-Update-Check (Phase 8h)
+        # Modpack-Update-Check (Phase 8h) — LEGACY: durch zeitplanbasierte Checks ersetzt
         self._modpack_check_interval_hours = sched.get("modpack_check_interval_hours", 12)
         self._last_modpack_check: Optional[datetime] = None
+
+        # MC Modpack Auto-Update Zeitplan (I2)
+        mc_auto = mc_sched.get("auto_update", {})
+        self._mc_modpack_auto_update_enabled = mc_auto.get("enabled", True)
+        self._mc_modpack_check_hours = mc_auto.get("check_hours", [12, 0])
+        self._mc_modpack_immediate_hour = mc_auto.get("immediate_hour", 12)
+        self._mc_modpack_daily_restart_hour = mc_auto.get("daily_restart_hour", 4)
+
+        # SAT Auto-Update Zeitplan (I2)
+        sat_auto = sched.get("sat_auto_update", {})
+        self._sat_auto_update_enabled = sat_auto.get("enabled", True)
+        self._sat_check_hours = sat_auto.get("check_hours", [12, 0])
+        self._sat_immediate_hour = sat_auto.get("immediate_hour", 12)
+
+        # Retention-Cleanup (I2)
+        retention = sched.get("retention", {})
+        self._retention_cleanup_hour = retention.get("cleanup_hour", 4)
+        self._retention_rollback_keep = retention.get("rollback_keep", 2)
+        self._retention_serverpack_keep = retention.get("serverpack_keep", 2)
+        self._retention_db_failed_days = retention.get("db_failed_updates_days", 90)
+        self._retention_db_scheduled_days = retention.get("db_scheduled_days", 7)
+
+        # State: Modpack-Check pro Server (I2)
+        self._mc_last_modpack_auto_check: dict[str, Optional[datetime]] = {}
+        self._last_sat_auto_check: Optional[datetime] = None
+        self._last_retention_cleanup: Optional[datetime] = None
 
         # Scheduled Messages (Phase 8f)
         self._scheduled_messages: List[Dict[str, Any]] = []
@@ -163,6 +193,14 @@ class SchedulerCog(commands.Cog):
     def modpack_updater(self):
         return getattr(self.bot, "modpack_updater", None)
 
+    @property
+    def mc_update_managers(self):
+        return getattr(self.bot, "mc_update_managers", {})
+
+    @property
+    def mc_modpack_updaters(self):
+        return getattr(self.bot, "mc_modpack_updaters", {})
+
     # ------------------------------------------------------------------
     # Cog lifecycle
     # ------------------------------------------------------------------
@@ -215,8 +253,20 @@ class SchedulerCog(commands.Cog):
             # Weekly report check
             await self._check_weekly_report(now)
 
-            # Modpack-Update-Check (Phase 8h)
+            # Modpack-Update-Check (Phase 8h — Legacy-Intervall-Check)
             await self._check_modpack_update(now)
+
+            # MC Modpack Auto-Update Zeitplan (I2: 12:00/00:00)
+            if self._mc_modpack_auto_update_enabled:
+                for mc_sid in self.mc_update_managers:
+                    await self._check_mc_modpack_auto_update(now, mc_sid)
+
+            # SAT Auto-Update Zeitplan (I2: 12:00/00:00)
+            if self._sat_auto_update_enabled:
+                await self._check_sat_auto_update(now)
+
+            # Retention-Cleanup (I2: Rollback + ZIPs + DB)
+            await self._check_retention_cleanup(now)
 
             # Scheduled Messages (Phase 8f)
             await self._check_scheduled_messages(now)
@@ -733,7 +783,12 @@ class SchedulerCog(commands.Cog):
     # ------------------------------------------------------------------
 
     async def _check_mc_daily_restart(self, now: datetime, server_id: str):
-        """Taeglicher Restart fuer einen Minecraft-Server"""
+        """Taeglicher Restart fuer einen Minecraft-Server.
+
+        I2-Erweiterung: Bei 04:00 wird zuerst geprueft ob ein scheduled
+        Modpack-Update in der DB vorliegt. Falls ja → UpdateManager.run_update()
+        statt normalem Restart. Falls nein → normaler Restart.
+        """
         srv = self.mc_servers.get(server_id)
         if not srv:
             return
@@ -771,6 +826,18 @@ class SchedulerCog(commands.Cog):
         except Exception:
             pass
 
+        # --- I2: Pruefen ob ein scheduled Modpack-Update vorliegt ---
+        scheduled_update = await self._get_scheduled_modpack_update(server_id)
+        if scheduled_update:
+            logger.info(
+                f"[{server_id}] Scheduled Modpack-Update gefunden — "
+                f"starte Update statt normalem Restart"
+            )
+            self._mc_last_restart[server_id] = now
+            await self._run_scheduled_modpack_update(server_id, scheduled_update)
+            return
+
+        # --- Normaler Restart (kein scheduled Update) ---
         logger.info(f"[{server_id}] MC Daily Restart startet...")
         self._mc_last_restart[server_id] = now
 
@@ -924,6 +991,433 @@ class SchedulerCog(commands.Cog):
 
         except Exception as e:
             logger.debug(f"[{server_id}] MC Update-Check Fehler: {e}")
+
+    # ------------------------------------------------------------------
+    # I2: MC Modpack Auto-Update (12:00/00:00 Zeitplan)
+    # ------------------------------------------------------------------
+
+    async def _check_mc_modpack_auto_update(self, now: datetime, server_id: str) -> None:
+        """Prueft um 12:00 und 00:00 auf Modpack-Updates.
+
+        - 12:00: Bei neuer Version → sofort UpdateManager.run_update() mit 10-Min-Countdown
+        - 00:00: Bei neuer Version → nur Flag in DB setzen (scheduled), Update bei 04:00
+        """
+        # Nur zu den konfigurierten Stunden (Standard: 12 und 0)
+        if now.hour not in self._mc_modpack_check_hours or now.minute > 1:
+            return
+
+        # Heute zu dieser Stunde schon geprueft?
+        check_key = f"{server_id}_{now.hour}"
+        last = self._mc_last_modpack_auto_check.get(check_key)
+        if last and last.date() == now.date():
+            return
+
+        update_mgr = self.mc_update_managers.get(server_id)
+        if not update_mgr:
+            return
+
+        self._mc_last_modpack_auto_check[check_key] = now
+
+        try:
+            available, version_info = await update_mgr.check_for_update()
+            if not available:
+                logger.debug(f"[{server_id}] Modpack-Check ({now.hour:02d}:00): kein Update")
+                return
+
+            new_version = version_info.get("latest", "?")
+            current = version_info.get("current", "?")
+            logger.info(
+                f"[{server_id}] Modpack-Update gefunden: {current} -> {new_version} "
+                f"(Check um {now.hour:02d}:00)"
+            )
+
+            if now.hour == self._mc_modpack_immediate_hour:
+                # 12:00-Check: Sofort Auto-Update mit 10-Min-Countdown
+                logger.info(
+                    f"[{server_id}] 12:00-Check — starte sofort Update mit 10-Min-Countdown"
+                )
+                if self.notifier:
+                    srv = self.mc_servers.get(server_id)
+                    label = srv.display_name if srv else f"MC {server_id}"
+                    await self.notifier.send_admin(
+                        f"MC {label} — Modpack-Update wird gestartet",
+                        f"**{current}** → **{new_version}**\n"
+                        f"Auto-Update mit 10-Min-Countdown gestartet.",
+                        NotifyLevel.WARNING,
+                    )
+
+                # run_update startet intern den Countdown + kompletten Flow
+                success, result = await update_mgr.run_update(
+                    trigger="auto_12h",
+                    countdown_minutes=10,
+                    version_info=version_info,
+                )
+                if not success:
+                    logger.error(
+                        f"[{server_id}] Auto-Update (12:00) fehlgeschlagen: "
+                        f"{result.get('error', '?')}"
+                    )
+            else:
+                # 00:00-Check: Nur Flag in DB setzen
+                logger.info(
+                    f"[{server_id}] 00:00-Check — scheduled-Flag in DB setzen"
+                )
+                await self._schedule_modpack_update_in_db(
+                    server_id, version_info
+                )
+                if self.notifier:
+                    srv = self.mc_servers.get(server_id)
+                    label = srv.display_name if srv else f"MC {server_id}"
+                    await self.notifier.send_admin(
+                        f"MC {label} — Modpack-Update geplant",
+                        f"**{current}** → **{new_version}**\n"
+                        f"Update wird beim naechsten Daily-Restart "
+                        f"({self._mc_modpack_daily_restart_hour:02d}:00) ausgefuehrt.",
+                        NotifyLevel.INFO,
+                    )
+
+        except Exception as e:
+            logger.error(f"[{server_id}] Modpack-Auto-Check Fehler: {e}", exc_info=True)
+
+    async def _schedule_modpack_update_in_db(
+        self, server_id: str, version_info: Dict[str, Any]
+    ) -> None:
+        """Setzt einen scheduled-Eintrag in modpack_updates (fuer 04:00-Restart)."""
+        try:
+            db_conn = await get_db()
+            now_iso = datetime.now().isoformat()
+            server_pack = version_info.get("server_pack", {}) or {}
+
+            await db_conn.execute(
+                """INSERT INTO modpack_updates
+                   (server_id, old_version, new_version,
+                    old_curseforge_id, new_curseforge_id,
+                    update_type, status, update_phase,
+                    download_url, download_hash_sha1, file_size_bytes,
+                    started_at, attempts)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    server_id.upper(),
+                    version_info.get("current", "?"),
+                    version_info.get("latest", "?"),
+                    version_info.get("current_file_id"),
+                    version_info.get("latest_file_id"),
+                    "auto_daily",
+                    "scheduled",
+                    "waiting_for_restart",
+                    server_pack.get("download_url", ""),
+                    server_pack.get("hashes", {}).get("sha1", ""),
+                    server_pack.get("file_size", 0),
+                    now_iso,
+                    0,
+                ),
+            )
+            await db_conn.commit()
+            logger.info(f"[{server_id}] Modpack-Update als 'scheduled' in DB eingetragen")
+        except Exception as e:
+            logger.error(f"[{server_id}] DB-Eintrag fuer scheduled Update fehlgeschlagen: {e}")
+
+    async def _get_scheduled_modpack_update(
+        self, server_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """Prueft ob ein scheduled Modpack-Update in der DB vorliegt."""
+        try:
+            db_conn = await get_db()
+            cursor = await db_conn.execute(
+                """SELECT * FROM modpack_updates
+                   WHERE server_id = ? AND status = 'scheduled'
+                   ORDER BY started_at DESC LIMIT 1""",
+                (server_id.upper(),),
+            )
+            row = await cursor.fetchone()
+            if row:
+                return dict(row)
+            return None
+        except Exception as e:
+            logger.debug(f"[{server_id}] DB-Check fuer scheduled Update fehlgeschlagen: {e}")
+            return None
+
+    async def _run_scheduled_modpack_update(
+        self, server_id: str, scheduled_row: Dict[str, Any]
+    ) -> None:
+        """Fuehrt ein scheduled Modpack-Update aus (04:00 Daily-Restart)."""
+        update_mgr = self.mc_update_managers.get(server_id)
+        if not update_mgr:
+            logger.error(f"[{server_id}] Kein UpdateManager — scheduled Update uebersprungen")
+            return
+
+        try:
+            # Version-Info aus dem scheduled-Eintrag rekonstruieren
+            # UpdateManager.run_update() prueft ohnehin nochmal auf Update
+            version_info = {
+                "current": scheduled_row.get("old_version", "?"),
+                "latest": scheduled_row.get("new_version", "?"),
+                "current_file_id": scheduled_row.get("old_curseforge_id"),
+                "latest_file_id": scheduled_row.get("new_curseforge_id"),
+            }
+
+            if self.notifier:
+                srv = self.mc_servers.get(server_id)
+                label = srv.display_name if srv else f"MC {server_id}"
+                await self.notifier.send_admin(
+                    f"MC {label} — Scheduled Modpack-Update startet",
+                    f"**{version_info['current']}** → **{version_info['latest']}**\n"
+                    f"Geplant seit {scheduled_row.get('started_at', '?')[:16]}",
+                    NotifyLevel.WARNING,
+                )
+
+            # Scheduled-Eintrag als 'in_progress' markieren (Update-Log wird
+            # von run_update() selbst erstellt, wir entfernen nur den scheduled-Eintrag)
+            try:
+                db_conn = await get_db()
+                await db_conn.execute(
+                    "DELETE FROM modpack_updates WHERE id = ?",
+                    (scheduled_row.get("id"),),
+                )
+                await db_conn.commit()
+            except Exception as e:
+                logger.debug(f"[{server_id}] Scheduled-Eintrag loeschen fehlgeschlagen: {e}")
+
+            # run_update mit 10-Min-Countdown
+            success, result = await update_mgr.run_update(
+                trigger="auto_daily",
+                countdown_minutes=10,
+                version_info=None,  # Frisch pruefen — Version koennte sich geaendert haben
+            )
+
+            if not success:
+                logger.error(
+                    f"[{server_id}] Scheduled Update fehlgeschlagen: "
+                    f"{result.get('error', '?')}"
+                )
+                if self.notifier:
+                    srv = self.mc_servers.get(server_id)
+                    label = srv.display_name if srv else f"MC {server_id}"
+                    await self.notifier.send_admin(
+                        f"MC {label} — Scheduled Update FEHLGESCHLAGEN",
+                        f"Fehler: {result.get('error', '?')}",
+                        NotifyLevel.ERROR,
+                        ping_role=True,
+                    )
+
+        except Exception as e:
+            logger.error(
+                f"[{server_id}] Scheduled Update Fehler: {e}", exc_info=True
+            )
+
+    # ------------------------------------------------------------------
+    # I2: SAT SteamCMD Auto-Update (12:00/00:00 Zeitplan)
+    # ------------------------------------------------------------------
+
+    async def _check_sat_auto_update(self, now: datetime) -> None:
+        """Prueft um 12:00 und 00:00 auf SAT-Updates (SteamCMD Build-ID).
+
+        - 12:00: Bei neuem Build → sofort Auto-Update mit Countdown
+        - 00:00: Bei neuem Build → Flag setzen fuer naechsten Restart
+        """
+        if not self.update_checker or not self.sat_server:
+            return
+
+        # Nur zu den konfigurierten Stunden
+        if now.hour not in self._sat_check_hours or now.minute > 1:
+            return
+
+        # Heute zu dieser Stunde schon geprueft?
+        check_key = f"sat_{now.hour}"
+        if self._last_sat_auto_check and self._last_sat_auto_check.date() == now.date():
+            # Gleicher Tag — pruefen ob gleiche Stunde
+            if self._last_sat_auto_check.hour == now.hour:
+                return
+
+        self._last_sat_auto_check = now
+
+        try:
+            available, info = await self.update_checker.check()
+            if not available:
+                logger.debug(f"SAT Update-Check ({now.hour:02d}:00): kein Update")
+                return
+
+            installed = info.get("installed_buildid", "?")
+            new_build = info.get("available_buildid", "?")
+            logger.info(
+                f"SAT-Update gefunden: Build {installed} -> {new_build} "
+                f"(Check um {now.hour:02d}:00)"
+            )
+
+            if now.hour == self._sat_immediate_hour:
+                # 12:00: Sofort Auto-Update (vorhandener Auto-Update-Flow)
+                self._pending_update = True
+                if self.notifier:
+                    await self.notifier.send_admin(
+                        "SAT — SteamCMD-Update wird gestartet",
+                        f"Build **{installed}** → **{new_build}**\n"
+                        f"Auto-Update gestartet.",
+                        NotifyLevel.WARNING,
+                    )
+                # Bestehenden Auto-Update-Flow nutzen (Server-leer-Check intern)
+                logger.info("SAT 12:00-Check — Auto-Update-Flag gesetzt")
+            else:
+                # 00:00: Flag setzen, Update beim naechsten Restart
+                self._pending_update = True
+                if self.notifier:
+                    await self.notifier.send_admin(
+                        "SAT — SteamCMD-Update geplant",
+                        f"Build **{installed}** → **{new_build}**\n"
+                        f"Update wird beim naechsten Server-Leer-Moment "
+                        f"oder Daily-Restart installiert.",
+                        NotifyLevel.INFO,
+                    )
+                logger.info("SAT 00:00-Check — pending_update Flag gesetzt")
+
+        except Exception as e:
+            logger.error(f"SAT Auto-Update-Check Fehler: {e}", exc_info=True)
+
+    # ------------------------------------------------------------------
+    # I2: Retention-Cleanup (Rollback-Ordner, Server-Pack-ZIPs, DB)
+    # ------------------------------------------------------------------
+
+    async def _check_retention_cleanup(self, now: datetime) -> None:
+        """Taeglicher Cleanup um die konfigurierte Stunde (Standard: 04:00).
+
+        1. Rollback-Ordner: Behaelt 2 Versionen pro Server
+        2. Server-Pack-ZIPs im Staging: Aufraumen
+        3. DB: Fehlgeschlagene Updates >90 Tage + scheduled-Eintraege >7 Tage
+        """
+        if now.hour != self._retention_cleanup_hour or now.minute > 1:
+            return
+
+        # Heute schon ausgefuehrt?
+        if self._last_retention_cleanup and self._last_retention_cleanup.date() == now.date():
+            return
+
+        self._last_retention_cleanup = now
+        logger.info("Retention-Cleanup startet...")
+
+        total_cleaned = 0
+
+        # 1. Rollback-Rotation fuer MC-Server
+        for mc_sid, update_mgr in self.mc_update_managers.items():
+            try:
+                total_cleaned += await self._cleanup_mc_rollbacks(mc_sid, update_mgr)
+            except Exception as e:
+                logger.error(f"[{mc_sid}] Rollback-Cleanup Fehler: {e}")
+
+        # 2. Staging-Verzeichnis aufraemen (alte Server-Pack-ZIPs)
+        try:
+            total_cleaned += await self._cleanup_staging_dir()
+        except Exception as e:
+            logger.error(f"Staging-Cleanup Fehler: {e}")
+
+        # 3. DB-Cleanup: Fehlgeschlagene + alte scheduled Updates
+        try:
+            db_cleaned = await self._cleanup_update_db()
+            total_cleaned += db_cleaned
+        except Exception as e:
+            logger.error(f"DB-Cleanup Fehler: {e}")
+
+        if total_cleaned > 0:
+            logger.info(f"Retention-Cleanup abgeschlossen: {total_cleaned} Eintraege bereinigt")
+
+    async def _cleanup_mc_rollbacks(self, server_id: str, update_mgr) -> int:
+        """Bereinigt Rollback-Ordner fuer einen MC-Server (2 Versionen behalten)."""
+        cleaned = 0
+        try:
+            if hasattr(update_mgr, 'file_manager') and hasattr(update_mgr, 'mc_server'):
+                server_path = update_mgr._get_server_path()
+                if server_path and server_path.parent.exists():
+                    cleaned = await update_mgr.file_manager.rotate_rollbacks(
+                        rollback_base_dir=server_path.parent,
+                        prefix=f"{server_path.name}_rollback_",
+                        keep_count=self._retention_rollback_keep,
+                    )
+                    if cleaned > 0:
+                        logger.info(
+                            f"[{server_id}] Rollback-Cleanup: {cleaned} alte Ordner geloescht"
+                        )
+        except Exception as e:
+            logger.debug(f"[{server_id}] Rollback-Cleanup Fehler: {e}")
+        return cleaned
+
+    async def _cleanup_staging_dir(self) -> int:
+        """Raeumt alte Staging-Verzeichnisse auf (update_* Ordner)."""
+        cleaned = 0
+        staging_base = Path("/home/minecraft/.update_staging")
+        if not staging_base.exists():
+            return 0
+
+        try:
+            def _do_cleanup():
+                nonlocal cleaned
+                # Alle update_* Verzeichnisse nach Alter sortieren
+                update_dirs = sorted(
+                    [d for d in staging_base.iterdir()
+                     if d.is_dir() and d.name.startswith("update_")],
+                    key=lambda d: d.stat().st_mtime,
+                    reverse=True,
+                )
+                # Die neuesten 2 behalten, Rest loeschen
+                for old_dir in update_dirs[self._retention_serverpack_keep:]:
+                    try:
+                        shutil.rmtree(old_dir, ignore_errors=True)
+                        cleaned += 1
+                    except Exception:
+                        pass
+                return cleaned
+
+            cleaned = await asyncio.to_thread(_do_cleanup)
+            if cleaned > 0:
+                logger.info(f"Staging-Cleanup: {cleaned} alte Verzeichnisse geloescht")
+        except Exception as e:
+            logger.debug(f"Staging-Cleanup Fehler: {e}")
+        return cleaned
+
+    async def _cleanup_update_db(self) -> int:
+        """Bereinigt modpack_updates Tabelle:
+        - Fehlgeschlagene Updates aelter als 90 Tage
+        - Scheduled-Eintraege aelter als 7 Tage
+        """
+        cleaned = 0
+        try:
+            db_conn = await get_db()
+            now = datetime.now()
+
+            # 1. Fehlgeschlagene Updates >90 Tage
+            cutoff_failed = (now - timedelta(days=self._retention_db_failed_days)).isoformat()
+            cursor = await db_conn.execute(
+                """DELETE FROM modpack_updates
+                   WHERE status IN ('failed', 'rolled_back', 'error')
+                   AND started_at < ?""",
+                (cutoff_failed,),
+            )
+            failed_deleted = cursor.rowcount
+            if failed_deleted > 0:
+                logger.info(
+                    f"DB-Cleanup: {failed_deleted} fehlgeschlagene Updates geloescht "
+                    f"(aelter als {self._retention_db_failed_days} Tage)"
+                )
+            cleaned += failed_deleted
+
+            # 2. Scheduled-Eintraege >7 Tage (vergessene/nicht ausgefuehrte)
+            cutoff_scheduled = (now - timedelta(days=self._retention_db_scheduled_days)).isoformat()
+            cursor = await db_conn.execute(
+                """DELETE FROM modpack_updates
+                   WHERE status = 'scheduled'
+                   AND started_at < ?""",
+                (cutoff_scheduled,),
+            )
+            sched_deleted = cursor.rowcount
+            if sched_deleted > 0:
+                logger.info(
+                    f"DB-Cleanup: {sched_deleted} scheduled-Eintraege geloescht "
+                    f"(aelter als {self._retention_db_scheduled_days} Tage)"
+                )
+            cleaned += sched_deleted
+
+            if cleaned > 0:
+                await db_conn.commit()
+        except Exception as e:
+            logger.error(f"DB-Cleanup Fehler: {e}")
+        return cleaned
 
     # ------------------------------------------------------------------
     # Minecraft: Config Backup
@@ -1205,6 +1699,7 @@ class SchedulerCog(commands.Cog):
             mc_backup = "✅" if self._mc_auto_backup_enabled else "❌"
             mc_update = "✅" if self._mc_update_check_enabled else "❌"
             mc_config = "✅" if self._mc_config_backup_enabled else "❌"
+            mc_modpack = "✅" if self._mc_modpack_auto_update_enabled else "❌"
             mc_lines.append(
                 f"Restart: {mc_restart} "
                 f"{self._mc_daily_restart_hour:02d}:{self._mc_daily_restart_minute:02d}"
@@ -1215,12 +1710,29 @@ class SchedulerCog(commands.Cog):
             )
             mc_lines.append(f"Update-Check: {mc_update}")
             mc_lines.append(f"Config-Backup: {mc_config}")
+            check_hours_str = "/".join(
+                f"{h:02d}:00" for h in self._mc_modpack_check_hours
+            )
+            mc_lines.append(f"Modpack-Auto: {mc_modpack} ({check_hours_str})")
             mc_lines.append(f"Server: {', '.join(self.mc_servers.keys())}")
             embed.add_field(
                 name="Minecraft",
                 value="\n".join(mc_lines),
                 inline=True,
             )
+
+        # SAT Auto-Update
+        sat_auto = "✅" if self._sat_auto_update_enabled else "❌"
+        sat_hours_str = "/".join(f"{h:02d}:00" for h in self._sat_check_hours)
+        embed.add_field(
+            name="SAT Auto-Update",
+            value=(
+                f"Status: {sat_auto}\n"
+                f"Check: {sat_hours_str}\n"
+                f"Sofort: {self._sat_immediate_hour:02d}:00"
+            ),
+            inline=True,
+        )
 
         # Reports
         days = ["Montag", "Dienstag", "Mittwoch", "Donnerstag",

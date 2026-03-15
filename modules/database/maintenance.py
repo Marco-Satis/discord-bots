@@ -313,6 +313,43 @@ class DatabaseMaintenance:
             results["alerts_sent (resolved)"] = -1
             logger.error(f"Retention-Fehler fuer [alerts_sent]: {exc}")
 
+        # 3. I2: modpack_updates — fehlgeschlagene >90 Tage, scheduled >7 Tage
+        try:
+            # Fehlgeschlagene/gerollte Updates aelter als 90 Tage
+            cutoff_failed = (now - timedelta(days=90)).isoformat()
+            cursor = await db.execute(
+                "DELETE FROM modpack_updates "
+                "WHERE status IN ('failed', 'rolled_back', 'error') "
+                "AND started_at < ?",
+                (cutoff_failed,),
+            )
+            failed_del = cursor.rowcount
+            results["modpack_updates (failed)"] = failed_del
+            if failed_del > 0:
+                logger.info(
+                    f"Retention [modpack_updates]: {failed_del} fehlgeschlagene "
+                    f"Updates geloescht (aelter als 90 Tage)"
+                )
+
+            # Scheduled-Eintraege aelter als 7 Tage (vergessen/nicht ausgefuehrt)
+            cutoff_sched = (now - timedelta(days=7)).isoformat()
+            cursor = await db.execute(
+                "DELETE FROM modpack_updates "
+                "WHERE status = 'scheduled' "
+                "AND started_at < ?",
+                (cutoff_sched,),
+            )
+            sched_del = cursor.rowcount
+            results["modpack_updates (scheduled)"] = sched_del
+            if sched_del > 0:
+                logger.info(
+                    f"Retention [modpack_updates]: {sched_del} scheduled-Eintraege "
+                    f"geloescht (aelter als 7 Tage)"
+                )
+        except Exception as exc:
+            results["modpack_updates"] = -1
+            logger.error(f"Retention-Fehler fuer [modpack_updates]: {exc}")
+
         # Aenderungen committen
         try:
             await db.commit()
