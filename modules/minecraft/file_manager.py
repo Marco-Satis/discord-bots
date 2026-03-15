@@ -162,11 +162,21 @@ class FileManager:
                     url, dest_path, expected_size, progress_callback
                 )
 
-                # Hash-Verifikation
+                # Hash-Verifikation gegen Streaming-Hash (BUG-2: keine doppelte Berechnung)
                 if expected_sha1 or expected_md5:
-                    hash_ok = await self._verify_hash(
-                        dest_path, expected_sha1, expected_md5
-                    )
+                    hash_ok = True
+                    if expected_sha1 and metadata["sha1"].lower() != expected_sha1.lower():
+                        logger.warning(
+                            f"SHA1-Mismatch: erwartet={expected_sha1}, "
+                            f"tatsaechlich={metadata['sha1']}"
+                        )
+                        hash_ok = False
+                    elif expected_md5 and metadata["md5"].lower() != expected_md5.lower():
+                        logger.warning(
+                            f"MD5-Mismatch: erwartet={expected_md5}, "
+                            f"tatsaechlich={metadata['md5']}"
+                        )
+                        hash_ok = False
                     if not hash_ok:
                         if attempt < max_retries:
                             logger.warning(
