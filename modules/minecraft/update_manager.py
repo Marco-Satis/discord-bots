@@ -749,6 +749,10 @@ class UpdateManager:
 
     async def _set_phase(self, update_id: int, phase: str) -> None:
         """Aktualisiert die aktuelle Phase im Update-Log."""
+        # RISK-5: HAR-Suppress bei jedem Phasenwechsel verlaengern
+        if self.har:
+            self.har.suppress(900)
+
         if self.db and update_id:
             try:
                 await self.db.execute(
