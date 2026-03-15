@@ -524,34 +524,46 @@ class UpdateManager:
         )
 
     async def _stop_server(self) -> None:
-        """Server graceful stoppen."""
+        """Server graceful stoppen (BUG-5: RCON stop zuerst, BUG-4: Abbruch statt weitermachen)."""
         if not self.mc_server:
             return
 
         logger.info(f"[{self.server_id}] Server wird gestoppt...")
 
+        # save-all vor dem Stop
         try:
-            # save-all vor dem Stop
             await self.mc_server.rcon_command("save-all")
             await asyncio.sleep(5)
         except Exception as e:
             logger.debug(f"save-all fehlgeschlagen: {e}")
 
+        # BUG-5: Erst RCON stop (graceful Java shutdown)
         try:
-            success, msg = await self.mc_server.stop()
-            if success:
-                logger.info(f"[{self.server_id}] Server gestoppt: {msg}")
-            else:
-                logger.warning(f"[{self.server_id}] Server-Stop unsicher: {msg}")
-
-            # Warten bis wirklich beendet
+            await self.mc_server.rcon_command("stop")
             for _ in range(15):
                 await asyncio.sleep(2)
                 if not await self.mc_server.is_running():
+                    logger.info(f"[{self.server_id}] Server nach RCON stop gestoppt")
                     return
-            logger.warning(f"[{self.server_id}] Server nach 30s noch aktiv")
         except Exception as e:
-            logger.error(f"[{self.server_id}] Server-Stop Fehler: {e}")
+            logger.debug(f"RCON stop fehlgeschlagen: {e}")
+
+        # Fallback: systemctl stop
+        logger.warning(f"[{self.server_id}] RCON stop nicht erfolgreich — systemctl stop")
+        try:
+            success, msg = await self.mc_server.stop()
+            for _ in range(5):
+                await asyncio.sleep(2)
+                if not await self.mc_server.is_running():
+                    logger.info(f"[{self.server_id}] Server nach systemctl stop gestoppt")
+                    return
+        except Exception as e:
+            logger.error(f"[{self.server_id}] systemctl stop Fehler: {e}")
+
+        # BUG-4: Server immer noch aktiv — Abbruch statt weitermachen
+        raise RuntimeError(
+            f"Server konnte nicht gestoppt werden nach RCON stop + systemctl stop — Update abgebrochen"
+        )
 
     async def _create_backups(self) -> Optional[str]:
         """World-Backup + Cloud-Upload erstellen."""
