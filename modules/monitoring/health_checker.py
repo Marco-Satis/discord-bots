@@ -11,7 +11,7 @@ import asyncio
 import socket
 import struct
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 import discord
@@ -36,10 +36,13 @@ DEFAULT_CHECK_INTERVAL: int = 150          # Sekunden (~2.5 Min)
 DEFAULT_FAILURE_THRESHOLD: int = 3         # Aufeinanderfolgende Fehlschlaege
 DEFAULT_RESTART_COOLDOWN: int = 1800       # 30 Minuten in Sekunden
 DEFAULT_CHECK_TIMEOUT: int = 10            # Sekunden pro Probe
-SAT_QUERY_PORT: int = 15777               # Satisfactory Lightweight-Query
+# Satisfactory Game-Port (UDP) — Port 15777 (ServerQueryPort) ist bei vielen
+# Setups nicht aktiv/gebunden. Stattdessen direkt den Game-Port 7777 per UDP
+# pruefen, der nachweislich offen ist.
+SAT_QUERY_PORT: int = 7777
 MC_DEFAULT_PORTS: Dict[str, int] = {       # Minecraft Game-Ports pro Server-ID
-    "BMC": 25565,
-    "VANILLA": 25566,
+    "BMC": 25566,
+    "VANILLA": 25565,
 }
 
 
@@ -113,6 +116,10 @@ class HealthAutoRestart:
         # Server-Zustaende: key = "<type>:<server_id>"  (z.B. "sat:main", "mc:BMC")
         self._states: Dict[str, ServerState] = {}
 
+        # Unterdrueckte Server: key → Zeitpunkt bis wann unterdrueckt
+        # Wird gesetzt wenn ein Server absichtlich gestoppt/neugestartet wird
+        self._suppressed: Dict[str, datetime] = {}
+
         logger.info(
             "HealthAutoRestart initialisiert "
             f"(enabled={self._enabled}, threshold={self._failure_threshold}, "
@@ -164,7 +171,9 @@ class HealthAutoRestart:
         service_name: str = getattr(sat_server, "service_name", "satisfactory.service")
         display_name: str = "Satisfactory"
         server_id: str = "main"
-        host: str = get_env("API_HOST", "127.0.0.1")
+        # SERVER_IP verwenden, nicht API_HOST — SAT bindet sich per -multihome
+        # an die externe IP, nicht an localhost
+        host: str = get_env("SERVER_IP", "127.0.0.1")
         port: int = SAT_QUERY_PORT
 
         # Leichtgewichtiger UDP/TCP Check
@@ -331,7 +340,16 @@ class HealthAutoRestart:
         """
         Verarbeitet ein Probe-Ergebnis: zaehlt Fehlschlaege, loest
         ggf. Auto-Restart aus und sendet Discord-Benachrichtigungen.
+        Unterdrueckte Server (absichtlicher Stop/Restart) werden uebersprungen.
         """
+        # Pruefen ob Server absichtlich gestoppt wurde
+        if self.is_suppressed(probe.server_type, probe.server_id):
+            logger.debug(
+                f"[{probe.display_name}] Health-Check unterdrueckt "
+                f"(absichtlicher Stop/Restart)"
+            )
+            return
+
         state: ServerState = self._get_state(probe)
         state.last_check = probe.check_time
 
@@ -594,6 +612,7 @@ class HealthAutoRestart:
         """Gibt den aktuellen Zustand aller ueberwachten Server zurueck."""
         result: Dict[str, Any] = {}
         for key, state in self._states.items():
+            suppressed_until = self._suppressed.get(key)
             result[key] = {
                 "server_id": state.server_id,
                 "server_type": state.server_type,
@@ -609,6 +628,11 @@ class HealthAutoRestart:
                 "last_reachable": (
                     state.last_reachable.isoformat()
                     if state.last_reachable
+                    else None
+                ),
+                "suppressed_until": (
+                    suppressed_until.isoformat()
+                    if suppressed_until and datetime.now() < suppressed_until
                     else None
                 ),
             }
@@ -631,6 +655,49 @@ class HealthAutoRestart:
         """Aktiviert oder deaktiviert den Health-Auto-Restart."""
         self._enabled = value
         logger.info(f"HealthAutoRestart {'aktiviert' if value else 'deaktiviert'}")
+
+    def suppress(
+        self, server_type: str, server_id: str, duration_seconds: int = 600
+    ) -> None:
+        """
+        Unterdrueckt Health-Checks fuer einen Server fuer die angegebene Dauer.
+        Wird aufgerufen wenn ein Server absichtlich gestoppt oder neugestartet wird,
+        damit der Auto-Restart nicht faelschlicherweise ausloest.
+
+        Args:
+            server_type: "sat" oder "mc"
+            server_id: z.B. "main", "BMC", "VANILLA"
+            duration_seconds: Wie lange unterdruecken (Standard: 10 Minuten)
+        """
+        key = f"{server_type}:{server_id}"
+        until = datetime.now() + timedelta(seconds=duration_seconds)
+        self._suppressed[key] = until
+        # Auch Failure-Counter zuruecksetzen
+        if key in self._states:
+            self._states[key].consecutive_failures = 0
+        logger.info(
+            f"Health-Check fuer {key} unterdrueckt bis "
+            f"{until.strftime('%H:%M:%S')} ({duration_seconds}s)"
+        )
+
+    def unsuppress(self, server_type: str, server_id: str) -> None:
+        """Hebt die Unterdrueckung fuer einen Server auf."""
+        key = f"{server_type}:{server_id}"
+        self._suppressed.pop(key, None)
+        logger.info(f"Health-Check Unterdrueckung aufgehoben: {key}")
+
+    def is_suppressed(self, server_type: str, server_id: str) -> bool:
+        """Prueft ob Health-Checks fuer einen Server unterdrueckt sind."""
+        key = f"{server_type}:{server_id}"
+        until = self._suppressed.get(key)
+        if until is None:
+            return False
+        if datetime.now() >= until:
+            # Abgelaufen — automatisch aufheben
+            del self._suppressed[key]
+            logger.info(f"Health-Check Unterdrueckung abgelaufen: {key}")
+            return False
+        return True
 
     def reload_config(self) -> None:
         """Laedt die Konfiguration aus config.json neu."""

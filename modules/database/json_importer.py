@@ -64,6 +64,7 @@ async def import_all(db: aiosqlite.Connection) -> dict:
     stats["blacklist"] = await _import_blacklist(db)
     stats["mc_blacklist"] = await _import_mc_blacklist(db)
     stats["backup_history"] = await _import_backup_history(db)
+    stats["reaction_roles"] = await _import_reaction_roles(db)
 
     await db.commit()
 
@@ -749,6 +750,43 @@ async def _import_backup_history(db: aiosqlite.Connection) -> int:
         )
         count += 1
 
+    return count
+
+
+async def _import_reaction_roles(db: aiosqlite.Connection) -> int:
+    """Importiert reaction_roles.json → reaction_roles Tabelle."""
+    data_file = ADMIN_DATA_DIR / "reaction_roles.json"
+    data = _safe_json_load(data_file)
+    if not data or not isinstance(data, dict):
+        return 0
+
+    count = 0
+    for msg_id_str, entry in data.items():
+        channel_id = entry.get("channel_id")
+        guild_id = entry.get("guild_id")
+        roles_map = entry.get("roles", {})
+
+        if not channel_id or not guild_id:
+            continue
+
+        for emoji_str, role_id in roles_map.items():
+            try:
+                await db.execute(
+                    "INSERT OR IGNORE INTO reaction_roles "
+                    "(message_id, channel_id, guild_id, emoji, role_id) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (msg_id_str, str(channel_id), str(guild_id),
+                     emoji_str, str(role_id))
+                )
+                count += 1
+            except Exception as e:
+                logger.warning(
+                    f"Reaction-Role Import fehlgeschlagen "
+                    f"(msg={msg_id_str}, emoji={emoji_str}): {e}"
+                )
+
+    if count > 0:
+        logger.info(f"reaction_roles: {count} Eintraege importiert")
     return count
 
 

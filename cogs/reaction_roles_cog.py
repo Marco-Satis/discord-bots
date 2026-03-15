@@ -1,5 +1,5 @@
 """
-Reaction Roles Cog — Phase 11d: Reaction-Roles fuer den Admin Bot
+Reaction Roles Cog — Reaction-Roles fuer den Admin Bot
 
 Ermoeglicht das Zuweisen von Rollen per Emoji-Reaktion auf Nachrichten.
 Admins erstellen ein Embed, fuegen Emoji-Rollen-Paare hinzu, und User
@@ -15,24 +15,11 @@ Listener:
   on_raw_reaction_add    — Rolle zuweisen bei Reaktion
   on_raw_reaction_remove — Rolle entfernen bei Reaktionsentfernung
 
-Persistenz: data/admin/reaction_roles.json
-Datenformat:
-{
-  "message_id_str": {
-    "channel_id": int,
-    "guild_id": int,
-    "roles": {
-      "emoji_str": role_id_int,
-      ...
-    }
-  }
-}
+Persistenz: SQLite reaction_roles Tabelle (alleinige Datenquelle)
 """
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from typing import Any, Optional
 
 import discord
@@ -40,8 +27,8 @@ from discord import app_commands
 from discord.ext import commands
 
 from utils.logger import get_logger
-from utils.config import ADMIN_DATA_DIR
 from utils.permissions import admin_only
+from modules.database.db_manager import get_db
 
 logger = get_logger("cogs.reaction_roles")
 
@@ -56,12 +43,12 @@ class ReactionRolesCog(commands.Cog):
 
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
-        self.data_file: Path = ADMIN_DATA_DIR / "reaction_roles.json"
+        # In-Memory Cache: {msg_id_str: {channel_id, guild_id, roles: {emoji: role_id}}}
         self._data: dict[str, dict[str, Any]] = {}
-        self._load()
 
     async def cog_load(self) -> None:
-        """Beim Laden des Cogs bestehende Reaction-Role-Nachrichten re-registrieren"""
+        """Beim Laden des Cogs Daten aus SQLite laden und re-registrieren"""
+        await self._load_from_db()
         self.bot.loop.create_task(self._re_register_reactions())
         logger.info("Reaction-Roles-Cog geladen")
 
@@ -69,33 +56,75 @@ class ReactionRolesCog(commands.Cog):
         logger.info("Reaction-Roles-Cog entladen")
 
     # ------------------------------------------------------------------
-    # Persistenz
+    # Persistenz (SQLite)
     # ------------------------------------------------------------------
 
-    def _load(self) -> None:
-        """Reaction-Role-Daten von Disk laden"""
+    async def _load_from_db(self) -> None:
+        """Reaction-Role-Daten aus SQLite laden"""
         try:
-            if self.data_file.exists():
-                with open(self.data_file, "r", encoding="utf-8") as f:
-                    self._data = json.load(f)
-                logger.info(
-                    f"Reaction-Roles geladen: {len(self._data)} Nachricht(en)"
-                )
-            else:
-                self._data = {}
-                logger.info("Keine Reaction-Roles-Datei vorhanden, starte leer")
-        except (json.JSONDecodeError, IOError) as e:
-            logger.error(f"Reaction-Roles laden fehlgeschlagen: {e}")
+            db = await get_db()
+            cursor = await db.execute(
+                "SELECT message_id, channel_id, guild_id, emoji, role_id "
+                "FROM reaction_roles ORDER BY message_id"
+            )
+            rows = await cursor.fetchall()
+
+            self._data = {}
+            for row in rows:
+                msg_id = str(row[0])
+                if msg_id not in self._data:
+                    self._data[msg_id] = {
+                        "channel_id": int(row[1]),
+                        "guild_id": int(row[2]),
+                        "roles": {},
+                    }
+                self._data[msg_id]["roles"][str(row[3])] = int(row[4])
+
+            logger.info(
+                f"Reaction-Roles aus SQLite geladen: {len(self._data)} Nachricht(en)"
+            )
+        except Exception as e:
+            logger.error(f"Reaction-Roles SQLite-Load fehlgeschlagen: {e}")
             self._data = {}
 
-    def _save(self) -> None:
-        """Reaction-Role-Daten auf Disk speichern"""
+    async def _db_add_role(self, message_id: str, channel_id: int,
+                            guild_id: int, emoji: str, role_id: int) -> None:
+        """Emoji-Rollen-Paar in SQLite speichern"""
         try:
-            self.data_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.data_file, "w", encoding="utf-8") as f:
-                json.dump(self._data, f, indent=2, ensure_ascii=False)
-        except IOError as e:
-            logger.error(f"Reaction-Roles speichern fehlgeschlagen: {e}")
+            db = await get_db()
+            await db.execute(
+                "INSERT OR REPLACE INTO reaction_roles "
+                "(message_id, channel_id, guild_id, emoji, role_id) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (message_id, str(channel_id), str(guild_id), emoji, str(role_id))
+            )
+            await db.commit()
+        except Exception as e:
+            logger.error(f"Reaction-Roles SQLite-Write fehlgeschlagen: {e}")
+
+    async def _db_remove_role(self, message_id: str, emoji: str) -> None:
+        """Emoji-Rollen-Paar aus SQLite entfernen"""
+        try:
+            db = await get_db()
+            await db.execute(
+                "DELETE FROM reaction_roles WHERE message_id = ? AND emoji = ?",
+                (message_id, emoji)
+            )
+            await db.commit()
+        except Exception as e:
+            logger.error(f"Reaction-Roles SQLite-Delete fehlgeschlagen: {e}")
+
+    async def _db_remove_message(self, message_id: str) -> None:
+        """Alle Eintraege fuer eine Nachricht aus SQLite entfernen"""
+        try:
+            db = await get_db()
+            await db.execute(
+                "DELETE FROM reaction_roles WHERE message_id = ?",
+                (message_id,)
+            )
+            await db.commit()
+        except Exception as e:
+            logger.error(f"Reaction-Roles SQLite-Delete fehlgeschlagen: {e}")
 
     # ------------------------------------------------------------------
     # Re-Registrierung beim Start
@@ -165,7 +194,7 @@ class ReactionRolesCog(commands.Cog):
         if to_remove:
             for msg_id_str in to_remove:
                 del self._data[msg_id_str]
-            self._save()
+                await self._db_remove_message(msg_id_str)
             logger.info(
                 f"Reaction-Roles: {len(to_remove)} ungueltige Eintraege entfernt"
             )
@@ -232,7 +261,6 @@ class ReactionRolesCog(commands.Cog):
             "guild_id": interaction.guild.id,
             "roles": {},
         }
-        self._save()
 
         await interaction.followup.send(
             f"Reaction-Role-Embed erstellt in {channel.mention}!\n"
@@ -346,7 +374,10 @@ class ReactionRolesCog(commands.Cog):
 
         # Eintrag speichern
         entry.setdefault("roles", {})[emoji_str] = rolle.id
-        self._save()
+        await self._db_add_role(
+            msg_id_str, entry["channel_id"], entry["guild_id"],
+            emoji_str, rolle.id
+        )
 
         # Embed der Nachricht aktualisieren mit Rollen-Info
         await self._update_message_embed(message, entry)
@@ -406,7 +437,7 @@ class ReactionRolesCog(commands.Cog):
             return
 
         removed_role_id = roles_map.pop(emoji_str)
-        self._save()
+        await self._db_remove_role(msg_id_str, emoji_str)
 
         # Bot-Reaktion von der Nachricht entfernen
         channel_id = entry.get("channel_id")
@@ -430,9 +461,8 @@ class ReactionRolesCog(commands.Cog):
 
         # Eintrag komplett entfernen wenn keine Rollen mehr vorhanden
         if not roles_map:
-            # Nachricht bleibt bestehen, aber Eintrag wird entfernt
             del self._data[msg_id_str]
-            self._save()
+            await self._db_remove_message(msg_id_str)
 
         await interaction.followup.send(
             f"Emoji-Rolle entfernt: {emoji_str} (war Rolle <@&{removed_role_id}>)\n"

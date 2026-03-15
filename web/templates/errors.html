@@ -26,6 +26,12 @@
        hx-get="/errors?level=warning" hx-target="#error-table-container" hx-select="#error-table-container" hx-swap="outerHTML">
         WARNING
     </a>
+    {% if entries %}
+    <form action="/api/errors/clear" method="POST" style="display: inline; margin-left: 0.5rem;"
+          onsubmit="return confirm('Alle Log-Eintraege loeschen? Die Log-Dateien werden geleert.');">
+        <button type="submit" class="btn btn-sm btn-danger">Alle Eintraege loeschen</button>
+    </form>
+    {% endif %}
     <span class="filter-info">{{ entries|length }} Eintraege &middot; Auto-Refresh alle 30s</span>
 </div>
 

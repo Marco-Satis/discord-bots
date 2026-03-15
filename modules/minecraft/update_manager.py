@@ -419,15 +419,25 @@ class UpdateManager:
             if attempts >= MAX_START_ATTEMPTS:
                 logger.error(
                     f"[{self.server_id}] Abgebrochenes Update nach "
-                    f"{attempts} Versuchen gefunden — markiere als fehlgeschlagen"
+                    f"{attempts} Versuchen gefunden — Rollback wird durchgeführt"
                 )
+                # Rollback durchführen (BUG-7)
+                server_path = self._get_server_path()
+                if server_path:
+                    rollback_dir = server_path.parent / f"{server_path.name}_rollback_{update_id}"
+                    if rollback_dir.exists():
+                        await self._perform_rollback(rollback_dir, server_path)
+                    else:
+                        logger.warning(
+                            f"[{self.server_id}] Kein Rollback-Verzeichnis gefunden: {rollback_dir}"
+                        )
                 await self._finalize_update_log(
-                    update_id, "failed",
+                    update_id, "rolled_back",
                     error=f"Crash-Recovery: {attempts} Versuche überschritten (Phase: {phase})",
                 )
                 await self._notify_failure(
                     row.get("new_version", "?") if isinstance(row, dict) else "?",
-                    f"Update nach {attempts} Neustarts fehlgeschlagen (Phase: {phase})",
+                    f"Update nach {attempts} Neustarts fehlgeschlagen — Rollback durchgeführt (Phase: {phase})",
                 )
             else:
                 logger.warning(
@@ -451,11 +461,25 @@ class UpdateManager:
                         await self._finalize_update_log(update_id, "success")
                     elif attempts + 1 >= MAX_START_ATTEMPTS:
                         logger.error(
-                            f"[{self.server_id}] Crash-Recovery fehlgeschlagen — Rollback nötig"
+                            f"[{self.server_id}] Crash-Recovery fehlgeschlagen — Rollback wird durchgeführt"
                         )
+                        # Rollback durchführen (BUG-7)
+                        server_path = self._get_server_path()
+                        if server_path:
+                            rollback_dir = server_path.parent / f"{server_path.name}_rollback_{update_id}"
+                            if rollback_dir.exists():
+                                await self._perform_rollback(rollback_dir, server_path)
+                            else:
+                                logger.warning(
+                                    f"[{self.server_id}] Kein Rollback-Verzeichnis gefunden: {rollback_dir}"
+                                )
                         await self._finalize_update_log(
-                            update_id, "failed",
-                            error="Server startet nicht nach Crash-Recovery",
+                            update_id, "rolled_back",
+                            error="Server startet nicht nach Crash-Recovery — Rollback durchgeführt",
+                        )
+                        await self._notify_failure(
+                            row.get("new_version", "?") if isinstance(row, dict) else "?",
+                            "Server startet nicht nach Crash-Recovery — Rollback durchgeführt",
                         )
 
         except Exception as e:

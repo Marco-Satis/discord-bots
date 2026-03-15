@@ -1,56 +1,30 @@
 """
-Whitelist Manager for Satisfactory Server
-Dual-Read mode: SQLite is the primary data source, JSON serves as
-a human-readable backup that is kept in sync on every mutation.
-load() reads JSON first; call load_from_db() afterwards to overlay
-the authoritative SQLite data.
+Whitelist Manager for Satisfactory Server — SQLite-Persistenz
+
+Alleinige Datenquelle: SQLite (via modules.database.db_manager)
 """
 
 import asyncio
-import json
-import aiofiles
-from pathlib import Path
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from utils.logger import get_logger
-from utils.config import DATA_DIR
 from modules.database.db_manager import get_db
 
 logger = get_logger("satisfactory.whitelist")
-
-WHITELIST_FILE = DATA_DIR / "whitelist.json"
 
 
 SERVER_TYPE = "satisfactory"
 
 
 class WhitelistManager:
-    """Manage server whitelist (Dual-Read: SQLite primary, JSON backup)"""
+    """Manage server whitelist (SQLite)"""
 
-    def __init__(self, filepath: Optional[Path] = None) -> None:
-        self.filepath = filepath or WHITELIST_FILE
+    def __init__(self, **kwargs) -> None:
         self._data: Dict[str, Any] = {"enabled": False, "players": []}
         self._lock = asyncio.Lock()
 
-    async def load(self) -> None:
-        """Load whitelist from JSON (fallback / initial bootstrap)"""
-        try:
-            if self.filepath.exists():
-                async with aiofiles.open(self.filepath, "r", encoding="utf-8") as f:
-                    content = await f.read()
-                    self._data = json.loads(content)
-            else:
-                await self.save()
-        except (json.JSONDecodeError, FileNotFoundError, IOError) as e:
-            logger.error(f"Failed to load whitelist: {e}")
-
     async def load_from_db(self) -> None:
-        """Load whitelist from SQLite (authoritative source).
-
-        Overwrites _data["players"] with rows from the whitelist table
-        where server_type = 'satisfactory'.  The 'enabled' flag is kept
-        from the JSON/in-memory state since it is not stored in the DB.
-        """
+        """Load whitelist from SQLite."""
         try:
             db = await get_db()
             cursor = await db.execute(
@@ -72,15 +46,6 @@ class WhitelistManager:
             logger.info(f"Whitelist: loaded {len(players)} players from SQLite")
         except Exception as e:
             logger.error(f"Failed to load whitelist from DB: {e}")
-
-    async def save(self) -> None:
-        """Save whitelist to disk"""
-        try:
-            self.filepath.parent.mkdir(parents=True, exist_ok=True)
-            async with aiofiles.open(self.filepath, "w", encoding="utf-8") as f:
-                await f.write(json.dumps(self._data, indent=2, ensure_ascii=False))
-        except (json.JSONDecodeError, FileNotFoundError, IOError) as e:
-            logger.error(f"Failed to save whitelist: {e}")
 
     @property
     def enabled(self) -> bool:
@@ -108,9 +73,7 @@ class WhitelistManager:
                 "added_by": added_by,
                 "added_at": datetime.now().isoformat()
             })
-            await self.save()
 
-            # Sync to SQLite
             try:
                 db = await get_db()
                 await db.execute(
@@ -120,7 +83,7 @@ class WhitelistManager:
                 )
                 await db.commit()
             except Exception as e:
-                logger.error(f"Failed to sync whitelist add to DB: {e}")
+                logger.error(f"Failed to add to whitelist in DB: {e}")
 
             logger.info(f"Whitelist: {player_name} added by {added_by}")
             return True
@@ -134,9 +97,6 @@ class WhitelistManager:
                 p for p in self.players if p["name"].lower() != name_lower
             ]
             if len(self._data["players"]) < original_len:
-                await self.save()
-
-                # Sync to SQLite
                 try:
                     db = await get_db()
                     await db.execute(
@@ -146,7 +106,7 @@ class WhitelistManager:
                     )
                     await db.commit()
                 except Exception as e:
-                    logger.error(f"Failed to sync whitelist remove to DB: {e}")
+                    logger.error(f"Failed to remove from whitelist in DB: {e}")
 
                 logger.info(f"Whitelist: {player_name} removed")
                 return True

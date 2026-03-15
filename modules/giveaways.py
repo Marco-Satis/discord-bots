@@ -1,57 +1,27 @@
 """
-Giveaway Manager — Phase 11h (SQLite Dual-Read)
-Verwaltung von Giveaways (Verlosungen) mit Persistenz.
+Giveaway Manager — Verwaltung von Giveaways (Verlosungen) mit SQLite-Persistenz
 
-SQLite Dual-Read mode:
-  - WRITE: Only to SQLite (JSON writes disabled)
-  - READ: SQLite primary, JSON fallback
-  - JSON file is NOT deleted (kept for fallback)
-
-Dateiformat (data/admin/giveaways.json) — fallback only:
-{
-  "message_id_str": {
-    "channel_id": int,
-    "guild_id": int,
-    "prize": "Beschreibung des Preises",
-    "winners_count": 1,
-    "ends_at": "2025-01-01T12:00:00",
-    "host_id": 123456,
-    "participants": [user_id, ...],
-    "winner_ids": [],
-    "ended": false,
-    "requirements": {
-      "min_level": 0,
-      "role_id": null,
-      "min_days": 0
-    }
-  }
-}
+Persistenz: SQLite giveaways + giveaway_participants Tabellen (alleinige Datenquelle)
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
 import random
 from datetime import datetime, timedelta
-from pathlib import Path
 from typing import Any, Optional
 
 from utils.logger import get_logger
-from utils.config import ADMIN_DATA_DIR
 from modules.database.db_manager import get_db
 
 logger = get_logger("modules.giveaways")
-
-# Pfad zur Giveaway-Datendatei (kept for JSON fallback reads)
-DATA_FILE = ADMIN_DATA_DIR / "giveaways.json"
 
 
 class GiveawayManager:
     """
     Verwaltung von Giveaways (Verlosungen).
 
-    SQLite Dual-Read: Writes only to SQLite, reads SQLite first with JSON fallback.
+    Persistenz: Alle Daten werden in SQLite gespeichert.
 
     Funktionen:
     - Giveaway erstellen mit optionalen Anforderungen
@@ -59,42 +29,22 @@ class GiveawayManager:
     - Gewinner ziehen (zufaellig)
     - Giveaway vorzeitig beenden / erneut ziehen / abbrechen
     - Abgelaufene Giveaways ermitteln (fuer Background-Task)
-    - Persistenz via SQLite (primaer) + JSON (Fallback)
+    - Persistenz via SQLite
     """
 
     def __init__(self) -> None:
         self._data: dict[str, dict[str, Any]] = {}
-        self._load()
 
     # ------------------------------------------------------------------
-    # Persistenz
+    # Persistenz — SQLite (alleinige Datenquelle)
     # ------------------------------------------------------------------
-
-    def _load(self) -> None:
-        """Giveaway-Daten von JSON laden (Fallback — wird von load_from_db ueberschrieben)"""
-        try:
-            if DATA_FILE.exists():
-                with open(DATA_FILE, "r", encoding="utf-8") as f:
-                    self._data = json.load(f)
-                active = sum(1 for g in self._data.values() if not g.get("ended"))
-                logger.info(
-                    f"JSON-Fallback geladen: {len(self._data)} Giveaways gesamt, "
-                    f"{active} aktiv"
-                )
-            else:
-                self._data = {}
-                logger.info("Keine Giveaway-JSON-Datei vorhanden, starte leer")
-        except (json.JSONDecodeError, IOError) as e:
-            logger.error(f"Giveaway-JSON-Daten laden fehlgeschlagen: {e}")
-            self._data = {}
 
     async def load_from_db(self) -> bool:
         """
-        Laedt Giveaways + Teilnehmer aus SQLite (primaere Datenquelle).
-        Faellt auf JSON-Daten zurueck (bereits in _load geladen) bei Fehler.
+        Laedt Giveaways + Teilnehmer aus SQLite.
 
         Returns:
-            True wenn SQLite-Daten erfolgreich geladen, False bei Fallback auf JSON
+            True wenn SQLite-Daten erfolgreich geladen, False bei Fehler
         """
         try:
             db = await get_db()
@@ -108,19 +58,10 @@ class GiveawayManager:
             )
             rows = await cursor.fetchall()
 
-            if not rows and not DATA_FILE.exists():
-                # Keine Daten in DB und keine JSON-Datei — frischer Start
-                self._data = {}
-                logger.info("Keine Giveaway-Daten in DB oder JSON — starte leer")
-                return True
-
             if not rows:
-                # DB leer aber JSON koennte Daten haben — Caller faellt zurueck
-                logger.info(
-                    "Keine Giveaways in SQLite, verwende JSON-Fallback "
-                    f"({len(self._data)} Eintraege)"
-                )
-                return False
+                self._data = {}
+                logger.info("Keine Giveaway-Daten in SQLite — starte leer")
+                return True
 
             # --- Alle Teilnehmer in einem Rutsch laden ---
             participant_cursor = await db.execute(
@@ -155,9 +96,6 @@ class GiveawayManager:
                 # Teilnehmer fuer dieses Giveaway
                 giveaway_participants = participants_map.get(db_id, [])
 
-                # JSON-Fallback-Daten fuer Felder die nicht in der DB sind
-                json_entry = self._data.get(msg_id, {})
-
                 entry: dict[str, Any] = {
                     "channel_id": int(channel_id) if channel_id else 0,
                     "guild_id": int(guild_id) if guild_id else 0,
@@ -165,20 +103,19 @@ class GiveawayManager:
                     "winners_count": winner_count or 1,
                     "ends_at": ends_at or "",
                     "created_at": created_at or "",
-                    "host_id": json_entry.get("host_id", 0),
+                    "host_id": 0,
                     "participants": giveaway_participants,
-                    "winner_ids": json_entry.get("winner_ids", []),
+                    "winner_ids": [],
                     "ended": bool(ended),
-                    "requirements": json_entry.get("requirements", {
+                    "requirements": {
                         "min_level": 0,
                         "role_id": None,
                         "min_days": 0,
-                    }),
-                    # Felder aus JSON-Fallback uebernehmen (nicht in DB-Schema)
-                    "cancelled": json_entry.get("cancelled", False),
-                    "ended_at": json_entry.get("ended_at"),
-                    "rerolled_at": json_entry.get("rerolled_at"),
-                    "_db_id": db_id,  # Interner Verweis auf die SQLite-ID
+                    },
+                    "cancelled": False,
+                    "ended_at": None,
+                    "rerolled_at": None,
+                    "_db_id": db_id,
                 }
 
                 db_data[msg_id] = entry
@@ -193,16 +130,8 @@ class GiveawayManager:
             return True
 
         except Exception as e:
-            logger.warning(
-                f"SQLite-Laden fehlgeschlagen, verwende JSON-Fallback: {e}"
-            )
-            # _data hat bereits JSON-Fallback aus _load()
+            logger.error(f"Giveaway-Daten aus SQLite laden fehlgeschlagen: {e}")
             return False
-
-    def _save(self) -> None:
-        """No-op: JSON-Schreiben deaktiviert. Alle Schreibzugriffe gehen nach SQLite."""
-        # JSON-Datei wird als Fallback beibehalten (nicht ueberschrieben).
-        pass
 
     # ------------------------------------------------------------------
     # Async DB Helper
@@ -281,7 +210,7 @@ class GiveawayManager:
 
         message_id_str = str(message_id)
         self._data[message_id_str] = giveaway
-        self._save()
+
 
         # SQLite: INSERT giveaway
         self._fire_and_forget(self._db_create_giveaway(
@@ -346,7 +275,7 @@ class GiveawayManager:
             return False
 
         giveaway["participants"].append(user_id)
-        self._save()
+
 
         # SQLite: INSERT participant
         self._fire_and_forget(
@@ -414,7 +343,7 @@ class GiveawayManager:
             return False
 
         giveaway["participants"].remove(user_id)
-        self._save()
+
 
         # SQLite: DELETE participant
         self._fire_and_forget(
@@ -524,7 +453,7 @@ class GiveawayManager:
         giveaway["ended"] = True
         giveaway["ended_at"] = datetime.now().isoformat()
         giveaway["winner_ids"] = winner_ids
-        self._save()
+
 
         # SQLite: UPDATE ended=TRUE
         self._fire_and_forget(
@@ -599,7 +528,7 @@ class GiveawayManager:
         # Gewinner aktualisieren
         giveaway["winner_ids"] = new_winners
         giveaway["rerolled_at"] = datetime.now().isoformat()
-        self._save()
+
 
         # SQLite: Giveaway bleibt ended=TRUE, kein extra DB-Update noetig
         # (winner_ids sind nicht in der DB-Tabelle, nur in-memory)
@@ -641,7 +570,7 @@ class GiveawayManager:
         giveaway["cancelled"] = True
         giveaway["ended_at"] = datetime.now().isoformat()
         giveaway["winner_ids"] = []
-        self._save()
+
 
         # SQLite: UPDATE ended=TRUE (cancel = ended without winners)
         self._fire_and_forget(
@@ -783,7 +712,7 @@ class GiveawayManager:
             del self._data[msg_id_str]
 
         if to_remove:
-            self._save()
+    
             # SQLite: DELETE old giveaways
             self._fire_and_forget(
                 self._db_cleanup_old(to_remove)

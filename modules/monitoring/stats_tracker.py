@@ -1,14 +1,16 @@
 """
 Server Statistics Tracker
 Persists historical data for reports: uptime, peak players, savegame sizes, crashes
+
+Persistenz: SQLite server_stats_tracker Tabelle (alleinige Datenquelle)
 """
 
-import json
+import asyncio
 from datetime import datetime, timedelta
-from pathlib import Path
 from typing import Optional, Dict, List, Any
 
 from utils.logger import get_logger
+from modules.database.db_manager import get_db
 
 logger = get_logger("stats_tracker")
 
@@ -16,7 +18,7 @@ logger = get_logger("stats_tracker")
 class StatsTracker:
     """
     Tracks server statistics over time for weekly/monthly reports.
-    Data is persisted to JSON and survives bot restarts.
+    Data is persisted to SQLite and survives bot restarts.
 
     Tracked data:
     - Uptime checks (online/offline per check interval)
@@ -25,27 +27,16 @@ class StatsTracker:
     - Crash timestamps
     """
 
-    def __init__(self, data_dir: Path,
-                 server_type: str = "sat",
-                 server_id: Optional[str] = None) -> None:
+    def __init__(self, server_type: str = "sat",
+                 server_id: Optional[str] = None,
+                 **kwargs) -> None:
         """
         Args:
-            data_dir: Verzeichnis fuer Stats-Dateien
-            server_type: "sat", "mc" etc. (fuer Dateiname)
+            server_type: "sat", "mc" etc.
             server_id: Optionale Server-ID (z.B. "vanilla", "bmc")
         """
-        self.data_dir: Path = data_dir
-        self.data_dir.mkdir(parents=True, exist_ok=True)
         self.server_type = server_type
         self.server_id = server_id
-
-        # Dateiname: stats_history.json (SAT default) oder stats_history_mc_vanilla.json
-        if server_id:
-            self.data_file: Path = data_dir / f"stats_history_{server_type}_{server_id}.json"
-        elif server_type != "sat":
-            self.data_file: Path = data_dir / f"stats_history_{server_type}.json"
-        else:
-            self.data_file: Path = data_dir / "stats_history.json"
 
         self._data: Dict[str, Any] = {
             "uptime_checks": [],      # {"ts": iso, "online": bool}
@@ -54,32 +45,130 @@ class StatsTracker:
             "crashes": [],            # {"ts": iso, "number": int}
         }
 
-        self._load()
-
-    def _load(self) -> None:
-        """Load history from disk"""
+    async def load_from_db(self) -> None:
+        """Load historical data from SQLite server_stats_tracker table."""
         try:
-            if self.data_file.exists():
-                with open(self.data_file, "r") as f:
-                    loaded = json.load(f)
-                # Merge with defaults for new keys
-                for key in self._data:
-                    if key in loaded:
-                        self._data[key] = loaded[key]
-                logger.info(f"Stats history loaded ({len(self._data['uptime_checks'])} uptime records)")
-        except (json.JSONDecodeError, OSError) as e:
-            logger.error(f"Failed to load stats history: {e}")
+            db = await get_db()
 
-    def _save(self) -> None:
-        """Save history to disk"""
+            # Nur die letzten 90 Tage laden (wie vorher cleanup_old)
+            cutoff = (datetime.now() - timedelta(days=90)).isoformat()
+
+            # Uptime-Checks laden
+            cursor = await db.execute(
+                "SELECT timestamp, value_int FROM server_stats_tracker "
+                "WHERE server_type = ? AND metric_type = 'uptime' "
+                "AND (server_id = ? OR (server_id IS NULL AND ? IS NULL)) "
+                "AND timestamp >= ? ORDER BY timestamp ASC",
+                (self.server_type, self.server_id, self.server_id, cutoff)
+            )
+            rows = await cursor.fetchall()
+            self._data["uptime_checks"] = [
+                {"ts": row[0], "online": bool(row[1])} for row in rows
+            ]
+
+            # Player-Counts laden
+            cursor = await db.execute(
+                "SELECT timestamp, value_int FROM server_stats_tracker "
+                "WHERE server_type = ? AND metric_type = 'player_count' "
+                "AND (server_id = ? OR (server_id IS NULL AND ? IS NULL)) "
+                "AND timestamp >= ? ORDER BY timestamp ASC",
+                (self.server_type, self.server_id, self.server_id, cutoff)
+            )
+            rows = await cursor.fetchall()
+            self._data["player_counts"] = [
+                {"ts": row[0], "count": row[1] or 0} for row in rows
+            ]
+
+            # Savegame-Sizes laden
+            cursor = await db.execute(
+                "SELECT timestamp, value_real FROM server_stats_tracker "
+                "WHERE server_type = ? AND metric_type = 'savegame_size' "
+                "AND (server_id = ? OR (server_id IS NULL AND ? IS NULL)) "
+                "AND timestamp >= ? ORDER BY timestamp ASC",
+                (self.server_type, self.server_id, self.server_id, cutoff)
+            )
+            rows = await cursor.fetchall()
+            self._data["savegame_sizes"] = [
+                {"ts": row[0], "size_mb": row[1] or 0.0} for row in rows
+            ]
+
+            # Crashes laden
+            cursor = await db.execute(
+                "SELECT timestamp, value_int FROM server_stats_tracker "
+                "WHERE server_type = ? AND metric_type = 'crash' "
+                "AND (server_id = ? OR (server_id IS NULL AND ? IS NULL)) "
+                "AND timestamp >= ? ORDER BY timestamp ASC",
+                (self.server_type, self.server_id, self.server_id, cutoff)
+            )
+            rows = await cursor.fetchall()
+            self._data["crashes"] = [
+                {"ts": row[0], "number": row[1] or 0} for row in rows
+            ]
+
+            total = (len(self._data["uptime_checks"]) +
+                     len(self._data["player_counts"]) +
+                     len(self._data["savegame_sizes"]) +
+                     len(self._data["crashes"]))
+            logger.info(
+                f"StatsTracker geladen aus SQLite: {total} Eintraege "
+                f"(server_type={self.server_type}, server_id={self.server_id})"
+            )
+
+        except Exception as e:
+            logger.warning(f"StatsTracker SQLite-Lesefehler: {e}")
+
+    # ------------------------------------------------------------------
+    # Fire-and-forget DB write helper
+    # ------------------------------------------------------------------
+
+    def _fire_and_forget_insert(self, metric_type: str,
+                                 value_int: Optional[int] = None,
+                                 value_real: Optional[float] = None) -> None:
+        """Schedule an async DB insert from synchronous code."""
+        ts = datetime.now().isoformat()
         try:
-            with open(self.data_file, "w") as f:
-                json.dump(self._data, f, ensure_ascii=False)
-        except OSError as e:
-            logger.error(f"Failed to save stats history: {e}")
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.create_task(self._db_insert(metric_type, ts, value_int, value_real))
+            else:
+                logger.debug("Event loop not running, skipping DB write for stats_tracker")
+        except RuntimeError:
+            logger.debug("No event loop available, skipping DB write for stats_tracker")
+
+    async def _db_insert(self, metric_type: str, timestamp: str,
+                          value_int: Optional[int], value_real: Optional[float]) -> None:
+        """Insert a single metric into server_stats_tracker."""
+        try:
+            db = await get_db()
+            await db.execute(
+                "INSERT INTO server_stats_tracker "
+                "(server_type, server_id, metric_type, timestamp, value_int, value_real) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (self.server_type, self.server_id, metric_type,
+                 timestamp, value_int, value_real)
+            )
+            await db.commit()
+        except Exception as e:
+            logger.error(f"SQLite write failed for stats_tracker {metric_type}: {e}")
+
+    async def _db_cleanup_old(self, days: int = 90) -> None:
+        """Remove records older than N days from SQLite."""
+        cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+        try:
+            db = await get_db()
+            await db.execute(
+                "DELETE FROM server_stats_tracker "
+                "WHERE server_type = ? "
+                "AND (server_id = ? OR (server_id IS NULL AND ? IS NULL)) "
+                "AND timestamp < ?",
+                (self.server_type, self.server_id, self.server_id, cutoff)
+            )
+            await db.commit()
+        except Exception as e:
+            logger.error(f"SQLite cleanup failed for stats_tracker: {e}")
 
     def _cleanup_old(self, days: int = 90) -> None:
-        """Remove records older than N days"""
+        """Remove records older than N days from in-memory data."""
         cutoff = (datetime.now() - timedelta(days=days)).isoformat()
         for key in self._data:
             if isinstance(self._data[key], list):
@@ -87,6 +176,13 @@ class StatsTracker:
                     r for r in self._data[key]
                     if r.get("ts", "") >= cutoff
                 ]
+        # Also schedule DB cleanup
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.create_task(self._db_cleanup_old(days))
+        except RuntimeError:
+            pass
 
     # ------------------------------------------------------------------
     # Recording
@@ -101,7 +197,7 @@ class StatsTracker:
         # Cleanup periodically (every 1000 records)
         if len(self._data["uptime_checks"]) % 1000 == 0:
             self._cleanup_old()
-        self._save()
+        self._fire_and_forget_insert("uptime", value_int=1 if is_online else 0)
 
     def record_player_count(self, count: int) -> None:
         """Record current player count"""
@@ -111,7 +207,7 @@ class StatsTracker:
         })
         if len(self._data["player_counts"]) % 1000 == 0:
             self._cleanup_old()
-        self._save()
+        self._fire_and_forget_insert("player_count", value_int=count)
 
     def record_savegame_size(self, size_mb: float) -> None:
         """Record savegame/world file size"""
@@ -121,7 +217,7 @@ class StatsTracker:
         })
         if len(self._data["savegame_sizes"]) % 1000 == 0:
             self._cleanup_old()
-        self._save()
+        self._fire_and_forget_insert("savegame_size", value_real=round(size_mb, 2))
 
     # Alias fuer MC-Nutzung (World-Groesse statt Savegame)
     record_world_size = record_savegame_size
@@ -134,7 +230,7 @@ class StatsTracker:
         })
         if len(self._data["crashes"]) % 100 == 0:
             self._cleanup_old()
-        self._save()
+        self._fire_and_forget_insert("crash", value_int=crash_number)
 
     # ------------------------------------------------------------------
     # Queries

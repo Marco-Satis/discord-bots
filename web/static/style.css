@@ -798,6 +798,81 @@ a:hover {
     background: white;
 }
 
+/* Config-Tabs (wiederverwendbar fuer alle Tab-Navigationen) */
+.config-tabs,
+.tab-nav,
+.detail-tabs {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1.5rem;
+    padding-bottom: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
+    scrollbar-color: var(--accent) transparent;
+    -webkit-overflow-scrolling: touch;
+    flex-wrap: wrap;
+}
+
+/* Scrollbar-Styling fuer Webkit (Chrome, Safari, Edge) */
+.config-tabs::-webkit-scrollbar,
+.tab-nav::-webkit-scrollbar,
+.detail-tabs::-webkit-scrollbar {
+    height: 4px;
+}
+
+.config-tabs::-webkit-scrollbar-track,
+.tab-nav::-webkit-scrollbar-track,
+.detail-tabs::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.config-tabs::-webkit-scrollbar-thumb,
+.tab-nav::-webkit-scrollbar-thumb,
+.detail-tabs::-webkit-scrollbar-thumb {
+    background: var(--accent);
+    border-radius: 2px;
+}
+
+.config-tab,
+.tab-btn,
+.detail-tab {
+    padding: 0.3rem 0.75rem;
+    background: var(--bg-hover);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--transition);
+    border-radius: var(--radius-sm);
+    white-space: nowrap;
+    flex-shrink: 0;
+    line-height: 1.4;
+    text-decoration: none;
+}
+
+.config-tab:hover,
+.tab-btn:hover,
+.detail-tab:hover {
+    filter: brightness(1.15);
+    color: var(--text-primary);
+}
+
+.config-tab.active,
+.tab-btn.active,
+.detail-tab.active {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+    font-weight: 600;
+}
+
+/* Tab-Inhaltsbereich */
+.tab-content {
+    min-height: 200px;
+}
+
 /* Config-Sektionen */
 .config-section {
     background: var(--bg-card);
@@ -810,6 +885,27 @@ a:hover {
 .config-section .section-title {
     margin-top: 0;
     border-bottom-color: var(--border-color);
+}
+
+/* Config Form-Aktionen Buttons */
+.config-form .form-actions .btn {
+    min-width: 200px;
+}
+
+/* Stat-Label und Sub fuer System-Seite */
+.stat-label {
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+}
+
+.stat-sub {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    margin-top: 0.25rem;
 }
 
 
@@ -934,6 +1030,181 @@ a:hover {
 
 
 /* ============================================================
+ *  Charts / Analytics
+ * ============================================================ */
+
+.chart-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+    gap: 1rem;
+}
+
+.chart-card {
+    background: var(--bg-card);
+    border-radius: var(--radius);
+    padding: 1.25rem;
+    box-shadow: var(--shadow);
+    min-height: 280px;
+    position: relative;
+}
+
+.chart-card h4 {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.75rem;
+    font-weight: 500;
+}
+
+.chart-card canvas {
+    max-height: 220px;
+}
+
+.chart-controls {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.chart-period-btn.active {
+    box-shadow: 0 0 8px rgba(83, 52, 131, 0.4);
+}
+
+
+/* ============================================================
+ *  Sidebar — Server-Links / Separator
+ * ============================================================ */
+
+.nav-separator {
+    padding: 0.5rem 1.25rem 0.25rem;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+    margin-top: 0.5rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.nav-sub {
+    padding-left: 2rem;
+    font-size: 0.85rem;
+}
+
+.nav-sub .nav-icon {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+}
+
+
+/* ============================================================
+ *  HTMX Loading Indicator
+ * ============================================================ */
+
+.htmx-indicator {
+    display: none;
+}
+
+.htmx-request .htmx-indicator,
+.htmx-request.htmx-indicator {
+    display: inline-block;
+}
+
+/* Lade-Animation fuer Buttons und Bereiche */
+.htmx-request {
+    opacity: 0.7;
+    pointer-events: none;
+    position: relative;
+}
+
+.htmx-request::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    right: 0.75rem;
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--text-muted);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+
+/* ============================================================
+ *  RCON Console
+ * ============================================================ */
+
+.rcon-line {
+    padding: 0.3rem 0.5rem;
+    font-family: "Fira Code", "Cascadia Mono", "Consolas", monospace;
+    font-size: 0.82rem;
+    line-height: 1.5;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+}
+
+.rcon-timestamp {
+    color: var(--text-muted);
+    margin-right: 0.5rem;
+}
+
+.rcon-input {
+    color: var(--accent-light);
+    font-weight: 600;
+}
+
+.rcon-response .rcon-output {
+    color: var(--success);
+}
+
+.rcon-error .rcon-output,
+.rcon-error {
+    color: var(--danger);
+}
+
+
+/* ============================================================
+ *  Toast / Benachrichtigungen
+ * ============================================================ */
+
+.toast-container {
+    position: fixed;
+    top: 1rem;
+    right: 1rem;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.toast {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    padding: 0.75rem 1.25rem;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    min-width: 280px;
+    max-width: 400px;
+    animation: slideIn 0.3s ease;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.toast-success { border-left: 3px solid var(--success); }
+.toast-error { border-left: 3px solid var(--danger); }
+.toast-warning { border-left: 3px solid var(--warning); }
+.toast-info { border-left: 3px solid var(--info); }
+
+@keyframes slideIn {
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}
+
+
+/* ============================================================
  *  Responsive Design
  * ============================================================ */
 
@@ -948,6 +1219,13 @@ a:hover {
 }
 
 @media (max-width: 768px) {
+    .config-tab,
+    .tab-btn,
+    .detail-tab {
+        padding: 0.25rem 0.6rem;
+        font-size: 0.7rem;
+    }
+
     .sidebar {
         transform: translateX(-100%);
     }
@@ -967,6 +1245,10 @@ a:hover {
     }
 
     .tile-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .chart-grid {
         grid-template-columns: 1fr;
     }
 

@@ -6,17 +6,15 @@ Tickets werden als private Channels in einer konfigurierbaren
 Kategorie erstellt und koennen nach dem Schliessen als Transcript
 in einen Log-Channel gesendet werden.
 
-Persistenz (Dual-Read):
-  - Primaer:       SQLite via db_manager (tickets / ticket_messages Tabellen)
-  - JSON-Fallback: data/admin/tickets.json  (nur Lesen beim Start, kein Schreiben)
+Persistenz:
+  - Ticketdaten:   SQLite via db_manager (tickets / ticket_messages Tabellen)
   - Konfiguration: data/admin/ticket_config.json  (bleibt JSON)
 
 Ablauf beim Start:
-  1. __init__ laedt JSON-Fallback in _data (synchron)
-  2. Cog ruft load_from_db() auf — ueberschreibt _data mit SQLite-Daten
+  1. __init__ initialisiert leere _data
+  2. Cog ruft load_from_db() auf — befuellt _data aus SQLite
 
-Schreiboperationen gehen NUR noch in die SQLite-Datenbank.
-_save() ist ein No-Op (JSON-Ticket-Schreibung deaktiviert).
+Schreiboperationen gehen direkt in die SQLite-Datenbank.
 
 Datenformat (In-Memory _data):
 {
@@ -60,7 +58,6 @@ from modules.database.db_manager import get_db
 logger = get_logger("ticket_manager")
 
 # Standard-Pfade
-TICKETS_FILE = ADMIN_DATA_DIR / "tickets.json"
 TICKET_CONFIG_FILE = ADMIN_DATA_DIR / "ticket_config.json"
 
 
@@ -77,9 +74,8 @@ class TicketManager:
     """
     Verwaltet Support-Tickets mit Persistenz und Transcripts.
 
-    Dual-Read-Modus:
+    Persistenz:
     - Lesen:    Aus dem In-Memory-Cache (_data), befuellt via SQLite
-                oder JSON-Fallback
     - Schreiben: Direkt in die SQLite-Datenbank + In-Memory-Update
 
     Funktionen:
@@ -95,64 +91,26 @@ class TicketManager:
 
     def __init__(
         self,
-        data_file: Path | None = None,
         config_file: Path | None = None,
+        **kwargs,
     ) -> None:
         """
         Args:
-            data_file: Pfad zur Ticket-Daten-JSON (Fallback, Standard: data/admin/tickets.json)
             config_file: Pfad zur Config-JSON (Standard: data/admin/ticket_config.json)
         """
-        self.data_file = data_file or TICKETS_FILE
         self.config_file = config_file or TICKET_CONFIG_FILE
         self._data: dict[str, Any] = {"next_id": 1, "tickets": {}}
         self._config: dict[str, Any] = _default_config()
         self._db_loaded: bool = False
-        self._load()
         self._load_config()
 
     # ------------------------------------------------------------------
-    # Persistence — Ticket-Daten (JSON-Fallback, nur Lesen)
-    # ------------------------------------------------------------------
-
-    def _load(self) -> None:
-        """Ticket-Daten von JSON laden (Fallback fuer Erststart / Migration)."""
-        try:
-            if self.data_file.exists():
-                with open(self.data_file, "r", encoding="utf-8") as f:
-                    self._data = json.load(f)
-                self._data.setdefault("next_id", 1)
-                self._data.setdefault("tickets", {})
-                ticket_count = len(self._data["tickets"])
-                open_count = sum(
-                    1 for t in self._data["tickets"].values()
-                    if t.get("status") == "open"
-                )
-                logger.info(
-                    f"Ticket-Daten (JSON-Fallback) geladen: {ticket_count} Tickets "
-                    f"({open_count} offen)"
-                )
-            else:
-                logger.info("Keine Ticket-JSON vorhanden, starte leer")
-        except (json.JSONDecodeError, IOError) as e:
-            logger.error(f"Ticket-Daten (JSON) laden fehlgeschlagen: {e}")
-
-    def _save(self) -> None:
-        """No-Op — JSON-Ticket-Schreibung deaktiviert (SQLite ist primaer)."""
-        # Schreiboperationen gehen direkt in die SQLite-Datenbank.
-        # Diese Methode bleibt als No-Op erhalten, damit bestehende Aufrufe
-        # keinen Fehler verursachen.
-        pass
-
-    # ------------------------------------------------------------------
-    # Persistence — SQLite (primaere Datenquelle)
+    # Persistence — SQLite (alleinige Datenquelle)
     # ------------------------------------------------------------------
 
     async def load_from_db(self) -> None:
         """
         Ticket-Daten aus der SQLite-Datenbank laden und _data befuellen.
-
-        Ueberschreibt die JSON-Fallback-Daten komplett.
         Wird typischerweise einmal beim Cog-Start aufgerufen.
         """
         try:
@@ -258,10 +216,8 @@ class TicketManager:
 
         except Exception as e:
             logger.error(
-                f"Ticket-Daten aus SQLite laden fehlgeschlagen: {e} "
-                f"— verwende JSON-Fallback"
+                f"Ticket-Daten aus SQLite laden fehlgeschlagen: {e}"
             )
-            # _data bleibt auf JSON-Fallback-Stand
 
     # ------------------------------------------------------------------
     # Persistence — Konfiguration (bleibt JSON)

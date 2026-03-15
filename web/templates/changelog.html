@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+
+{% block title %}Changelog{% endblock %}
+{% block nav_changelog %}active{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Changelog</h1>
+    <p class="page-subtitle">
+        Aktuelle Version:
+        <span class="status-badge status-online">v{{ version }}</span>
+    </p>
+</div>
+
+<div class="config-section changelog-content">
+    {{ changelog_html|safe }}
+</div>
+
+<style>
+    /* Changelog-spezifische Styles */
+    .changelog-content h1 {
+        font-size: 1.5rem;
+        font-weight: 700;
+        margin: 1.5rem 0 0.75rem;
+        color: var(--text-primary);
+        border-bottom: 1px solid var(--border-color);
+        padding-bottom: 0.5rem;
+    }
+
+    .changelog-content h1:first-child {
+        margin-top: 0;
+    }
+
+    .changelog-content h2 {
+        font-size: 1.25rem;
+        font-weight: 600;
+        margin: 1.25rem 0 0.5rem;
+        color: var(--accent-light);
+    }
+
+    .changelog-content h3 {
+        font-size: 1.1rem;
+        font-weight: 600;
+        margin: 1rem 0 0.5rem;
+        color: var(--text-secondary);
+    }
+
+    .changelog-content h4,
+    .changelog-content h5,
+    .changelog-content h6 {
+        font-size: 1rem;
+        font-weight: 600;
+        margin: 0.75rem 0 0.5rem;
+        color: var(--text-secondary);
+    }
+
+    .changelog-content ul {
+        list-style: none;
+        padding-left: 1.25rem;
+        margin: 0.5rem 0;
+    }
+
+    .changelog-content li {
+        position: relative;
+        padding: 0.25rem 0;
+        font-size: 0.9rem;
+        color: var(--text-primary);
+        line-height: 1.6;
+    }
+
+    .changelog-content li::before {
+        content: "\2022";
+        color: var(--accent);
+        font-weight: 700;
+        position: absolute;
+        left: -1rem;
+    }
+
+    .changelog-content p {
+        margin: 0.5rem 0;
+        font-size: 0.9rem;
+        color: var(--text-primary);
+        line-height: 1.6;
+    }
+
+    .changelog-content strong {
+        color: var(--text-primary);
+        font-weight: 700;
+    }
+
+    .changelog-content code {
+        background: var(--bg-primary);
+        color: var(--accent-light);
+        padding: 0.15rem 0.4rem;
+        border-radius: var(--radius-sm);
+        font-size: 0.85rem;
+        font-family: "Fira Code", "Cascadia Mono", "Consolas", monospace;
+    }
+
+    .changelog-content br {
+        display: block;
+        content: "";
+        margin: 0.25rem 0;
+    }
+</style>
+{% endblock %}

@@ -1,68 +1,33 @@
 """
-Blacklist Manager for Satisfactory Server — Dual-Read Mode
+Blacklist Manager for Satisfactory Server — SQLite-Persistenz
 
-Primary source of truth: SQLite (via modules.database.db_manager)
-Fallback / cache layer:   JSON file on disk
+Alleinige Datenquelle: SQLite (via modules.database.db_manager)
 
-load()         — reads from JSON (initial bootstrap / fallback)
-load_from_db() — reads from SQLite blacklist table and overwrites in-memory data
-add() / remove() — write to both JSON *and* SQLite so the two stay in sync
+load_from_db() — reads from SQLite blacklist table
+add() / remove() — write to SQLite
 """
 
 import asyncio
-import json
-import aiofiles
-from pathlib import Path
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from utils.logger import get_logger
-from utils.config import DATA_DIR
 from modules.database.db_manager import get_db
 
 logger = get_logger("satisfactory.blacklist")
-
-BLACKLIST_FILE = DATA_DIR / "blacklist.json"
 
 
 SERVER_TYPE = "satisfactory"
 
 
 class BlacklistManager:
-    """Manage server blacklist/banlist (Dual-Read: SQLite + JSON fallback)"""
+    """Manage server blacklist/banlist (SQLite)"""
 
-    def __init__(self, filepath: Optional[Path] = None) -> None:
-        self.filepath = filepath or BLACKLIST_FILE
+    def __init__(self, **kwargs) -> None:
         self._data: Dict[str, Any] = {"players": []}
         self._lock = asyncio.Lock()
 
-    async def load(self) -> None:
-        """Load blacklist from disk"""
-        try:
-            if self.filepath.exists():
-                async with aiofiles.open(self.filepath, "r", encoding="utf-8") as f:
-                    content = await f.read()
-                    self._data = json.loads(content)
-            else:
-                await self.save()
-        except (json.JSONDecodeError, FileNotFoundError, IOError) as e:
-            logger.error(f"Failed to load blacklist: {e}")
-
-    async def save(self) -> None:
-        """Save blacklist to disk"""
-        try:
-            self.filepath.parent.mkdir(parents=True, exist_ok=True)
-            async with aiofiles.open(self.filepath, "w", encoding="utf-8") as f:
-                await f.write(json.dumps(self._data, indent=2, ensure_ascii=False))
-        except (json.JSONDecodeError, FileNotFoundError, IOError) as e:
-            logger.error(f"Failed to save blacklist: {e}")
-
     async def load_from_db(self) -> None:
-        """Load blacklist from SQLite (WHERE server_type = 'satisfactory').
-
-        Overwrites the in-memory players list so that SQLite becomes the
-        authoritative source.  Falls back to the existing in-memory data
-        (loaded via JSON) if the database query fails.
-        """
+        """Load blacklist from SQLite (WHERE server_type = 'satisfactory')."""
         try:
             db = await get_db()
             cursor = await db.execute(
@@ -85,17 +50,14 @@ class BlacklistManager:
             self._data["players"] = players
             logger.info(f"Loaded {len(players)} blacklist entries from SQLite")
         except Exception as e:
-            logger.error(f"Failed to load blacklist from SQLite, keeping JSON data: {e}")
+            logger.error(f"Failed to load blacklist from SQLite: {e}")
 
     @property
     def players(self) -> List[Dict[str, Any]]:
         return self._data.get("players", [])
 
     async def add(self, player_name: str, reason: str, banned_by: str) -> bool:
-        """Add player to blacklist. Returns False if already banned.
-
-        Writes to both JSON (fallback) and SQLite (primary).
-        """
+        """Add player to blacklist. Returns False if already banned."""
         async with self._lock:
             name_lower = player_name.strip().lower()
             for p in self.players:
@@ -110,9 +72,7 @@ class BlacklistManager:
                 "banned_at": now,
             }
             self._data.setdefault("players", []).append(entry)
-            await self.save()
 
-            # --- SQLite sync ---
             try:
                 db = await get_db()
                 await db.execute(
@@ -128,10 +88,7 @@ class BlacklistManager:
             return True
 
     async def remove(self, player_name: str) -> bool:
-        """Remove player from blacklist (unban). Returns False if not found.
-
-        Deletes from both JSON (fallback) and SQLite (primary).
-        """
+        """Remove player from blacklist (unban). Returns False if not found."""
         async with self._lock:
             name_lower = player_name.strip().lower()
             original_len = len(self.players)
@@ -139,9 +96,6 @@ class BlacklistManager:
                 p for p in self.players if p["name"].lower() != name_lower
             ]
             if len(self._data["players"]) < original_len:
-                await self.save()
-
-                # --- SQLite sync ---
                 try:
                     db = await get_db()
                     await db.execute(

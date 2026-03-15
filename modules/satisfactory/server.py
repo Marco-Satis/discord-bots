@@ -84,30 +84,131 @@ class SatisfactoryServer:
                 info["uptime"] = proc_info["uptime"]
                 info["cpu_percent"] = proc_info["cpu"]
                 info["memory_mb"] = proc_info["mem_mb"]
+
+            # Fallback: Wenn psutil keine Stats liefert (AccessDenied bei anderem User)
+            # oder Prozess gar nicht gefunden wurde → /proc direkt lesen
+            if info["cpu_percent"] == 0.0 and info["memory_mb"] == 0:
+                fallback = await self._get_stats_from_systemd()
+                if fallback:
+                    info["pid"] = fallback["pid"]
+                    info["uptime"] = fallback["uptime"]
+                    info["cpu_percent"] = fallback["cpu"]
+                    info["memory_mb"] = fallback["mem_mb"]
+                    logger.debug(f"Prozess-Stats via /proc Fallback: PID={fallback['pid']}, "
+                                 f"CPU={fallback['cpu']}%, RAM={fallback['mem_mb']}MB")
         return info
 
     def _find_process(self) -> Optional[Dict[str, Any]]:
         """Find FactoryServer process via psutil"""
         try:
             for proc in psutil.process_iter(["name", "username", "pid",
-                                              "create_time", "cpu_percent",
-                                              "memory_info"]):
+                                              "create_time", "memory_info",
+                                              "cmdline"]):
                 try:
                     name = proc.info.get("name") or ""
                     user = proc.info.get("username") or ""
-                    if "FactoryServer" in name and user == self.server_user:
+                    cmdline = proc.info.get("cmdline") or []
+                    cmdline_str = " ".join(cmdline)
+
+                    # Erweiterte Suche: Name ODER Cmdline enthaelt FactoryServer
+                    is_factory = (
+                        ("FactoryServer" in name and user == self.server_user)
+                        or ("FactoryServer" in cmdline_str and user == self.server_user)
+                        or ("Satisfactory" in cmdline_str and user == self.server_user)
+                    )
+
+                    if is_factory:
+                        # cpu_percent() braucht 2 Aufrufe fuer sinnvollen Wert
+                        try:
+                            p = psutil.Process(proc.info["pid"])
+                            p.cpu_percent()  # Initialisierung (gibt 0 zurueck)
+                            time.sleep(0.1)
+                            cpu = p.cpu_percent()  # Jetzt echten Wert messen
+                        except (psutil.NoSuchProcess, psutil.AccessDenied):
+                            cpu = 0.0
+
+                        mem_info = proc.info.get("memory_info")
                         return {
                             "pid": proc.info["pid"],
                             "uptime": int(time.time() - proc.info["create_time"]),
-                            "cpu": proc.info.get("cpu_percent", 0.0),
-                            "mem_mb": (proc.info.get("memory_info").rss // (1024 * 1024)
-                                      if proc.info.get("memory_info") else 0)
+                            "cpu": round(cpu, 1),
+                            "mem_mb": (mem_info.rss // (1024 * 1024)
+                                      if mem_info else 0)
                         }
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     continue
         except Exception as e:
             logger.error(f"Process lookup error: {e}")
         return None
+
+    async def _get_stats_from_systemd(self) -> Optional[Dict[str, Any]]:
+        """Fallback: PID von systemd holen und Stats aus /proc lesen.
+        Funktioniert auch wenn psutil den Prozess nicht per Name findet."""
+        import os
+        try:
+            # PID von systemctl holen (direkt, nicht ueber _systemctl wg. ALLOWED_ACTIONS)
+            proc = await asyncio.create_subprocess_exec(
+                "systemctl", "show", "--property=MainPID", "--value", self.service_name,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout_bytes, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
+            pid_str = stdout_bytes.decode("utf-8").strip()
+            if proc.returncode != 0 or not pid_str:
+                return None
+            pid = int(pid_str)
+            if pid <= 0:
+                return None
+
+            # RAM aus /proc/<pid>/status lesen (VmRSS)
+            mem_mb = 0
+            try:
+                with open(f"/proc/{pid}/status", "r") as f:
+                    for line in f:
+                        if line.startswith("VmRSS:"):
+                            # VmRSS:   123456 kB
+                            parts = line.split()
+                            if len(parts) >= 2:
+                                mem_mb = int(parts[1]) // 1024
+                            break
+            except (OSError, ValueError):
+                pass
+
+            # CPU + Uptime aus /proc/<pid>/stat lesen
+            cpu = 0.0
+            uptime_val = 0
+            try:
+                ticks_per_sec = os.sysconf("SC_CLK_TCK")
+                with open(f"/proc/{pid}/stat", "r") as f:
+                    stat_line = f.read()
+                # Felder nach der letzten ')' aufteilen (Prozessname kann Klammern enthalten)
+                parts = stat_line.split(")")[-1].split()
+                utime = int(parts[11])   # user CPU time (Index 13 orig, 11 nach ')')
+                stime = int(parts[12])   # system CPU time (Index 14 orig, 12 nach ')')
+                starttime = int(parts[19])  # start time (Index 21 orig, 19 nach ')')
+
+                with open("/proc/uptime", "r") as f:
+                    system_uptime = float(f.read().split()[0])
+
+                process_uptime = system_uptime - (starttime / ticks_per_sec)
+                uptime_val = max(0, int(process_uptime))
+
+                # CPU-Prozentsatz (Durchschnitt ueber gesamte Laufzeit)
+                total_cpu_secs = (utime + stime) / ticks_per_sec
+                if process_uptime > 0:
+                    cpu = round((total_cpu_secs / process_uptime) * 100, 1)
+            except (OSError, ValueError, IndexError):
+                pass
+
+            return {
+                "pid": pid,
+                "uptime": uptime_val,
+                "cpu": cpu,
+                "mem_mb": mem_mb,
+            }
+        except Exception as e:
+            logger.debug(f"Systemd-Stats-Fallback fehlgeschlagen: {e}")
+            return None
 
     # ------------------------------------------------------------------
     # Control

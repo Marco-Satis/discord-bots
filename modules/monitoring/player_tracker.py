@@ -2,25 +2,18 @@
 Player Tracker Module - Join/Leave Logging & Statistics
 Tracks player sessions, playtime, and generates weekly reports
 
-Dual-Read-Modus:
-  WRITE: Only to SQLite (no more JSON writes)
-  READ:  SQLite primary, JSON fallback (read-only) if DB empty
-  JSON files are NOT deleted or renamed
+Persistenz: SQLite (players, player_sessions Tabellen) — alleinige Datenquelle
 """
 
-import json
 import asyncio
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Optional, Callable, Awaitable, Dict, List, Set, Any
 
 from utils.logger import get_logger
 from modules.database.db_manager import get_db
 
 logger = get_logger("player_tracker")
-
-DATA_FILE = "data/player_stats.json"
 
 
 @dataclass
@@ -58,49 +51,19 @@ class PlayerTracker:
 
     MAX_SESSIONS_PER_PLAYER = 100  # Keep last N sessions
 
-    def __init__(self, data_dir: str = "data", server_type: str = "satisfactory") -> None:
-        self.data_dir: Path = Path(data_dir)
-        self.data_dir.mkdir(parents=True, exist_ok=True)
-        self.data_file: Path = self.data_dir / "player_stats.json"
+    def __init__(self, data_dir: str = "data", server_type: str = "satisfactory",
+                 **kwargs) -> None:
         self.server_type: str = server_type
 
         self.players: Dict[str, PlayerRecord] = {}
         self._online_players: Set[str] = set()
-        self._load()  # JSON fallback — loaded synchronously at init
 
         # Callbacks: async def callback(player_name: str)
         self.on_join: Optional[Callable[[str], Awaitable]] = None
         self.on_leave: Optional[Callable[[str, int], Awaitable]] = None  # name, duration_min
 
-    # ------------------------------------------------------------------
-    # JSON fallback (read-only, synchronous, used at __init__)
-    # ------------------------------------------------------------------
-
-    def _load(self) -> None:
-        """Load player data from JSON (fallback only — will be replaced by load_from_db)"""
-        if self.data_file.exists():
-            try:
-                with open(self.data_file, "r") as f:
-                    data = json.load(f)
-                for name, info in data.items():
-                    self.players[name] = PlayerRecord(
-                        name=info["name"],
-                        first_seen=info["first_seen"],
-                        last_seen=info["last_seen"],
-                        total_playtime_minutes=info.get("total_playtime_minutes", 0),
-                        session_count=info.get("session_count", 0),
-                        sessions=info.get("sessions", [])[-self.MAX_SESSIONS_PER_PLAYER:],
-                        is_online=False,  # Reset on load
-                        current_session_start=None,
-                    )
-                logger.info(f"JSON-Fallback: {len(self.players)} Spieler-Datensaetze geladen")
-            except (json.JSONDecodeError, OSError) as e:
-                logger.error(f"Failed to load player stats from JSON: {e}")
-
     def _save(self) -> None:
-        """No-op — JSON writing is disabled in Dual-Read mode.
-        Kept for backward compatibility so existing callers don't break."""
-        # JSON writes disabled: all persistence goes through SQLite now.
+        """No-op — alle Schreibvorgaenge gehen direkt nach SQLite."""
         pass
 
     # ------------------------------------------------------------------
@@ -109,8 +72,7 @@ class PlayerTracker:
 
     async def load_from_db(self, server_type: Optional[str] = None) -> None:
         """
-        Load players from SQLite into self.players, replacing JSON data.
-        If the DB is empty or unavailable, the JSON fallback data remains.
+        Load players from SQLite into self.players.
         Call this from the bot's on_ready event.
 
         Args:
@@ -129,9 +91,8 @@ class PlayerTracker:
             rows = await cursor.fetchall()
 
             if not rows:
-                logger.warning(
-                    f"SQLite hat keine Spieler fuer server_type='{st}' — "
-                    f"behalte JSON-Fallback ({len(self.players)} Datensaetze)"
+                logger.info(
+                    f"Keine Spieler in SQLite fuer server_type='{st}' — starte leer"
                 )
                 return
 
@@ -183,8 +144,7 @@ class PlayerTracker:
 
         except Exception as e:
             logger.warning(
-                f"SQLite-Lesefehler — behalte JSON-Fallback "
-                f"({len(self.players)} Datensaetze): {e}"
+                f"SQLite-Lesefehler fuer server_type='{st}': {e}"
             )
 
     # ------------------------------------------------------------------

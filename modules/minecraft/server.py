@@ -270,19 +270,27 @@ class MinecraftServer:
         if not await self.is_running():
             raise RuntimeError(f"[{self.server_id}] Server ist nicht gestartet")
 
-        try:
-            async with MinecraftRCON(
-                self.rcon_host,
-                self.rcon_port,
-                self.rcon_password,
-                timeout=5.0
-            ) as rcon:
-                response = await rcon.command(command)
-                logger.debug(f"[{self.server_id}] RCON: {command} -> {response[:100]}")
-                return response
-        except Exception as e:
-            logger.error(f"[{self.server_id}] RCON-Befehl fehlgeschlagen ({command}): {e}")
-            raise
+        max_retries = 2
+        last_error = None
+        for attempt in range(max_retries):
+            try:
+                async with MinecraftRCON(
+                    self.rcon_host,
+                    self.rcon_port,
+                    self.rcon_password,
+                    timeout=10.0
+                ) as rcon:
+                    response = await rcon.command(command)
+                    logger.debug(f"[{self.server_id}] RCON: {command} -> {response[:100]}")
+                    return response
+            except Exception as e:
+                last_error = e
+                if attempt < max_retries - 1:
+                    logger.debug(f"[{self.server_id}] RCON-Retry nach Fehler: {e}")
+                    await asyncio.sleep(1)
+                    continue
+        logger.error(f"[{self.server_id}] RCON-Befehl fehlgeschlagen ({command}): {last_error}")
+        raise last_error
 
     async def run_command(self, command: str) -> str:
         """

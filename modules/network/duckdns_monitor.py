@@ -292,6 +292,59 @@ class DuckDNSMonitor:
         """Gibt die passende Embed-Farbe zurueck."""
         return COLOR_SUCCESS if match else COLOR_ERROR
 
+    async def auto_update(self, token: str, ip: str) -> bool:
+        """
+        Aktualisiert den DuckDNS-DNS-Eintrag auf die angegebene IP.
+
+        Args:
+            token: DuckDNS API-Token
+            ip: Neue IP-Adresse
+
+        Returns:
+            True wenn das Update erfolgreich war
+        """
+        if not self.domain:
+            logger.error("auto_update: Keine Domain konfiguriert")
+            return False
+
+        # Subdomain aus der Domain extrahieren (z.B. "marco-satisfactory" aus "marco-satisfactory.duckdns.org")
+        subdomain = self.domain.split(".")[0] if "." in self.domain else self.domain
+        url = f"https://www.duckdns.org/update?domains={subdomain}&token={token}&ip={ip}"
+
+        # httpx bevorzugen, Fallback auf urllib
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.get(url)
+                success = response.text.strip() == "OK"
+                if success:
+                    logger.info(f"DuckDNS auto_update erfolgreich: {subdomain} -> {ip}")
+                else:
+                    logger.warning(f"DuckDNS auto_update fehlgeschlagen: {response.text.strip()}")
+                return success
+        except ImportError:
+            pass
+        except Exception as e:
+            logger.warning(f"DuckDNS auto_update httpx-Fehler: {e}")
+
+        # Fallback: urllib
+        loop = asyncio.get_running_loop()
+        try:
+            import urllib.request
+            result = await loop.run_in_executor(
+                None,
+                lambda: urllib.request.urlopen(url, timeout=15).read().decode("utf-8").strip(),
+            )
+            success = result == "OK"
+            if success:
+                logger.info(f"DuckDNS auto_update erfolgreich (urllib): {subdomain} -> {ip}")
+            else:
+                logger.warning(f"DuckDNS auto_update fehlgeschlagen (urllib): {result}")
+            return success
+        except Exception as e:
+            logger.error(f"DuckDNS auto_update Fehler: {e}")
+            return False
+
     @property
     def last_result(self) -> Optional[Dict[str, Any]]:
         """Gibt das letzte Pruefergebnis zurueck."""

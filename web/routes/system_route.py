@@ -7,17 +7,18 @@ zum Webmin-Interface an. Ermoeglicht Start/Stop/Restart von Services.
 
 import asyncio
 import html
+import json
 import platform
-from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
-from utils.config import get_env, PROJECT_ROOT
+from utils.config import get_env, MONITOR_DATA_DIR
 from utils.logger import get_logger
 from web.auth import get_current_user
+from modules.database.db_manager import get_db
 
 logger = get_logger("web.routes.system")
 
@@ -178,9 +179,32 @@ async def service_action(request: Request):
         if proc.returncode == 0:
             action_labels = {"start": "gestartet", "stop": "gestoppt", "restart": "neugestartet"}
             label = action_labels.get(action, action)
-            logger.info(f"Service {service_name} {label} von {user.get('username', 'Unbekannt')}")
+            username = user.get("username", "Unbekannt")
+            logger.info(f"Service {service_name} {label} von {username}")
+
+            # F35: Audit-Log-Eintrag fuer Service-Aktionen
+            try:
+                from datetime import datetime, timezone
+                db = await get_db()
+                await db.execute(
+                    "INSERT INTO audit_log (timestamp, action, user_id, user_name, target, details, source) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        datetime.now(timezone.utc).isoformat(),
+                        f"service_{action}",
+                        user.get("id", ""),
+                        username,
+                        service_name,
+                        f"Service {service_name} {label}",
+                        "dashboard",
+                    ),
+                )
+                await db.commit()
+            except Exception as audit_err:
+                logger.warning(f"Audit-Log fehlgeschlagen: {audit_err}")
+
             return HTMLResponse(
-                f'<div class="alert alert-success">{service_name} erfolgreich {label}.</div>'
+                f'<div class="alert alert-success">{html.escape(service_name)} erfolgreich {label}.</div>'
             )
         else:
             error_msg = stderr.decode("utf-8", errors="replace").strip()
@@ -201,158 +225,240 @@ async def service_action(request: Request):
 
 
 # ==============================================================
-#  Log-Verwaltung
+#  Package-Updates (apt)
 # ==============================================================
 
-LOGS_DIR = PROJECT_ROOT / "logs"
 
-# Erlaubte Log-Dateien (Sicherheit: nur bekannte Dateien loeschbar)
-ALLOWED_LOG_PATTERNS = ["*.log", "*.log.*"]
+async def _get_upgradable_packages() -> list[dict]:
+    """Liest verfuegbare Package-Updates via apt list --upgradable."""
+    packages = []
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "apt", "list", "--upgradable",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30.0)
+        output = stdout.decode("utf-8", errors="replace")
+
+        for line in output.strip().split("\n"):
+            # Format: "paketname/suite version arch [upgradable from: alte_version]"
+            if "[upgradable from:" in line:
+                parts = line.split("/", 1)
+                if len(parts) >= 2:
+                    pkg_name = parts[0].strip()
+                    rest = parts[1]
+                    # Neue Version extrahieren
+                    version_parts = rest.split(" ")
+                    new_version = version_parts[1] if len(version_parts) > 1 else "?"
+                    # Alte Version extrahieren
+                    old_version = "?"
+                    if "from:" in rest:
+                        old_version = rest.split("from:")[-1].strip().rstrip("]").strip()
+                    packages.append({
+                        "name": pkg_name,
+                        "current": old_version,
+                        "available": new_version,
+                    })
+    except (asyncio.TimeoutError, OSError) as e:
+        logger.warning(f"Fehler beim Lesen der Package-Updates: {e}")
+
+    return packages
 
 
-def _collect_log_files() -> list[dict]:
-    """Sammelt alle Log-Dateien mit Groesse und Aenderungsdatum."""
-    log_files = []
-    if not LOGS_DIR.exists():
-        return log_files
-
-    for pattern in ALLOWED_LOG_PATTERNS:
-        for log_file in sorted(LOGS_DIR.glob(pattern)):
-            try:
-                stat = log_file.stat()
-                size_kb = round(stat.st_size / 1024, 1)
-                size_str = f"{size_kb} KB" if size_kb < 1024 else f"{round(size_kb / 1024, 1)} MB"
-                log_files.append({
-                    "name": log_file.name,
-                    "size": size_str,
-                    "size_bytes": stat.st_size,
-                    "modified": datetime.fromtimestamp(stat.st_mtime).strftime("%d.%m.%Y %H:%M"),
-                })
-            except OSError:
-                pass
-
-    # Nach Groesse sortieren (groesste zuerst)
-    log_files.sort(key=lambda x: x["size_bytes"], reverse=True)
-    return log_files
-
-
-@router.get("/api/system/logs", response_class=HTMLResponse)
-async def get_logs_list(request: Request):
-    """Gibt die Log-Datei-Liste als HTML-Partial zurueck."""
+@router.get("/api/system/packages/list", response_class=HTMLResponse)
+async def get_package_list(request: Request):
+    """Gibt die Liste verfuegbarer Updates als HTML-Partial zurueck."""
     user = get_current_user(request)
     if user is None:
         return HTMLResponse('<div class="alert alert-danger">Nicht authentifiziert</div>', status_code=401)
 
-    log_files = _collect_log_files()
-    total_size = sum(f["size_bytes"] for f in log_files)
-    total_str = f"{round(total_size / 1024, 1)} KB" if total_size < 1048576 else f"{round(total_size / 1048576, 1)} MB"
+    packages = await _get_upgradable_packages()
+
+    if not packages:
+        return HTMLResponse(
+            '<p style="color: var(--success); font-weight: 600;">Alle Pakete sind aktuell.</p>'
+        )
 
     rows = ""
-    for lf in log_files:
+    for pkg in packages:
         rows += f"""<tr>
-            <td style="font-weight: 500;">{lf['name']}</td>
-            <td>{lf['size']}</td>
-            <td>
-                <button class="btn btn-sm btn-danger"
-                        hx-post="/api/system/logs/delete"
-                        hx-vals='{{"filename": "{lf['name']}"}}'
-                        hx-target="#log-management-area"
-                        hx-swap="innerHTML"
-                        hx-confirm="Log-Datei {lf['name']} loeschen?">
-                    Loeschen
-                </button>
-            </td>
+            <td style="font-weight: 500;">{html.escape(pkg['name'])}</td>
+            <td style="color: var(--text-muted);">{html.escape(pkg['current'])}</td>
+            <td style="color: var(--warning); font-weight: 600;">{html.escape(pkg['available'])}</td>
         </tr>"""
 
-    html = f"""
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
-        <span style="color: var(--text-secondary); font-size: 0.85rem;">
-            {len(log_files)} Log-Dateien — Gesamt: {total_str}
-        </span>
-        <button class="btn btn-sm btn-danger"
-                hx-post="/api/system/logs/delete-all"
-                hx-target="#log-management-area"
-                hx-swap="innerHTML"
-                hx-confirm="ALLE Log-Dateien loeschen? Diese Aktion kann nicht rueckgaengig gemacht werden.">
-            Alle Logs loeschen
-        </button>
-    </div>
+    result_html = f"""
+    <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 0.75rem;">
+        {len(packages)} Update{'s' if len(packages) != 1 else ''} verfuegbar
+    </p>
     <div class="table-wrapper">
         <table class="data-table">
-            <thead><tr><th>Datei</th><th>Groesse</th><th>Aktion</th></tr></thead>
-            <tbody>{rows if rows else '<tr><td colspan="3" style="text-align: center; color: var(--text-muted);">Keine Log-Dateien vorhanden.</td></tr>'}</tbody>
+            <thead><tr><th>Paket</th><th>Installiert</th><th>Verfuegbar</th></tr></thead>
+            <tbody>{rows}</tbody>
         </table>
     </div>
     """
-    return HTMLResponse(html)
+    return HTMLResponse(result_html)
 
 
-@router.post("/api/system/logs/delete")
-async def delete_log_file(request: Request):
-    """Loescht eine einzelne Log-Datei."""
+@router.post("/api/system/packages/check", response_class=HTMLResponse)
+async def check_package_updates(request: Request):
+    """Fuehrt apt update aus und gibt dann die Update-Liste zurueck."""
     user = get_current_user(request)
     if user is None:
         return HTMLResponse('<div class="alert alert-danger">Nicht authentifiziert</div>', status_code=401)
 
-    form = await request.form()
-    filename = form.get("filename", "").strip()
-
-    # Sicherheitspruefung: Nur Dateien im logs-Verzeichnis
-    if not filename or ".." in filename or "/" in filename or "\\" in filename:
-        return HTMLResponse('<div class="alert alert-danger">Ungueltiger Dateiname.</div>')
-
-    filepath = LOGS_DIR / filename
-    if not filepath.exists():
-        return HTMLResponse(f'<div class="alert alert-warning">{html.escape(filename)} existiert nicht.</div>')
-
-    # Sicherheit: Datei muss im logs-Verzeichnis liegen
-    try:
-        filepath.resolve().relative_to(LOGS_DIR.resolve())
-    except ValueError:
-        return HTMLResponse('<div class="alert alert-danger">Zugriff verweigert.</div>')
+    logger.info(f"Package-Update-Check von {user.get('username', 'Unbekannt')}")
 
     try:
-        filepath.unlink()
-        logger.info(f"Log-Datei geloescht: {filename} (von {user.get('username', 'Unbekannt')})")
-    except OSError as e:
-        return HTMLResponse(f'<div class="alert alert-danger">Fehler beim Loeschen von Log-Datei.</div>')
+        proc = await asyncio.create_subprocess_exec(
+            "sudo", "apt", "update", "-qq",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await asyncio.wait_for(proc.communicate(), timeout=120.0)
+    except (asyncio.TimeoutError, OSError) as e:
+        return HTMLResponse(f'<div class="alert alert-danger">apt update fehlgeschlagen: {html.escape(str(e)[:200])}</div>')
 
-    # Aktualisierte Liste zurueckgeben
-    return await get_logs_list(request)
+    # Jetzt aktualisierte Liste abrufen
+    packages = await _get_upgradable_packages()
+
+    if not packages:
+        return HTMLResponse(
+            '<p style="color: var(--success); font-weight: 600;">Alle Pakete sind aktuell.</p>'
+        )
+
+    rows = ""
+    for pkg in packages:
+        rows += f"""<tr>
+            <td style="font-weight: 500;">{html.escape(pkg['name'])}</td>
+            <td style="color: var(--text-muted);">{html.escape(pkg['current'])}</td>
+            <td style="color: var(--warning); font-weight: 600;">{html.escape(pkg['available'])}</td>
+        </tr>"""
+
+    result_html = f"""
+    <div class="alert alert-success" style="margin-bottom: 0.75rem;">Paketlisten aktualisiert.</div>
+    <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 0.75rem;">
+        {len(packages)} Update{'s' if len(packages) != 1 else ''} verfuegbar
+    </p>
+    <div class="table-wrapper">
+        <table class="data-table">
+            <thead><tr><th>Paket</th><th>Installiert</th><th>Verfuegbar</th></tr></thead>
+            <tbody>{rows}</tbody>
+        </table>
+    </div>
+    """
+    return HTMLResponse(result_html)
 
 
-@router.post("/api/system/logs/delete-all")
-async def delete_all_logs(request: Request):
-    """Loescht alle Log-Dateien."""
+@router.post("/api/system/packages/upgrade", response_class=HTMLResponse)
+async def upgrade_packages(request: Request):
+    """Fuehrt apt upgrade -y aus und aktualisiert alle Pakete."""
     user = get_current_user(request)
     if user is None:
         return HTMLResponse('<div class="alert alert-danger">Nicht authentifiziert</div>', status_code=401)
 
-    deleted = 0
-    errors = 0
+    logger.info(f"Package-Upgrade gestartet von {user.get('username', 'Unbekannt')}")
 
-    if LOGS_DIR.exists():
-        for pattern in ALLOWED_LOG_PATTERNS:
-            for log_file in LOGS_DIR.glob(pattern):
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "sudo", "-n", "apt", "upgrade", "-y", "-qq",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            stdin=asyncio.subprocess.DEVNULL,
+            env={"DEBIAN_FRONTEND": "noninteractive", "PATH": "/usr/sbin:/usr/bin:/sbin:/bin"},
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=600.0)
+
+        if proc.returncode == 0:
+            output = stdout.decode("utf-8", errors="replace").strip()
+            # Anzahl aktualisierter Pakete zaehlen
+            upgraded_lines = [l for l in output.split("\n") if l.strip()]
+            count = len(upgraded_lines) if upgraded_lines and upgraded_lines[0] else 0
+
+            logger.info(f"Package-Upgrade abgeschlossen: {count} Pakete")
+            return HTMLResponse(
+                f'<div class="alert alert-success">System-Update erfolgreich abgeschlossen.</div>'
+            )
+        else:
+            error_msg = stderr.decode("utf-8", errors="replace").strip()
+            logger.warning(f"Package-Upgrade Fehler: {error_msg}")
+            return HTMLResponse(
+                f'<div class="alert alert-danger">Fehler beim Update: {html.escape(error_msg[:300])}</div>'
+            )
+
+    except asyncio.TimeoutError:
+        return HTMLResponse(
+            '<div class="alert alert-danger">Timeout — Update dauert zu lange (10 Min. Limit).</div>'
+        )
+    except Exception as e:
+        logger.error(f"Package-Upgrade Exception: {e}")
+        return HTMLResponse(
+            f'<div class="alert alert-danger">Fehler: {html.escape(str(e)[:200])}</div>'
+        )
+
+
+# ==============================================================
+#  F42: Package-Checker Status (SQLite-basiert)
+# ==============================================================
+
+
+def _read_json_file(filepath: Path) -> dict | None:
+    """Liest eine JSON-Datei sicher ein."""
+    try:
+        if filepath.exists():
+            with open(filepath, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                return data
+    except (json.JSONDecodeError, OSError) as e:
+        logger.debug(f"JSON-Datei nicht lesbar ({filepath.name}): {e}")
+    return None
+
+
+@router.get("/api/system/packages/status")
+async def package_checker_status(request: Request):
+    """F42: Gibt den letzten Package-Check-Status zurueck (aus JSON-Bridge)."""
+    user = get_current_user(request)
+    if user is None:
+        return JSONResponse(status_code=401, content={"error": "Nicht authentifiziert"})
+
+    data = _read_json_file(MONITOR_DATA_DIR / "package_checker.json")
+    if data is None:
+        return JSONResponse(content={"status": "unknown", "message": "Noch kein Check"})
+    return JSONResponse(content=data)
+
+
+@router.get("/api/system/packages/history")
+async def package_checker_history(request: Request):
+    """F42: Gibt die Historie der Package-Checks aus SQLite zurueck."""
+    user = get_current_user(request)
+    if user is None:
+        return JSONResponse(status_code=401, content={"error": "Nicht authentifiziert"})
+
+    try:
+        db = await get_db()
+        cursor = await db.execute(
+            "SELECT id, timestamp, message, details FROM events "
+            "WHERE event_type = 'package_check' "
+            "ORDER BY id DESC LIMIT 20"
+        )
+        rows = await cursor.fetchall()
+        history = []
+        for row in rows:
+            entry = {
+                "id": row["id"],
+                "timestamp": str(row["timestamp"]) if row["timestamp"] else "",
+                "message": row["message"] or "",
+            }
+            if row["details"]:
                 try:
-                    # Sicherheit: Nur Dateien im logs-Verzeichnis
-                    log_file.resolve().relative_to(LOGS_DIR.resolve())
-                    log_file.unlink()
-                    deleted += 1
-                except (OSError, ValueError):
-                    errors += 1
-
-    logger.info(f"Alle Logs geloescht: {deleted} Dateien (von {user.get('username', 'Unbekannt')})")
-
-    msg = f'<div class="alert alert-success">{deleted} Log-Dateien geloescht.</div>'
-    if errors:
-        msg += f'<div class="alert alert-warning">{errors} Dateien konnten nicht geloescht werden.</div>'
-
-    # Aktualisierte (leere) Liste anhaengen
-    return HTMLResponse(msg + await _get_logs_html(request))
-
-
-async def _get_logs_html(request: Request) -> str:
-    """Hilfsfunktion: Gibt die Log-Liste als HTML-String zurueck."""
-    response = await get_logs_list(request)
-    return response.body.decode("utf-8")
+                    entry["details"] = json.loads(row["details"])
+                except (json.JSONDecodeError, TypeError):
+                    entry["details"] = row["details"]
+            history.append(entry)
+        return JSONResponse(content={"history": history})
+    except Exception as e:
+        logger.error(f"Package-History Fehler: {e}")
+        return JSONResponse(content={"history": [], "error": str(e)})

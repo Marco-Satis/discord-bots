@@ -1,7 +1,17 @@
 """
 Blueprint Manager for Satisfactory Server
-Handles upload, validation, listing, download, and deletion of blueprints
-Blueprint path: /home/satisfactory/.config/Epic/FactoryGame/Saved/SaveGames/blueprints/
+Handles upload, validation, listing, download, and deletion of blueprints.
+Erkennt automatisch den aktiven Welt-Ordner und synchronisiert Blueprints
+bei Welt-Wechsel.
+
+Blueprint-Struktur:
+  blueprints/
+    1.1/          <-- Welt-Ordner (pro Session/Welt)
+      Start.sbp
+      Start.sbpcfg
+    Kreativ/
+      Test.sbp
+      Test.sbpcfg
 """
 
 import io
@@ -30,14 +40,157 @@ CATEGORIES = [
 
 
 class BlueprintManager:
-    """Manage Satisfactory blueprint files with metadata tracking"""
+    """Manage Satisfactory blueprint files with metadata tracking.
+    Erkennt automatisch den aktiven Welt-Ordner und kopiert
+    Blueprints bei Welt-Wechsel automatisch mit."""
 
     def __init__(self, blueprint_path: Path) -> None:
-        self.blueprint_path = blueprint_path
+        self.base_path = blueprint_path  # .../SaveGames/blueprints/
         self._data: Dict[str, Any] = {"blueprints": []}
+        self._active_world: Optional[str] = None
+
+    @property
+    def active_world_path(self) -> Path:
+        """Gibt den Pfad zum aktiven Welt-Ordner zurueck."""
+        world = self._detect_active_world()
+        return self.base_path / world
+
+    # Legacy-Kompatibilitaet: blueprint_path zeigt auf den aktiven Ordner
+    @property
+    def blueprint_path(self) -> Path:
+        return self.active_world_path
+
+    def _detect_active_world(self) -> str:
+        """Erkennt den aktiven Welt-Ordner (neuester nach Aenderungszeit).
+        Cached das Ergebnis in _active_world."""
+        try:
+            if not self.base_path.exists():
+                self.base_path.mkdir(parents=True, exist_ok=True)
+                return "default"
+
+            worlds = [
+                d for d in self.base_path.iterdir()
+                if d.is_dir()
+            ]
+
+            if not worlds:
+                return "default"
+
+            # Neuester Ordner = aktive Welt
+            newest = max(worlds, key=lambda d: d.stat().st_mtime)
+            world_name = newest.name
+
+            # Welt-Wechsel erkennen und Blueprints synchronisieren
+            if self._active_world and self._active_world != world_name:
+                logger.info(
+                    f"Neue Welt erkannt: {self._active_world} -> {world_name}"
+                )
+                self._sync_blueprints(self._active_world, world_name)
+
+            self._active_world = world_name
+            return world_name
+
+        except Exception as e:
+            logger.error(f"Welt-Erkennung fehlgeschlagen: {e}")
+            return self._active_world or "default"
+
+    def _sync_blueprints(self, old_world: str, new_world: str) -> None:
+        """Kopiert alle Blueprints vom alten in den neuen Welt-Ordner."""
+        old_path = self.base_path / old_world
+        new_path = self.base_path / new_world
+
+        if not old_path.exists():
+            return
+
+        new_path.mkdir(parents=True, exist_ok=True)
+
+        copied = 0
+        skipped = 0
+        for src_file in old_path.iterdir():
+            if not src_file.is_file():
+                continue
+            if not (src_file.suffix in (".sbp", ".sbpcfg")):
+                continue
+
+            dest_file = new_path / src_file.name
+            if dest_file.exists():
+                skipped += 1
+                continue
+
+            try:
+                shutil.copy2(src_file, dest_file)
+                copied += 1
+            except Exception as e:
+                logger.warning(f"Blueprint-Sync fehlgeschlagen fuer {src_file.name}: {e}")
+
+        if copied > 0:
+            logger.info(
+                f"Blueprint-Sync: {copied} Dateien von '{old_world}' nach "
+                f"'{new_world}' kopiert ({skipped} uebersprungen)"
+            )
+
+    def get_worlds(self) -> List[Dict[str, Any]]:
+        """Listet alle verfuegbaren Welt-Ordner auf."""
+        worlds = []
+        try:
+            if not self.base_path.exists():
+                return worlds
+            for d in sorted(self.base_path.iterdir()):
+                if not d.is_dir():
+                    continue
+                bp_count = len(list(d.glob("*.sbp")))
+                worlds.append({
+                    "name": d.name,
+                    "blueprint_count": bp_count,
+                    "is_active": d.name == self._active_world,
+                    "modified": datetime.fromtimestamp(
+                        d.stat().st_mtime
+                    ).isoformat(),
+                })
+        except Exception as e:
+            logger.error(f"Welt-Liste fehlgeschlagen: {e}")
+        return worlds
+
+    def sync_all_worlds(self) -> Dict[str, int]:
+        """Synchronisiert Blueprints aus allen Welten in die aktive Welt.
+        Gibt {world_name: copied_count} zurueck."""
+        active = self._detect_active_world()
+        active_path = self.base_path / active
+        active_path.mkdir(parents=True, exist_ok=True)
+
+        result = {}
+        try:
+            for d in self.base_path.iterdir():
+                if not d.is_dir() or d.name == active:
+                    continue
+
+                copied = 0
+                for src_file in d.iterdir():
+                    if not src_file.is_file():
+                        continue
+                    if src_file.suffix not in (".sbp", ".sbpcfg"):
+                        continue
+
+                    dest_file = active_path / src_file.name
+                    if dest_file.exists():
+                        continue
+
+                    try:
+                        shutil.copy2(src_file, dest_file)
+                        copied += 1
+                    except Exception as e:
+                        logger.warning(f"Sync fehlgeschlagen: {src_file.name}: {e}")
+
+                if copied > 0:
+                    result[d.name] = copied
+
+        except Exception as e:
+            logger.error(f"sync_all_worlds fehlgeschlagen: {e}")
+
+        return result
 
     async def load(self) -> None:
-        """Load blueprint database"""
+        """Load blueprint database und erkennt aktive Welt."""
         try:
             if BLUEPRINT_DB.exists():
                 async with aiofiles.open(BLUEPRINT_DB, "r", encoding="utf-8") as f:
@@ -47,6 +200,19 @@ class BlueprintManager:
                 await self._save()
         except Exception as e:
             logger.error(f"Failed to load blueprint DB: {e}")
+
+        # Aktive Welt erkennen und Blueprints synchronisieren
+        world = self._detect_active_world()
+        logger.info(f"Blueprint-Manager geladen, aktive Welt: {world}")
+
+        # Beim Start: Alle Blueprints aus allen Welten in die aktive Welt kopieren
+        synced = self.sync_all_worlds()
+        if synced:
+            total = sum(synced.values())
+            logger.info(
+                f"Blueprint-Sync beim Start: {total} Dateien aus "
+                f"{len(synced)} Welten in '{world}' kopiert"
+            )
 
     async def _save(self) -> None:
         """Save blueprint database"""
@@ -95,28 +261,46 @@ class BlueprintManager:
     async def add_blueprint(self, name: str, category: str,
                             uploader_id: int, uploader_name: str,
                             sbp_data: bytes, cfg_data: bytes) -> Tuple[bool, str]:
-        """Save a blueprint pair to the server directory and register in DB."""
+        """Save a blueprint pair to ALL Welt-Ordner and register in DB."""
         try:
             # Sanitize name to prevent path traversal
             safe_name = Path(name).name
             if not safe_name or safe_name != name or "/" in name or "\\" in name or ".." in name:
                 return False, "Ungueltiger Blueprint-Name!"
 
-            # Ensure blueprint directory exists
-            self.blueprint_path.mkdir(parents=True, exist_ok=True)
+            # In ALLE Welt-Ordner hochladen
+            worlds_written = []
+            for world_dir in self.base_path.iterdir():
+                if not world_dir.is_dir():
+                    continue
 
-            # Write files
-            sbp_path = self.blueprint_path / f"{safe_name}.sbp"
-            cfg_path = self.blueprint_path / f"{safe_name}.sbpcfg"
+                sbp_path = world_dir / f"{safe_name}.sbp"
+                cfg_path = world_dir / f"{safe_name}.sbpcfg"
 
-            # Check if already exists
-            if sbp_path.exists():
-                return False, f"Blueprint '{name}' existiert bereits!"
+                if sbp_path.exists():
+                    worlds_written.append(f"{world_dir.name} (existiert)")
+                    continue
 
-            async with aiofiles.open(sbp_path, "wb") as f:
-                await f.write(sbp_data)
-            async with aiofiles.open(cfg_path, "wb") as f:
-                await f.write(cfg_data)
+                try:
+                    async with aiofiles.open(sbp_path, "wb") as f:
+                        await f.write(sbp_data)
+                    async with aiofiles.open(cfg_path, "wb") as f:
+                        await f.write(cfg_data)
+                    worlds_written.append(world_dir.name)
+                except Exception as we:
+                    logger.warning(f"Blueprint-Write in {world_dir.name} fehlgeschlagen: {we}")
+
+            if not worlds_written:
+                # Fallback: aktiven Ordner erstellen
+                active = self.active_world_path
+                active.mkdir(parents=True, exist_ok=True)
+                sbp_path = active / f"{safe_name}.sbp"
+                cfg_path = active / f"{safe_name}.sbpcfg"
+                async with aiofiles.open(sbp_path, "wb") as f:
+                    await f.write(sbp_data)
+                async with aiofiles.open(cfg_path, "wb") as f:
+                    await f.write(cfg_data)
+                worlds_written.append(self._active_world or "default")
 
             # Register in database
             entry = {
@@ -130,7 +314,10 @@ class BlueprintManager:
             self._data["blueprints"].append(entry)
             await self._save()
 
-            logger.info(f"Blueprint added: {name} ({category}) by {uploader_name}")
+            logger.info(
+                f"Blueprint added: {name} ({category}) by {uploader_name} "
+                f"-> Welten: {', '.join(worlds_written)}"
+            )
             return True, f"Blueprint '{name}' hochgeladen!"
 
         except Exception as e:
@@ -191,15 +378,24 @@ class BlueprintManager:
         return None
 
     def get_files(self, name: str) -> Tuple[Optional[Path], Optional[Path]]:
-        """Get blueprint file paths"""
-        sbp = self.blueprint_path / f"{name}.sbp"
-        cfg = self.blueprint_path / f"{name}.sbpcfg"
+        """Get blueprint file paths from active world"""
+        active = self.active_world_path
+        sbp = active / f"{name}.sbp"
+        cfg = active / f"{name}.sbpcfg"
         if sbp.exists() and cfg.exists():
             return sbp, cfg
+        # Fallback: in allen Welten suchen
+        for world_dir in self.base_path.iterdir():
+            if not world_dir.is_dir():
+                continue
+            sbp = world_dir / f"{name}.sbp"
+            cfg = world_dir / f"{name}.sbpcfg"
+            if sbp.exists() and cfg.exists():
+                return sbp, cfg
         return None, None
 
     async def delete(self, name: str, deleted_by_id: int, is_admin: bool = False) -> Tuple[bool, str]:
-        """Delete a blueprint. Users can only delete their own, admins can delete all."""
+        """Delete a blueprint from ALL worlds. Users can only delete their own."""
         bp = self.get_blueprint(name)
         if not bp:
             return False, f"Blueprint '{name}' nicht gefunden."
@@ -207,27 +403,124 @@ class BlueprintManager:
         if not is_admin and bp["uploader_id"] != deleted_by_id:
             return False, "Du kannst nur eigene Blueprints loeschen!"
 
-        # Remove files
-        sbp = self.blueprint_path / f"{name}.sbp"
-        cfg = self.blueprint_path / f"{name}.sbpcfg"
-        try:
-            if sbp.exists():
-                sbp.unlink()
-            if cfg.exists():
-                cfg.unlink()
-        except Exception as e:
-            logger.error(f"Failed to delete blueprint files: {e}")
-            return False, f"Fehler beim Loeschen der Dateien: {e}"
+        # Remove files from ALL world directories
+        deleted_from = []
+        for world_dir in self.base_path.iterdir():
+            if not world_dir.is_dir():
+                continue
+            sbp = world_dir / f"{name}.sbp"
+            cfg = world_dir / f"{name}.sbpcfg"
+            try:
+                removed = False
+                if sbp.exists():
+                    sbp.unlink()
+                    removed = True
+                if cfg.exists():
+                    cfg.unlink()
+                    removed = True
+                if removed:
+                    deleted_from.append(world_dir.name)
+            except Exception as e:
+                logger.error(f"Failed to delete blueprint files in {world_dir.name}: {e}")
 
-        # Remove from database only after files are successfully deleted
+        if not deleted_from:
+            return False, f"Blueprint-Dateien fuer '{name}' nicht gefunden."
+
+        # Remove from database
         self._data["blueprints"] = [
             b for b in self._data["blueprints"]
             if b["name"].lower() != name.lower()
         ]
         await self._save()
 
-        logger.info(f"Blueprint deleted: {name} by user {deleted_by_id}")
+        logger.info(
+            f"Blueprint deleted: {name} by user {deleted_by_id} "
+            f"from worlds: {', '.join(deleted_from)}"
+        )
         return True, f"Blueprint '{name}' geloescht!"
+
+    def list_from_filesystem(self) -> List[Dict[str, Any]]:
+        """Liest alle Blueprints direkt vom Dateisystem (aktive Welt).
+        Liefert alle .sbp Dateien mit Metadaten."""
+        results = []
+        active = self.active_world_path
+
+        if not active.exists():
+            return results
+
+        seen = set()
+        for sbp_file in sorted(active.glob("*.sbp")):
+            name = sbp_file.stem
+            if name in seen:
+                continue
+            seen.add(name)
+
+            cfg_file = active / f"{name}.sbpcfg"
+            size = sbp_file.stat().st_size
+            if cfg_file.exists():
+                size += cfg_file.stat().st_size
+
+            modified = datetime.fromtimestamp(
+                sbp_file.stat().st_mtime
+            )
+
+            # Metadaten aus JSON-DB ergaenzen falls vorhanden
+            db_entry = self.get_blueprint(name)
+
+            results.append({
+                "name": name,
+                "size_bytes": size,
+                "modified": modified.isoformat(),
+                "has_cfg": cfg_file.exists(),
+                "category": db_entry.get("category", "—") if db_entry else "—",
+                "uploader_name": db_entry.get("uploader_name", "—") if db_entry else "—",
+                "uploader_id": db_entry.get("uploader_id") if db_entry else None,
+            })
+
+        return results
+
+    def list_all_names(self) -> List[str]:
+        """Gibt alle Blueprint-Namen vom Dateisystem zurueck (fuer Autocomplete)."""
+        active = self.active_world_path
+        if not active.exists():
+            return []
+        return sorted(set(
+            f.stem for f in active.glob("*.sbp")
+        ))
+
+    async def delete_by_name(self, name: str) -> Tuple[bool, str]:
+        """Loescht einen Blueprint (sbp+sbpcfg) aus ALLEN Welten. Keine Rechte-Pruefung."""
+        deleted_from = []
+        for world_dir in self.base_path.iterdir():
+            if not world_dir.is_dir():
+                continue
+            sbp = world_dir / f"{name}.sbp"
+            cfg = world_dir / f"{name}.sbpcfg"
+            try:
+                removed = False
+                if sbp.exists():
+                    sbp.unlink()
+                    removed = True
+                if cfg.exists():
+                    cfg.unlink()
+                    removed = True
+                if removed:
+                    deleted_from.append(world_dir.name)
+            except Exception as e:
+                logger.error(f"Failed to delete {name} in {world_dir.name}: {e}")
+
+        if not deleted_from:
+            return False, f"Blueprint '{name}' nicht gefunden."
+
+        # Auch aus JSON-DB entfernen falls vorhanden
+        self._data["blueprints"] = [
+            b for b in self._data["blueprints"]
+            if b["name"].lower() != name.lower()
+        ]
+        await self._save()
+
+        logger.info(f"Blueprint deleted: {name} from worlds: {', '.join(deleted_from)}")
+        return True, f"Blueprint '{name}' geloescht (aus {len(deleted_from)} Welten)!"
 
     def count(self, category: Optional[str] = None) -> int:
         if category:

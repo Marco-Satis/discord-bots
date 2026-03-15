@@ -12,10 +12,10 @@
 <!-- Server-Kacheln -->
 <section class="section">
     <h2 class="section-title">Game-Server</h2>
-    <div class="tile-grid" id="server-tiles" hx-get="/" hx-trigger="every 30s" hx-select="#server-tiles" hx-swap="outerHTML">
+    <div class="tile-grid" id="server-tiles">
         {% if servers %}
             {% for server in servers %}
-            <a href="/server/{{ server.source_file.replace('_status.json', '').replace('.json', '') }}" class="tile" style="text-decoration: none; color: inherit; display: block;">
+            <a href="/server/{{ server.id }}" class="tile" style="text-decoration: none; color: inherit; display: block;">
                 <div class="tile-header">
                     <h3 class="tile-name">{{ server.name }}</h3>
                     <span class="status-badge {% if server.status == 'online' %}status-online{% elif server.status == 'offline' %}status-offline{% else %}status-unknown{% endif %}">
@@ -38,17 +38,17 @@
                 </div>
                 <div class="tile-actions" onclick="event.stopPropagation(); event.preventDefault();">
                     <button class="btn btn-sm btn-primary"
-                            hx-post="/api/server/{{ server.source_file.replace('_status.json', '').replace('.json', '') }}/action"
+                            hx-post="/api/server/{{ server.id }}/action"
                             hx-vals='{"action": "start"}'
                             hx-confirm="Server {{ server.name }} starten?"
                             hx-swap="none">Start</button>
                     <button class="btn btn-sm btn-danger"
-                            hx-post="/api/server/{{ server.source_file.replace('_status.json', '').replace('.json', '') }}/action"
+                            hx-post="/api/server/{{ server.id }}/action"
                             hx-vals='{"action": "stop"}'
                             hx-confirm="Server {{ server.name }} stoppen?"
                             hx-swap="none">Stop</button>
                     <button class="btn btn-sm btn-secondary"
-                            hx-post="/api/server/{{ server.source_file.replace('_status.json', '').replace('.json', '') }}/action"
+                            hx-post="/api/server/{{ server.id }}/action"
                             hx-vals='{"action": "restart"}'
                             hx-confirm="Server {{ server.name }} neustarten?"
                             hx-swap="none">Restart</button>
@@ -94,6 +94,234 @@
     </div>
 </section>
 
+<!-- Analytics-Charts -->
+<section class="section">
+    <h2 class="section-title">Verlauf</h2>
+    <div class="chart-controls" style="margin-bottom: 1rem;">
+        <button class="btn btn-sm btn-primary chart-period-btn active" data-period="24h" onclick="loadCharts('24h', this)">24 Stunden</button>
+        <button class="btn btn-sm btn-secondary chart-period-btn" data-period="7d" onclick="loadCharts('7d', this)">7 Tage</button>
+        <button class="btn btn-sm btn-secondary chart-period-btn" data-period="30d" onclick="loadCharts('30d', this)">30 Tage</button>
+    </div>
+    <div class="chart-grid">
+        <div class="chart-card">
+            <h4>System-Auslastung</h4>
+            <canvas id="systemChart" height="200"></canvas>
+        </div>
+        <div class="chart-card">
+            <h4>Spieler Online</h4>
+            <canvas id="playersChart" height="200"></canvas>
+        </div>
+    </div>
+</section>
+
+<script>
+// Chart-Farben (passend zum Dark Theme)
+const CHART_COLORS = {
+    cpu: 'rgba(255, 99, 132, 1)',
+    ram: 'rgba(54, 162, 235, 1)',
+    disk: 'rgba(255, 206, 86, 1)',
+    players: ['rgba(75, 192, 192, 1)', 'rgba(153, 102, 255, 1)', 'rgba(255, 159, 64, 1)', 'rgba(255, 99, 132, 1)'],
+};
+
+const CHART_DEFAULTS = {
+    responsive: true,
+    maintainAspectRatio: false,
+    scales: {
+        x: { ticks: { color: '#aaa', maxTicksLimit: 12 }, grid: { color: 'rgba(255,255,255,0.05)' } },
+        y: { ticks: { color: '#aaa' }, grid: { color: 'rgba(255,255,255,0.08)' }, beginAtZero: true }
+    },
+    plugins: { legend: { labels: { color: '#ccc' } } },
+    elements: { point: { radius: 0 }, line: { tension: 0.3, borderWidth: 2 } }
+};
+
+let systemChart = null;
+let playersChart = null;
+
+function loadCharts(period, btn) {
+    // Button-Active-State
+    document.querySelectorAll('.chart-period-btn').forEach(b => {
+        b.classList.remove('btn-primary', 'active');
+        b.classList.add('btn-secondary');
+    });
+    if (btn) {
+        btn.classList.remove('btn-secondary');
+        btn.classList.add('btn-primary', 'active');
+    }
+
+    // System-Chart laden
+    fetch('/api/analytics/system?period=' + period)
+        .then(r => r.json())
+        .then(data => {
+            if (systemChart) systemChart.destroy();
+            const ctx = document.getElementById('systemChart').getContext('2d');
+            systemChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: data.labels,
+                    datasets: [
+                        { label: 'CPU %', data: data.datasets[0].data, borderColor: CHART_COLORS.cpu, backgroundColor: 'rgba(255,99,132,0.1)', fill: true },
+                        { label: 'RAM %', data: data.datasets[1].data, borderColor: CHART_COLORS.ram, backgroundColor: 'rgba(54,162,235,0.1)', fill: true },
+                        { label: 'Disk %', data: data.datasets[2].data, borderColor: CHART_COLORS.disk, backgroundColor: 'rgba(255,206,86,0.05)', fill: true }
+                    ]
+                },
+                options: { ...CHART_DEFAULTS, scales: { ...CHART_DEFAULTS.scales, y: { ...CHART_DEFAULTS.scales.y, max: 100 } } }
+            });
+        })
+        .catch(() => {});
+
+    // Spieler-Chart laden
+    fetch('/api/analytics/players?period=' + period)
+        .then(r => r.json())
+        .then(data => {
+            if (playersChart) playersChart.destroy();
+            const ctx = document.getElementById('playersChart').getContext('2d');
+            const datasets = data.datasets.map((ds, i) => ({
+                label: ds.label,
+                data: ds.data,
+                borderColor: CHART_COLORS.players[i % CHART_COLORS.players.length],
+                backgroundColor: 'transparent',
+                fill: false
+            }));
+            playersChart = new Chart(ctx, {
+                type: 'line',
+                data: { labels: data.labels, datasets },
+                options: CHART_DEFAULTS
+            });
+        })
+        .catch(() => {});
+}
+
+// Charts beim Laden der Seite initialisieren
+document.addEventListener('DOMContentLoaded', () => loadCharts('24h'));
+
+// F29: SSE Live-Updates — Server-Status, System-Stats, Bots und Events
+(function() {
+    var sse = null;
+    var reconnectDelay = 1000;
+
+    function connectSSE() {
+        sse = new EventSource('/api/sse/dashboard');
+
+        sse.addEventListener('dashboard_update', function(e) {
+            reconnectDelay = 1000; // Reset bei Erfolg
+            try {
+                var data = JSON.parse(e.data);
+                updateServerTiles(data.servers || []);
+                updateSystemStats(data.system || {});
+                updateBotStatus(data.bots || []);
+                updateEvents(data.events || []);
+            } catch(err) {
+                console.warn('SSE parse error:', err);
+            }
+        });
+
+        sse.onerror = function() {
+            sse.close();
+            // Reconnect mit Backoff (max 30s)
+            setTimeout(connectSSE, reconnectDelay);
+            reconnectDelay = Math.min(reconnectDelay * 2, 30000);
+        };
+    }
+
+    function updateServerTiles(servers) {
+        var container = document.getElementById('server-tiles');
+        if (!container || !servers.length) return;
+
+        // Bestehende Tiles updaten statt komplett ersetzen
+        servers.forEach(function(srv) {
+            var tile = container.querySelector('a[href="/server/' + srv.id + '"]');
+            if (!tile) return;
+
+            // Status-Badge
+            var badge = tile.querySelector('.status-badge');
+            if (badge) {
+                badge.className = 'status-badge ' + (srv.status === 'online' ? 'status-online' : srv.status === 'offline' ? 'status-offline' : 'status-unknown');
+                badge.textContent = srv.status.charAt(0).toUpperCase() + srv.status.slice(1);
+            }
+
+            // Spieler-Wert
+            var stats = tile.querySelectorAll('.tile-stat .stat-value');
+            if (stats[0]) stats[0].textContent = srv.players + '/' + srv.max_players;
+            if (stats[1]) stats[1].textContent = srv.uptime || 'N/A';
+        });
+    }
+
+    function _progressClass(val, warnAt, dangerAt) {
+        if (val > dangerAt) return 'progress-danger';
+        if (val > warnAt) return 'progress-warning';
+        return 'progress-ok';
+    }
+
+    function updateSystemStats(sys) {
+        var cards = document.querySelectorAll('#system-stats .stat-card');
+        if (cards.length < 3) return;
+
+        // CPU
+        var cpuFill = cards[0].querySelector('.progress-fill');
+        var cpuNum = cards[0].querySelector('.stat-number');
+        if (cpuFill) { cpuFill.style.width = sys.cpu_percent + '%'; cpuFill.className = 'progress-fill ' + _progressClass(sys.cpu_percent, 60, 80); }
+        if (cpuNum) cpuNum.textContent = sys.cpu_percent + '%';
+
+        // RAM
+        var ramFill = cards[1].querySelector('.progress-fill');
+        var ramNum = cards[1].querySelector('.stat-number');
+        if (ramFill) { ramFill.style.width = sys.ram_percent + '%'; ramFill.className = 'progress-fill ' + _progressClass(sys.ram_percent, 70, 85); }
+        if (ramNum) ramNum.textContent = sys.ram_used_gb + ' / ' + sys.ram_total_gb + ' GB (' + sys.ram_percent + '%)';
+
+        // Disk
+        var diskFill = cards[2].querySelector('.progress-fill');
+        var diskNum = cards[2].querySelector('.stat-number');
+        if (diskFill) { diskFill.style.width = sys.disk_percent + '%'; diskFill.className = 'progress-fill ' + _progressClass(sys.disk_percent, 75, 90); }
+        if (diskNum) diskNum.textContent = sys.disk_used_gb + ' / ' + sys.disk_total_gb + ' GB (' + sys.disk_percent + '%)';
+    }
+
+    function updateBotStatus(bots) {
+        var container = document.getElementById('bot-status');
+        if (!container) return;
+        var cards = container.querySelectorAll('.bot-card');
+        bots.forEach(function(bot, i) {
+            if (!cards[i]) return;
+            var indicator = cards[i].querySelector('.bot-indicator');
+            if (indicator) {
+                indicator.className = 'bot-indicator ' + (bot.status === 'online' ? 'indicator-online' : bot.status === 'offline' ? 'indicator-offline' : 'indicator-unknown');
+            }
+            var detail = cards[i].querySelector('.bot-detail');
+            if (detail) {
+                if (bot.ping && bot.ping !== 'N/A' && bot.ping !== 0) {
+                    detail.textContent = 'Ping: ' + bot.ping + 'ms';
+                } else if (bot.uptime && bot.uptime !== 'N/A') {
+                    detail.textContent = 'Uptime: ' + bot.uptime;
+                } else {
+                    detail.textContent = bot.status.charAt(0).toUpperCase() + bot.status.slice(1);
+                }
+            }
+        });
+    }
+
+    function updateEvents(events) {
+        var feed = document.getElementById('event-feed');
+        if (!feed || !events.length) return;
+
+        var html = '<ul class="event-list">';
+        events.forEach(function(ev) {
+            var evType = ev.event_type || ev.type || 'info';
+            html += '<li class="event-item">';
+            html += '<span class="event-time">' + (ev.timestamp || '') + '</span>';
+            html += '<span class="event-type badge-' + evType + '">' + evType.toUpperCase() + '</span>';
+            html += '<span class="event-message">' + (ev.message || '') + '</span>';
+            html += '</li>';
+        });
+        html += '</ul>';
+        feed.innerHTML = html;
+    }
+
+    // SSE starten wenn die Seite geladen ist
+    if (typeof EventSource !== 'undefined') {
+        connectSSE();
+    }
+})();
+</script>
+
 <!-- Bot-Status -->
 <section class="section">
     <h2 class="section-title">Bot-Status</h2>
@@ -103,17 +331,51 @@
             <span class="bot-indicator {% if bot.status == 'online' %}indicator-online{% elif bot.status == 'offline' %}indicator-offline{% else %}indicator-unknown{% endif %}"></span>
             <div class="bot-info">
                 <span class="bot-name">{{ bot.name }}</span>
-                <span class="bot-detail">Ping: {{ bot.ping }}ms</span>
+                <span class="bot-detail">{% if bot.ping != 'N/A' and bot.ping != 0 %}Ping: {{ bot.ping }}ms{% elif bot.uptime != 'N/A' %}Uptime: {{ bot.uptime }}{% else %}{{ bot.status|capitalize }}{% endif %}</span>
             </div>
         </div>
         {% endfor %}
     </div>
 </section>
 
+<!-- System-Updates -->
+<section class="section">
+    <h2 class="section-title">System-Updates</h2>
+    <div id="package-update-result" style="margin-bottom: 0.75rem;"></div>
+    <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap;">
+        <button class="btn btn-sm btn-secondary"
+                hx-post="/api/system/packages/check"
+                hx-target="#package-list-area"
+                hx-swap="innerHTML">Auf Updates pruefen</button>
+        <button class="btn btn-sm btn-primary"
+                hx-post="/api/system/packages/upgrade"
+                hx-target="#package-update-result"
+                hx-swap="innerHTML"
+                hx-confirm="Alle verfuegbaren Pakete aktualisieren?">Alle Updates installieren</button>
+    </div>
+    <div id="package-list-area"
+         hx-get="/api/system/packages/list"
+         hx-trigger="load"
+         hx-swap="innerHTML">
+        <p style="color: var(--text-muted);">Lade Update-Informationen...</p>
+    </div>
+</section>
+
 <!-- Letzte Ereignisse -->
 <section class="section">
-    <h2 class="section-title">Letzte Ereignisse</h2>
-    <div class="event-feed" id="event-feed" hx-get="/" hx-trigger="every 30s" hx-select="#event-feed" hx-swap="outerHTML">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+        <h2 class="section-title" style="margin-bottom: 0; border-bottom: none; padding-bottom: 0;">Letzte Ereignisse</h2>
+        {% if events %}
+        <button class="btn btn-sm btn-danger"
+                hx-post="/api/events/clear"
+                hx-target="#event-feed"
+                hx-swap="innerHTML"
+                hx-confirm="Alle Ereignisse loeschen?">
+            Alle loeschen
+        </button>
+        {% endif %}
+    </div>
+    <div class="event-feed" id="event-feed">
         {% if events %}
             <ul class="event-list">
                 {% for event in events %}

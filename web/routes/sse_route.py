@@ -1,0 +1,392 @@
+"""
+F29: Server-Sent Events (SSE) — Echtzeit-Updates fuer das Dashboard
+
+Stellt zwei SSE-Endpunkte bereit:
+  1. /api/sse/dashboard — Streamt alle Dashboard-Daten (Server, System, Bots, Events)
+  2. /api/sse/events   — Streamt nur neue Ereignisse aus der SQLite-Datenbank
+
+Verwendet StreamingResponse mit text/event-stream Content-Type.
+Heartbeat alle 15 Sekunden haelt die Verbindung offen.
+"""
+
+import asyncio
+import json
+import time
+from pathlib import Path
+from typing import AsyncGenerator
+
+from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse, StreamingResponse
+
+from utils.config import DATA_DIR, MONITOR_DATA_DIR
+from utils.logger import get_logger
+from modules.database.db_manager import get_db
+from web.auth import get_current_user
+
+logger = get_logger("web.routes.sse")
+
+router = APIRouter(prefix="/api/sse", tags=["SSE"])
+
+# Intervalle (in Sekunden)
+DASHBOARD_INTERVAL = 5
+EVENTS_INTERVAL = 3
+HEARTBEAT_INTERVAL = 15
+
+
+# ================================================================
+#  Hilfsfunktionen — Daten sammeln (analog zu dashboard.py)
+# ================================================================
+
+def _load_json_safe(filepath: Path) -> dict:
+    """Laedt eine JSON-Datei sicher. Gibt leeres Dict bei Fehler zurueck."""
+    try:
+        if filepath.exists():
+            with open(filepath, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except (json.JSONDecodeError, IOError) as e:
+        logger.warning(f"Konnte {filepath} nicht laden: {e}")
+    return {}
+
+
+def _collect_server_status() -> list[dict]:
+    """
+    Sammelt Server-Status-Daten aus data/monitor/*_status.json Dateien.
+    Gibt eine Liste von Server-Status-Dicts zurueck.
+    """
+    servers = []
+
+    if not MONITOR_DATA_DIR.exists():
+        return servers
+
+    # Nur *_status.json Dateien lesen (vom StatusWriter erzeugt)
+    # bot_status.json ausschliessen (wird unter Bot-Status angezeigt)
+    for json_file in sorted(MONITOR_DATA_DIR.glob("*_status.json")):
+        if json_file.name == "bot_status.json":
+            continue
+        data = _load_json_safe(json_file)
+        if data:
+            server_id = json_file.stem.replace("_status", "")
+            servers.append({
+                "id": data.get("id", server_id),
+                "name": data.get("name", server_id),
+                "status": data.get("status", "unknown"),
+                "players": data.get("players", 0),
+                "max_players": data.get("max_players", 0),
+                "uptime": data.get("uptime", "N/A"),
+                "type": data.get("type", "unknown"),
+                "cpu_percent": data.get("cpu_percent", 0),
+                "memory_mb": data.get("memory_mb", 0),
+            })
+
+    return servers
+
+
+def _collect_system_stats() -> dict:
+    """
+    Sammelt System-Performance-Daten (CPU, RAM, Disk) via psutil.
+    Gibt Fallback-Werte zurueck wenn psutil nicht verfuegbar ist.
+    """
+    stats = {
+        "cpu_percent": 0,
+        "ram_percent": 0,
+        "ram_used_gb": 0,
+        "ram_total_gb": 0,
+        "disk_percent": 0,
+        "disk_used_gb": 0,
+        "disk_total_gb": 0,
+    }
+    try:
+        import psutil
+
+        stats["cpu_percent"] = psutil.cpu_percent(interval=0.1)
+
+        mem = psutil.virtual_memory()
+        stats["ram_percent"] = mem.percent
+        stats["ram_used_gb"] = round(mem.used / (1024 ** 3), 1)
+        stats["ram_total_gb"] = round(mem.total / (1024 ** 3), 1)
+
+        disk = psutil.disk_usage("/")
+        stats["disk_percent"] = disk.percent
+        stats["disk_used_gb"] = round(disk.used / (1024 ** 3), 1)
+        stats["disk_total_gb"] = round(disk.total / (1024 ** 3), 1)
+    except ImportError:
+        logger.debug("psutil nicht installiert — System-Stats nicht verfuegbar")
+    except Exception as e:
+        logger.warning(f"Fehler beim Lesen der System-Stats: {e}")
+
+    return stats
+
+
+def _collect_bot_status() -> list[dict]:
+    """
+    Sammelt Bot-Status-Informationen aus den jeweiligen bot_status.json Dateien.
+    Prueft data/{gameserver,monitor,admin}/bot_status.json.
+    """
+    bots = []
+    bot_names = {
+        "gameserver": "GameServer Bot",
+        "monitor": "Monitor Bot",
+        "admin": "Admin Bot",
+    }
+
+    for bot_id, display_name in bot_names.items():
+        status_file = DATA_DIR / bot_id / "bot_status.json"
+        data = _load_json_safe(status_file)
+        bots.append({
+            "id": bot_id,
+            "name": display_name,
+            "status": data.get("status", "unknown"),
+            "ping": data.get("ping_ms", "N/A"),
+            "uptime": data.get("uptime", "N/A"),
+        })
+
+    return bots
+
+
+async def _collect_recent_events(limit: int = 20) -> list[dict]:
+    """
+    Liest die letzten Ereignisse aus der SQLite-Datenbank.
+    Faellt auf leere Liste zurueck wenn die DB nicht erreichbar ist.
+    """
+    try:
+        db = await get_db()
+        cursor = await db.execute(
+            "SELECT timestamp, event_type, category, server_id, message, details "
+            "FROM events ORDER BY timestamp DESC LIMIT ?",
+            (limit,),
+        )
+        rows = await cursor.fetchall()
+        events = []
+        for row in rows:
+            events.append({
+                "timestamp": row["timestamp"],
+                "event_type": row["event_type"],
+                "category": row["category"],
+                "server_id": row["server_id"],
+                "message": row["message"],
+                "details": row["details"],
+            })
+        return events
+    except Exception as e:
+        logger.warning(f"DB-Abfrage fuer Events fehlgeschlagen: {e}")
+        return []
+
+
+async def _collect_new_events_since(since_ts: str) -> list[dict]:
+    """
+    Liest nur Ereignisse die neuer als since_ts sind.
+    Wird vom /events-Endpoint verwendet um nur Deltas zu streamen.
+    """
+    try:
+        db = await get_db()
+        cursor = await db.execute(
+            "SELECT timestamp, event_type, category, server_id, message, details "
+            "FROM events WHERE timestamp > ? ORDER BY timestamp ASC LIMIT 50",
+            (since_ts,),
+        )
+        rows = await cursor.fetchall()
+        events = []
+        for row in rows:
+            events.append({
+                "timestamp": row["timestamp"],
+                "event_type": row["event_type"],
+                "category": row["category"],
+                "server_id": row["server_id"],
+                "message": row["message"],
+                "details": row["details"],
+            })
+        return events
+    except Exception as e:
+        logger.warning(f"DB-Abfrage fuer neue Events fehlgeschlagen: {e}")
+        return []
+
+
+# ================================================================
+#  SSE-Formatter
+# ================================================================
+
+def _format_sse(event: str, data: str) -> str:
+    """Formatiert eine SSE-Nachricht gemaess dem Standard."""
+    return f"event: {event}\ndata: {data}\n\n"
+
+
+def _format_heartbeat() -> str:
+    """Erzeugt einen SSE-Kommentar als Heartbeat (haelt Verbindung offen)."""
+    return ":heartbeat\n\n"
+
+
+# ================================================================
+#  SSE-Generatoren
+# ================================================================
+
+async def _dashboard_stream(request: Request) -> AsyncGenerator[str, None]:
+    """
+    Generator fuer den /dashboard-Endpoint.
+    Streamt alle 5 Sekunden ein vollstaendiges Dashboard-Update.
+    Sendet alle 15 Sekunden einen Heartbeat.
+    """
+    last_heartbeat = time.monotonic()
+    logger.info("SSE Dashboard-Stream gestartet")
+
+    try:
+        while True:
+            # Client-Disconnect erkennen
+            if await request.is_disconnected():
+                logger.debug("SSE Dashboard-Client hat Verbindung getrennt")
+                break
+
+            # Dashboard-Daten sammeln
+            try:
+                servers = _collect_server_status()
+                system = _collect_system_stats()
+                bots = _collect_bot_status()
+                events = await _collect_recent_events(limit=20)
+
+                payload = {
+                    "servers": servers,
+                    "system": system,
+                    "bots": bots,
+                    "events": events,
+                    "timestamp": time.time(),
+                }
+
+                yield _format_sse("dashboard_update", json.dumps(payload, ensure_ascii=False))
+
+            except Exception as e:
+                logger.error(f"Fehler beim Sammeln der Dashboard-Daten: {e}")
+                # Fehler-Event senden damit der Client Bescheid weiss
+                error_payload = {"error": str(e), "timestamp": time.time()}
+                yield _format_sse("error", json.dumps(error_payload))
+
+            # Heartbeat pruefen und ggf. senden
+            now = time.monotonic()
+            if now - last_heartbeat >= HEARTBEAT_INTERVAL:
+                yield _format_heartbeat()
+                last_heartbeat = now
+
+            await asyncio.sleep(DASHBOARD_INTERVAL)
+
+    except asyncio.CancelledError:
+        logger.debug("SSE Dashboard-Stream wurde abgebrochen")
+    except Exception as e:
+        logger.error(f"SSE Dashboard-Stream Fehler: {e}")
+    finally:
+        logger.info("SSE Dashboard-Stream beendet")
+
+
+async def _events_stream(request: Request) -> AsyncGenerator[str, None]:
+    """
+    Generator fuer den /events-Endpoint.
+    Prueft alle 3 Sekunden ob neue Events in der DB vorliegen.
+    Sendet nur neue Events (Delta-Modus).
+    """
+    # Startpunkt: aktuellen Zeitstempel als Referenz holen
+    last_timestamp = ""
+    last_heartbeat = time.monotonic()
+    logger.info("SSE Events-Stream gestartet")
+
+    try:
+        # Initiale Events laden um den letzten Zeitstempel zu ermitteln
+        initial_events = await _collect_recent_events(limit=1)
+        if initial_events:
+            last_timestamp = initial_events[0].get("timestamp", "")
+
+        while True:
+            # Client-Disconnect erkennen
+            if await request.is_disconnected():
+                logger.debug("SSE Events-Client hat Verbindung getrennt")
+                break
+
+            # Neue Events seit letztem Zeitstempel abfragen
+            try:
+                new_events = await _collect_new_events_since(last_timestamp)
+
+                if new_events:
+                    # Zeitstempel des neuesten Events merken
+                    last_timestamp = new_events[-1].get("timestamp", last_timestamp)
+                    yield _format_sse("new_events", json.dumps(new_events, ensure_ascii=False))
+
+            except Exception as e:
+                logger.error(f"Fehler beim Abfragen neuer Events: {e}")
+
+            # Heartbeat pruefen und ggf. senden
+            now = time.monotonic()
+            if now - last_heartbeat >= HEARTBEAT_INTERVAL:
+                yield _format_heartbeat()
+                last_heartbeat = now
+
+            await asyncio.sleep(EVENTS_INTERVAL)
+
+    except asyncio.CancelledError:
+        logger.debug("SSE Events-Stream wurde abgebrochen")
+    except Exception as e:
+        logger.error(f"SSE Events-Stream Fehler: {e}")
+    finally:
+        logger.info("SSE Events-Stream beendet")
+
+
+# ================================================================
+#  Endpunkte
+# ================================================================
+
+@router.get("/dashboard")
+async def sse_dashboard(request: Request):
+    """
+    SSE-Endpoint fuer vollstaendige Dashboard-Updates.
+
+    Streamt alle 5 Sekunden:
+      - Server-Status (aus *_status.json Dateien)
+      - System-Stats (CPU, RAM, Disk)
+      - Bot-Status (gameserver, monitor, admin)
+      - Letzte 20 Ereignisse aus der Datenbank
+
+    Event-Format:
+      event: dashboard_update
+      data: {"servers": [...], "system": {...}, "bots": [...], "events": [...]}
+    """
+    user = get_current_user(request)
+    if user is None:
+        return JSONResponse(
+            status_code=401,
+            content={"error": "Nicht authentifiziert"},
+        )
+
+    return StreamingResponse(
+        _dashboard_stream(request),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Nginx: Buffering deaktivieren
+        },
+    )
+
+
+@router.get("/events")
+async def sse_events(request: Request):
+    """
+    SSE-Endpoint fuer neue Ereignisse (Delta-Modus).
+
+    Prueft alle 3 Sekunden die SQLite-Datenbank auf neue Events
+    und streamt nur die Unterschiede seit dem letzten Check.
+
+    Event-Format:
+      event: new_events
+      data: [{"timestamp": ..., "event_type": ..., "message": ...}, ...]
+    """
+    user = get_current_user(request)
+    if user is None:
+        return JSONResponse(
+            status_code=401,
+            content={"error": "Nicht authentifiziert"},
+        )
+
+    return StreamingResponse(
+        _events_stream(request),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Nginx: Buffering deaktivieren
+        },
+    )

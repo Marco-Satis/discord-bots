@@ -1,85 +1,29 @@
 """
-Minecraft Blacklist Manager — serveruebergreifendes Ban-System (Dual-Read)
+Minecraft Blacklist Manager — serveruebergreifendes Ban-System
 
-Verwaltet Bans zentral in einer JSON-Datei UND in der SQLite-Datenbank.
-JSON dient als Fallback und wird bei jedem Schreibvorgang aktualisiert.
-SQLite ist die primaere Datenquelle (Tabellen: blacklist, bans).
-
-Dual-Read Modus:
-  - load()          : Laedt aus JSON (Fallback / Erststart)
-  - load_from_db()  : Laedt aus SQLite blacklist-Tabelle (WHERE server_type='minecraft')
-                       und ueberschreibt die In-Memory-Daten
-  - add() / remove(): Schreiben IMMER in JSON + SQLite gleichzeitig
-
-Ban-Synchronisation ueber RCON an alle aktiven MC-Server bleibt unveraendert.
-
-JSON-Dateiformat (data/mc_blacklist.json):
-{
-  "bans": [
-    {
-      "player_name": "Griefer123",
-      "reason": "Griefing",
-      "banned_by": "Admin",
-      "timestamp": "2026-02-20T15:30:00",
-      "servers": ["ALL"],
-      "active": true
-    }
-  ]
-}
+Persistenz: SQLite (Tabellen: blacklist, bans) — alleinige Datenquelle
+Ban-Synchronisation ueber RCON an alle aktiven MC-Server.
 """
 
 import asyncio
-import json
-import aiofiles
 from datetime import datetime
-from pathlib import Path
 from typing import List, Optional, Dict, Any
 
 from utils.logger import get_logger
-from utils.config import DATA_DIR
 from modules.database.db_manager import get_db
 
 logger = get_logger("minecraft.blacklist")
 
-BLACKLIST_FILE = DATA_DIR / "mc_blacklist.json"
-
 
 class MinecraftBlacklist:
-    """Serveruebergreifendes Ban-System fuer Minecraft (Dual-Read: JSON + SQLite)"""
+    """Serveruebergreifendes Ban-System fuer Minecraft (SQLite)"""
 
-    def __init__(self, filepath: Optional[Path] = None) -> None:
-        self.filepath = filepath or BLACKLIST_FILE
+    def __init__(self, **kwargs) -> None:
         self._data: Dict[str, Any] = {"bans": []}
         self._lock = asyncio.Lock()
 
-    async def load(self) -> None:
-        """Blacklist von Disk laden"""
-        try:
-            if self.filepath.exists():
-                async with aiofiles.open(self.filepath, "r", encoding="utf-8") as f:
-                    content = await f.read()
-                    self._data = json.loads(content)
-            else:
-                await self._save()
-        except (json.JSONDecodeError, IOError) as e:
-            logger.error(f"Blacklist laden fehlgeschlagen: {e}")
-
-    async def _save(self) -> None:
-        """Blacklist auf Disk speichern"""
-        try:
-            self.filepath.parent.mkdir(parents=True, exist_ok=True)
-            async with aiofiles.open(self.filepath, "w", encoding="utf-8") as f:
-                await f.write(json.dumps(self._data, indent=2, ensure_ascii=False))
-        except IOError as e:
-            logger.error(f"Blacklist speichern fehlgeschlagen: {e}")
-
     async def load_from_db(self) -> None:
-        """Blacklist aus SQLite laden (primaere Datenquelle).
-
-        Laedt alle Eintraege aus der blacklist-Tabelle mit server_type='minecraft'
-        und ueberschreibt die In-Memory _data["bans"]. Behaelt die JSON-Datei
-        als Fallback bei.
-        """
+        """Blacklist aus SQLite laden."""
         try:
             db = await get_db()
             cursor = await db.execute(
@@ -187,9 +131,8 @@ class MinecraftBlacklist:
                 entry["ip"] = ip
 
             self._data.setdefault("bans", []).append(entry)
-            await self._save()
 
-            # --- SQLite Dual-Write ---
+            # --- SQLite ---
             try:
                 db = await get_db()
                 await db.execute(
@@ -206,7 +149,7 @@ class MinecraftBlacklist:
                 await db.commit()
                 logger.debug(f"Blacklist SQLite: {player_name} in blacklist+bans eingefuegt")
             except Exception as e:
-                logger.error(f"Blacklist SQLite-Write fehlgeschlagen fuer {player_name}: {e}")
+                logger.error(f"Blacklist SQLite-Schreiben fehlgeschlagen fuer {player_name}: {e}")
 
             logger.info(
                 f"Blacklist: {player_name} gebannt von {banned_by} — {reason}"
@@ -230,9 +173,7 @@ class MinecraftBlacklist:
                     found = True
 
             if found:
-                await self._save()
-
-                # --- SQLite Dual-Write ---
+                # --- SQLite ---
                 try:
                     db = await get_db()
                     await db.execute(
@@ -248,7 +189,7 @@ class MinecraftBlacklist:
                     await db.commit()
                     logger.debug(f"Blacklist SQLite: {player_name} entfernt/deaktiviert")
                 except Exception as e:
-                    logger.error(f"Blacklist SQLite-Remove fehlgeschlagen fuer {player_name}: {e}")
+                    logger.error(f"Blacklist SQLite-Entfernen fehlgeschlagen fuer {player_name}: {e}")
 
                 logger.info(f"Blacklist: {player_name} entbannt")
             return found

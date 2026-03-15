@@ -4,12 +4,15 @@ F65: Dashboard Session-Timeout — Automatischer Logout nach Inaktivitaet
 - 60 Minuten Inaktivitaets-Timeout (konfigurierbar)
 - 24 Stunden absolutes Timeout
 - "Angemeldet bleiben" verlaengert auf 7 Tage
+
+WICHTIG: Pure ASGI Middleware (kein BaseHTTPMiddleware), um
+Body-Forwarding-Probleme bei POST-Requests zu vermeiden.
 """
 
 import time
-from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import Response, RedirectResponse
+from starlette.responses import RedirectResponse
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from utils.logger import get_logger
 
@@ -27,28 +30,44 @@ PUBLIC_PATHS = {
 }
 
 
-class SessionTimeoutMiddleware(BaseHTTPMiddleware):
+class SessionTimeoutMiddleware:
     """
-    Prueft Session-Timeouts bei jedem Request.
+    Pure ASGI Middleware fuer Session-Timeout-Pruefung.
 
     - Aktualisiert last_activity Timestamp
     - Leitet zu Login weiter wenn Timeout ueberschritten
     """
 
-    async def dispatch(self, request: Request, call_next) -> Response:
-        path = request.url.path
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        path = scope.get("path", "")
 
         # Oeffentliche Pfade ueberspringen
         for public in PUBLIC_PATHS:
             if path.startswith(public):
-                return await call_next(request)
+                await self.app(scope, receive, send)
+                return
 
-        session = request.session
+        request = Request(scope)
+
+        try:
+            session = request.session
+        except Exception:
+            await self.app(scope, receive, send)
+            return
+
         user = session.get("user")
 
         if not user:
             # Kein Login, kein Timeout-Check noetig
-            return await call_next(request)
+            await self.app(scope, receive, send)
+            return
 
         now = time.time()
         last_activity = session.get("last_activity", 0)
@@ -61,7 +80,9 @@ class SessionTimeoutMiddleware(BaseHTTPMiddleware):
             logger.info(f"Absolutes Timeout fuer {user.get('username', '?')} "
                         f"({(now - login_time) / 3600:.1f}h)")
             session.clear()
-            return RedirectResponse(url="/auth/login?reason=session_expired", status_code=302)
+            response = RedirectResponse(url="/auth/login?reason=session_expired", status_code=302)
+            await response(scope, receive, send)
+            return
 
         # Inaktivitaets-Timeout pruefen
         inactivity_limit = REMEMBER_ME_TIMEOUT if remember_me else INACTIVITY_TIMEOUT
@@ -69,9 +90,11 @@ class SessionTimeoutMiddleware(BaseHTTPMiddleware):
             logger.info(f"Inaktivitaets-Timeout fuer {user.get('username', '?')} "
                         f"({(now - last_activity) / 60:.0f}min)")
             session.clear()
-            return RedirectResponse(url="/auth/login?reason=inactive", status_code=302)
+            response = RedirectResponse(url="/auth/login?reason=inactive", status_code=302)
+            await response(scope, receive, send)
+            return
 
         # Aktivitaet aktualisieren
         session["last_activity"] = now
 
-        return await call_next(request)
+        await self.app(scope, receive, send)

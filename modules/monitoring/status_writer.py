@@ -13,7 +13,6 @@ Erzeugte Dateien (JSON-Bridge fuer Dashboard):
   - data/admin/bot_status.json
 
 Events werden in SQLite gespeichert (events-Tabelle in botdata.db).
-Beim Laden: SQLite primaer, JSON-Fallback fuer Migration bestehender Daten.
 """
 
 import asyncio
@@ -97,35 +96,13 @@ class StatusWriter:
         GAMESERVER_DATA_DIR.mkdir(parents=True, exist_ok=True)
         ADMIN_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-        # Bestehende Events aus JSON laden (Fallback / Startdaten).
-        # SQLite-Laden passiert async in start() bzw. beim ersten write_once().
-        self._load_events()
-
         logger.info(f"StatusWriter initialisiert — Intervall: {interval}s")
-
-    def _load_events(self) -> None:
-        """Laedt bestehende Events aus der JSON-Datei (sync, Fallback fuer Erststart)."""
-        events_file = MONITOR_DATA_DIR / "events.json"
-        try:
-            if events_file.exists():
-                with open(events_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                if isinstance(data, dict) and "events" in data:
-                    self._events = data["events"][-MAX_EVENTS:]
-                elif isinstance(data, list):
-                    self._events = data[-MAX_EVENTS:]
-        except (json.JSONDecodeError, IOError) as e:
-            logger.warning(f"Events konnten nicht geladen werden: {e}")
-            self._events = []
 
     async def _load_events_from_db(self) -> None:
         """
         Laedt Events aus SQLite. Wird beim ersten write_once()-Zyklus aufgerufen.
 
-        Strategie:
-          1. SQLite-Tabelle abfragen (letzte MAX_EVENTS Events).
-          2. Falls Ergebnisse vorhanden: Diese als primaere Quelle nutzen.
-          3. Falls DB leer UND JSON-Daten vorhanden: JSON-Daten nach SQLite migrieren.
+        Laedt die letzten MAX_EVENTS Events aus der SQLite events-Tabelle.
         """
         try:
             db = await get_db()
@@ -136,52 +113,23 @@ class StatusWriter:
             )
             rows = await cursor.fetchall()
 
-            if rows:
-                # DB hat Daten — als primaere Quelle verwenden
-                db_events = []
-                for row in reversed(rows):  # Aelteste zuerst
-                    db_events.append({
-                        "timestamp": str(row["timestamp"]) if row["timestamp"] else "",
-                        "type": row["event_type"] or "",
-                        "message": row["message"] or "",
-                        "category": row["category"],
-                        "server_id": row["server_id"],
-                        "details": row["details"],
-                    })
-                self._events = db_events
-                self._events_flushed_up_to = len(self._events)
-                self._db_ready = True
-                logger.info(f"Events aus SQLite geladen: {len(db_events)} Eintraege")
-                return
-
-            # DB ist leer — JSON-Daten migrieren falls vorhanden
-            if self._events:
-                logger.info(
-                    f"SQLite events-Tabelle leer, migriere {len(self._events)} "
-                    f"Events aus JSON"
-                )
-                for evt in self._events:
-                    await db.execute(
-                        "INSERT INTO events (timestamp, event_type, category, "
-                        "server_id, message, details) VALUES (?, ?, ?, ?, ?, ?)",
-                        (
-                            evt.get("timestamp", ""),
-                            evt.get("type", "info"),
-                            evt.get("category"),
-                            evt.get("server_id"),
-                            evt.get("message", ""),
-                            evt.get("details"),
-                        ),
-                    )
-                await db.commit()
-                self._events_flushed_up_to = len(self._events)
-                logger.info("JSON-Events erfolgreich nach SQLite migriert")
-
+            db_events = []
+            for row in reversed(rows):  # Aelteste zuerst
+                db_events.append({
+                    "timestamp": str(row["timestamp"]) if row["timestamp"] else "",
+                    "type": row["event_type"] or "",
+                    "message": row["message"] or "",
+                    "category": row["category"],
+                    "server_id": row["server_id"],
+                    "details": row["details"],
+                })
+            self._events = db_events
+            self._events_flushed_up_to = len(self._events)
             self._db_ready = True
+            logger.info(f"Events aus SQLite geladen: {len(db_events)} Eintraege")
 
         except Exception as e:
             logger.error(f"Fehler beim Laden der Events aus SQLite: {e}", exc_info=True)
-            # Fallback: JSON-Daten bleiben in self._events erhalten
             self._db_ready = False
 
     def add_event(
@@ -456,7 +404,7 @@ class StatusWriter:
         # Monitor Bot Status — direkt vom eigenen Bot-Objekt
         monitor_data = {
             "status": "online" if self.bot.is_ready() else "offline",
-            "ping_ms": round(self.bot.latency * 1000) if self.bot.latency else 0,
+            "ping_ms": round(self.bot.latency * 1000) if self.bot.latency and self.bot.latency != float("inf") else 0,
             "uptime": _format_uptime(
                 int(now - self._bot_start_time) if self._bot_start_time else 0
             ),
@@ -674,6 +622,47 @@ class StatusWriter:
             await self._flush_events_to_db()
         except Exception as e:
             logger.error(f"Fehler beim Flushen der Events: {e}", exc_info=True)
+
+        # F27: Health Auto-Restart Status
+        try:
+            har = getattr(self.bot, "health_auto_restart", None)
+            if har:
+                _write_json_safe(MONITOR_DATA_DIR / "health_auto_restart.json", har.get_status())
+        except Exception as e:
+            logger.debug(f"Fehler beim Schreiben des Health-Auto-Restart-Status: {e}")
+
+        # F49: Disk Guard Status
+        try:
+            dg = getattr(self.bot, "disk_guard", None)
+            if dg:
+                status = await dg.check_disk()
+                _write_json_safe(MONITOR_DATA_DIR / "disk_guard.json", status)
+        except Exception as e:
+            logger.debug(f"Fehler beim Schreiben des Disk-Guard-Status: {e}")
+
+        # F50: Service Watchdog Status
+        try:
+            sw = getattr(self.bot, "service_watchdog", None)
+            if sw:
+                _write_json_safe(MONITOR_DATA_DIR / "service_watchdog.json", sw.get_summary())
+        except Exception as e:
+            logger.debug(f"Fehler beim Schreiben des Service-Watchdog-Status: {e}")
+
+        # F51: DuckDNS Monitor Status
+        try:
+            ddns = getattr(self.bot, "duckdns_monitor", None)
+            if ddns and ddns.last_result:
+                _write_json_safe(MONITOR_DATA_DIR / "duckdns_monitor.json", ddns.last_result)
+        except Exception as e:
+            logger.debug(f"Fehler beim Schreiben des DuckDNS-Status: {e}")
+
+        # F52: Port Monitor Status
+        try:
+            pm = getattr(self.bot, "port_monitor", None)
+            if pm:
+                _write_json_safe(MONITOR_DATA_DIR / "port_monitor.json", pm.get_summary())
+        except Exception as e:
+            logger.debug(f"Fehler beim Schreiben des Port-Monitor-Status: {e}")
 
         logger.debug("Status-Dateien-Runde abgeschlossen")
 

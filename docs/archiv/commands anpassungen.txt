@@ -1,0 +1,26 @@
+Satisfactory:
+commands die gelöscht werden durch Integration in dashboard:
+start, stop, Restart, cancel, backup create, playerlimit, 
+
+coammnds zum unebennen:
+sat backup download --> sat sav download
+sat backup list --> sat sav list 
+sat backup restore --> sat sav restore
+sat backup save --> sat sav save 
+sat config load --> sat sav load
+sat config sats --> sat sav stats
+
+generelles löschen dieser commands:
+sat config Autosave, sat config console (entweder in Dashboard integrieren oder weglassen da nur ich das bracuhe), sat config update (da automatisch nicht mehr benötigt), sat config Settings/backup/restore
+
+
+Minecraft:
+commands die gelöscht werden durch Integration in dashboard:
+mc config Autosave, start, stop, Restart, cancel, config set, 
+
+
+Allgemine commands die nicht benötigt werden:
+/Server, 
+
+allgemeine commands ins Dashboard übertragen:
+alle maint befehle, alle mod befehle bis auf mod list/info, 

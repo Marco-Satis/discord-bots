@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard Mockup — Discord Bot System</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f1117; color: #e1e4e8; min-height: 100vh; }
+
+  /* Navigation */
+  .sidebar { position: fixed; left: 0; top: 0; width: 220px; height: 100vh; background: #161b22; border-right: 1px solid #30363d; padding: 20px 0; z-index: 10; }
+  .sidebar h2 { padding: 0 20px 20px; font-size: 16px; color: #58a6ff; border-bottom: 1px solid #30363d; margin-bottom: 10px; }
+  .sidebar h2 span { font-size: 11px; color: #8b949e; display: block; margin-top: 4px; }
+  .nav-item { display: flex; align-items: center; gap: 10px; padding: 10px 20px; color: #c9d1d9; text-decoration: none; font-size: 14px; cursor: pointer; transition: background .15s; }
+  .nav-item:hover { background: #1f2937; }
+  .nav-item.active { background: #1f2937; color: #58a6ff; border-left: 3px solid #58a6ff; }
+  .nav-item .icon { width: 18px; text-align: center; }
+  .nav-section { font-size: 11px; text-transform: uppercase; color: #8b949e; padding: 15px 20px 5px; letter-spacing: .5px; }
+  .sidebar-footer { position: absolute; bottom: 0; width: 100%; padding: 15px 20px; border-top: 1px solid #30363d; font-size: 12px; color: #8b949e; }
+
+  /* Main */
+  .main { margin-left: 220px; padding: 30px; }
+  .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; }
+  .page-header h1 { font-size: 24px; font-weight: 600; }
+  .live-badge { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #3fb950; }
+  .live-badge .dot { width: 8px; height: 8px; background: #3fb950; border-radius: 50%; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
+
+  /* Server Cards */
+  .server-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-bottom: 25px; }
+  .server-card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 20px; transition: border-color .2s; }
+  .server-card:hover { border-color: #58a6ff; }
+  .server-card.online { border-left: 4px solid #3fb950; }
+  .server-card.offline { border-left: 4px solid #f85149; }
+
+  .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 15px; }
+  .card-title { font-size: 16px; font-weight: 600; }
+  .card-subtitle { font-size: 12px; color: #8b949e; margin-top: 2px; }
+  .status-badge { padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 500; }
+  .status-badge.online { background: rgba(63,185,80,.15); color: #3fb950; }
+  .status-badge.offline { background: rgba(248,81,73,.15); color: #f85149; }
+
+  .card-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 15px; }
+  .stat { text-align: center; }
+  .stat-value { font-size: 20px; font-weight: 700; color: #f0f6fc; }
+  .stat-label { font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: .3px; }
+
+  .player-list { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 15px; min-height: 28px; }
+  .player-tag { background: #21262d; padding: 3px 10px; border-radius: 12px; font-size: 12px; color: #c9d1d9; }
+
+  .card-actions { display: flex; gap: 8px; }
+  .btn { padding: 6px 16px; border-radius: 6px; border: 1px solid #30363d; font-size: 13px; cursor: pointer; font-weight: 500; transition: all .15s; }
+  .btn-stop { background: rgba(248,81,73,.1); color: #f85149; border-color: rgba(248,81,73,.3); }
+  .btn-stop:hover { background: rgba(248,81,73,.2); }
+  .btn-restart { background: rgba(210,153,34,.1); color: #d29922; border-color: rgba(210,153,34,.3); }
+  .btn-restart:hover { background: rgba(210,153,34,.2); }
+  .btn-start { background: rgba(63,185,80,.1); color: #3fb950; border-color: rgba(63,185,80,.3); }
+  .btn-start:hover { background: rgba(63,185,80,.2); }
+  .btn-maint { background: rgba(88,166,255,.1); color: #58a6ff; border-color: rgba(88,166,255,.3); }
+  .btn-maint:hover { background: rgba(88,166,255,.2); }
+
+  /* System Bar */
+  .system-bar { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 25px; }
+  .sys-card { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 16px; }
+  .sys-label { font-size: 12px; color: #8b949e; margin-bottom: 6px; }
+  .sys-value { font-size: 22px; font-weight: 700; }
+  .sys-bar-bg { height: 6px; background: #21262d; border-radius: 3px; margin-top: 8px; overflow: hidden; }
+  .sys-bar-fill { height: 100%; border-radius: 3px; transition: width .5s; }
+  .sys-bar-fill.green { background: #3fb950; }
+  .sys-bar-fill.yellow { background: #d29922; }
+  .sys-bar-fill.red { background: #f85149; }
+
+  /* Events */
+  .events-section { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 20px; }
+  .events-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+  .events-header h3 { font-size: 15px; font-weight: 600; }
+  .events-filter { font-size: 12px; color: #58a6ff; cursor: pointer; }
+  .event-row { display: flex; align-items: flex-start; gap: 12px; padding: 8px 0; border-bottom: 1px solid #21262d; }
+  .event-row:last-child { border-bottom: none; }
+  .event-time { font-size: 12px; color: #8b949e; min-width: 50px; padding-top: 2px; }
+  .event-icon { width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; }
+  .event-icon.join { background: rgba(63,185,80,.15); color: #3fb950; }
+  .event-icon.leave { background: rgba(248,81,73,.15); color: #f85149; }
+  .event-icon.backup { background: rgba(136,132,216,.15); color: #8884d8; }
+  .event-icon.health { background: rgba(63,185,80,.15); color: #3fb950; }
+  .event-icon.start { background: rgba(88,166,255,.15); color: #58a6ff; }
+  .event-icon.warn { background: rgba(210,153,34,.15); color: #d29922; }
+  .event-text { font-size: 13px; color: #c9d1d9; }
+  .event-text .server-name { color: #58a6ff; font-weight: 500; }
+  .event-text .player-name { color: #d2a8ff; font-weight: 500; }
+
+  /* Tabs for switching views */
+  .tab-note { text-align: center; padding: 40px; color: #8b949e; font-style: italic; font-size: 14px; margin-top: 30px; background: #161b22; border: 1px dashed #30363d; border-radius: 12px; }
+</style>
+</head>
+<body>
+
+<!-- Sidebar Navigation -->
+<nav class="sidebar">
+  <h2>Bot Dashboard <span>Discord Bot System v3.1.0</span></h2>
+  <div class="nav-item active"><span class="icon">📊</span> Übersicht</div>
+  <div class="nav-item"><span class="icon">⚠️</span> Fehler</div>
+  <div class="nav-item"><span class="icon">🛡️</span> Admin Bot</div>
+  <div class="nav-item"><span class="icon">⚙️</span> Config</div>
+  <div class="nav-item"><span class="icon">🖥️</span> System</div>
+  <div class="nav-section"></div>
+  <div class="nav-item"><span class="icon">↩️</span> Logout</div>
+  <div class="sidebar-footer">
+    Eingeloggt als <strong>Admin</strong><br>
+    Letzter Login: Heute 14:10
+  </div>
+</nav>
+
+<!-- Main Content -->
+<main class="main">
+
+  <!-- Page Header -->
+  <div class="page-header">
+    <h1>Dashboard — Übersicht</h1>
+    <div class="live-badge"><span class="dot"></span> Live-Updates aktiv</div>
+  </div>
+
+  <!-- System Performance Bar -->
+  <div class="system-bar">
+    <div class="sys-card">
+      <div class="sys-label">CPU-Auslastung</div>
+      <div class="sys-value" style="color: #3fb950;">23%</div>
+      <div class="sys-bar-bg"><div class="sys-bar-fill green" style="width: 23%;"></div></div>
+    </div>
+    <div class="sys-card">
+      <div class="sys-label">RAM-Nutzung</div>
+      <div class="sys-value" style="color: #d29922;">11.2 / 16 GB</div>
+      <div class="sys-bar-bg"><div class="sys-bar-fill yellow" style="width: 70%;"></div></div>
+    </div>
+    <div class="sys-card">
+      <div class="sys-label">Festplatte</div>
+      <div class="sys-value" style="color: #3fb950;">45%</div>
+      <div class="sys-bar-bg"><div class="sys-bar-fill green" style="width: 45%;"></div></div>
+    </div>
+    <div class="sys-card">
+      <div class="sys-label">Netzwerk (↑/↓)</div>
+      <div class="sys-value" style="color: #c9d1d9;">2.3 / 8.1 MB/s</div>
+      <div class="sys-bar-bg"><div class="sys-bar-fill green" style="width: 15%;"></div></div>
+    </div>
+  </div>
+
+  <!-- Server Cards -->
+  <div class="server-grid">
+
+    <!-- SAT Server -->
+    <div class="server-card online">
+      <div class="card-header">
+        <div>
+          <div class="card-title">🏭 Satisfactory</div>
+          <div class="card-subtitle">Dedicated Server v1.0.0.5</div>
+        </div>
+        <span class="status-badge online">● Online</span>
+      </div>
+      <div class="card-stats">
+        <div class="stat">
+          <div class="stat-value">4<span style="font-size:13px;color:#8b949e">/16</span></div>
+          <div class="stat-label">Spieler</div>
+        </div>
+        <div class="stat">
+          <div class="stat-value">3h 42m</div>
+          <div class="stat-label">Uptime</div>
+        </div>
+        <div class="stat">
+          <div class="stat-value">35%</div>
+          <div class="stat-label">CPU</div>
+        </div>
+      </div>
+      <div class="player-list">
+        <span class="player-tag">Marco</span>
+        <span class="player-tag">Alex</span>
+        <span class="player-tag">Steve</span>
+        <span class="player-tag">Notch</span>
+      </div>
+      <div class="card-actions">
+        <button class="btn btn-stop">⏹ Stop</button>
+        <button class="btn btn-restart">🔄 Restart</button>
+        <button class="btn btn-maint">🔧 Wartung</button>
+      </div>
+    </div>
+
+    <!-- BMC Server -->
+    <div class="server-card online">
+      <div class="card-header">
+        <div>
+          <div class="card-title">⛏️ Better Minecraft</div>
+          <div class="card-subtitle">BMC3 Fabric · Paper 1.21.4</div>
+        </div>
+        <span class="status-badge online">● Online</span>
+      </div>
+      <div class="card-stats">
+        <div class="stat">
+          <div class="stat-value">2<span style="font-size:13px;color:#8b949e">/20</span></div>
+          <div class="stat-label">Spieler</div>
+        </div>
+        <div class="stat">
+          <div class="stat-value">1h 15m</div>
+          <div class="stat-label">Uptime</div>
+        </div>
+        <div class="stat">
+          <div class="stat-value">28%</div>
+          <div class="stat-label">CPU</div>
+        </div>
+      </div>
+      <div class="player-list">
+        <span class="player-tag">Steve</span>
+        <span class="player-tag">Creeper_King</span>
+      </div>
+      <div class="card-actions">
+        <button class="btn btn-stop">⏹ Stop</button>
+        <button class="btn btn-restart">🔄 Restart</button>
+        <button class="btn btn-maint">🔧 Wartung</button>
+      </div>
+    </div>
+
+    <!-- Vanilla Server -->
+    <div class="server-card offline">
+      <div class="card-header">
+        <div>
+          <div class="card-title">🟩 Vanilla</div>
+          <div class="card-subtitle">Paper MC 1.21.4 Build 209</div>
+        </div>
+        <span class="status-badge offline">● Offline</span>
+      </div>
+      <div class="card-stats">
+        <div class="stat">
+          <div class="stat-value" style="color:#8b949e;">—</div>
+          <div class="stat-label">Spieler</div>
+        </div>
+        <div class="stat">
+          <div class="stat-value" style="color:#8b949e;">—</div>
+          <div class="stat-label">Uptime</div>
+        </div>
+        <div class="stat">
+          <div class="stat-value" style="color:#8b949e;">—</div>
+          <div class="stat-label">CPU</div>
+        </div>
+      </div>
+      <div class="player-list" style="color:#8b949e; font-size:12px;">Keine Spieler online</div>
+      <div class="card-actions">
+        <button class="btn btn-start">▶ Start</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Events Feed -->
+  <div class="events-section">
+    <div class="events-header">
+      <h3>Letzte Ereignisse</h3>
+      <span class="events-filter">Alle anzeigen →</span>
+    </div>
+
+    <div class="event-row">
+      <span class="event-time">14:23</span>
+      <span class="event-icon join">→</span>
+      <span class="event-text"><span class="player-name">Marco</span> joined <span class="server-name">BMC</span></span>
+    </div>
+    <div class="event-row">
+      <span class="event-time">14:20</span>
+      <span class="event-icon backup">💾</span>
+      <span class="event-text">Auto-Backup <span class="server-name">BMC</span> abgeschlossen (2.1 GB) — OneDrive ✓</span>
+    </div>
+    <div class="event-row">
+      <span class="event-time">14:15</span>
+      <span class="event-icon health">✓</span>
+      <span class="event-text">Health Check <span class="server-name">SAT</span>: Alle Checks bestanden</span>
+    </div>
+    <div class="event-row">
+      <span class="event-time">14:10</span>
+      <span class="event-icon warn">⚠</span>
+      <span class="event-text">RAM-Warnung: <span class="server-name">BMC</span> nutzt 7.8 GB (Schwellwert: 8 GB)</span>
+    </div>
+    <div class="event-row">
+      <span class="event-time">13:50</span>
+      <span class="event-icon start">▶</span>
+      <span class="event-text">Server <span class="server-name">BMC</span> gestartet (manuell via Discord)</span>
+    </div>
+    <div class="event-row">
+      <span class="event-time">13:45</span>
+      <span class="event-icon leave">←</span>
+      <span class="event-text"><span class="player-name">Alex</span> left <span class="server-name">Vanilla</span> (Spielzeit: 2h 13m)</span>
+    </div>
+    <div class="event-row">
+      <span class="event-time">13:30</span>
+      <span class="event-icon backup">💾</span>
+      <span class="event-text">Auto-Backup <span class="server-name">SAT</span> abgeschlossen (4.7 GB) — OneDrive ✓</span>
+    </div>
+    <div class="event-row">
+      <span class="event-time">13:15</span>
+      <span class="event-icon health">✓</span>
+      <span class="event-text">Health Check <span class="server-name">Vanilla</span>: Alle Checks bestanden</span>
+    </div>
+  </div>
+
+  <!-- Note -->
+  <div class="tab-note">
+    Dies ist ein statisches Mockup der Dashboard-Übersichtsseite.<br>
+    Die anderen Seiten (Server, Spieler, Logs, Backups, Config) folgen als weitere Mockups.
+  </div>
+
+</main>
+</body>
+</html>

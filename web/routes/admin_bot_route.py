@@ -7,6 +7,7 @@ Reaction Roles, Leveling, Tickets, Audit-Logging, Giveaways.
 """
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Request
@@ -36,6 +37,7 @@ MODULE_FILE_MAP = {
     "tickets":        ("tickets",        "config.json"),
     "audit":          ("audit",          "config.json"),
     "giveaways":      ("giveaway",       "config.json"),
+    "embeds":         ("admin",          "embeds_config.json"),
 }
 
 # Standard-Konfigurationen fuer jedes Modul (Fallback wenn Datei fehlt)
@@ -134,6 +136,10 @@ DEFAULT_CONFIGS = {
         "allow_multiple_entries": False,
         "dm_winners": True,
         "giveaway_channel_id": "",
+    },
+    "embeds": {
+        "last_channel_id": "",
+        "saved_templates": [],
     },
 }
 
@@ -391,6 +397,63 @@ def _parse_form_giveaways(form) -> dict:
     }
 
 
+def _parse_form_embeds(form) -> dict:
+    """
+    Parst Formular-Daten fuer den Embed-Builder.
+    Speichert die Embed-Daten als Queue-Eintrag,
+    den der Admin Bot abholt und sendet.
+    """
+    # Farbe bestimmen
+    color_val = form.get("embed_color", "#5865F2")
+    if color_val == "custom":
+        color_val = form.get("custom_color", "#5865F2").strip()
+    if not color_val.startswith("#"):
+        color_val = "#5865F2"
+
+    # Felder sammeln
+    fields = []
+    for i in range(3):
+        fname = form.get(f"field_name_{i}", "").strip()
+        fvalue = form.get(f"field_value_{i}", "").strip()
+        if fname and fvalue:
+            fields.append({
+                "name": fname,
+                "value": fvalue,
+                "inline": f"field_inline_{i}" in form,
+            })
+
+    embed_data = {
+        "channel_id": form.get("channel_id", "").strip(),
+        "title": form.get("embed_title", "").strip(),
+        "description": form.get("embed_description", "").strip(),
+        "color": color_val,
+        "thumbnail_url": form.get("embed_thumbnail", "").strip(),
+        "image_url": form.get("embed_image", "").strip(),
+        "footer_text": form.get("embed_footer", "").strip(),
+        "author_name": form.get("embed_author", "").strip(),
+        "fields": fields,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "status": "pending",
+    }
+
+    # Queue-Datei fuer den Admin Bot schreiben
+    queue_dir = DATA_DIR / "admin" / "embed_queue"
+    queue_dir.mkdir(parents=True, exist_ok=True)
+    queue_file = queue_dir / f"embed_{int(datetime.now().timestamp())}.json"
+    try:
+        with open(queue_file, "w", encoding="utf-8") as f:
+            json.dump(embed_data, f, ensure_ascii=False, indent=2)
+        logger.info(f"Embed in Queue geschrieben: {queue_file.name}")
+    except IOError as e:
+        logger.error(f"Fehler beim Schreiben der Embed-Queue: {e}")
+
+    # Config mit letzter Channel-ID aktualisieren
+    return {
+        "last_channel_id": embed_data["channel_id"],
+        "saved_templates": _load_module_config("embeds").get("saved_templates", []),
+    }
+
+
 # Zuordnung Modul-Name → Parser-Funktion
 FORM_PARSERS = {
     "temp_voice":     _parse_form_temp_voice,
@@ -403,6 +466,7 @@ FORM_PARSERS = {
     "tickets":        _parse_form_tickets,
     "audit":          _parse_form_audit,
     "giveaways":      _parse_form_giveaways,
+    "embeds":         _parse_form_embeds,
 }
 
 # Zuordnung Tab-Name → Template-Partial-Dateiname
@@ -417,6 +481,7 @@ TAB_TEMPLATES = {
     "tickets":        "partials/admin_tab_tickets.html",
     "audit":          "partials/admin_tab_audit.html",
     "giveaways":      "partials/admin_tab_giveaways.html",
+    "embeds":         "partials/admin_tab_embeds.html",
 }
 
 
@@ -435,11 +500,24 @@ async def admin_bot_page(request: Request):
     # Standard-Tab: Temp Voice
     config = _load_module_config("temp_voice")
 
+    # Admin Bot Status aus data/admin/bot_status.json lesen
+    admin_status_file = DATA_DIR / "admin" / "bot_status.json"
+    admin_bot_status = "offline"
+    try:
+        if admin_status_file.exists():
+            with open(admin_status_file, "r", encoding="utf-8") as f:
+                admin_data = json.load(f)
+                admin_bot_status = admin_data.get("status", "offline")
+    except (json.JSONDecodeError, IOError):
+        pass
+
     return templates.TemplateResponse("admin_bot.html", {
         "request": request,
         "user": user,
         "active_tab": "temp_voice",
         "config": config,
+        "admin_bot_status": admin_bot_status,
+        "guild_name": "",
         "success": "",
         "error": "",
     })

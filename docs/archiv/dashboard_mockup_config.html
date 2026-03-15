@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard Mockup — Config-Panel</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f1117; color: #e1e4e8; min-height: 100vh; }
+
+  /* Sidebar */
+  .sidebar { position: fixed; left: 0; top: 0; width: 220px; height: 100vh; background: #161b22; border-right: 1px solid #30363d; padding: 20px 0; z-index: 10; }
+  .sidebar h2 { padding: 0 20px 20px; font-size: 16px; color: #58a6ff; border-bottom: 1px solid #30363d; margin-bottom: 10px; }
+  .sidebar h2 span { font-size: 11px; color: #8b949e; display: block; margin-top: 4px; }
+  .nav-item { display: flex; align-items: center; gap: 10px; padding: 10px 20px; color: #c9d1d9; text-decoration: none; font-size: 14px; cursor: pointer; transition: background .15s; }
+  .nav-item:hover { background: #1f2937; }
+  .nav-item.active { background: #1f2937; color: #58a6ff; border-left: 3px solid #58a6ff; }
+  .nav-item .icon { width: 18px; text-align: center; }
+  .nav-section { font-size: 11px; text-transform: uppercase; color: #8b949e; padding: 15px 20px 5px; letter-spacing: .5px; }
+  .sidebar-footer { position: absolute; bottom: 0; width: 100%; padding: 15px 20px; border-top: 1px solid #30363d; font-size: 12px; color: #8b949e; }
+
+  /* Main */
+  .main { margin-left: 220px; padding: 30px; max-width: 1100px; }
+  .page-header { margin-bottom: 25px; }
+  .page-header h1 { font-size: 24px; font-weight: 600; }
+  .page-header p { font-size: 14px; color: #8b949e; margin-top: 4px; }
+
+  /* Tabs */
+  .tabs { display: flex; gap: 0; border-bottom: 1px solid #30363d; margin-bottom: 25px; }
+  .tab { padding: 10px 20px; font-size: 14px; color: #8b949e; cursor: pointer; border-bottom: 2px solid transparent; transition: all .15s; }
+  .tab:hover { color: #c9d1d9; }
+  .tab.active { color: #58a6ff; border-bottom-color: #58a6ff; }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  /* Cards */
+  .section-card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 24px; margin-bottom: 20px; }
+  .section-card h3 { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
+  .section-card .subtitle { font-size: 13px; color: #8b949e; margin-bottom: 20px; }
+
+  /* Form Elements */
+  .form-group { margin-bottom: 18px; }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .form-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+  label { display: block; font-size: 13px; color: #c9d1d9; margin-bottom: 6px; font-weight: 500; }
+  label .hint { font-weight: 400; color: #8b949e; font-size: 12px; }
+  input[type="text"], input[type="number"], input[type="password"], input[type="file"], select, textarea {
+    width: 100%; padding: 8px 12px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px;
+    color: #c9d1d9; font-size: 14px; font-family: inherit; transition: border-color .15s;
+  }
+  input:focus, select:focus, textarea:focus { border-color: #58a6ff; outline: none; }
+
+  /* Toggle */
+  .toggle-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid #21262d; }
+  .toggle-row:last-child { border-bottom: none; }
+  .toggle-info { flex: 1; }
+  .toggle-label { font-size: 14px; color: #c9d1d9; font-weight: 500; }
+  .toggle-desc { font-size: 12px; color: #8b949e; margin-top: 2px; }
+  .toggle { position: relative; width: 44px; height: 24px; flex-shrink: 0; margin-left: 16px; }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background: #30363d; border-radius: 24px; transition: .2s; }
+  .toggle .slider:before { content: ""; position: absolute; height: 18px; width: 18px; left: 3px; bottom: 3px; background: #c9d1d9; border-radius: 50%; transition: .2s; }
+  .toggle input:checked + .slider { background: #3fb950; }
+  .toggle input:checked + .slider:before { transform: translateX(20px); }
+
+  /* Tags */
+  .tag-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .tag { display: inline-flex; align-items: center; gap: 4px; background: #21262d; padding: 4px 10px; border-radius: 12px; font-size: 12px; color: #c9d1d9; }
+  .tag .remove { cursor: pointer; color: #f85149; font-weight: 700; margin-left: 2px; }
+  .tag-input-row { display: flex; gap: 8px; margin-top: 8px; }
+  .tag-input-row input { flex: 1; }
+
+  /* Table */
+  .data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .data-table th { text-align: left; padding: 8px 12px; color: #8b949e; font-weight: 500; border-bottom: 1px solid #30363d; font-size: 12px; text-transform: uppercase; letter-spacing: .3px; }
+  .data-table td { padding: 10px 12px; border-bottom: 1px solid #21262d; color: #c9d1d9; }
+
+  /* Buttons */
+  .btn { padding: 8px 18px; border-radius: 6px; border: 1px solid #30363d; font-size: 13px; cursor: pointer; font-weight: 500; transition: all .15s; font-family: inherit; }
+  .btn-primary { background: #238636; color: #fff; border-color: #2ea043; }
+  .btn-primary:hover { background: #2ea043; }
+  .btn-danger { background: rgba(248,81,73,.1); color: #f85149; border-color: rgba(248,81,73,.3); }
+  .btn-secondary { background: #21262d; color: #c9d1d9; }
+  .btn-secondary:hover { background: #30363d; }
+  .btn-add { background: rgba(88,166,255,.1); color: #58a6ff; border-color: rgba(88,166,255,.3); font-size: 12px; padding: 5px 12px; }
+  .actions-bar { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; padding-top: 16px; border-top: 1px solid #30363d; }
+
+  /* Status */
+  .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+  .status-dot.green { background: #3fb950; }
+  .status-dot.red { background: #f85149; }
+  .status-dot.yellow { background: #d29922; }
+
+  /* Bot Profile Card */
+  .bot-profile { display: flex; gap: 20px; align-items: flex-start; padding: 16px; background: #0d1117; border: 1px solid #30363d; border-radius: 10px; margin-bottom: 16px; }
+  .bot-avatar { width: 80px; height: 80px; border-radius: 50%; background: #21262d; display: flex; align-items: center; justify-content: center; font-size: 32px; flex-shrink: 0; overflow: hidden; position: relative; }
+  .bot-avatar .upload-overlay { position: absolute; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity .2s; cursor: pointer; border-radius: 50%; font-size: 14px; }
+  .bot-avatar:hover .upload-overlay { opacity: 1; }
+  .bot-profile-info { flex: 1; }
+  .bot-profile-name { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
+  .bot-profile-id { font-size: 11px; color: #8b949e; font-family: monospace; }
+  .rate-limit-hint { font-size: 11px; color: #d29922; margin-top: 8px; display: flex; align-items: center; gap: 4px; }
+</style>
+</head>
+<body>
+
+<!-- Sidebar -->
+<nav class="sidebar">
+  <h2>Bot Dashboard <span>Discord Bot System v3.1.0</span></h2>
+  <div class="nav-item"><span class="icon">📊</span> Übersicht</div>
+  <div class="nav-item"><span class="icon">⚠️</span> Fehler</div>
+  <div class="nav-item"><span class="icon">🛡️</span> Admin Bot</div>
+  <div class="nav-item active"><span class="icon">⚙️</span> Config</div>
+  <div class="nav-item"><span class="icon">🖥️</span> System</div>
+  <div class="nav-section"></div>
+  <div class="nav-item"><span class="icon">↩️</span> Logout</div>
+  <div class="sidebar-footer" style="display:flex; align-items:center; gap:10px;">
+    <div style="width:32px; height:32px; border-radius:50%; background:#5865F2; display:flex; align-items:center; justify-content:center; font-size:14px; flex-shrink:0;">M</div>
+    <div>
+      <strong style="font-size:13px; color:#e1e4e8;">Marco</strong><br>
+      <span style="font-size:11px;">via Discord</span>
+    </div>
+  </div>
+</nav>
+
+<!-- Main -->
+<main class="main">
+
+  <div class="page-header">
+    <h1>⚙️ Config-Panel</h1>
+    <p>Bot-Konfiguration, Login-Verwaltung und Bot-Profile — Änderungen werden sofort übernommen</p>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <div class="tab" onclick="showTab('toggles')">🔘 Feature-Toggles</div>
+    <div class="tab" onclick="showTab('intervals')">⏱️ Intervalle</div>
+    <div class="tab" onclick="showTab('thresholds')">📊 Schwellwerte</div>
+    <div class="tab" onclick="showTab('channels')">📢 Channels</div>
+    <div class="tab active" onclick="showTab('login')">🔐 Login-Verwaltung</div>
+    <div class="tab" onclick="showTab('botprofiles')">🤖 Bot-Profile</div>
+  </div>
+
+  <!-- ==================== TAB: LOGIN-VERWALTUNG ==================== -->
+  <div id="tab-login" class="tab-content active">
+
+    <!-- OAuth2 Status -->
+    <div class="section-card">
+      <h3>🔐 Discord OAuth2 — Status</h3>
+      <div class="subtitle">Verbindungsstatus der Discord OAuth2-Anmeldung</div>
+
+      <div style="display:flex; align-items:center; gap:12px; padding:12px 16px; background:#0d1117; border:1px solid rgba(63,185,80,.3); border-radius:8px; margin-bottom:16px;">
+        <span class="status-dot green"></span>
+        <div style="flex:1;">
+          <div style="font-size:14px; font-weight:500;">OAuth2 verbunden</div>
+          <div style="font-size:12px; color:#8b949e;">Client ID: ••••••••7842 | Guild: Gaming Server (ID: 123456789)</div>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Discord Client ID</label>
+          <input type="text" value="••••••••••••7842" disabled style="color:#8b949e;">
+        </div>
+        <div class="form-group">
+          <label>Redirect URI</label>
+          <input type="text" value="https://dashboard.example.com/auth/discord/callback" disabled style="color:#8b949e; font-size:12px;">
+        </div>
+      </div>
+    </div>
+
+    <!-- Berechtigte Rollen -->
+    <div class="section-card">
+      <h3>Berechtigte Discord-Rollen</h3>
+      <div class="subtitle">User mit einer dieser Rollen können sich per Discord OAuth2 im Dashboard anmelden</div>
+
+      <table class="data-table">
+        <thead>
+          <tr><th>Rolle</th><th>Rollen-ID</th><th>Mitglieder</th><th></th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="tag" style="background:rgba(248,81,73,.15); color:#f85149;">@Admin</span></td>
+            <td style="font-family:monospace; font-size:12px;">1234567890123456</td>
+            <td style="color:#8b949e;">2 User</td>
+            <td><button class="btn btn-danger" style="padding:3px 8px; font-size:11px;">✕</button></td>
+          </tr>
+          <tr>
+            <td><span class="tag" style="background:rgba(88,166,255,.15); color:#58a6ff;">@Moderator</span></td>
+            <td style="font-family:monospace; font-size:12px;">1234567890123457</td>
+            <td style="color:#8b949e;">4 User</td>
+            <td><button class="btn btn-danger" style="padding:3px 8px; font-size:11px;">✕</button></td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="tag-input-row" style="margin-top:8px;">
+        <input type="text" placeholder="Discord Rollen-ID hinzufügen...">
+        <button class="btn btn-add">+ Rolle hinzufügen</button>
+      </div>
+    </div>
+
+    <!-- Berechtigte User-IDs -->
+    <div class="section-card">
+      <h3>Berechtigte Discord User-IDs</h3>
+      <div class="subtitle">Diese User können sich unabhängig von ihrer Rolle per Discord anmelden</div>
+
+      <table class="data-table">
+        <thead>
+          <tr><th>User</th><th>User-ID</th><th>Hinweis</th><th></th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="display:flex; align-items:center; gap:8px;">
+              <div style="width:24px; height:24px; border-radius:50%; background:#5865F2; display:flex; align-items:center; justify-content:center; font-size:11px;">M</div>
+              Marco
+            </td>
+            <td style="font-family:monospace; font-size:12px;">9876543210987654</td>
+            <td style="color:#8b949e; font-size:12px;">Owner</td>
+            <td><button class="btn btn-danger" style="padding:3px 8px; font-size:11px;">✕</button></td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="tag-input-row" style="margin-top:8px;">
+        <input type="text" placeholder="Discord User-ID hinzufügen...">
+        <button class="btn btn-add">+ User hinzufügen</button>
+      </div>
+    </div>
+
+    <!-- Aktive Sessions -->
+    <div class="section-card">
+      <h3>Aktive Sessions</h3>
+      <div class="subtitle">Aktuell eingeloggte User im Dashboard</div>
+
+      <table class="data-table">
+        <thead>
+          <tr><th>User</th><th>Login-Methode</th><th>Eingeloggt seit</th><th>IP</th><th></th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="display:flex; align-items:center; gap:8px;">
+              <div style="width:24px; height:24px; border-radius:50%; background:#5865F2; display:flex; align-items:center; justify-content:center; font-size:11px;">M</div>
+              <strong>Marco</strong> <span style="font-size:11px; color:#3fb950;">(du)</span>
+            </td>
+            <td><span class="tag" style="background:rgba(88,101,242,.15); color:#5865F2;">Discord OAuth2</span></td>
+            <td style="font-size:12px; color:#8b949e;">Heute 14:10</td>
+            <td style="font-size:12px; font-family:monospace; color:#8b949e;">192.168.1.42</td>
+            <td></td>
+          </tr>
+          <tr>
+            <td style="display:flex; align-items:center; gap:8px;">
+              <div style="width:24px; height:24px; border-radius:50%; background:#3fb950; display:flex; align-items:center; justify-content:center; font-size:11px;">T</div>
+              Tom
+            </td>
+            <td><span class="tag" style="background:rgba(88,101,242,.15); color:#5865F2;">Discord OAuth2</span></td>
+            <td style="font-size:12px; color:#8b949e;">Heute 15:23</td>
+            <td style="font-size:12px; font-family:monospace; color:#8b949e;">192.168.1.55</td>
+            <td><button class="btn btn-danger" style="padding:3px 8px; font-size:11px;">Session beenden</button></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Notfall-Admin -->
+    <div class="section-card">
+      <h3>Notfall-Admin (Passwort-Login)</h3>
+      <div class="subtitle">Fallback-Zugang wenn Discord OAuth2 nicht verfügbar ist</div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Benutzername</label>
+          <input type="text" value="admin" placeholder="Notfall-Benutzername">
+        </div>
+        <div class="form-group">
+          <label>Neues Passwort <span class="hint">(leer = nicht ändern)</span></label>
+          <input type="password" placeholder="Neues Passwort setzen...">
+        </div>
+      </div>
+
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">Passwort-Login aktiviert</div>
+          <div class="toggle-desc">Notfall-Login per Username/Passwort erlauben</div>
+        </div>
+        <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+      </div>
+
+      <div class="form-group" style="margin-top:12px;">
+        <label>Rate-Limiting</label>
+        <div class="form-row">
+          <div>
+            <label class="hint">Max. Versuche</label>
+            <input type="number" value="5" min="1" max="20" style="width:80px;">
+          </div>
+          <div>
+            <label class="hint">Zeitfenster (Minuten)</label>
+            <input type="number" value="15" min="1" max="60" style="width:80px;">
+          </div>
+        </div>
+      </div>
+
+      <div class="actions-bar">
+        <button class="btn btn-secondary">Zurücksetzen</button>
+        <button class="btn btn-primary">💾 Speichern</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== TAB: BOT-PROFILE ==================== -->
+  <div id="tab-botprofiles" class="tab-content">
+
+    <div class="section-card">
+      <h3>🤖 Bot-Profile verwalten</h3>
+      <div class="subtitle">Anzeigenamen, Avatare und Status-Texte der drei Discord-Bots ändern</div>
+
+      <div class="rate-limit-hint" style="margin-bottom:16px;">
+        ⚠️ Discord erlaubt max. 2 Profiländerungen pro Bot pro Stunde. Änderungen werden sofort angewendet.
+      </div>
+
+      <!-- GameServer Bot -->
+      <div class="bot-profile">
+        <div class="bot-avatar" style="background:#238636;">
+          <span>🎮</span>
+          <div class="upload-overlay">📷</div>
+        </div>
+        <div class="bot-profile-info">
+          <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
+            <span class="status-dot green"></span>
+            <span style="font-size:12px; color:#3fb950;">Online</span>
+          </div>
+          <div class="form-row" style="margin-bottom:8px;">
+            <div class="form-group" style="margin-bottom:0;">
+              <label>Anzeigename</label>
+              <input type="text" value="GameServer Bot" placeholder="Bot-Anzeigename">
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+              <label>Status-Text <span class="hint">(Activity)</span></label>
+              <input type="text" value="Verwaltet 3 Server" placeholder="z.B. Spielt Satisfactory">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group" style="margin-bottom:0;">
+              <label>Status-Typ</label>
+              <select>
+                <option>Spielt...</option>
+                <option>Schaut...</option>
+                <option>Hört...</option>
+                <option selected>Benutzerdefiniert</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+              <label>Avatar ändern</label>
+              <input type="file" accept="image/png,image/jpeg,image/gif" style="font-size:12px; padding:6px;">
+            </div>
+          </div>
+          <div class="bot-profile-id">Bot-ID: 1234567890123456 | Token: ••••••Xk2w</div>
+        </div>
+      </div>
+
+      <!-- Monitor Bot -->
+      <div class="bot-profile">
+        <div class="bot-avatar" style="background:#58a6ff;">
+          <span>📊</span>
+          <div class="upload-overlay">📷</div>
+        </div>
+        <div class="bot-profile-info">
+          <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
+            <span class="status-dot green"></span>
+            <span style="font-size:12px; color:#3fb950;">Online</span>
+          </div>
+          <div class="form-row" style="margin-bottom:8px;">
+            <div class="form-group" style="margin-bottom:0;">
+              <label>Anzeigename</label>
+              <input type="text" value="Monitor Bot" placeholder="Bot-Anzeigename">
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+              <label>Status-Text <span class="hint">(Activity)</span></label>
+              <input type="text" value="Überwacht 3 Server" placeholder="z.B. Überwacht 3 Server">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group" style="margin-bottom:0;">
+              <label>Status-Typ</label>
+              <select>
+                <option>Spielt...</option>
+                <option selected>Schaut...</option>
+                <option>Hört...</option>
+                <option>Benutzerdefiniert</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+              <label>Avatar ändern</label>
+              <input type="file" accept="image/png,image/jpeg,image/gif" style="font-size:12px; padding:6px;">
+            </div>
+          </div>
+          <div class="bot-profile-id">Bot-ID: 1234567890123457 | Token: ••••••Rm8q</div>
+        </div>
+      </div>
+
+      <!-- Admin Bot -->
+      <div class="bot-profile">
+        <div class="bot-avatar" style="background:#bc8cff;">
+          <span>🛡️</span>
+          <div class="upload-overlay">📷</div>
+        </div>
+        <div class="bot-profile-info">
+          <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
+            <span class="status-dot green"></span>
+            <span style="font-size:12px; color:#3fb950;">Online</span>
+          </div>
+          <div class="form-row" style="margin-bottom:8px;">
+            <div class="form-group" style="margin-bottom:0;">
+              <label>Anzeigename</label>
+              <input type="text" value="Admin Bot" placeholder="Bot-Anzeigename">
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+              <label>Status-Text <span class="hint">(Activity)</span></label>
+              <input type="text" value="Moderation & Community" placeholder="z.B. Schützt den Server">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group" style="margin-bottom:0;">
+              <label>Status-Typ</label>
+              <select>
+                <option>Spielt...</option>
+                <option>Schaut...</option>
+                <option>Hört...</option>
+                <option selected>Benutzerdefiniert</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+              <label>Avatar ändern</label>
+              <input type="file" accept="image/png,image/jpeg,image/gif" style="font-size:12px; padding:6px;">
+            </div>
+          </div>
+          <div class="bot-profile-id">Bot-ID: 1234567890123458 | Token: ••••••Jf4p</div>
+        </div>
+      </div>
+
+      <div class="actions-bar">
+        <button class="btn btn-secondary">Zurücksetzen</button>
+        <button class="btn btn-primary">💾 Änderungen anwenden</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== TAB: FEATURE-TOGGLES (Platzhalter) ==================== -->
+  <div id="tab-toggles" class="tab-content">
+    <div class="section-card">
+      <h3>🔘 Feature-Toggles</h3>
+      <div class="subtitle">Features ein- und ausschalten — Änderungen werden sofort an die Bots übertragen (Hot-Reload)</div>
+
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">Monitoring</div>
+          <div class="toggle-desc">Health Checks, Player-Tracking, Server-Überwachung</div>
+        </div>
+        <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+      </div>
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">Automatische Backups</div>
+          <div class="toggle-desc">Regelmäßige Backups aller Gameserver</div>
+        </div>
+        <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+      </div>
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">OneDrive-Sync</div>
+          <div class="toggle-desc">Backups automatisch zu OneDrive hochladen</div>
+        </div>
+        <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+      </div>
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">WordFilter (Discord)</div>
+          <div class="toggle-desc">Nachrichten in Discord-Channels filtern</div>
+        </div>
+        <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+      </div>
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">AntiSpam (Discord)</div>
+          <div class="toggle-desc">Spam-Erkennung in Discord-Channels</div>
+        </div>
+        <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+      </div>
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">Web-Status-Seite</div>
+          <div class="toggle-desc">Öffentliche Status-Seite generieren</div>
+        </div>
+        <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+      </div>
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">Modpack-Update-Check</div>
+          <div class="toggle-desc">BMC Modpack auf Updates prüfen (Modrinth/CurseForge)</div>
+        </div>
+        <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+      </div>
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">E-Mail-Benachrichtigungen</div>
+          <div class="toggle-desc">Kritische Warnungen per E-Mail senden</div>
+        </div>
+        <label class="toggle"><input type="checkbox"><span class="slider"></span></label>
+      </div>
+
+      <div class="actions-bar">
+        <button class="btn btn-secondary">Zurücksetzen</button>
+        <button class="btn btn-primary">💾 Speichern</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Platzhalter für andere Tabs -->
+  <div id="tab-intervals" class="tab-content">
+    <div class="section-card">
+      <h3>⏱️ Intervalle und Timer</h3>
+      <div class="subtitle">Zeitintervalle für wiederkehrende Tasks</div>
+      <div class="form-row-3">
+        <div class="form-group"><label>Health-Check <span class="hint">(Sek.)</span></label><input type="number" value="60"></div>
+        <div class="form-group"><label>Player-Tracking <span class="hint">(Sek.)</span></label><input type="number" value="120"></div>
+        <div class="form-group"><label>Web-Status <span class="hint">(Sek.)</span></label><input type="number" value="300"></div>
+      </div>
+      <div class="form-row-3">
+        <div class="form-group"><label>Backup-Check <span class="hint">(Min.)</span></label><input type="number" value="60"></div>
+        <div class="form-group"><label>Modpack-Check <span class="hint">(Min.)</span></label><input type="number" value="30"></div>
+        <div class="form-group"><label>Restart-Cooldown <span class="hint">(Sek.)</span></label><input type="number" value="30"></div>
+      </div>
+      <div class="actions-bar">
+        <button class="btn btn-secondary">Zurücksetzen</button>
+        <button class="btn btn-primary">💾 Speichern</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="tab-thresholds" class="tab-content">
+    <div class="section-card">
+      <h3>📊 Schwellwerte und Limits</h3>
+      <div class="subtitle">Warnschwellen für System-Überwachung und Limits</div>
+      <div class="form-row-3">
+        <div class="form-group"><label>CPU-Warnung <span class="hint">(%)</span></label><input type="number" value="85"></div>
+        <div class="form-group"><label>RAM-Warnung <span class="hint">(%)</span></label><input type="number" value="90"></div>
+        <div class="form-group"><label>Disk-Warnung <span class="hint">(%)</span></label><input type="number" value="90"></div>
+      </div>
+      <div class="form-row-3">
+        <div class="form-group"><label>Max. Backups <span class="hint">(pro Server)</span></label><input type="number" value="5"></div>
+        <div class="form-group"><label>AntiSpam: Nachrichten</label><input type="number" value="5"></div>
+        <div class="form-group"><label>AntiSpam: Zeitfenster <span class="hint">(Sek.)</span></label><input type="number" value="10"></div>
+      </div>
+      <div class="actions-bar">
+        <button class="btn btn-secondary">Zurücksetzen</button>
+        <button class="btn btn-primary">💾 Speichern</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="tab-channels" class="tab-content">
+    <div class="section-card">
+      <h3>📢 Channel-Zuordnungen</h3>
+      <div class="subtitle">Discord-Channels für Bot-Ausgaben und Benachrichtigungen</div>
+      <div class="form-row">
+        <div class="form-group"><label>Admin-Channel <span class="hint">(GameServer Bot)</span></label><input type="text" placeholder="Channel ID"></div>
+        <div class="form-group"><label>Log-Channel <span class="hint">(GameServer Bot)</span></label><input type="text" placeholder="Channel ID"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Status-Channel <span class="hint">(Monitor Bot)</span></label><input type="text" placeholder="Channel ID"></div>
+        <div class="form-group"><label>Alert-Channel <span class="hint">(Monitor Bot)</span></label><input type="text" placeholder="Channel ID"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Mod-Log-Channel <span class="hint">(Admin Bot)</span></label><input type="text" placeholder="Channel ID"></div>
+        <div class="form-group"><label>Audit-Channel <span class="hint">(Admin Bot)</span></label><input type="text" placeholder="Channel ID"></div>
+      </div>
+      <div class="actions-bar">
+        <button class="btn btn-secondary">Zurücksetzen</button>
+        <button class="btn btn-primary">💾 Speichern</button>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<script>
+function showTab(name) {
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  event.target.classList.add('active');
+}
+</script>
+</body>
+</html>

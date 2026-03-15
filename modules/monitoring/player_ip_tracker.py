@@ -2,16 +2,11 @@
 Player IP Tracker - Tracks player IPs from server logs
 and manages UFW-based IP bans for kick/ban functionality.
 
-SQLite Dual-Read mode:
-  - WRITE: Only to SQLite (JSON writes disabled)
-  - READ: SQLite primary, JSON fallback
-  - JSON files are NOT deleted (kept for fallback)
+Persistenz: SQLite (player_ips, bans Tabellen) — alleinige Datenquelle
 """
 
 import asyncio
 import re
-import json
-from pathlib import Path
 from datetime import datetime
 from typing import Optional, Dict, List, Tuple, Any
 
@@ -90,19 +85,17 @@ class PlayerIPTracker:
     Tracks player IPs from server logs (Satisfactory und Minecraft).
     Manages UFW firewall rules for IP-based bans.
 
-    SQLite Dual-Read: Writes only to SQLite, reads SQLite first with JSON fallback.
+    Persistenz: SQLite (player_ips, bans Tabellen) — alleinige Datenquelle.
     """
 
-    def __init__(self, data_file: Path,
-                 game_type: str = "sat",
-                 game_ports: Optional[List[int]] = None) -> None:
+    def __init__(self, game_type: str = "sat",
+                 game_ports: Optional[List[int]] = None,
+                 **kwargs) -> None:
         """
         Args:
-            data_file: Path to JSON file storing IP mappings and bans (kept for fallback)
             game_type: "sat" fuer Satisfactory, "mc" fuer Minecraft
             game_ports: Server ports to block (default abhaengig von game_type)
         """
-        self.data_file: Path = data_file
         self.game_type: str = game_type
 
         # Derive server_type for SQLite tables
@@ -123,32 +116,12 @@ class PlayerIPTracker:
         # ip_map: {player_name: {ip, last_seen, first_seen, uuid?}}
         # bans: {player_name: {ip, reason, banned_by, banned_at}}
         self._data: Dict[str, Any] = {"ip_map": {}, "bans": {}}
-        self._load()
 
         # Pending connection IP (from AddClientConnection before Login) — SAT only
         self._pending_ip: Optional[str] = None
 
-    def _load(self) -> None:
-        """Load data from JSON file (fallback data source)."""
-        try:
-            if self.data_file.exists():
-                with open(self.data_file, 'r') as f:
-                    self._data = json.load(f)
-                # Ensure keys exist
-                self._data.setdefault("ip_map", {})
-                self._data.setdefault("bans", {})
-                logger.info(
-                    f"JSON fallback loaded: {len(self._data['ip_map'])} player IPs, "
-                    f"{len(self._data['bans'])} bans"
-                )
-        except Exception as e:
-            logger.error(f"Failed to load IP data from JSON: {e}")
-
     async def load_from_db(self) -> None:
-        """
-        Load ip_map and bans from SQLite (primary data source).
-        Falls back to JSON data (already loaded in _load) on failure.
-        """
+        """Load ip_map and bans from SQLite (alleinige Datenquelle)."""
         try:
             db = await get_db()
 
@@ -186,8 +159,7 @@ class PlayerIPTracker:
                 )
             else:
                 logger.info(
-                    f"No IP mappings in SQLite for {self.server_type}, "
-                    f"using JSON fallback ({len(self._data['ip_map'])} entries)"
+                    f"Keine IP-Mappings in SQLite fuer {self.server_type} — starte leer"
                 )
 
             # --- Load active bans ---
@@ -219,19 +191,16 @@ class PlayerIPTracker:
                 )
             else:
                 logger.info(
-                    f"No bans in SQLite for {self.server_type}, "
-                    f"using JSON fallback ({len(self._data['bans'])} entries)"
+                    f"Keine Bans in SQLite fuer {self.server_type} — starte leer"
                 )
 
         except Exception as e:
             logger.warning(
-                f"Failed to load from SQLite, using JSON fallback: {e}"
+                f"SQLite-Lesefehler fuer {self.server_type}: {e}"
             )
-            # _data already has JSON fallback from _load()
 
     def _save(self) -> None:
-        """No-op: JSON writes are disabled. All writes go to SQLite."""
-        # JSON file is preserved as-is for fallback reads.
+        """No-op — alle Schreibvorgaenge gehen direkt nach SQLite."""
         pass
 
     def process_log_line(self, line: str) -> None:
@@ -671,7 +640,7 @@ class PlayerIPTracker:
         """
         Ensure all stored bans are active in UFW.
         Call on bot startup to restore bans after reboot.
-        Loads bans from SQLite bans table (with JSON fallback).
+        Loads bans from SQLite bans table.
         """
         # Load bans from SQLite first
         try:
@@ -704,8 +673,7 @@ class PlayerIPTracker:
                 )
         except Exception as e:
             logger.warning(
-                f"sync_bans: Failed to load bans from SQLite, "
-                f"using in-memory/JSON fallback: {e}"
+                f"sync_bans: SQLite-Lesefehler, verwende In-Memory-Daten: {e}"
             )
 
         # Apply all bans to iptables

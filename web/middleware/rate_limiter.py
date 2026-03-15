@@ -11,6 +11,9 @@ Limits je nach Endpoint-Gruppe:
 - Health:  60 req/min
 
 Inaktive Buckets (>10 Min ohne Request) werden alle 5 Minuten bereinigt.
+
+WICHTIG: Pure ASGI Middleware (kein BaseHTTPMiddleware), um
+Body-Forwarding-Probleme bei POST-Requests zu vermeiden.
 """
 
 import asyncio
@@ -19,9 +22,9 @@ import time
 from dataclasses import dataclass, field
 from typing import Dict, Tuple
 
-from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response, JSONResponse
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from utils.logger import get_logger
 
@@ -158,20 +161,22 @@ class BucketStore:
 # ---------------------------------------------------------------------------
 # Hilfsfunktionen
 # ---------------------------------------------------------------------------
-def _get_client_ip(request: Request) -> str:
+def _get_client_ip(scope: Scope) -> str:
     """
-    Ermittelt die Client-IP-Adresse.
+    Ermittelt die Client-IP-Adresse aus dem ASGI Scope.
 
     Beruecksichtigt X-Forwarded-For Header fuer Reverse-Proxy Setups.
     """
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        # Erster Eintrag ist die urspruengliche Client-IP
-        return forwarded.split(",")[0].strip()
+    # X-Forwarded-For aus Headers lesen
+    for key, value in scope.get("headers", []):
+        if key == b"x-forwarded-for":
+            # Erster Eintrag ist die urspruengliche Client-IP
+            return value.decode("utf-8", errors="replace").split(",")[0].strip()
 
     # Fallback auf direkte Verbindung
-    if request.client:
-        return request.client.host
+    client = scope.get("client")
+    if client:
+        return client[0]
     return "unknown"
 
 
@@ -198,44 +203,68 @@ def _classify_request(path: str, method: str) -> Tuple[str, float, float]:
     return "read", *READ_LIMIT
 
 
+# Globaler Bucket-Store (wird von der Middleware-Instanz verwendet)
+_global_store = BucketStore()
+_cleanup_task: asyncio.Task | None = None
+
+
+async def _periodic_cleanup() -> None:
+    """Hintergrund-Task der inaktive Buckets periodisch entfernt."""
+    try:
+        while True:
+            await asyncio.sleep(CLEANUP_INTERVAL)
+            removed = _global_store.cleanup()
+            if removed > 0:
+                logger.debug(
+                    f"Bucket-Bereinigung: {removed} inaktive Buckets entfernt, "
+                    f"{_global_store.size} verbleibend"
+                )
+    except asyncio.CancelledError:
+        logger.debug("Bucket-Bereinigung gestoppt")
+
+
 # ---------------------------------------------------------------------------
-# Rate-Limiting Middleware
+# Rate-Limiting Middleware (Pure ASGI)
 # ---------------------------------------------------------------------------
-class RateLimitMiddleware(BaseHTTPMiddleware):
+class RateLimitMiddleware:
     """
-    Rate-Limiting Middleware mit Token-Bucket Algorithmus.
+    Pure ASGI Rate-Limiting Middleware mit Token-Bucket Algorithmus.
 
     - Pro IP-Adresse und Endpoint-Gruppe wird ein separater Bucket gefuehrt
     - Bei Ueberschreitung wird HTTP 429 mit Retry-After Header zurueckgegeben
     - Inaktive Buckets werden automatisch alle 5 Minuten bereinigt
     """
 
-    def __init__(self, app) -> None:
-        super().__init__(app)
-        self._store = BucketStore()
-        self._cleanup_task: asyncio.Task | None = None
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
 
-    async def dispatch(self, request: Request, call_next) -> Response:
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        global _cleanup_task
         # Cleanup-Task beim ersten Request starten
-        if self._cleanup_task is None:
-            self._cleanup_task = asyncio.create_task(self._periodic_cleanup())
+        if _cleanup_task is None:
+            _cleanup_task = asyncio.create_task(_periodic_cleanup())
 
-        path = request.url.path
-        method = request.method
+        path = scope.get("path", "")
+        method = scope.get("method", "GET")
 
         # Ausgenommene Pfade ueberspringen
         for exempt in EXEMPT_PATHS:
             if path.startswith(exempt):
-                return await call_next(request)
+                await self.app(scope, receive, send)
+                return
 
         # Client-IP ermitteln
-        client_ip = _get_client_ip(request)
+        client_ip = _get_client_ip(scope)
 
         # Request klassifizieren
         group, max_tokens, refill_rate = _classify_request(path, method)
 
         # Bucket holen und Token verbrauchen
-        bucket = self._store.get_or_create(client_ip, group, max_tokens, refill_rate)
+        bucket = _global_store.get_or_create(client_ip, group, max_tokens, refill_rate)
         allowed, retry_after = bucket.consume()
 
         if not allowed:
@@ -246,9 +275,14 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             )
 
             # JSON-Response wenn Client JSON akzeptiert, sonst Plaintext
-            accept = request.headers.get("accept", "")
-            if "application/json" in accept:
-                return JSONResponse(
+            accept_header = ""
+            for key, value in scope.get("headers", []):
+                if key == b"accept":
+                    accept_header = value.decode("utf-8", errors="replace")
+                    break
+
+            if "application/json" in accept_header:
+                response = JSONResponse(
                     {
                         "detail": "Zu viele Anfragen. Bitte spaeter erneut versuchen.",
                         "retry_after": retry_after_int,
@@ -256,29 +290,15 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                     status_code=429,
                     headers={"Retry-After": str(retry_after_int)},
                 )
+            else:
+                response = Response(
+                    "429 Too Many Requests — Bitte spaeter erneut versuchen.",
+                    status_code=429,
+                    media_type="text/plain",
+                    headers={"Retry-After": str(retry_after_int)},
+                )
+            await response(scope, receive, send)
+            return
 
-            return Response(
-                "429 Too Many Requests — Bitte spaeter erneut versuchen.",
-                status_code=429,
-                media_type="text/plain",
-                headers={"Retry-After": str(retry_after_int)},
-            )
-
-        # Request weiterleiten
-        response = await call_next(request)
-        return response
-
-    async def _periodic_cleanup(self) -> None:
-        """Hintergrund-Task der inaktive Buckets periodisch entfernt."""
-        try:
-            while True:
-                await asyncio.sleep(CLEANUP_INTERVAL)
-                removed = self._store.cleanup()
-                if removed > 0:
-                    logger.debug(
-                        f"Bucket-Bereinigung: {removed} inaktive Buckets entfernt, "
-                        f"{self._store.size} verbleibend"
-                    )
-        except asyncio.CancelledError:
-            # Task wurde beim Herunterfahren abgebrochen
-            logger.debug("Bucket-Bereinigung gestoppt")
+        # Request weiterleiten (Body bleibt unangetastet!)
+        await self.app(scope, receive, send)

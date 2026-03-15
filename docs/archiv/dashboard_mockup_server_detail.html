@@ -1,0 +1,934 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard Mockup — Server-Detail (BMC)</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0d1117; color: #c9d1d9; display: flex; min-height: 100vh; }
+
+  /* ── Sidebar ── */
+  .sidebar { width: 220px; background: #161b22; border-right: 1px solid #30363d; display: flex; flex-direction: column; position: fixed; top: 0; bottom: 0; }
+  .sidebar-logo { padding: 20px; text-align: center; border-bottom: 1px solid #30363d; }
+  .sidebar-logo .emoji { font-size: 28px; }
+  .sidebar-logo h2 { font-size: 15px; color: #e1e4e8; margin-top: 4px; }
+  .sidebar-logo small { font-size: 11px; color: #484f58; }
+  .sidebar-nav { flex: 1; padding: 12px 0; }
+  .sidebar-nav a { display: flex; align-items: center; gap: 10px; padding: 10px 20px; color: #8b949e; text-decoration: none; font-size: 14px; transition: all .15s; border-left: 3px solid transparent; }
+  .sidebar-nav a:hover { color: #e1e4e8; background: rgba(255,255,255,.03); }
+  .sidebar-nav a.active { color: #58a6ff; border-left-color: #58a6ff; background: rgba(88,166,255,.06); }
+  .sidebar-footer { padding: 16px 20px; border-top: 1px solid #30363d; display: flex; align-items: center; gap: 10px; }
+  .sidebar-footer .avatar { width: 32px; height: 32px; border-radius: 50%; background: #5865F2; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; color: #fff; }
+  .sidebar-footer .user-info { font-size: 12px; }
+  .sidebar-footer .user-info .name { color: #e1e4e8; font-weight: 600; }
+  .sidebar-footer .user-info .via { color: #484f58; }
+
+  /* ── Main ── */
+  .main { margin-left: 220px; flex: 1; padding: 24px 32px; }
+
+  /* Breadcrumb */
+  .breadcrumb { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #8b949e; margin-bottom: 20px; }
+  .breadcrumb a { color: #58a6ff; text-decoration: none; }
+  .breadcrumb a:hover { text-decoration: underline; }
+
+  /* Server Header */
+  .server-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+  .server-header .left { display: flex; align-items: center; gap: 16px; }
+  .server-header .server-icon { width: 56px; height: 56px; background: #238636; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 28px; }
+  .server-header h1 { font-size: 22px; color: #e1e4e8; font-weight: 600; }
+  .server-header .meta { font-size: 13px; color: #8b949e; margin-top: 2px; }
+  .server-header .actions { display: flex; gap: 8px; }
+
+  /* Status Badge */
+  .badge { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; }
+  .badge-online { background: rgba(63,185,80,.15); color: #3fb950; }
+  .badge-offline { background: rgba(248,81,73,.15); color: #f85149; }
+
+  /* Action Buttons */
+  .btn { padding: 8px 16px; border-radius: 6px; border: 1px solid #30363d; font-size: 13px; font-weight: 500; cursor: pointer; font-family: inherit; transition: all .15s; }
+  .btn-danger { background: rgba(248,81,73,.1); color: #f85149; border-color: rgba(248,81,73,.3); }
+  .btn-danger:hover { background: rgba(248,81,73,.2); }
+  .btn-warning { background: rgba(210,153,34,.1); color: #d2992a; border-color: rgba(210,153,34,.3); }
+  .btn-warning:hover { background: rgba(210,153,34,.2); }
+  .btn-success { background: rgba(63,185,80,.1); color: #3fb950; border-color: rgba(63,185,80,.3); }
+  .btn-success:hover { background: rgba(63,185,80,.2); }
+  .btn-primary { background: rgba(88,166,255,.1); color: #58a6ff; border-color: rgba(88,166,255,.3); }
+  .btn-primary:hover { background: rgba(88,166,255,.2); }
+  .btn-default { background: #21262d; color: #c9d1d9; }
+  .btn-default:hover { background: #30363d; }
+
+  /* Tabs */
+  .tabs { display: flex; gap: 0; border-bottom: 1px solid #30363d; margin-bottom: 24px; overflow-x: auto; }
+  .tab { padding: 10px 18px; font-size: 13px; color: #8b949e; cursor: pointer; border-bottom: 2px solid transparent; transition: all .15s; white-space: nowrap; background: none; border-top: none; border-left: none; border-right: none; font-family: inherit; }
+  .tab:hover { color: #e1e4e8; }
+  .tab.active { color: #58a6ff; border-bottom-color: #58a6ff; }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  /* Cards */
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px; margin-bottom: 16px; }
+  .card h3 { font-size: 15px; color: #e1e4e8; margin-bottom: 12px; font-weight: 600; }
+  .card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+
+  /* Quick Stats Row */
+  .stats-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 24px; }
+  .stat-card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; text-align: center; }
+  .stat-card .value { font-size: 24px; font-weight: 700; color: #e1e4e8; }
+  .stat-card .label { font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: .5px; margin-top: 4px; }
+  .stat-card.green .value { color: #3fb950; }
+  .stat-card.blue .value { color: #58a6ff; }
+  .stat-card.yellow .value { color: #d2992a; }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: .5px; padding: 8px 12px; border-bottom: 1px solid #30363d; font-weight: 600; }
+  td { padding: 10px 12px; font-size: 13px; border-bottom: 1px solid #21262d; }
+  tr:hover td { background: rgba(255,255,255,.02); }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+  .tag-green { background: rgba(63,185,80,.15); color: #3fb950; }
+  .tag-blue { background: rgba(88,166,255,.15); color: #58a6ff; }
+  .tag-yellow { background: rgba(210,153,34,.15); color: #d2992a; }
+  .tag-red { background: rgba(248,81,73,.15); color: #f85149; }
+
+  /* RCON Console */
+  .rcon-console { background: #0d1117; border: 1px solid #30363d; border-radius: 8px; padding: 16px; font-family: 'Fira Code', 'Cascadia Code', monospace; font-size: 13px; }
+  .rcon-output { max-height: 300px; overflow-y: auto; margin-bottom: 12px; }
+  .rcon-line { padding: 2px 0; }
+  .rcon-line .time { color: #484f58; }
+  .rcon-line .cmd { color: #d2a8ff; }
+  .rcon-line .resp { color: #7ee787; }
+  .rcon-line .err { color: #f85149; }
+  .rcon-input { display: flex; gap: 8px; }
+  .rcon-input input { flex: 1; background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 8px 12px; color: #c9d1d9; font-family: inherit; font-size: 13px; }
+  .rcon-input input:focus { border-color: #58a6ff; outline: none; }
+  .rcon-input button { padding: 8px 16px; background: #238636; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-family: inherit; font-size: 13px; }
+
+  /* Chart Containers */
+  .chart-container { position: relative; height: 250px; margin-bottom: 16px; }
+  .chart-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+
+  /* Time Range Toggle */
+  .time-range { display: flex; gap: 4px; margin-bottom: 16px; }
+  .time-btn { padding: 4px 12px; border-radius: 4px; border: 1px solid #30363d; background: #0d1117; color: #8b949e; font-size: 12px; cursor: pointer; font-family: inherit; }
+  .time-btn.active { background: rgba(88,166,255,.1); color: #58a6ff; border-color: rgba(88,166,255,.3); }
+
+  /* Progress Bar */
+  .progress-bar { width: 100%; height: 8px; background: #21262d; border-radius: 4px; overflow: hidden; }
+  .progress-fill { height: 100%; border-radius: 4px; transition: width .3s; }
+  .progress-fill.green { background: #3fb950; }
+  .progress-fill.blue { background: #58a6ff; }
+  .progress-fill.yellow { background: #d2992a; }
+
+  /* Form Elements */
+  input[type="text"], select { padding: 8px 12px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #c9d1d9; font-size: 13px; font-family: inherit; }
+  input:focus, select:focus { border-color: #58a6ff; outline: none; }
+
+  /* Empty State */
+  .empty { text-align: center; padding: 40px; color: #484f58; font-size: 14px; }
+
+  /* Server Switcher */
+  .server-switch { display: flex; gap: 4px; background: #0d1117; border: 1px solid #30363d; border-radius: 8px; padding: 4px; margin-bottom: 20px; }
+  .server-switch button { padding: 8px 16px; border-radius: 6px; border: none; background: transparent; color: #8b949e; font-size: 13px; font-weight: 500; cursor: pointer; font-family: inherit; transition: all .15s; }
+  .server-switch button.active { background: #21262d; color: #e1e4e8; }
+  .server-switch button:hover:not(.active) { color: #c9d1d9; }
+
+  /* Backup list */
+  .backup-actions { display: flex; gap: 6px; }
+  .backup-actions .btn { padding: 4px 10px; font-size: 11px; }
+
+  /* Blacklist entry */
+  .bl-reason { font-size: 12px; color: #8b949e; font-style: italic; }
+
+  /* Config key-value */
+  .config-grid { display: grid; grid-template-columns: 200px 1fr; gap: 8px 16px; }
+  .config-key { font-size: 13px; color: #8b949e; padding: 6px 0; }
+  .config-val { font-size: 13px; color: #e1e4e8; padding: 6px 0; font-family: monospace; }
+
+  /* Demo Bar */
+  .demo-bar { position: fixed; top: 12px; right: 12px; display: flex; gap: 6px; z-index: 100; }
+  .demo-btn { padding: 4px 10px; border-radius: 4px; border: 1px solid #30363d; background: #161b22; color: #8b949e; font-size: 11px; cursor: pointer; font-family: inherit; }
+  .demo-btn:hover { color: #c9d1d9; background: #21262d; }
+</style>
+</head>
+<body>
+
+<!-- Demo Bar -->
+<div class="demo-bar">
+  <span style="color:#484f58;font-size:11px;padding:4px 0;">Server wechseln:</span>
+  <button class="demo-btn" onclick="switchServer('bmc')">BMC (MC)</button>
+  <button class="demo-btn" onclick="switchServer('vanilla')">Vanilla (MC)</button>
+  <button class="demo-btn" onclick="switchServer('sat')">Satisfactory</button>
+</div>
+
+<!-- Sidebar -->
+<div class="sidebar">
+  <div class="sidebar-logo">
+    <div class="emoji">🤖</div>
+    <h2>Bot Dashboard</h2>
+    <small>v3.1.0</small>
+  </div>
+  <nav class="sidebar-nav">
+    <a href="dashboard_mockup.html">📊 Übersicht</a>
+    <a href="#">⚠️ Fehler</a>
+    <a href="dashboard_mockup_setup.html">🛡️ Admin Bot</a>
+    <a href="dashboard_mockup_config.html">⚙️ Config</a>
+    <a href="#">🖥️ System</a>
+    <a href="dashboard_mockup_login.html" style="margin-top:auto;">↩️ Logout</a>
+  </nav>
+  <div class="sidebar-footer">
+    <div class="avatar">M</div>
+    <div class="user-info">
+      <div class="name">Marco</div>
+      <div class="via">via Discord</div>
+    </div>
+  </div>
+</div>
+
+<!-- Main Content -->
+<div class="main">
+
+  <!-- Breadcrumb -->
+  <div class="breadcrumb">
+    <a href="dashboard_mockup.html">Übersicht</a>
+    <span>›</span>
+    <span id="breadcrumb-server">Better Minecraft (BMC)</span>
+  </div>
+
+  <!-- Server Header -->
+  <div class="server-header">
+    <div class="left">
+      <div class="server-icon" id="server-icon">⛏️</div>
+      <div>
+        <h1 id="server-title">Better Minecraft (BMC)</h1>
+        <div class="meta" id="server-meta">
+          <span class="badge badge-online">● Online</span>&ensp;
+          Paper 1.20.4 &ensp;·&ensp; Uptime: 3T 14h 22m &ensp;·&ensp; 4/20 Spieler
+        </div>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn btn-warning">⟳ Restart</button>
+      <button class="btn btn-danger">⏹ Stop</button>
+      <button class="btn btn-default">🔧 Maintenance</button>
+    </div>
+  </div>
+
+  <!-- Quick Stats -->
+  <div class="stats-row">
+    <div class="stat-card green">
+      <div class="value">4</div>
+      <div class="label">Spieler Online</div>
+    </div>
+    <div class="stat-card blue">
+      <div class="value">3T 14h</div>
+      <div class="label">Uptime</div>
+    </div>
+    <div class="stat-card">
+      <div class="value">12%</div>
+      <div class="label">CPU</div>
+    </div>
+    <div class="stat-card">
+      <div class="value">4.2 GB</div>
+      <div class="label">RAM</div>
+    </div>
+    <div class="stat-card yellow">
+      <div class="value">19.8</div>
+      <div class="label">TPS</div>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab active" data-tab="players">Spieler</button>
+    <button class="tab" data-tab="rcon">RCON-Konsole</button>
+    <button class="tab" data-tab="backups">Backups</button>
+    <button class="tab" data-tab="world">Welt-Info</button>
+    <button class="tab" data-tab="config">Server-Config</button>
+    <button class="tab" data-tab="updates">Updates</button>
+    <button class="tab" data-tab="blacklist">Blacklist</button>
+    <button class="tab" data-tab="analyse">📈 Analyse</button>
+  </div>
+
+  <!-- ══════════════ TAB: Spieler ══════════════ -->
+  <div class="tab-content active" id="tab-players">
+    <div class="card">
+      <h3>Aktuelle Spieler (4/20)</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Spieler</th>
+            <th>Online seit</th>
+            <th>Spielzeit (Session)</th>
+            <th>Position</th>
+            <th>Aktionen</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Marco_LP</strong></td>
+            <td>14:23</td>
+            <td>2h 41m</td>
+            <td style="font-family:monospace;font-size:12px;">X: 1284, Y: 64, Z: -892</td>
+            <td>
+              <button class="btn btn-warning" style="padding:3px 8px;font-size:11px;">Kick</button>
+              <button class="btn btn-danger" style="padding:3px 8px;font-size:11px;">Ban</button>
+            </td>
+          </tr>
+          <tr>
+            <td><strong>xXDarkLordXx</strong></td>
+            <td>15:07</td>
+            <td>1h 57m</td>
+            <td style="font-family:monospace;font-size:12px;">X: -456, Y: 72, Z: 1103</td>
+            <td>
+              <button class="btn btn-warning" style="padding:3px 8px;font-size:11px;">Kick</button>
+              <button class="btn btn-danger" style="padding:3px 8px;font-size:11px;">Ban</button>
+            </td>
+          </tr>
+          <tr>
+            <td><strong>CraftQueen99</strong></td>
+            <td>16:30</td>
+            <td>0h 34m</td>
+            <td style="font-family:monospace;font-size:12px;">X: 0, Y: 68, Z: 12</td>
+            <td>
+              <button class="btn btn-warning" style="padding:3px 8px;font-size:11px;">Kick</button>
+              <button class="btn btn-danger" style="padding:3px 8px;font-size:11px;">Ban</button>
+            </td>
+          </tr>
+          <tr>
+            <td><strong>BuilderTom</strong></td>
+            <td>16:45</td>
+            <td>0h 19m</td>
+            <td style="font-family:monospace;font-size:12px;">X: 890, Y: 11, Z: -45</td>
+            <td>
+              <button class="btn btn-warning" style="padding:3px 8px;font-size:11px;">Kick</button>
+              <button class="btn btn-danger" style="padding:3px 8px;font-size:11px;">Ban</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ══════════════ TAB: RCON ══════════════ -->
+  <div class="tab-content" id="tab-rcon">
+    <div class="card">
+      <h3>RCON-Konsole — BMC</h3>
+      <div class="rcon-console">
+        <div class="rcon-output">
+          <div class="rcon-line"><span class="time">[17:01:23]</span> <span class="cmd">> list</span></div>
+          <div class="rcon-line"><span class="time">[17:01:23]</span> <span class="resp">There are 4 of a max of 20 players online: Marco_LP, xXDarkLordXx, CraftQueen99, BuilderTom</span></div>
+          <div class="rcon-line"><span class="time">[17:02:05]</span> <span class="cmd">> tps</span></div>
+          <div class="rcon-line"><span class="time">[17:02:05]</span> <span class="resp">TPS from last 1m, 5m, 15m: 19.8, 19.9, 20.0</span></div>
+          <div class="rcon-line"><span class="time">[17:03:44]</span> <span class="cmd">> say Server-Restart in 10 Minuten!</span></div>
+          <div class="rcon-line"><span class="time">[17:03:44]</span> <span class="resp">Message sent.</span></div>
+        </div>
+        <div class="rcon-input">
+          <input type="text" placeholder="RCON-Befehl eingeben..." id="rcon-cmd">
+          <button onclick="sendRcon()">Senden</button>
+        </div>
+      </div>
+      <p style="font-size:11px;color:#484f58;margin-top:8px;">⚠️ Eingabe wird durch RCON-Sanitizer gefiltert (Whitelist-basiert). Gefährliche Befehle werden blockiert.</p>
+    </div>
+  </div>
+
+  <!-- ══════════════ TAB: Backups ══════════════ -->
+  <div class="tab-content" id="tab-backups">
+    <div class="card" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <h3 style="margin:0;">Backups — BMC</h3>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-success">+ Backup jetzt erstellen</button>
+      </div>
+    </div>
+    <div class="card">
+      <table>
+        <thead>
+          <tr>
+            <th>Datum</th>
+            <th>Typ</th>
+            <th>Größe</th>
+            <th>OneDrive</th>
+            <th>Aktionen</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>20.02.2026 06:00</td>
+            <td><span class="tag tag-blue">Auto</span></td>
+            <td>2.4 GB</td>
+            <td><span class="tag tag-green">✓ Synced</span></td>
+            <td class="backup-actions">
+              <button class="btn btn-primary">⬇ Download</button>
+              <button class="btn btn-success">↻ Restore</button>
+              <button class="btn btn-danger">✕ Löschen</button>
+            </td>
+          </tr>
+          <tr>
+            <td>19.02.2026 06:00</td>
+            <td><span class="tag tag-blue">Auto</span></td>
+            <td>2.3 GB</td>
+            <td><span class="tag tag-green">✓ Synced</span></td>
+            <td class="backup-actions">
+              <button class="btn btn-primary">⬇ Download</button>
+              <button class="btn btn-success">↻ Restore</button>
+              <button class="btn btn-danger">✕ Löschen</button>
+            </td>
+          </tr>
+          <tr>
+            <td>18.02.2026 06:00</td>
+            <td><span class="tag tag-blue">Auto</span></td>
+            <td>2.3 GB</td>
+            <td><span class="tag tag-green">✓ Synced</span></td>
+            <td class="backup-actions">
+              <button class="btn btn-primary">⬇ Download</button>
+              <button class="btn btn-success">↻ Restore</button>
+              <button class="btn btn-danger">✕ Löschen</button>
+            </td>
+          </tr>
+          <tr>
+            <td>15.02.2026 22:14</td>
+            <td><span class="tag tag-yellow">Manuell</span></td>
+            <td>2.2 GB</td>
+            <td><span class="tag tag-green">✓ Synced</span></td>
+            <td class="backup-actions">
+              <button class="btn btn-primary">⬇ Download</button>
+              <button class="btn btn-success">↻ Restore</button>
+              <button class="btn btn-danger">✕ Löschen</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ══════════════ TAB: Welt-Info ══════════════ -->
+  <div class="tab-content" id="tab-world">
+    <div class="card-grid">
+      <div class="card">
+        <h3>Welt-Informationen</h3>
+        <div class="config-grid">
+          <div class="config-key">Seed</div>
+          <div class="config-val">-1284756391028</div>
+          <div class="config-key">Welt-Alter</div>
+          <div class="config-val">142 Tage, 7h</div>
+          <div class="config-key">Spawn</div>
+          <div class="config-val">X: 0, Y: 68, Z: 12</div>
+          <div class="config-key">Schwierigkeit</div>
+          <div class="config-val">Hard</div>
+          <div class="config-key">Spielmodus</div>
+          <div class="config-val">Survival</div>
+          <div class="config-key">Hardcore</div>
+          <div class="config-val">Nein</div>
+          <div class="config-key">MC-Version</div>
+          <div class="config-val">1.20.4 (Datenversion 3700)</div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Welt-Größe</h3>
+        <div class="config-grid">
+          <div class="config-key">Overworld</div>
+          <div class="config-val">18.4 GB (4,821 Regions)</div>
+          <div class="config-key">Nether</div>
+          <div class="config-val">1.2 GB (412 Regions)</div>
+          <div class="config-key">The End</div>
+          <div class="config-val">0.3 GB (89 Regions)</div>
+          <div class="config-key">Gesamt</div>
+          <div class="config-val" style="color:#58a6ff;font-weight:600;">19.9 GB</div>
+          <div class="config-key">Erkundete Fläche</div>
+          <div class="config-val">~1,234 km² (Overworld)</div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <h3>Top-Spieler (Statistiken)</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Spieler</th>
+            <th>Spielzeit</th>
+            <th>Tode</th>
+            <th>Mob-Kills</th>
+            <th>Abgebaut (Top)</th>
+            <th>Advancements</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>1</td>
+            <td><strong>Marco_LP</strong></td>
+            <td>312h</td>
+            <td>47</td>
+            <td>8,421</td>
+            <td>Stone (142k), Deepslate (89k)</td>
+            <td>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <div class="progress-bar" style="width:100px;"><div class="progress-fill green" style="width:78%;"></div></div>
+                <span style="font-size:12px;">78%</span>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td>2</td>
+            <td><strong>xXDarkLordXx</strong></td>
+            <td>198h</td>
+            <td>112</td>
+            <td>12,033</td>
+            <td>Stone (98k), Netherrack (67k)</td>
+            <td>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <div class="progress-bar" style="width:100px;"><div class="progress-fill green" style="width:52%;"></div></div>
+                <span style="font-size:12px;">52%</span>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td>3</td>
+            <td><strong>CraftQueen99</strong></td>
+            <td>156h</td>
+            <td>23</td>
+            <td>3,245</td>
+            <td>Oak Log (45k), Dirt (38k)</td>
+            <td>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <div class="progress-bar" style="width:100px;"><div class="progress-fill blue" style="width:41%;"></div></div>
+                <span style="font-size:12px;">41%</span>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td>4</td>
+            <td><strong>BuilderTom</strong></td>
+            <td>89h</td>
+            <td>8</td>
+            <td>1,102</td>
+            <td>Oak Planks (67k), Glass (22k)</td>
+            <td>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <div class="progress-bar" style="width:100px;"><div class="progress-fill blue" style="width:29%;"></div></div>
+                <span style="font-size:12px;">29%</span>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ══════════════ TAB: Server-Config ══════════════ -->
+  <div class="tab-content" id="tab-config">
+    <div class="card">
+      <h3>server.properties (Auszug)</h3>
+      <div class="config-grid">
+        <div class="config-key">server-port</div>
+        <div class="config-val">25566</div>
+        <div class="config-key">max-players</div>
+        <div class="config-val">20</div>
+        <div class="config-key">difficulty</div>
+        <div class="config-val">hard</div>
+        <div class="config-key">gamemode</div>
+        <div class="config-val">survival</div>
+        <div class="config-key">view-distance</div>
+        <div class="config-val">12</div>
+        <div class="config-key">simulation-distance</div>
+        <div class="config-val">10</div>
+        <div class="config-key">online-mode</div>
+        <div class="config-val">true</div>
+        <div class="config-key">spawn-protection</div>
+        <div class="config-val">16</div>
+        <div class="config-key">white-list</div>
+        <div class="config-val">true</div>
+        <div class="config-key">motd</div>
+        <div class="config-val">Better Minecraft — Season 3</div>
+        <div class="config-key">enable-rcon</div>
+        <div class="config-val">true</div>
+        <div class="config-key">rcon.port</div>
+        <div class="config-val">25576</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════ TAB: Updates ══════════════ -->
+  <div class="tab-content" id="tab-updates">
+    <div class="card-grid">
+      <div class="card">
+        <h3>Server-Version</h3>
+        <div class="config-grid">
+          <div class="config-key">Aktuell</div>
+          <div class="config-val">Paper 1.20.4 (Build 496)</div>
+          <div class="config-key">Verfügbar</div>
+          <div class="config-val" style="color:#3fb950;">Paper 1.20.4 (Build 496) ✓ Aktuell</div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Modpack-Version</h3>
+        <div class="config-grid">
+          <div class="config-key">Modpack</div>
+          <div class="config-val">Better Minecraft [FORGE]</div>
+          <div class="config-key">Aktuell</div>
+          <div class="config-val">v1.20.4-47</div>
+          <div class="config-key">Verfügbar</div>
+          <div class="config-val" style="color:#d2992a;">v1.20.4-49 ⬆ Update verfügbar</div>
+          <div class="config-key">Quelle</div>
+          <div class="config-val">CurseForge</div>
+          <div class="config-key">Letzter Check</div>
+          <div class="config-val">20.02.2026 16:00</div>
+        </div>
+        <div style="margin-top:12px;">
+          <button class="btn btn-warning">📦 Update-Details anzeigen</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════ TAB: Blacklist ══════════════ -->
+  <div class="tab-content" id="tab-blacklist">
+    <div class="card" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <h3 style="margin:0;">Blacklist — BMC</h3>
+      <button class="btn btn-danger">+ Spieler sperren</button>
+    </div>
+    <div class="card">
+      <table>
+        <thead>
+          <tr>
+            <th>Spieler</th>
+            <th>Gesperrt am</th>
+            <th>Gesperrt von</th>
+            <th>Grund</th>
+            <th>Server</th>
+            <th>Aktionen</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Griefer2024</strong></td>
+            <td>18.02.2026</td>
+            <td>Marco_LP</td>
+            <td><span class="bl-reason">Griefing — Gebäude zerstört</span></td>
+            <td><span class="tag tag-blue">Alle MC</span></td>
+            <td><button class="btn btn-success" style="padding:3px 8px;font-size:11px;">Entsperren</button></td>
+          </tr>
+          <tr>
+            <td><strong>SpamBot99</strong></td>
+            <td>10.02.2026</td>
+            <td>System (AntiSpam)</td>
+            <td><span class="bl-reason">Automatisch — Chat-Spam</span></td>
+            <td><span class="tag tag-blue">Alle MC</span></td>
+            <td><button class="btn btn-success" style="padding:3px 8px;font-size:11px;">Entsperren</button></td>
+          </tr>
+          <tr>
+            <td><strong>HaxorKid</strong></td>
+            <td>02.02.2026</td>
+            <td>Marco_LP</td>
+            <td><span class="bl-reason">Cheating — Fly-Hack</span></td>
+            <td><span class="tag tag-yellow">Nur BMC</span></td>
+            <td><button class="btn btn-success" style="padding:3px 8px;font-size:11px;">Entsperren</button></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ══════════════ TAB: Analyse ══════════════ -->
+  <div class="tab-content" id="tab-analyse">
+
+    <!-- Time Range -->
+    <div class="time-range">
+      <button class="time-btn" onclick="setTimeRange(this)">24h</button>
+      <button class="time-btn active" onclick="setTimeRange(this)">7 Tage</button>
+      <button class="time-btn" onclick="setTimeRange(this)">30 Tage</button>
+    </div>
+
+    <!-- Row 1: Uptime + Performance -->
+    <div class="chart-row">
+      <div class="card">
+        <h3>Uptime-Verlauf</h3>
+        <div style="display:flex;gap:24px;margin-bottom:12px;">
+          <div><span style="font-size:24px;font-weight:700;color:#3fb950;">99.2%</span><br><span style="font-size:11px;color:#8b949e;">Verfügbarkeit (7 Tage)</span></div>
+          <div><span style="font-size:24px;font-weight:700;color:#e1e4e8;">1</span><br><span style="font-size:11px;color:#8b949e;">Ausfall(e)</span></div>
+          <div><span style="font-size:24px;font-weight:700;color:#d2992a;">1h 22m</span><br><span style="font-size:11px;color:#8b949e;">Längster Ausfall</span></div>
+        </div>
+        <div class="chart-container">
+          <canvas id="chartUptime"></canvas>
+        </div>
+      </div>
+      <div class="card">
+        <h3>CPU / RAM</h3>
+        <div class="chart-container">
+          <canvas id="chartPerformance"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Row 2: Player Activity + TPS -->
+    <div class="chart-row">
+      <div class="card">
+        <h3>Spieler-Aktivität</h3>
+        <div style="display:flex;gap:24px;margin-bottom:12px;">
+          <div><span style="font-size:24px;font-weight:700;color:#58a6ff;">6</span><br><span style="font-size:11px;color:#8b949e;">Peak (7 Tage)</span></div>
+          <div><span style="font-size:24px;font-weight:700;color:#e1e4e8;">2.4</span><br><span style="font-size:11px;color:#8b949e;">Ø Online</span></div>
+        </div>
+        <div class="chart-container">
+          <canvas id="chartPlayers"></canvas>
+        </div>
+      </div>
+      <div class="card">
+        <h3>TPS-Verlauf</h3>
+        <div style="display:flex;gap:24px;margin-bottom:12px;">
+          <div><span style="font-size:24px;font-weight:700;color:#3fb950;">19.8</span><br><span style="font-size:11px;color:#8b949e;">Aktuell</span></div>
+          <div><span style="font-size:24px;font-weight:700;color:#e1e4e8;">19.6</span><br><span style="font-size:11px;color:#8b949e;">Ø 7 Tage</span></div>
+          <div><span style="font-size:24px;font-weight:700;color:#d2992a;">2</span><br><span style="font-size:11px;color:#8b949e;">Lag-Spikes</span></div>
+        </div>
+        <div class="chart-container">
+          <canvas id="chartTPS"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Row 3: World Growth + Backup Size -->
+    <div class="chart-row">
+      <div class="card">
+        <h3>Welt-Wachstum</h3>
+        <div class="chart-container">
+          <canvas id="chartWorld"></canvas>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Backup-Größe</h3>
+        <div style="display:flex;gap:24px;margin-bottom:12px;">
+          <div><span style="font-size:24px;font-weight:700;color:#e1e4e8;">2.4 GB</span><br><span style="font-size:11px;color:#8b949e;">Letztes Backup</span></div>
+          <div><span style="font-size:24px;font-weight:700;color:#3fb950;">100%</span><br><span style="font-size:11px;color:#8b949e;">Erfolgsrate</span></div>
+        </div>
+        <div class="chart-container">
+          <canvas id="chartBackup"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Ausfall-Log -->
+    <div class="card">
+      <h3>Ausfall-Log (letzte 7 Tage)</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Zeitpunkt</th>
+            <th>Dauer</th>
+            <th>Grund</th>
+            <th>Wiederherstellung</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>17.02.2026 03:14</td>
+            <td><span class="tag tag-red">1h 22m</span></td>
+            <td>Geplanter Restart (Wartung)</td>
+            <td>Automatisch (systemd)</td>
+          </tr>
+          <tr>
+            <td colspan="4" class="empty" style="padding:16px;">Keine weiteren Ausfälle im gewählten Zeitraum</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+// ── Tab Switching ──
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+    if (tab.dataset.tab === 'analyse') initCharts();
+  });
+});
+
+// ── Time Range ──
+function setTimeRange(btn) {
+  document.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+// ── RCON Demo ──
+function sendRcon() {
+  const input = document.getElementById('rcon-cmd');
+  if (!input.value.trim()) return;
+  const output = document.querySelector('.rcon-output');
+  const now = new Date().toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  output.innerHTML += `<div class="rcon-line"><span class="time">[${now}]</span> <span class="cmd">> ${input.value}</span></div>`;
+  output.innerHTML += `<div class="rcon-line"><span class="time">[${now}]</span> <span class="resp">Command executed.</span></div>`;
+  input.value = '';
+  output.scrollTop = output.scrollHeight;
+}
+
+// ── Server Switcher Demo ──
+function switchServer(server) {
+  const data = {
+    bmc: { icon: '⛏️', title: 'Better Minecraft (BMC)', bread: 'Better Minecraft (BMC)', color: '#238636' },
+    vanilla: { icon: '🏔️', title: 'Vanilla (MC)', bread: 'Vanilla (MC)', color: '#58a6ff' },
+    sat: { icon: '🏭', title: 'Satisfactory', bread: 'Satisfactory', color: '#d2992a' }
+  };
+  const s = data[server];
+  document.getElementById('server-icon').textContent = s.icon;
+  document.getElementById('server-icon').style.background = s.color;
+  document.getElementById('server-title').textContent = s.title;
+  document.getElementById('breadcrumb-server').textContent = s.bread;
+}
+
+// ── Charts ──
+let chartsInit = false;
+function initCharts() {
+  if (chartsInit) return;
+  chartsInit = true;
+
+  const fontColor = '#8b949e';
+  const gridColor = '#21262d';
+  const defaults = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: { legend: { labels: { color: fontColor, font: { size: 11 } } } },
+    scales: {
+      x: { ticks: { color: fontColor, font: { size: 10 } }, grid: { color: gridColor } },
+      y: { ticks: { color: fontColor, font: { size: 10 } }, grid: { color: gridColor } }
+    }
+  };
+
+  const days = ['Do 13.', 'Fr 14.', 'Sa 15.', 'So 16.', 'Mo 17.', 'Di 18.', 'Mi 19.', 'Do 20.'];
+
+  // Uptime (bar chart — green for online, red for downtime hours)
+  new Chart(document.getElementById('chartUptime'), {
+    type: 'bar',
+    data: {
+      labels: days,
+      datasets: [{
+        label: 'Online (h)',
+        data: [24, 24, 24, 24, 22.6, 24, 24, 17],
+        backgroundColor: 'rgba(63,185,80,.5)',
+        borderColor: '#3fb950',
+        borderWidth: 1,
+        borderRadius: 3
+      }]
+    },
+    options: { ...defaults, scales: { ...defaults.scales, y: { ...defaults.scales.y, max: 24 } } }
+  });
+
+  // CPU/RAM
+  new Chart(document.getElementById('chartPerformance'), {
+    type: 'line',
+    data: {
+      labels: days,
+      datasets: [
+        { label: 'CPU %', data: [8, 15, 22, 18, 12, 14, 20, 12], borderColor: '#58a6ff', backgroundColor: 'rgba(88,166,255,.1)', fill: true, tension: .3 },
+        { label: 'RAM GB', data: [3.8, 4.1, 4.5, 4.3, 3.9, 4.0, 4.4, 4.2], borderColor: '#d2a8ff', backgroundColor: 'rgba(210,168,255,.1)', fill: true, tension: .3, yAxisID: 'y1' }
+      ]
+    },
+    options: {
+      ...defaults,
+      scales: {
+        ...defaults.scales,
+        y: { ...defaults.scales.y, title: { display: true, text: 'CPU %', color: fontColor } },
+        y1: { position: 'right', ticks: { color: fontColor, font: { size: 10 } }, grid: { display: false }, title: { display: true, text: 'RAM (GB)', color: fontColor } }
+      }
+    }
+  });
+
+  // Players
+  new Chart(document.getElementById('chartPlayers'), {
+    type: 'line',
+    data: {
+      labels: days,
+      datasets: [{
+        label: 'Spieler Online (Peak)',
+        data: [3, 5, 6, 4, 2, 3, 5, 4],
+        borderColor: '#58a6ff',
+        backgroundColor: 'rgba(88,166,255,.15)',
+        fill: true,
+        tension: .3,
+        pointRadius: 4,
+        pointBackgroundColor: '#58a6ff'
+      }, {
+        label: 'Ø Online',
+        data: [1.5, 2.8, 3.2, 2.1, 1.0, 1.8, 2.9, 2.4],
+        borderColor: '#8b949e',
+        borderDash: [5, 5],
+        tension: .3,
+        pointRadius: 0
+      }]
+    },
+    options: defaults
+  });
+
+  // TPS
+  new Chart(document.getElementById('chartTPS'), {
+    type: 'line',
+    data: {
+      labels: days,
+      datasets: [{
+        label: 'TPS (Ø)',
+        data: [20.0, 19.9, 19.4, 19.7, 20.0, 19.8, 19.5, 19.8],
+        borderColor: '#3fb950',
+        backgroundColor: 'rgba(63,185,80,.1)',
+        fill: true,
+        tension: .3,
+        pointRadius: 4,
+        pointBackgroundColor: function(ctx) {
+          return ctx.raw < 19.5 ? '#d2992a' : '#3fb950';
+        }
+      }]
+    },
+    options: {
+      ...defaults,
+      scales: {
+        ...defaults.scales,
+        y: { ...defaults.scales.y, min: 18, max: 20.5 }
+      },
+      plugins: {
+        ...defaults.plugins,
+        annotation: { annotations: { line1: { type: 'line', yMin: 19, yMax: 19, borderColor: 'rgba(248,81,73,.4)', borderDash: [5, 5] } } }
+      }
+    }
+  });
+
+  // World Growth
+  new Chart(document.getElementById('chartWorld'), {
+    type: 'line',
+    data: {
+      labels: ['Jan', 'Feb (1.)', 'Feb (8.)', 'Feb (15.)', 'Feb (20.)'],
+      datasets: [
+        { label: 'Overworld (GB)', data: [16.8, 17.2, 17.9, 18.2, 18.4], borderColor: '#3fb950', tension: .3, fill: false },
+        { label: 'Nether (GB)', data: [1.0, 1.0, 1.1, 1.1, 1.2], borderColor: '#f85149', tension: .3, fill: false },
+        { label: 'The End (GB)', data: [0.2, 0.2, 0.3, 0.3, 0.3], borderColor: '#d2a8ff', tension: .3, fill: false }
+      ]
+    },
+    options: defaults
+  });
+
+  // Backup Size
+  new Chart(document.getElementById('chartBackup'), {
+    type: 'bar',
+    data: {
+      labels: days,
+      datasets: [{
+        label: 'Backup-Größe (GB)',
+        data: [2.1, 2.2, 2.2, 2.3, 0, 2.3, 2.3, 2.4],
+        backgroundColor: function(ctx) {
+          return ctx.raw === 0 ? 'rgba(248,81,73,.3)' : 'rgba(88,166,255,.5)';
+        },
+        borderColor: function(ctx) {
+          return ctx.raw === 0 ? '#f85149' : '#58a6ff';
+        },
+        borderWidth: 1,
+        borderRadius: 3
+      }]
+    },
+    options: defaults
+  });
+}
+</script>
+</body>
+</html>

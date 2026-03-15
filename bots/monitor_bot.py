@@ -79,6 +79,7 @@ from modules.database.db_manager import init_db, close_db, check_integrity
 from modules.database.json_importer import import_all, check_import_needed
 from modules.security.ban_manager import BanManager
 from modules.database.maintenance import DatabaseMaintenance
+from modules.system.package_checker import PackageChecker
 
 load_env()
 
@@ -204,7 +205,7 @@ config_backup = ConfigBackup(
 )
 
 # Stats tracker (persisted history for reports)
-stats_tracker = StatsTracker(data_dir=PROJECT_ROOT / "data")
+stats_tracker = StatsTracker(server_type="sat")
 
 # Server optimizer
 optimizer = ServerOptimizer(config)
@@ -226,7 +227,7 @@ crash_replay = CrashReplay(
 
 # Player IP tracker - maps player names to IPs for kick/ban
 player_ip_tracker = PlayerIPTracker(
-    data_file=PROJECT_ROOT / "data" / "player_ips.json",
+    game_type="sat",
     game_ports=[7777, 7778, 8888, 8889],
 )
 
@@ -332,6 +333,10 @@ bot.ban_manager = ban_manager
 db_maintenance = DatabaseMaintenance()
 bot.db_maintenance = db_maintenance
 
+# F42: Automatischer Paket-Update-Check (woechentlich)
+package_checker = PackageChecker(bot)
+bot.package_checker = package_checker
+
 # ------------------------------------------------------------------
 # Minecraft Multi-Server + Chat-Bridge
 # ------------------------------------------------------------------
@@ -347,6 +352,16 @@ for _mc_sid in MC_SERVER_IDS:
         logger.info(f"Minecraft-Server aktiviert: {_mc_srv.display_name} ({_mc_sid})")
 
 bot.mc_servers = mc_servers
+
+# F52: MC-Server-Ports dynamisch zum PortMonitor hinzufuegen
+for _mc_sid, _mc_srv in mc_servers.items():
+    # RCON-Port monitoren (bester Indikator ob Server laeuft)
+    port_monitor.add_port(
+        port=_mc_srv.rcon_port,
+        label=f"MC {_mc_srv.display_name} RCON",
+        host=_mc_srv.rcon_host,
+    )
+    logger.info(f"PortMonitor: MC {_mc_srv.display_name} RCON ({_mc_srv.rcon_host}:{_mc_srv.rcon_port}) registriert")
 
 # Minecraft Backup-Manager (fuer Scheduler Auto-Backups)
 if mc_servers:
@@ -384,7 +399,7 @@ bot.mc_settings_mgrs = mc_settings_mgrs
 # Minecraft Update-Checker (nur Paper-basierte Server)
 mc_update_checkers: dict[str, MinecraftUpdateChecker] = {}
 for _mc_sid, _mc_srv in mc_servers.items():
-    # BMC ist Fabric/Forge-basiert — kein Paper-Update-Check
+    # BMC ist NeoForge-basiert — kein Paper-Update-Check
     if _mc_sid.upper() == "BMC":
         continue
     mc_update_checkers[_mc_sid] = MinecraftUpdateChecker(
@@ -398,7 +413,6 @@ bot.mc_update_checkers = mc_update_checkers
 mc_stats_trackers: dict[str, StatsTracker] = {}
 for _mc_sid in mc_servers:
     mc_stats_trackers[_mc_sid] = StatsTracker(
-        data_dir=PROJECT_ROOT / "data",
         server_type="mc",
         server_id=_mc_sid.lower(),
     )
@@ -419,7 +433,6 @@ bot.mc_crash_replays = mc_crash_replays
 mc_ip_trackers: dict[str, PlayerIPTracker] = {}
 for _mc_sid in mc_servers:
     mc_ip_trackers[_mc_sid] = PlayerIPTracker(
-        data_file=PROJECT_ROOT / "data" / f"player_ips_mc_{_mc_sid.lower()}.json",
         game_type="mc",
         game_ports=[25565],
     )
@@ -856,6 +869,291 @@ async def _on_crash_loop(result):
 
 
 savegame_protection.on_crash_loop = _on_crash_loop
+
+
+# -- F50: Service-Watchdog Callbacks --
+
+async def _on_service_down(service_name: str, label: str):
+    if ADMIN_LOG_CHANNEL_ID:
+        channel = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
+        if channel:
+            try:
+                embed = discord.Embed(
+                    title=f"Service ausgefallen: {label}",
+                    description=(
+                        f"**Service:** `{service_name}`\n"
+                        f"Status: nicht aktiv\n\n"
+                        f"Automatischer Neustart wird versucht..."
+                    ),
+                    color=0xe74c3c,
+                    timestamp=datetime.now(),
+                )
+                await channel.send(embed=embed)
+            except Exception as e:
+                logger.debug(f"Service-Down Notification Fehler: {e}")
+
+
+async def _on_sw_restart_success(service_name: str, label: str):
+    if ADMIN_LOG_CHANNEL_ID:
+        channel = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
+        if channel:
+            try:
+                embed = discord.Embed(
+                    title=f"Service neugestartet: {label}",
+                    description=(
+                        f"**Service:** `{service_name}`\n"
+                        f"Automatischer Neustart war erfolgreich."
+                    ),
+                    color=0x2ecc71,
+                    timestamp=datetime.now(),
+                )
+                await channel.send(embed=embed)
+            except Exception as e:
+                logger.debug(f"Service-Restart-Success Notification Fehler: {e}")
+
+
+async def _on_sw_restart_failed(service_name: str, label: str, error_msg: str):
+    if ADMIN_LOG_CHANNEL_ID:
+        channel = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
+        if channel:
+            try:
+                embed = discord.Embed(
+                    title=f"Service-Neustart FEHLGESCHLAGEN: {label}",
+                    description=(
+                        f"**Service:** `{service_name}`\n"
+                        f"**Fehler:** {error_msg}\n\n"
+                        f"Manuelles Eingreifen erforderlich!"
+                    ),
+                    color=0xe74c3c,
+                    timestamp=datetime.now(),
+                )
+                await channel.send(embed=embed)
+            except Exception as e:
+                logger.debug(f"Service-Restart-Failed Notification Fehler: {e}")
+
+
+async def _on_sw_cooldown_reached(service_name: str, label: str, restart_count: int):
+    if ADMIN_LOG_CHANNEL_ID:
+        channel = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
+        if channel:
+            try:
+                embed = discord.Embed(
+                    title=f"Restart-Cooldown erreicht: {label}",
+                    description=(
+                        f"**Service:** `{service_name}`\n"
+                        f"**Restarts letzte Stunde:** {restart_count}\n\n"
+                        f"Maximale Anzahl automatischer Restarts erreicht."
+                    ),
+                    color=0xf39c12,
+                    timestamp=datetime.now(),
+                )
+                await channel.send(embed=embed)
+            except Exception as e:
+                logger.debug(f"Cooldown-Reached Notification Fehler: {e}")
+
+
+service_watchdog.on_service_down = _on_service_down
+service_watchdog.on_restart_success = _on_sw_restart_success
+service_watchdog.on_restart_failed = _on_sw_restart_failed
+service_watchdog.on_cooldown_reached = _on_sw_cooldown_reached
+
+
+# -- F49: Disk-Guard Callbacks --
+
+async def _on_disk_warning(result: dict):
+    if ADMIN_LOG_CHANNEL_ID:
+        channel = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
+        if channel:
+            try:
+                embed = discord.Embed(
+                    title="Speicherplatz-Warnung",
+                    description=disk_guard.format_status(result),
+                    color=disk_guard.get_embed_color(result.get("level", "warning")),
+                    timestamp=datetime.now(),
+                )
+                await channel.send(embed=embed)
+            except Exception as e:
+                logger.debug(f"Disk-Warning Notification Fehler: {e}")
+
+
+async def _on_disk_cleanup(result: dict):
+    if ADMIN_LOG_CHANNEL_ID:
+        channel = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
+        if channel:
+            try:
+                embed = discord.Embed(
+                    title="Automatische Speicherbereinigung",
+                    description=disk_guard.format_status(result),
+                    color=disk_guard.get_embed_color(result.get("level", "cleanup")),
+                    timestamp=datetime.now(),
+                )
+                await channel.send(embed=embed)
+            except Exception as e:
+                logger.debug(f"Disk-Cleanup Notification Fehler: {e}")
+
+
+async def _on_disk_critical(result: dict):
+    if ADMIN_LOG_CHANNEL_ID:
+        channel = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
+        if channel:
+            try:
+                embed = discord.Embed(
+                    title="KRITISCH: Speicherplatz fast voll!",
+                    description=disk_guard.format_status(result),
+                    color=0xe74c3c,
+                    timestamp=datetime.now(),
+                )
+                content = f"<@&{NOTIFY_ROLE_ID}>" if NOTIFY_ROLE_ID else None
+                await channel.send(content=content, embed=embed)
+            except Exception as e:
+                logger.debug(f"Disk-Critical Notification Fehler: {e}")
+
+
+disk_guard.on_warning = _on_disk_warning
+disk_guard.on_cleanup = _on_disk_cleanup
+disk_guard.on_critical = _on_disk_critical
+
+
+# -- F51: DuckDNS-Monitor Callbacks --
+
+async def _on_duckdns_mismatch(result: dict):
+    if ADMIN_LOG_CHANNEL_ID:
+        channel = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
+        if channel:
+            try:
+                desc = duckdns_monitor.format_status(result)
+                # Auto-Update versuchen falls Token gesetzt
+                token = get_env("DUCKDNS_TOKEN", "")
+                if token and result.get("actual_ip"):
+                    try:
+                        updated = await duckdns_monitor.auto_update(token, result["actual_ip"])
+                        if updated:
+                            desc += "\n\nDuckDNS wurde automatisch aktualisiert."
+                        else:
+                            desc += "\n\nAutomatisches DuckDNS-Update fehlgeschlagen!"
+                    except Exception as update_err:
+                        desc += f"\n\nAuto-Update Fehler: {update_err}"
+
+                embed = discord.Embed(
+                    title="DuckDNS: IP-Abweichung erkannt!",
+                    description=desc,
+                    color=0xe74c3c,
+                    timestamp=datetime.now(),
+                )
+                content = f"<@&{NOTIFY_ROLE_ID}>" if NOTIFY_ROLE_ID else None
+                await channel.send(content=content, embed=embed)
+            except Exception as e:
+                logger.debug(f"DuckDNS-Mismatch Notification Fehler: {e}")
+
+
+duckdns_monitor.on_mismatch = _on_duckdns_mismatch
+
+
+# -- F52: Port-Monitor Callbacks --
+
+async def _on_port_closed(result: dict):
+    if ADMIN_LOG_CHANNEL_ID:
+        channel = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
+        if channel:
+            try:
+                embed = discord.Embed(
+                    title=f"Port nicht erreichbar: {result.get('label', '?')}",
+                    description=(
+                        f"**Host:Port:** `{result.get('host', '?')}:{result.get('port', '?')}`\n"
+                        f"**Fehler:** {result.get('error', 'unbekannt')}"
+                    ),
+                    color=0xe74c3c,
+                    timestamp=datetime.now(),
+                )
+                await channel.send(embed=embed)
+            except Exception as e:
+                logger.debug(f"Port-Closed Notification Fehler: {e}")
+
+
+async def _on_port_recovered(result: dict):
+    if ADMIN_LOG_CHANNEL_ID:
+        channel = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
+        if channel:
+            try:
+                embed = discord.Embed(
+                    title=f"Port wieder erreichbar: {result.get('label', '?')}",
+                    description=(
+                        f"**Host:Port:** `{result.get('host', '?')}:{result.get('port', '?')}`\n"
+                        f"**Antwortzeit:** {result.get('response_ms', '?')}ms"
+                    ),
+                    color=0x2ecc71,
+                    timestamp=datetime.now(),
+                )
+                await channel.send(embed=embed)
+            except Exception as e:
+                logger.debug(f"Port-Recovered Notification Fehler: {e}")
+
+
+port_monitor.on_port_closed = _on_port_closed
+port_monitor.on_port_recovered = _on_port_recovered
+
+
+# -- F42: PackageChecker Callbacks --
+
+async def _on_updates_available(result: dict):
+    if ADMIN_LOG_CHANNEL_ID:
+        channel = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
+        if channel:
+            try:
+                total = result.get("total_updates", 0)
+                security = result.get("security_updates", 0)
+                packages = result.get("packages", [])
+                # Maximal 10 Pakete auflisten
+                pkg_list = "\n".join(
+                    f"  - {p['name']} ({p['current']} -> {p['available']})"
+                    for p in packages[:10]
+                )
+                if len(packages) > 10:
+                    pkg_list += f"\n  ... und {len(packages) - 10} weitere"
+
+                embed = discord.Embed(
+                    title=f"System-Updates verfuegbar: {total} Pakete",
+                    description=(
+                        f"**{total}** Paket-Updates verfuegbar"
+                        f" ({security} Security)\n\n{pkg_list}"
+                    ),
+                    color=0xf39c12,
+                    timestamp=datetime.now(),
+                )
+                await channel.send(embed=embed)
+            except Exception as e:
+                logger.debug(f"Package-Updates Notification Fehler: {e}")
+
+
+async def _on_security_updates(result: dict):
+    if ADMIN_LOG_CHANNEL_ID:
+        channel = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
+        if channel:
+            try:
+                security = result.get("security_updates", 0)
+                sec_pkgs = [p for p in result.get("packages", []) if p.get("security")]
+                pkg_list = "\n".join(
+                    f"  - **{p['name']}** ({p['current']} -> {p['available']})"
+                    for p in sec_pkgs[:15]
+                )
+                embed = discord.Embed(
+                    title=f"Security-Updates: {security} Pakete!",
+                    description=(
+                        f"**{security}** sicherheitsrelevante Updates verfuegbar!\n\n"
+                        f"{pkg_list}\n\n"
+                        f"Bitte zeitnah aktualisieren."
+                    ),
+                    color=0xe74c3c,
+                    timestamp=datetime.now(),
+                )
+                content = f"<@&{NOTIFY_ROLE_ID}>" if NOTIFY_ROLE_ID else None
+                await channel.send(content=content, embed=embed)
+            except Exception as e:
+                logger.debug(f"Security-Updates Notification Fehler: {e}")
+
+
+package_checker.on_updates_available = _on_updates_available
+package_checker.on_security_updates = _on_security_updates
 
 
 # -- Login Audit Callbacks (Phase 4a) --
@@ -1764,12 +2062,28 @@ async def update_voice_stats():
                 mc_running = await srv.is_running()
                 mc_players = 0
                 mc_max = 0
+                mc_player_names = []
                 if mc_running:
                     mc_players, mc_max = await srv.get_player_count()
+                    # Spielernamen via RCON holen und PlayerTracker synchronisieren
+                    try:
+                        mc_player_names = await srv.get_players()
+                    except Exception:
+                        mc_player_names = []
             except Exception:
                 mc_running = False
                 mc_players = 0
                 mc_max = 0
+                mc_player_names = []
+
+            # PlayerTracker mit RCON-Daten synchronisieren
+            mc_pt = mc_player_trackers.get(sid)
+            if mc_pt:
+                if mc_running and mc_player_names:
+                    await mc_pt.update(set(mc_player_names))
+                elif not mc_running and mc_pt.get_online_players():
+                    # Server offline aber Tracker zeigt noch Spieler → bereinigen
+                    await mc_pt.update(set())
 
             vc_key = f"MC-{sid}"
             mc_vc = await _get_or_create_voice_channel(
@@ -1872,6 +2186,17 @@ async def db_maintenance_task():
     except Exception as e:
         logger.error(f"DB-Maintenance-Task Fehler: {e}")
 
+    # F55: FTS5 Suchindex inkrementell aktualisieren
+    try:
+        from modules.database.search_indexer import SearchIndexer
+        indexer = SearchIndexer()
+        idx_result = await indexer.incremental_update()
+        new_entries = idx_result.get("new_entries", 0)
+        if new_entries > 0:
+            logger.info(f"FTS5 Index: {new_entries} neue Eintraege indiziert")
+    except Exception as e:
+        logger.debug(f"FTS5 Index-Update fehlgeschlagen: {e}")
+
 
 @db_maintenance_task.before_loop
 async def before_db_maintenance():
@@ -1933,7 +2258,12 @@ _first_ready = True  # Track first on_ready vs reconnects
 async def setup_hook():
     """Called once before the bot connects. Load cogs and sync commands here."""
     # Load cogs (runs exactly once)
-    cog_list = ["cogs.monitor_cog", "cogs.scheduler_cog"]
+    cog_list = [
+        "cogs.monitor_cog",
+        "cogs.scheduler_cog",
+        "cogs.maintenance_mode_cog",  # F43: Wartungsmodus-Toggle
+        "cogs.shutdown_cog",          # F54: Geplanter Shutdown
+    ]
     for cog in cog_list:
         try:
             await bot.load_extension(cog)
@@ -2012,6 +2342,14 @@ async def on_ready():
     except Exception as e:
         logger.error(f"Datenbank-Initialisierung fehlgeschlagen: {e}")
 
+    # StatsTracker aus SQLite laden
+    try:
+        await stats_tracker.load_from_db()
+        for _st_sid, _st_tracker in mc_stats_trackers.items():
+            await _st_tracker.load_from_db()
+    except Exception as e:
+        logger.warning(f"StatsTracker DB-Load fehlgeschlagen: {e}")
+
     # F28-8: Boot-Restore — iptables-Bans aus DB wiederherstellen
     try:
         restored = await ban_manager.restore_bans()
@@ -2033,6 +2371,7 @@ async def on_ready():
     disk_guard.start()
     duckdns_monitor.start()
     port_monitor.start()
+    package_checker.start()
 
     if _first_ready:
         logger.info("All background tasks started")
@@ -2153,6 +2492,7 @@ async def shutdown():
     disk_guard.stop()
     duckdns_monitor.stop()
     port_monitor.stop()
+    package_checker.stop()
     await sat_api.close()
     # F28: Datenbank sauber schliessen (WAL-Checkpoint + Close)
     await close_db()

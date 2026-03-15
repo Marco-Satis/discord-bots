@@ -82,7 +82,6 @@ class SatisfactoryAPI:
 
     async def _request(self, function: str, data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Send API request with retry logic"""
-        session = await self._get_session()
         headers = {"Content-Type": "application/json"}
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
@@ -94,6 +93,8 @@ class SatisfactoryAPI:
         last_error = None
         for attempt in range(3):
             try:
+                # Session bei jedem Versuch neu holen (nach close/reset ist die alte ungueltig)
+                session = await self._get_session()
                 async with session.post(
                     self.base_url,
                     json=payload,

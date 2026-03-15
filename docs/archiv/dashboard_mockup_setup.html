@@ -1,0 +1,1559 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard Mockup — Discord / TeamSpeak Setup</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f1117; color: #e1e4e8; min-height: 100vh; }
+
+  /* Sidebar */
+  .sidebar { position: fixed; left: 0; top: 0; width: 220px; height: 100vh; background: #161b22; border-right: 1px solid #30363d; padding: 20px 0; z-index: 10; }
+  .sidebar h2 { padding: 0 20px 20px; font-size: 16px; color: #58a6ff; border-bottom: 1px solid #30363d; margin-bottom: 10px; }
+  .sidebar h2 span { font-size: 11px; color: #8b949e; display: block; margin-top: 4px; }
+  .nav-item { display: flex; align-items: center; gap: 10px; padding: 10px 20px; color: #c9d1d9; text-decoration: none; font-size: 14px; cursor: pointer; transition: background .15s; }
+  .nav-item:hover { background: #1f2937; }
+  .nav-item.active { background: #1f2937; color: #58a6ff; border-left: 3px solid #58a6ff; }
+  .nav-item .icon { width: 18px; text-align: center; }
+  .nav-section { font-size: 11px; text-transform: uppercase; color: #8b949e; padding: 15px 20px 5px; letter-spacing: .5px; }
+  .sidebar-footer { position: absolute; bottom: 0; width: 100%; padding: 15px 20px; border-top: 1px solid #30363d; font-size: 12px; color: #8b949e; }
+
+  /* Main */
+  .main { margin-left: 220px; padding: 30px; max-width: 1100px; }
+  .page-header { margin-bottom: 25px; }
+  .page-header h1 { font-size: 24px; font-weight: 600; }
+  .page-header p { font-size: 14px; color: #8b949e; margin-top: 4px; }
+
+  /* Tabs */
+  .tabs { display: flex; gap: 0; border-bottom: 1px solid #30363d; margin-bottom: 25px; }
+  .tab { padding: 10px 20px; font-size: 14px; color: #8b949e; cursor: pointer; border-bottom: 2px solid transparent; transition: all .15s; }
+  .tab:hover { color: #c9d1d9; }
+  .tab.active { color: #58a6ff; border-bottom-color: #58a6ff; }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  /* Cards */
+  .section-card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 24px; margin-bottom: 20px; }
+  .section-card h3 { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
+  .section-card .subtitle { font-size: 13px; color: #8b949e; margin-bottom: 20px; }
+
+  /* Form Elements */
+  .form-group { margin-bottom: 18px; }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .form-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+  label { display: block; font-size: 13px; color: #c9d1d9; margin-bottom: 6px; font-weight: 500; }
+  label .hint { font-weight: 400; color: #8b949e; font-size: 12px; }
+  input[type="text"], input[type="number"], input[type="password"], select, textarea {
+    width: 100%; padding: 8px 12px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px;
+    color: #c9d1d9; font-size: 14px; font-family: inherit; transition: border-color .15s;
+  }
+  input:focus, select:focus, textarea:focus { border-color: #58a6ff; outline: none; }
+  textarea { resize: vertical; min-height: 80px; }
+
+  /* Toggle */
+  .toggle-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid #21262d; }
+  .toggle-row:last-child { border-bottom: none; }
+  .toggle-info { flex: 1; }
+  .toggle-label { font-size: 14px; color: #c9d1d9; font-weight: 500; }
+  .toggle-desc { font-size: 12px; color: #8b949e; margin-top: 2px; }
+  .toggle { position: relative; width: 44px; height: 24px; flex-shrink: 0; margin-left: 16px; }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background: #30363d; border-radius: 24px; transition: .2s; }
+  .toggle .slider:before { content: ""; position: absolute; height: 18px; width: 18px; left: 3px; bottom: 3px; background: #c9d1d9; border-radius: 50%; transition: .2s; }
+  .toggle input:checked + .slider { background: #3fb950; }
+  .toggle input:checked + .slider:before { transform: translateX(20px); }
+
+  /* Table */
+  .data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .data-table th { text-align: left; padding: 8px 12px; color: #8b949e; font-weight: 500; border-bottom: 1px solid #30363d; font-size: 12px; text-transform: uppercase; letter-spacing: .3px; }
+  .data-table td { padding: 10px 12px; border-bottom: 1px solid #21262d; color: #c9d1d9; }
+  .data-table tr:hover td { background: rgba(88,166,255,.03); }
+
+  /* Tags */
+  .tag-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .tag { display: inline-flex; align-items: center; gap: 4px; background: #21262d; padding: 4px 10px; border-radius: 12px; font-size: 12px; color: #c9d1d9; }
+  .tag .remove { cursor: pointer; color: #f85149; font-weight: 700; margin-left: 2px; }
+  .tag-input-row { display: flex; gap: 8px; margin-top: 8px; }
+  .tag-input-row input { flex: 1; }
+
+  /* Buttons */
+  .btn { padding: 8px 18px; border-radius: 6px; border: 1px solid #30363d; font-size: 13px; cursor: pointer; font-weight: 500; transition: all .15s; }
+  .btn-primary { background: #238636; color: #fff; border-color: #2ea043; }
+  .btn-primary:hover { background: #2ea043; }
+  .btn-danger { background: rgba(248,81,73,.1); color: #f85149; border-color: rgba(248,81,73,.3); }
+  .btn-danger:hover { background: rgba(248,81,73,.2); }
+  .btn-secondary { background: #21262d; color: #c9d1d9; }
+  .btn-secondary:hover { background: #30363d; }
+  .btn-add { background: rgba(88,166,255,.1); color: #58a6ff; border-color: rgba(88,166,255,.3); font-size: 12px; padding: 5px 12px; }
+  .btn-add:hover { background: rgba(88,166,255,.2); }
+
+  .actions-bar { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; padding-top: 16px; border-top: 1px solid #30363d; }
+
+  /* Status indicator */
+  .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+  .status-dot.green { background: #3fb950; }
+  .status-dot.red { background: #f85149; }
+  .status-dot.yellow { background: #d29922; }
+
+  /* Connection box */
+  .connection-box { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: #0d1117; border: 1px solid #30363d; border-radius: 8px; margin-bottom: 16px; }
+  .connection-box.connected { border-color: rgba(63,185,80,.3); }
+  .connection-box.disconnected { border-color: rgba(248,81,73,.3); }
+  .connection-status { font-size: 13px; flex: 1; }
+
+  /* Warn levels */
+  .warn-level { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid #21262d; }
+  .warn-level:last-child { border-bottom: none; }
+  .warn-badge { min-width: 80px; text-align: center; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; }
+  .warn-badge.w1 { background: rgba(210,153,34,.15); color: #d29922; }
+  .warn-badge.w2 { background: rgba(248,132,73,.15); color: #f88449; }
+  .warn-badge.w3 { background: rgba(248,81,73,.15); color: #f85149; }
+  .warn-action { flex: 1; font-size: 13px; color: #c9d1d9; }
+</style>
+</head>
+<body>
+
+<!-- Sidebar -->
+<nav class="sidebar">
+  <h2>Bot Dashboard <span>Discord Bot System v3.1.0</span></h2>
+  <div class="nav-item"><span class="icon">📊</span> Übersicht</div>
+  <div class="nav-item"><span class="icon">⚠️</span> Fehler</div>
+  <div class="nav-item active"><span class="icon">🛡️</span> Admin Bot</div>
+  <div class="nav-item"><span class="icon">⚙️</span> Config</div>
+  <div class="nav-item"><span class="icon">🖥️</span> System</div>
+  <div class="nav-section"></div>
+  <div class="nav-item"><span class="icon">↩️</span> Logout</div>
+  <div class="sidebar-footer" style="display:flex; align-items:center; gap:10px;">
+    <div style="width:32px; height:32px; border-radius:50%; background:#5865F2; display:flex; align-items:center; justify-content:center; font-size:14px; flex-shrink:0;">M</div>
+    <div>
+      <strong style="font-size:13px; color:#e1e4e8;">Marco</strong><br>
+      <span style="font-size:11px;">via Discord</span>
+    </div>
+  </div>
+</nav>
+
+<!-- Main -->
+<main class="main">
+
+  <div class="page-header">
+    <h1>🛡️ Admin Bot — Setup</h1>
+    <p>Vollstaendiger Maki-Ersatz — Moderation, Rollen, Leveling, Tickets und mehr</p>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs" style="flex-wrap: wrap;">
+    <div class="tab active" onclick="showTab('tempvoice')">🔊 Temp Voice</div>
+    <div class="tab" onclick="showTab('teamspeak')">🎧 TeamSpeak</div>
+    <div class="tab" onclick="showTab('wordfilter')">🚫 WordFilter</div>
+    <div class="tab" onclick="showTab('antispam')">⚡ AntiSpam</div>
+    <div class="tab" onclick="showTab('warns')">⚠️ Warns</div>
+    <div class="tab" onclick="showTab('reactionroles')">🎭 Reaction Roles</div>
+    <div class="tab" onclick="showTab('leveling')">📈 Leveling</div>
+    <div class="tab" onclick="showTab('tickets')">🎫 Tickets</div>
+    <div class="tab" onclick="showTab('audit')">📋 Audit-Log</div>
+    <div class="tab" onclick="showTab('giveaways')">🎉 Giveaways</div>
+  </div>
+
+  <!-- ==================== TAB: TEMP VOICE ==================== -->
+  <div id="tab-tempvoice" class="tab-content active">
+
+    <div class="section-card">
+      <h3>🔊 Temp Voice Channels</h3>
+      <div class="subtitle">Join-to-Create-System — User treten dem Hub-Channel bei und erhalten automatisch einen eigenen Voice Channel</div>
+
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">Temp Voice aktiviert</div>
+          <div class="toggle-desc">Join-to-Create-System ein-/ausschalten</div>
+        </div>
+        <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+      </div>
+
+      <div style="margin-top: 20px;">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Hub-Channel <span class="hint">(Voice Channel ID)</span></label>
+            <input type="text" value="1234567890123456" placeholder="Discord Voice Channel ID">
+          </div>
+          <div class="form-group">
+            <label>Ziel-Kategorie <span class="hint">(Kategorie ID)</span></label>
+            <input type="text" value="1234567890123457" placeholder="Discord Kategorie ID">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Standard-Kanalname</label>
+            <input type="text" value="{username}'s Channel" placeholder="{username}'s Channel">
+          </div>
+          <div class="form-group">
+            <label>Standard User-Limit <span class="hint">(0 = unbegrenzt)</span></label>
+            <input type="number" value="0" min="0" max="99">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Temp Voice: Owner-Rechte -->
+    <div class="section-card">
+      <h3>Owner-Berechtigungen</h3>
+      <div class="subtitle">Welche Aktionen darf der Channel-Ersteller über das Verwaltungs-Embed ausführen?</div>
+
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">Kanal umbenennen</div>
+          <div class="toggle-desc">Owner kann den Kanalnamen über das Embed ändern</div>
+        </div>
+        <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+      </div>
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">User-Limit setzen</div>
+          <div class="toggle-desc">Owner kann die maximale Teilnehmeranzahl festlegen</div>
+        </div>
+        <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+      </div>
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">Kanal sperren / entsperren</div>
+          <div class="toggle-desc">Owner kann den Beitritt für andere User sperren</div>
+        </div>
+        <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+      </div>
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">User einladen</div>
+          <div class="toggle-desc">Owner kann User gezielt einladen (auch bei gesperrtem Kanal)</div>
+        </div>
+        <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+      </div>
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">User ausschließen</div>
+          <div class="toggle-desc">Owner kann User aus dem Kanal entfernen und sperren</div>
+        </div>
+        <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+      </div>
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">Kanalstatus ändern</div>
+          <div class="toggle-desc">Owner kann den kurzen Status-Text unter dem Kanalnamen setzen</div>
+        </div>
+        <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+      </div>
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">Beschreibung ändern</div>
+          <div class="toggle-desc">Owner kann eine Kanalbeschreibung festlegen</div>
+        </div>
+        <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+      </div>
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">Rechte übertragen</div>
+          <div class="toggle-desc">Owner kann die Ownership an einen anderen User übergeben</div>
+        </div>
+        <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+      </div>
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">AFK-Timer konfigurieren</div>
+          <div class="toggle-desc">Owner kann einen Idle-Timer setzen (User werden nach X Min entfernt)</div>
+        </div>
+        <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+      </div>
+    </div>
+
+    <!-- Temp Voice: AFK Defaults -->
+    <div class="section-card">
+      <h3>AFK-Handling — Standardwerte</h3>
+      <div class="subtitle">Globale Standardwerte, die Owner über das Embed individuell überschreiben können</div>
+
+      <div class="form-row-3">
+        <div class="form-group">
+          <label>Standard AFK-Timer <span class="hint">(0 = aus)</span></label>
+          <input type="number" value="0" min="0" max="120" placeholder="Minuten">
+        </div>
+        <div class="form-group">
+          <label>Maximaler AFK-Timer</label>
+          <input type="number" value="60" min="1" max="120" placeholder="Minuten">
+        </div>
+        <div class="form-group">
+          <label>Owner vom AFK ausgenommen</label>
+          <select><option selected>Ja</option><option>Nein</option></select>
+        </div>
+      </div>
+
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">DM-Benachrichtigung bei AFK-Kick</div>
+          <div class="toggle-desc">User erhalten eine private Nachricht wenn sie wegen Inaktivität entfernt werden</div>
+        </div>
+        <label class="toggle"><input type="checkbox"><span class="slider"></span></label>
+      </div>
+
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">Auto-Transfer bei Owner-Leave</div>
+          <div class="toggle-desc">Wenn der Owner den Channel verlässt, wird der am längsten anwesende User neuer Owner</div>
+        </div>
+        <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+      </div>
+
+      <div class="actions-bar">
+        <button class="btn btn-secondary">Zurücksetzen</button>
+        <button class="btn btn-primary">💾 Speichern</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== TAB: TEAMSPEAK ==================== -->
+  <div id="tab-teamspeak" class="tab-content">
+
+    <div class="section-card">
+      <h3>🎧 TeamSpeak — Server-Verbindung</h3>
+      <div class="subtitle">ServerQuery-Verbindung zum TeamSpeak-Server konfigurieren</div>
+
+      <div class="connection-box disconnected">
+        <span class="status-dot red"></span>
+        <span class="connection-status">Nicht verbunden — ServerQuery-Zugangsdaten erforderlich</span>
+        <button class="btn btn-secondary" style="font-size:12px; padding:4px 12px;">Verbindung testen</button>
+      </div>
+
+      <div class="toggle-row" style="border-bottom: none; padding-bottom: 0;">
+        <div class="toggle-info">
+          <div class="toggle-label">TeamSpeak-Integration aktiviert</div>
+          <div class="toggle-desc">Alle TS-Features ein-/ausschalten</div>
+        </div>
+        <label class="toggle"><input type="checkbox"><span class="slider"></span></label>
+      </div>
+
+      <div style="margin-top: 16px;">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Host / IP-Adresse</label>
+            <input type="text" value="" placeholder="ts.example.com oder 192.168.1.100">
+          </div>
+          <div class="form-group">
+            <label>ServerQuery Port</label>
+            <input type="number" value="10011" placeholder="10011">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Query Benutzername</label>
+            <input type="text" value="" placeholder="serveradmin">
+          </div>
+          <div class="form-group">
+            <label>Query Passwort</label>
+            <input type="password" value="" placeholder="••••••••">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Virtual Server ID</label>
+            <input type="number" value="1" min="1">
+          </div>
+          <div class="form-group">
+            <label>Discord Status-Channel <span class="hint">(Channel ID)</span></label>
+            <input type="text" value="" placeholder="Discord Channel ID für TS-Status">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TS Chat Bridge -->
+    <div class="section-card">
+      <h3>Chat-Bridge (TS ↔ Discord)</h3>
+      <div class="subtitle">Bidirektionale Nachrichtenweiterleitung zwischen TeamSpeak und Discord</div>
+
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">Chat-Bridge aktiviert</div>
+          <div class="toggle-desc">Nachrichten zwischen TS Server-Chat und Discord-Channel synchronisieren</div>
+        </div>
+        <label class="toggle"><input type="checkbox"><span class="slider"></span></label>
+      </div>
+
+      <div style="margin-top: 12px;">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Discord Bridge-Channel <span class="hint">(Channel ID)</span></label>
+            <input type="text" value="" placeholder="Discord Channel ID für Chat-Bridge">
+          </div>
+          <div class="form-group">
+            <label>Nachrichtenformat (TS → Discord)</label>
+            <input type="text" value="[TS] {username}: {message}" placeholder="[TS] {username}: {message}">
+          </div>
+        </div>
+      </div>
+
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">WordFilter auf Bridge-Nachrichten anwenden</div>
+          <div class="toggle-desc">Nachrichten aus TS werden ebenfalls durch den WordFilter geprüft</div>
+        </div>
+        <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+      </div>
+    </div>
+
+    <!-- TS Auto-Channels -->
+    <div class="section-card">
+      <h3>Auto-Channels (Gameserver-Verknüpfung)</h3>
+      <div class="subtitle">Automatisch TS-Channels erstellen wenn ein Gameserver startet</div>
+
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">Auto-Channels aktiviert</div>
+          <div class="toggle-desc">Bei Gameserver-Start wird automatisch ein passender TS-Channel erstellt</div>
+        </div>
+        <label class="toggle"><input type="checkbox"><span class="slider"></span></label>
+      </div>
+
+      <table class="data-table" style="margin-top: 12px;">
+        <thead>
+          <tr><th>Gameserver</th><th>TS-Channel Name</th><th>Parent Channel</th><th>Auto-Delete</th><th></th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>🏭 Satisfactory</td>
+            <td><input type="text" value="Satisfactory" style="width:160px; padding:4px 8px; font-size:12px;"></td>
+            <td><input type="text" value="Gameserver" style="width:140px; padding:4px 8px; font-size:12px;" placeholder="Parent Channel"></td>
+            <td><select style="padding:4px 8px; font-size:12px;"><option>Nach 5 Min</option><option selected>Nach 10 Min</option><option>Nach 30 Min</option><option>Nie</option></select></td>
+            <td><button class="btn btn-danger" style="padding:3px 8px; font-size:11px;">✕</button></td>
+          </tr>
+          <tr>
+            <td>⛏️ Better MC</td>
+            <td><input type="text" value="Minecraft BMC" style="width:160px; padding:4px 8px; font-size:12px;"></td>
+            <td><input type="text" value="Gameserver" style="width:140px; padding:4px 8px; font-size:12px;"></td>
+            <td><select style="padding:4px 8px; font-size:12px;"><option>Nach 5 Min</option><option selected>Nach 10 Min</option><option>Nach 30 Min</option><option>Nie</option></select></td>
+            <td><button class="btn btn-danger" style="padding:3px 8px; font-size:11px;">✕</button></td>
+          </tr>
+          <tr>
+            <td>🟩 Vanilla</td>
+            <td><input type="text" value="Minecraft Vanilla" style="width:160px; padding:4px 8px; font-size:12px;"></td>
+            <td><input type="text" value="Gameserver" style="width:140px; padding:4px 8px; font-size:12px;"></td>
+            <td><select style="padding:4px 8px; font-size:12px;"><option>Nach 5 Min</option><option selected>Nach 10 Min</option><option>Nach 30 Min</option><option>Nie</option></select></td>
+            <td><button class="btn btn-danger" style="padding:3px 8px; font-size:11px;">✕</button></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="toggle-row" style="margin-top: 12px;">
+        <div class="toggle-info">
+          <div class="toggle-label">Poke-Benachrichtigung bei Server-Start</div>
+          <div class="toggle-desc">Online-TS-User per Poke informieren wenn ein Gameserver startet</div>
+        </div>
+        <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+      </div>
+
+      <div class="actions-bar">
+        <button class="btn btn-secondary">Zurücksetzen</button>
+        <button class="btn btn-primary">💾 Speichern</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== TAB: WORDFILTER ==================== -->
+  <div id="tab-wordfilter" class="tab-content">
+
+    <div class="section-card">
+      <h3>🚫 WordFilter — Discord-Nachrichten</h3>
+      <div class="subtitle">Filtert Nachrichten in Discord Text-Channels (In-Game-Filter bleibt im GameServer Bot)</div>
+
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">WordFilter aktiviert</div>
+          <div class="toggle-desc">Discord-Nachrichten werden auf verbotene Wörter/Patterns geprüft</div>
+        </div>
+        <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+      </div>
+    </div>
+
+    <!-- Wortliste -->
+    <div class="section-card">
+      <h3>Wortliste — Exakte Treffer</h3>
+      <div class="subtitle">Nachrichten die eines dieser Wörter enthalten werden gelöscht</div>
+
+      <div class="tag-list">
+        <span class="tag">badword1 <span class="remove">×</span></span>
+        <span class="tag">badword2 <span class="remove">×</span></span>
+        <span class="tag">spam123 <span class="remove">×</span></span>
+        <span class="tag">verboten <span class="remove">×</span></span>
+        <span class="tag">scam <span class="remove">×</span></span>
+        <span class="tag">phishing <span class="remove">×</span></span>
+      </div>
+      <div class="tag-input-row">
+        <input type="text" placeholder="Neues Wort hinzufügen...">
+        <button class="btn btn-add">+ Hinzufügen</button>
+      </div>
+    </div>
+
+    <!-- Partial Matches -->
+    <div class="section-card">
+      <h3>Teilwort-Filter (Partial)</h3>
+      <div class="subtitle">Auch Treffer innerhalb von Wörtern (z.B. "scam" findet auch "scammer")</div>
+
+      <div class="tag-list">
+        <span class="tag">discord.gg/ <span class="remove">×</span></span>
+        <span class="tag">nitro-free <span class="remove">×</span></span>
+        <span class="tag">bit.ly/ <span class="remove">×</span></span>
+      </div>
+      <div class="tag-input-row">
+        <input type="text" placeholder="Neues Partial-Pattern hinzufügen...">
+        <button class="btn btn-add">+ Hinzufügen</button>
+      </div>
+    </div>
+
+    <!-- Regex -->
+    <div class="section-card">
+      <h3>Regex-Patterns</h3>
+      <div class="subtitle">Erweiterte Filter mit regulären Ausdrücken</div>
+
+      <table class="data-table">
+        <thead>
+          <tr><th>Pattern</th><th>Beschreibung</th><th></th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code style="background:#21262d; padding:2px 6px; border-radius:4px; font-size:12px;">https?://(?!discord\.com|youtube\.com)\S+</code></td>
+            <td style="font-size:12px; color:#8b949e;">Unerlaubte Links (alle außer Discord + YouTube)</td>
+            <td><button class="btn btn-danger" style="padding:3px 8px; font-size:11px;">✕</button></td>
+          </tr>
+          <tr>
+            <td><code style="background:#21262d; padding:2px 6px; border-radius:4px; font-size:12px;">(.)\1{5,}</code></td>
+            <td style="font-size:12px; color:#8b949e;">Spam-Zeichen (gleicher Char 6+ mal)</td>
+            <td><button class="btn btn-danger" style="padding:3px 8px; font-size:11px;">✕</button></td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="tag-input-row" style="margin-top: 12px;">
+        <input type="text" placeholder="Neues Regex-Pattern..." style="font-family: monospace;">
+        <input type="text" placeholder="Beschreibung..." style="width: 200px;">
+        <button class="btn btn-add">+ Hinzufügen</button>
+      </div>
+
+      <div class="actions-bar">
+        <button class="btn btn-secondary">Zurücksetzen</button>
+        <button class="btn btn-primary">💾 Speichern</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== TAB: ANTISPAM ==================== -->
+  <div id="tab-antispam" class="tab-content">
+
+    <div class="section-card">
+      <h3>⚡ AntiSpam — Discord</h3>
+      <div class="subtitle">Rate-Limiting und Spam-Erkennung für Discord Text-Channels</div>
+
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">AntiSpam aktiviert</div>
+          <div class="toggle-desc">Automatische Spam-Erkennung und Maßnahmen</div>
+        </div>
+        <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+      </div>
+    </div>
+
+    <div class="section-card">
+      <h3>Rate-Limits</h3>
+      <div class="subtitle">Maximale Nachrichten/Commands pro Zeitfenster bevor eine Aktion ausgelöst wird</div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Max. Nachrichten pro Zeitfenster</label>
+          <input type="number" value="5" min="1" max="30">
+        </div>
+        <div class="form-group">
+          <label>Zeitfenster (Sekunden)</label>
+          <input type="number" value="10" min="1" max="120">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Max. Commands pro Zeitfenster</label>
+          <input type="number" value="3" min="1" max="20">
+        </div>
+        <div class="form-group">
+          <label>Command-Zeitfenster (Sekunden)</label>
+          <input type="number" value="10" min="1" max="120">
+        </div>
+      </div>
+    </div>
+
+    <div class="section-card">
+      <h3>Maßnahmen bei Spam</h3>
+      <div class="subtitle">Was passiert wenn ein User als Spammer erkannt wird?</div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Erste Maßnahme</label>
+          <select>
+            <option>Nur Warnung (DM)</option>
+            <option selected>Nachrichten löschen + Warnung</option>
+            <option>Timeout (5 Min)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Bei Wiederholung (innerhalb 1h)</label>
+          <select>
+            <option>Nachrichten löschen + Warnung</option>
+            <option selected>Timeout (10 Min)</option>
+            <option>Timeout (30 Min)</option>
+            <option>Kick</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">Duplicate-Detection</div>
+          <div class="toggle-desc">Gleiche Nachricht 3x hintereinander → Spam</div>
+        </div>
+        <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+      </div>
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">Mention-Spam-Schutz</div>
+          <div class="toggle-desc">Mehr als 5 @Mentions in einer Nachricht → Spam</div>
+        </div>
+        <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+      </div>
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">Emoji-Spam-Schutz</div>
+          <div class="toggle-desc">Mehr als 10 Emojis in einer Nachricht → Spam</div>
+        </div>
+        <label class="toggle"><input type="checkbox"><span class="slider"></span></label>
+      </div>
+
+      <div class="actions-bar">
+        <button class="btn btn-secondary">Zurücksetzen</button>
+        <button class="btn btn-primary">💾 Speichern</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== TAB: WARN-SYSTEM ==================== -->
+  <div id="tab-warns" class="tab-content">
+
+    <div class="section-card">
+      <h3>⚠️ Warn-System</h3>
+      <div class="subtitle">Stufenbasiertes Warn-System — Punkte sammeln sich, bei Schwellwerten greifen automatische Maßnahmen</div>
+
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">Warn-System aktiviert</div>
+          <div class="toggle-desc">Automatische Maßnahmen bei Erreichen der Warnstufen</div>
+        </div>
+        <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+      </div>
+    </div>
+
+    <div class="section-card">
+      <h3>Warnstufen und Maßnahmen</h3>
+      <div class="subtitle">Bei Erreichen der Punktzahl wird die zugehörige Maßnahme automatisch ausgelöst</div>
+
+      <div class="warn-level">
+        <span class="warn-badge w1">Stufe 1</span>
+        <div class="warn-action">
+          <div class="form-row" style="margin-bottom:0;">
+            <div class="form-group" style="margin-bottom:0;">
+              <label style="margin-bottom:4px;">Punkte</label>
+              <input type="number" value="3" min="1" style="width: 80px;">
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+              <label style="margin-bottom:4px;">Maßnahme</label>
+              <select><option selected>Verwarnung (DM)</option><option>Timeout 5 Min</option><option>Timeout 30 Min</option><option>Kick</option><option>Ban</option></select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="warn-level">
+        <span class="warn-badge w2">Stufe 2</span>
+        <div class="warn-action">
+          <div class="form-row" style="margin-bottom:0;">
+            <div class="form-group" style="margin-bottom:0;">
+              <label style="margin-bottom:4px;">Punkte</label>
+              <input type="number" value="5" min="1" style="width: 80px;">
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+              <label style="margin-bottom:4px;">Maßnahme</label>
+              <select><option>Verwarnung (DM)</option><option selected>Timeout 30 Min</option><option>Kick</option><option>Ban</option></select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="warn-level">
+        <span class="warn-badge w3">Stufe 3</span>
+        <div class="warn-action">
+          <div class="form-row" style="margin-bottom:0;">
+            <div class="form-group" style="margin-bottom:0;">
+              <label style="margin-bottom:4px;">Punkte</label>
+              <input type="number" value="10" min="1" style="width: 80px;">
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+              <label style="margin-bottom:4px;">Maßnahme</label>
+              <select><option>Verwarnung (DM)</option><option>Timeout 30 Min</option><option>Kick</option><option selected>Ban</option></select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top: 12px;">
+        <button class="btn btn-add">+ Warnstufe hinzufügen</button>
+      </div>
+    </div>
+
+    <div class="section-card">
+      <h3>Warn-Verfall</h3>
+      <div class="subtitle">Nach welcher Zeit verfallen Verwarnungspunkte automatisch?</div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Punkte verfallen nach</label>
+          <select>
+            <option>Nie (permanent)</option>
+            <option>7 Tage</option>
+            <option selected>30 Tage</option>
+            <option>90 Tage</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Log-Channel <span class="hint">(für Warn-Protokoll)</span></label>
+          <input type="text" value="" placeholder="Discord Channel ID für Warn-Log">
+        </div>
+      </div>
+
+      <div class="actions-bar">
+        <button class="btn btn-secondary">Zurücksetzen</button>
+        <button class="btn btn-primary">💾 Speichern</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== TAB: REACTION ROLES ==================== -->
+  <div id="tab-reactionroles" class="tab-content">
+
+    <div class="section-card">
+      <h3>🎭 Reaction Roles</h3>
+      <div class="subtitle">Embed mit Emoji-Reaktionen — User klicken auf ein Emoji und erhalten automatisch die zugewiesene Rolle</div>
+
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">Reaction Roles aktiviert</div>
+          <div class="toggle-desc">Embeds mit Emoji-basierten Rollenvergaben aktiv</div>
+        </div>
+        <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+      </div>
+    </div>
+
+    <!-- Bestehende Embeds -->
+    <div class="section-card">
+      <h3>Aktive Reaction-Role-Embeds</h3>
+      <div class="subtitle">Verwaltung aller Embeds mit Emoji-Rollen-Zuweisungen</div>
+
+      <table class="data-table">
+        <thead>
+          <tr><th>Channel</th><th>Embed-Titel</th><th>Rollen</th><th>Modus</th><th>Status</th><th></th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>#rollen-vergabe</td>
+            <td>🎮 Spiele-Rollen</td>
+            <td>
+              <span class="tag" style="margin:1px;">🏭 Satisfactory</span>
+              <span class="tag" style="margin:1px;">⛏️ Minecraft</span>
+              <span class="tag" style="margin:1px;">🎯 Valorant</span>
+            </td>
+            <td><span style="font-size:12px; color:#8b949e;">Multi-Select</span></td>
+            <td><span class="status-dot green"></span>Aktiv</td>
+            <td>
+              <button class="btn btn-secondary" style="padding:3px 8px; font-size:11px;">✏️</button>
+              <button class="btn btn-danger" style="padding:3px 8px; font-size:11px;">✕</button>
+            </td>
+          </tr>
+          <tr>
+            <td>#rollen-vergabe</td>
+            <td>🔔 Benachrichtigungen</td>
+            <td>
+              <span class="tag" style="margin:1px;">📢 News</span>
+              <span class="tag" style="margin:1px;">🎉 Events</span>
+              <span class="tag" style="margin:1px;">🔧 Updates</span>
+            </td>
+            <td><span style="font-size:12px; color:#8b949e;">Multi-Select</span></td>
+            <td><span class="status-dot green"></span>Aktiv</td>
+            <td>
+              <button class="btn btn-secondary" style="padding:3px 8px; font-size:11px;">✏️</button>
+              <button class="btn btn-danger" style="padding:3px 8px; font-size:11px;">✕</button>
+            </td>
+          </tr>
+          <tr>
+            <td>#farb-rollen</td>
+            <td>🎨 Namensfarbe wählen</td>
+            <td>
+              <span class="tag" style="margin:1px;">🔴 Rot</span>
+              <span class="tag" style="margin:1px;">🔵 Blau</span>
+              <span class="tag" style="margin:1px;">🟢 Grün</span>
+              <span class="tag" style="margin:1px;">🟡 Gelb</span>
+            </td>
+            <td><span style="font-size:12px; color:#8b949e;">Single-Select</span></td>
+            <td><span class="status-dot green"></span>Aktiv</td>
+            <td>
+              <button class="btn btn-secondary" style="padding:3px 8px; font-size:11px;">✏️</button>
+              <button class="btn btn-danger" style="padding:3px 8px; font-size:11px;">✕</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div style="margin-top: 12px;">
+        <button class="btn btn-add">+ Neues Reaction-Role-Embed erstellen</button>
+      </div>
+    </div>
+
+    <!-- Neues Embed erstellen -->
+    <div class="section-card">
+      <h3>Neues Embed erstellen</h3>
+      <div class="subtitle">Definiere Titel, Channel, Modus und Emoji-Rollen-Paare</div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Embed-Titel</label>
+          <input type="text" placeholder="z.B. 🎮 Wähle deine Spiele-Rollen">
+        </div>
+        <div class="form-group">
+          <label>Ziel-Channel <span class="hint">(Channel ID)</span></label>
+          <input type="text" placeholder="Discord Channel ID">
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Embed-Beschreibung</label>
+          <textarea placeholder="Beschreibungstext der im Embed angezeigt wird..." style="min-height: 60px;"></textarea>
+        </div>
+        <div class="form-group">
+          <label>Modus</label>
+          <select>
+            <option selected>Multi-Select (mehrere Rollen wählbar)</option>
+            <option>Single-Select (nur eine Rolle)</option>
+          </select>
+          <label style="margin-top: 12px;">Embed-Farbe</label>
+          <input type="text" value="#58a6ff" placeholder="#hex Farbcode" style="width: 120px;">
+        </div>
+      </div>
+
+      <div style="margin-top: 16px;">
+        <label>Emoji → Rollen-Zuordnung</label>
+        <table class="data-table" style="margin-top: 8px;">
+          <thead>
+            <tr><th>Emoji</th><th>Rollen-Name</th><th>Rollen-ID</th><th></th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><input type="text" placeholder="🎮" style="width:60px; padding:4px 8px; font-size:14px; text-align:center;"></td>
+              <td><input type="text" placeholder="Rollenname" style="width:160px; padding:4px 8px; font-size:12px;"></td>
+              <td><input type="text" placeholder="Discord Rollen-ID" style="width:180px; padding:4px 8px; font-size:12px;"></td>
+              <td><button class="btn btn-danger" style="padding:3px 8px; font-size:11px;">✕</button></td>
+            </tr>
+          </tbody>
+        </table>
+        <button class="btn btn-add" style="margin-top: 8px;">+ Emoji-Rolle hinzufügen</button>
+      </div>
+
+      <div class="actions-bar">
+        <button class="btn btn-secondary">Abbrechen</button>
+        <button class="btn btn-primary">📨 Embed erstellen & senden</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== TAB: LEVELING ==================== -->
+  <div id="tab-leveling" class="tab-content">
+
+    <div class="section-card">
+      <h3>📈 Leveling / XP-System</h3>
+      <div class="subtitle">Mitglieder sammeln XP durch Text-Nachrichten und Voice-Aktivität — Formel: 5·N² + 50·N + 100</div>
+
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">Leveling-System aktiviert</div>
+          <div class="toggle-desc">XP-Vergabe und Level-Ups ein-/ausschalten</div>
+        </div>
+        <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+      </div>
+    </div>
+
+    <!-- Text-XP -->
+    <div class="section-card">
+      <h3>Text-XP Einstellungen</h3>
+      <div class="subtitle">XP-Vergabe pro Textnachricht — mit Cooldown um Spam zu verhindern</div>
+
+      <div class="form-row-3">
+        <div class="form-group">
+          <label>XP pro Nachricht <span class="hint">(min)</span></label>
+          <input type="number" value="15" min="1" max="100">
+        </div>
+        <div class="form-group">
+          <label>XP pro Nachricht <span class="hint">(max)</span></label>
+          <input type="number" value="25" min="1" max="100">
+        </div>
+        <div class="form-group">
+          <label>Cooldown <span class="hint">(Sekunden)</span></label>
+          <input type="number" value="60" min="10" max="600">
+        </div>
+      </div>
+
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">AntiSpam-Integration</div>
+          <div class="toggle-desc">Nachrichten die als Spam erkannt werden geben keine XP</div>
+        </div>
+        <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+      </div>
+    </div>
+
+    <!-- Voice-XP -->
+    <div class="section-card">
+      <h3>Voice-XP Einstellungen</h3>
+      <div class="subtitle">XP-Vergabe für aktive Voice-Teilnahme — Muted/Deafened User werden ignoriert</div>
+
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">Voice-XP aktiviert</div>
+          <div class="toggle-desc">User erhalten XP für Zeit in Voice-Channels</div>
+        </div>
+        <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+      </div>
+
+      <div style="margin-top: 12px;">
+        <div class="form-row-3">
+          <div class="form-group">
+            <label>XP pro Minute</label>
+            <input type="number" value="5" min="1" max="50">
+          </div>
+          <div class="form-group">
+            <label>Min. User im Channel</label>
+            <input type="number" value="2" min="1" max="10">
+          </div>
+          <div class="form-group">
+            <label>Muted/Deaf ausschließen</label>
+            <select><option selected>Ja</option><option>Nein</option></select>
+          </div>
+        </div>
+      </div>
+
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">AFK-Channel ausschließen</div>
+          <div class="toggle-desc">User im AFK-Channel erhalten keine Voice-XP</div>
+        </div>
+        <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+      </div>
+    </div>
+
+    <!-- Channel-Multiplikatoren -->
+    <div class="section-card">
+      <h3>Channel XP-Multiplikatoren</h3>
+      <div class="subtitle">Bestimmte Channels können mehr oder weniger XP geben (0 = keine XP in diesem Channel)</div>
+
+      <table class="data-table">
+        <thead>
+          <tr><th>Channel</th><th>Multiplikator</th><th>Hinweis</th><th></th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>#allgemein</td>
+            <td><input type="text" value="1.0x" style="width:80px; padding:4px 8px; font-size:12px; text-align:center;"></td>
+            <td style="font-size:12px; color:#8b949e;">Standard</td>
+            <td><button class="btn btn-danger" style="padding:3px 8px; font-size:11px;">✕</button></td>
+          </tr>
+          <tr>
+            <td>#media</td>
+            <td><input type="text" value="1.5x" style="width:80px; padding:4px 8px; font-size:12px; text-align:center;"></td>
+            <td style="font-size:12px; color:#8b949e;">Erhöht</td>
+            <td><button class="btn btn-danger" style="padding:3px 8px; font-size:11px;">✕</button></td>
+          </tr>
+          <tr>
+            <td>#bot-commands</td>
+            <td><input type="text" value="0x" style="width:80px; padding:4px 8px; font-size:12px; text-align:center;"></td>
+            <td style="font-size:12px; color:#f85149;">Keine XP</td>
+            <td><button class="btn btn-danger" style="padding:3px 8px; font-size:11px;">✕</button></td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="tag-input-row" style="margin-top: 8px;">
+        <input type="text" placeholder="Channel-ID hinzufügen...">
+        <input type="text" placeholder="Multiplikator (z.B. 1.5)" style="width: 160px;">
+        <button class="btn btn-add">+ Hinzufügen</button>
+      </div>
+    </div>
+
+    <!-- Rollen-Belohnungen -->
+    <div class="section-card">
+      <h3>Level-Rollen-Belohnungen</h3>
+      <div class="subtitle">Bei Erreichen eines Levels wird automatisch eine Discord-Rolle vergeben</div>
+
+      <table class="data-table">
+        <thead>
+          <tr><th>Level</th><th>Rolle</th><th>Rollen-ID</th><th>Verhalten</th><th></th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="font-weight:600; color:#d29922;">Level 5</td>
+            <td><span class="tag" style="background:rgba(63,185,80,.15); color:#3fb950;">Aktiv</span></td>
+            <td style="font-size:12px; font-family:monospace;">1234567890123456</td>
+            <td><select style="padding:4px 8px; font-size:12px;"><option selected>Stacken</option><option>Ersetzen</option></select></td>
+            <td><button class="btn btn-danger" style="padding:3px 8px; font-size:11px;">✕</button></td>
+          </tr>
+          <tr>
+            <td style="font-weight:600; color:#58a6ff;">Level 10</td>
+            <td><span class="tag" style="background:rgba(88,166,255,.15); color:#58a6ff;">Stammgast</span></td>
+            <td style="font-size:12px; font-family:monospace;">1234567890123457</td>
+            <td><select style="padding:4px 8px; font-size:12px;"><option selected>Stacken</option><option>Ersetzen</option></select></td>
+            <td><button class="btn btn-danger" style="padding:3px 8px; font-size:11px;">✕</button></td>
+          </tr>
+          <tr>
+            <td style="font-weight:600; color:#bc8cff;">Level 25</td>
+            <td><span class="tag" style="background:rgba(188,140,255,.15); color:#bc8cff;">Veteran</span></td>
+            <td style="font-size:12px; font-family:monospace;">1234567890123458</td>
+            <td><select style="padding:4px 8px; font-size:12px;"><option selected>Stacken</option><option>Ersetzen</option></select></td>
+            <td><button class="btn btn-danger" style="padding:3px 8px; font-size:11px;">✕</button></td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="tag-input-row" style="margin-top: 8px;">
+        <input type="number" placeholder="Level" style="width: 80px;">
+        <input type="text" placeholder="Rollen-ID">
+        <button class="btn btn-add">+ Rollen-Belohnung hinzufügen</button>
+      </div>
+    </div>
+
+    <!-- Level-Up-Benachrichtigung -->
+    <div class="section-card">
+      <h3>Level-Up-Benachrichtigungen</h3>
+      <div class="subtitle">Wie und wo werden Level-Ups angezeigt?</div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Benachrichtigungsart</label>
+          <select>
+            <option>Deaktiviert</option>
+            <option selected>Im aktuellen Channel</option>
+            <option>In festem Channel</option>
+            <option>Per DM</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Level-Up-Channel <span class="hint">(wenn "fester Channel")</span></label>
+          <input type="text" placeholder="Discord Channel ID" disabled>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Level-Up-Nachricht <span class="hint">(Variablen: {user}, {level}, {role})</span></label>
+        <input type="text" value="🎉 Glückwunsch {user}! Du bist jetzt Level {level}!">
+      </div>
+
+      <div class="form-group">
+        <label>Leaderboard-Channel <span class="hint">(Channel für /rank und /leaderboard)</span></label>
+        <input type="text" placeholder="Discord Channel ID (optional, sonst überall nutzbar)">
+      </div>
+
+      <div class="actions-bar">
+        <button class="btn btn-secondary">Zurücksetzen</button>
+        <button class="btn btn-primary">💾 Speichern</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== TAB: TICKETS ==================== -->
+  <div id="tab-tickets" class="tab-content">
+
+    <div class="section-card">
+      <h3>🎫 Ticket-System</h3>
+      <div class="subtitle">User erstellen Support-Tickets per Button — privater Channel wird automatisch erstellt</div>
+
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">Ticket-System aktiviert</div>
+          <div class="toggle-desc">Ticket-Erstellung per Button-Embed ein-/ausschalten</div>
+        </div>
+        <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+      </div>
+    </div>
+
+    <!-- Ticket-Kategorien -->
+    <div class="section-card">
+      <h3>Ticket-Kategorien</h3>
+      <div class="subtitle">Verschiedene Ticket-Typen mit eigenem Emoji, Rollen und Ziel-Kategorie</div>
+
+      <table class="data-table">
+        <thead>
+          <tr><th>Emoji</th><th>Kategorie</th><th>Support-Rollen</th><th>Discord-Kategorie</th><th>Status</th><th></th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="font-size:18px; text-align:center;">🆘</td>
+            <td>Allgemeiner Support</td>
+            <td><span class="tag" style="margin:1px;">@Support-Team</span></td>
+            <td style="font-size:12px; color:#8b949e;">Support-Tickets</td>
+            <td><span class="status-dot green"></span>Aktiv</td>
+            <td>
+              <button class="btn btn-secondary" style="padding:3px 8px; font-size:11px;">✏️</button>
+              <button class="btn btn-danger" style="padding:3px 8px; font-size:11px;">✕</button>
+            </td>
+          </tr>
+          <tr>
+            <td style="font-size:18px; text-align:center;">🐛</td>
+            <td>Bug-Report</td>
+            <td><span class="tag" style="margin:1px;">@Admin</span> <span class="tag" style="margin:1px;">@Moderator</span></td>
+            <td style="font-size:12px; color:#8b949e;">Bug-Reports</td>
+            <td><span class="status-dot green"></span>Aktiv</td>
+            <td>
+              <button class="btn btn-secondary" style="padding:3px 8px; font-size:11px;">✏️</button>
+              <button class="btn btn-danger" style="padding:3px 8px; font-size:11px;">✕</button>
+            </td>
+          </tr>
+          <tr>
+            <td style="font-size:18px; text-align:center;">💡</td>
+            <td>Vorschlag / Feedback</td>
+            <td><span class="tag" style="margin:1px;">@Admin</span></td>
+            <td style="font-size:12px; color:#8b949e;">Feedback</td>
+            <td><span class="status-dot green"></span>Aktiv</td>
+            <td>
+              <button class="btn btn-secondary" style="padding:3px 8px; font-size:11px;">✏️</button>
+              <button class="btn btn-danger" style="padding:3px 8px; font-size:11px;">✕</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div style="margin-top: 12px;">
+        <button class="btn btn-add">+ Ticket-Kategorie hinzufügen</button>
+      </div>
+    </div>
+
+    <!-- Ticket-Embed -->
+    <div class="section-card">
+      <h3>Ticket-Embed Konfiguration</h3>
+      <div class="subtitle">Das Embed mit den Ticket-Buttons, das in einem Channel angezeigt wird</div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Embed-Channel <span class="hint">(Channel ID)</span></label>
+          <input type="text" placeholder="Channel in dem das Ticket-Embed erscheint">
+        </div>
+        <div class="form-group">
+          <label>Embed-Titel</label>
+          <input type="text" value="🎫 Support-Tickets" placeholder="Titel des Embeds">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Embed-Beschreibung</label>
+        <textarea placeholder="Erkläre den Usern welchen Button sie für welches Anliegen drücken sollen...">Wähle eine Kategorie um ein Ticket zu erstellen:
+
+🆘 **Allgemeiner Support** — Fragen oder Probleme
+🐛 **Bug-Report** — Fehler melden
+💡 **Vorschlag** — Ideen und Feedback</textarea>
+      </div>
+    </div>
+
+    <!-- Ticket-Verhalten -->
+    <div class="section-card">
+      <h3>Ticket-Verhalten</h3>
+      <div class="subtitle">Einstellungen für Ticket-Channels und Transkripte</div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Channel-Namensformat</label>
+          <input type="text" value="ticket-{nummer}-{username}" placeholder="ticket-{nummer}-{username}">
+        </div>
+        <div class="form-group">
+          <label>Max. offene Tickets pro User</label>
+          <input type="number" value="1" min="1" max="5">
+        </div>
+      </div>
+
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">Transkript beim Schließen</div>
+          <div class="toggle-desc">Ticket-Verlauf wird als .txt-Datei in einem Log-Channel gespeichert</div>
+        </div>
+        <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+      </div>
+
+      <div class="form-row" style="margin-top: 12px;">
+        <div class="form-group">
+          <label>Transkript-Channel <span class="hint">(Channel ID)</span></label>
+          <input type="text" placeholder="Channel für geschlossene Ticket-Transkripte">
+        </div>
+        <div class="form-group">
+          <label>Auto-Close nach Inaktivität</label>
+          <select>
+            <option>Deaktiviert</option>
+            <option>24 Stunden</option>
+            <option selected>48 Stunden</option>
+            <option>7 Tage</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">Bestätigung beim Schließen</div>
+          <div class="toggle-desc">User muss das Schließen des Tickets mit einem Button bestätigen</div>
+        </div>
+        <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+      </div>
+
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">Claim-System</div>
+          <div class="toggle-desc">Support-Mitarbeiter können ein Ticket "claimen" — nur sie sehen es dann</div>
+        </div>
+        <label class="toggle"><input type="checkbox"><span class="slider"></span></label>
+      </div>
+
+      <div class="actions-bar">
+        <button class="btn btn-secondary">Zurücksetzen</button>
+        <button class="btn btn-primary">💾 Speichern</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== TAB: AUDIT-LOG ==================== -->
+  <div id="tab-audit" class="tab-content">
+
+    <div class="section-card">
+      <h3>📋 Audit-Logging</h3>
+      <div class="subtitle">Protokollierung von Server-Ereignissen in separaten Discord Log-Channels</div>
+
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">Audit-Logging aktiviert</div>
+          <div class="toggle-desc">Automatische Protokollierung von Server-Ereignissen</div>
+        </div>
+        <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+      </div>
+    </div>
+
+    <!-- Log-Kategorien -->
+    <div class="section-card">
+      <h3>Log-Channels pro Kategorie</h3>
+      <div class="subtitle">Jede Kategorie loggt in einen eigenen Discord-Channel — leer lassen = deaktiviert</div>
+
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">🔨 Moderation</div>
+          <div class="toggle-desc">Warns, Mutes, Kicks, Bans, Timeouts, Unmutes, Unbans</div>
+        </div>
+        <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+      </div>
+      <div class="form-group" style="padding-left: 16px; margin-top: 4px; margin-bottom: 16px;">
+        <input type="text" placeholder="Discord Channel ID für Moderation-Log" style="max-width: 400px;">
+      </div>
+
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">👋 Join / Leave</div>
+          <div class="toggle-desc">Member-Join, Member-Leave, Account-Alter-Warnung</div>
+        </div>
+        <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+      </div>
+      <div class="form-group" style="padding-left: 16px; margin-top: 4px; margin-bottom: 16px;">
+        <input type="text" placeholder="Discord Channel ID für Join/Leave-Log" style="max-width: 400px;">
+      </div>
+
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">👤 Member-Änderungen</div>
+          <div class="toggle-desc">Nickname-Änderungen, Avatar-Updates, Rollen-Änderungen</div>
+        </div>
+        <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+      </div>
+      <div class="form-group" style="padding-left: 16px; margin-top: 4px; margin-bottom: 16px;">
+        <input type="text" placeholder="Discord Channel ID für Member-Log" style="max-width: 400px;">
+      </div>
+
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">🏷️ Rollen-Verwaltung</div>
+          <div class="toggle-desc">Rollen erstellt, gelöscht, bearbeitet, Berechtigungen geändert</div>
+        </div>
+        <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+      </div>
+      <div class="form-group" style="padding-left: 16px; margin-top: 4px; margin-bottom: 16px;">
+        <input type="text" placeholder="Discord Channel ID für Rollen-Log" style="max-width: 400px;">
+      </div>
+
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">🖥️ Server-Änderungen</div>
+          <div class="toggle-desc">Channel erstellt/gelöscht, Kategorie-Änderungen, Server-Einstellungen, Emoji/Sticker</div>
+        </div>
+        <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+      </div>
+      <div class="form-group" style="padding-left: 16px; margin-top: 4px; margin-bottom: 16px;">
+        <input type="text" placeholder="Discord Channel ID für Server-Log" style="max-width: 400px;">
+      </div>
+    </div>
+
+    <!-- Erweiterte Einstellungen -->
+    <div class="section-card">
+      <h3>Erweiterte Einstellungen</h3>
+      <div class="subtitle">Detailgrad und Ausnahmen für das Audit-Logging</div>
+
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">Nachrichteninhalt in Logs</div>
+          <div class="toggle-desc">Bei gelöschten/bearbeiteten Nachrichten den Inhalt im Log-Embed anzeigen</div>
+        </div>
+        <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+      </div>
+
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">Bot-Aktionen loggen</div>
+          <div class="toggle-desc">Aktionen von anderen Bots ebenfalls protokollieren</div>
+        </div>
+        <label class="toggle"><input type="checkbox"><span class="slider"></span></label>
+      </div>
+
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">Bulk-Delete loggen</div>
+          <div class="toggle-desc">Massen-Löschungen (z.B. /purge) als Zusammenfassung loggen</div>
+        </div>
+        <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+      </div>
+
+      <div style="margin-top: 16px;">
+        <label>Ignorierte Channels <span class="hint">(Keine Logs für diese Channels)</span></label>
+        <div class="tag-list">
+          <span class="tag">#bot-commands <span class="remove">×</span></span>
+          <span class="tag">#spam <span class="remove">×</span></span>
+        </div>
+        <div class="tag-input-row">
+          <input type="text" placeholder="Channel-ID hinzufügen...">
+          <button class="btn btn-add">+ Hinzufügen</button>
+        </div>
+      </div>
+
+      <div class="actions-bar">
+        <button class="btn btn-secondary">Zurücksetzen</button>
+        <button class="btn btn-primary">💾 Speichern</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== TAB: GIVEAWAYS ==================== -->
+  <div id="tab-giveaways" class="tab-content">
+
+    <div class="section-card">
+      <h3>🎉 Giveaway-System</h3>
+      <div class="subtitle">Erstelle und verwalte Giveaways — User nehmen per Reaktion oder Button teil, Gewinner werden automatisch gezogen</div>
+
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">Giveaway-System aktiviert</div>
+          <div class="toggle-desc">Giveaway-Erstellung und automatische Ziehung ein-/ausschalten</div>
+        </div>
+        <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+      </div>
+    </div>
+
+    <!-- Aktive Giveaways -->
+    <div class="section-card">
+      <h3>Aktive Giveaways</h3>
+      <div class="subtitle">Laufende und geplante Giveaways</div>
+
+      <table class="data-table">
+        <thead>
+          <tr><th>Preis</th><th>Channel</th><th>Teilnehmer</th><th>Gewinner</th><th>Endet</th><th>Status</th><th></th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="font-weight:500;">🎮 Steam Gutschein 20€</td>
+            <td>#giveaways</td>
+            <td style="text-align:center;">47</td>
+            <td style="text-align:center;">1</td>
+            <td style="font-size:12px; color:#d29922;">In 2 Tagen</td>
+            <td><span class="status-dot green"></span>Läuft</td>
+            <td>
+              <button class="btn btn-secondary" style="padding:3px 8px; font-size:11px;">✏️</button>
+              <button class="btn btn-danger" style="padding:3px 8px; font-size:11px;">⏹</button>
+            </td>
+          </tr>
+          <tr>
+            <td style="font-weight:500;">🎧 Discord Nitro (1 Monat)</td>
+            <td>#giveaways</td>
+            <td style="text-align:center;">112</td>
+            <td style="text-align:center;">3</td>
+            <td style="font-size:12px; color:#d29922;">In 5 Tagen</td>
+            <td><span class="status-dot green"></span>Läuft</td>
+            <td>
+              <button class="btn btn-secondary" style="padding:3px 8px; font-size:11px;">✏️</button>
+              <button class="btn btn-danger" style="padding:3px 8px; font-size:11px;">⏹</button>
+            </td>
+          </tr>
+          <tr>
+            <td style="font-weight:500; color:#8b949e;">🏆 Minecraft Cape</td>
+            <td>#giveaways</td>
+            <td style="text-align:center;">89</td>
+            <td style="text-align:center;">1</td>
+            <td style="font-size:12px; color:#8b949e;">Beendet (15.02.)</td>
+            <td><span class="status-dot yellow"></span>Beendet</td>
+            <td>
+              <button class="btn btn-add" style="padding:3px 8px; font-size:11px;">🔄 Reroll</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Neues Giveaway erstellen -->
+    <div class="section-card">
+      <h3>Neues Giveaway erstellen</h3>
+      <div class="subtitle">Konfiguriere Preis, Dauer, Teilnahmebedingungen und Gewinnerzahl</div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Preis / Titel</label>
+          <input type="text" placeholder="z.B. 🎮 Steam Gutschein 20€">
+        </div>
+        <div class="form-group">
+          <label>Ziel-Channel <span class="hint">(Channel ID)</span></label>
+          <input type="text" placeholder="Channel für das Giveaway-Embed">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Beschreibung <span class="hint">(optional)</span></label>
+        <textarea placeholder="Beschreibe den Preis und eventuelle Bedingungen..." style="min-height: 60px;"></textarea>
+      </div>
+
+      <div class="form-row-3">
+        <div class="form-group">
+          <label>Dauer</label>
+          <div style="display:flex; gap:8px;">
+            <input type="number" value="3" min="0" max="30" style="width:60px;" placeholder="Tage">
+            <span style="line-height:36px; color:#8b949e; font-size:13px;">Tage</span>
+            <input type="number" value="0" min="0" max="23" style="width:60px;" placeholder="Std">
+            <span style="line-height:36px; color:#8b949e; font-size:13px;">Std</span>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Anzahl Gewinner</label>
+          <input type="number" value="1" min="1" max="20">
+        </div>
+        <div class="form-group">
+          <label>Teilnahme-Methode</label>
+          <select>
+            <option selected>🎉 Reaktion (Emoji)</option>
+            <option>🔘 Button-Klick</option>
+          </select>
+        </div>
+      </div>
+
+      <div style="margin-top: 8px;">
+        <label style="margin-bottom: 8px;">Teilnahmebedingungen <span class="hint">(optional)</span></label>
+        <div class="toggle-row">
+          <div class="toggle-info">
+            <div class="toggle-label">Mindest-Level erforderlich</div>
+            <div class="toggle-desc">Nur User ab einem bestimmten Level können teilnehmen</div>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <input type="number" value="0" min="0" style="width:70px; padding:4px 8px; font-size:13px;" placeholder="Level">
+            <label class="toggle"><input type="checkbox"><span class="slider"></span></label>
+          </div>
+        </div>
+        <div class="toggle-row">
+          <div class="toggle-info">
+            <div class="toggle-label">Rolle erforderlich</div>
+            <div class="toggle-desc">Nur User mit einer bestimmten Rolle können teilnehmen</div>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <input type="text" placeholder="Rollen-ID" style="width:160px; padding:4px 8px; font-size:13px;">
+            <label class="toggle"><input type="checkbox"><span class="slider"></span></label>
+          </div>
+        </div>
+        <div class="toggle-row">
+          <div class="toggle-info">
+            <div class="toggle-label">Mindest-Mitgliedsdauer</div>
+            <div class="toggle-desc">User muss seit X Tagen auf dem Server sein</div>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <input type="number" value="0" min="0" style="width:70px; padding:4px 8px; font-size:13px;" placeholder="Tage">
+            <label class="toggle"><input type="checkbox"><span class="slider"></span></label>
+          </div>
+        </div>
+      </div>
+
+      <div class="actions-bar">
+        <button class="btn btn-secondary">Abbrechen</button>
+        <button class="btn btn-primary">🎉 Giveaway starten</button>
+      </div>
+    </div>
+
+    <!-- Giveaway Standardwerte -->
+    <div class="section-card">
+      <h3>Standard-Einstellungen</h3>
+      <div class="subtitle">Globale Standardwerte für neue Giveaways</div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Standard-Channel <span class="hint">(Channel ID)</span></label>
+          <input type="text" placeholder="Standard-Channel für Giveaways">
+        </div>
+        <div class="form-group">
+          <label>Gewinner-Benachrichtigung</label>
+          <select>
+            <option selected>Im Giveaway-Channel + DM</option>
+            <option>Nur im Channel</option>
+            <option>Nur per DM</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">Gewinner-DM mit Preis-Info</div>
+          <div class="toggle-desc">Gewinner erhalten eine DM mit Glückwunsch und Preis-Details</div>
+        </div>
+        <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+      </div>
+
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">Doppelte Teilnahme verhindern</div>
+          <div class="toggle-desc">User können nicht mit mehreren Reaktionen am gleichen Giveaway teilnehmen</div>
+        </div>
+        <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+      </div>
+
+      <div class="actions-bar">
+        <button class="btn btn-secondary">Zurücksetzen</button>
+        <button class="btn btn-primary">💾 Speichern</button>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<script>
+function showTab(name) {
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  event.target.classList.add('active');
+}
+</script>
+</body>
+</html>

@@ -24,56 +24,220 @@ logger = get_logger("minecraft.chat_bridge")
 
 # ------------------------------------------------------------------
 # Regex-Patterns fuer Minecraft Server-Logs
-# Format: [HH:MM:SS] [Thread/Level]: Content
+#
+# Unterstuetzt BEIDE Log-Formate:
+#   Vanilla:   [21:00:50] [Server thread/INFO]: Nachricht
+#   NeoForge:  [12Maerz2026 21:00:50.857] [Server thread/INFO] [logger/]: Nachricht
+#
+# _TS matcht beliebige Zeitstempel-Klammer: \[[^\]]+\]
+# _TH matcht Server-Thread + optionalen Logger-Tag:
+#   [Server thread/INFO]: oder [Server thread/INFO] [logger/]:
 # ------------------------------------------------------------------
+
+_TS = r'\[[^\]]+\]'  # Zeitstempel (beliebig)
+_TH = r'\[Server thread/INFO\](?:\s+\[[^\]]*\])*:\s+'  # Thread + optionale Logger-Tags
 
 # Chat: <Spielername> Nachricht
 CHAT_RE = re.compile(
-    r'\[[\d:]+\]\s+\[Server thread/INFO\]:\s+<(\w+)>\s+(.+)$',
+    rf'{_TS}\s+{_TH}<(\w+)>\s+(.+)$',
     re.MULTILINE
 )
 
 # Join: Spielername joined the game
 JOIN_RE = re.compile(
-    r'\[[\d:]+\]\s+\[Server thread/INFO\]:\s+(\w+) joined the game',
+    rf'{_TS}\s+{_TH}(\w+) joined the game',
     re.MULTILINE
 )
 
 # Leave: Spielername left the game
 LEAVE_RE = re.compile(
-    r'\[[\d:]+\]\s+\[Server thread/INFO\]:\s+(\w+) left the game',
+    rf'{_TS}\s+{_TH}(\w+) left the game',
     re.MULTILINE
 )
 
 # Achievements/Advancements: Spielername has made the advancement [Name]
 ADVANCEMENT_RE = re.compile(
-    r'\[[\d:]+\]\s+\[Server thread/INFO\]:\s+(\w+) has (?:made the advancement|completed the challenge) \[(.+?)\]',
+    rf'{_TS}\s+{_TH}(\w+) has (?:made the advancement|completed the challenge) \[(.+?)\]',
     re.MULTILINE
 )
 
 # Death messages: Diverse Formate, alle in [Server thread/INFO]
 # Heuristik: Spielername + bekannte Death-Keywords
+# Umfassende Liste aller Vanilla 1.20+ und gaengiger Modded Death-Messages
 DEATH_KEYWORDS = [
+    # --- Mob-bezogene Deaths ---
     "was slain by", "was shot by", "was killed by", "was blown up by",
-    "drowned", "fell from", "hit the ground", "went up in flames",
-    "burned to death", "tried to swim in lava", "suffocated",
-    "starved to death", "withered away", "was squished", "was pricked",
-    "walked into a cactus", "was impaled", "was squashed",
-    "experienced kinetic energy", "was frozen", "was struck by lightning",
-    "died", "was fireballed by",
+    "was fireballed by", "was pummeled by", "was stung by",
+    "was obliterated by", "was squashed by",
+    # --- Fall-Deaths ---
+    "fell from", "hit the ground", "fell off", "fell while",
+    "fell out of the world", "didn't want to live in the same world as",
+    "was doomed to fall by", "fell too far and was finished by",
+    "was knocked into the void",
+    # --- Feuer/Lava ---
+    "went up in flames", "burned to death", "was burnt to a crisp",
+    "tried to swim in lava", "walked into fire whilst fighting",
+    "went off with a bang whilst fighting",
+    # --- Ertrinken ---
+    "drowned", "drowned whilst trying to escape",
+    # --- Ersticken/Quetschen ---
+    "suffocated", "suffocated in a wall", "was squished too much",
+    "was squished", "was poked to death by a sweet berry bush",
+    # --- Verhungern ---
+    "starved to death",
+    # --- Kaktus/Pflanzen ---
+    "was pricked", "walked into a cactus", "was pricked to death",
+    # --- Magie/Wither ---
+    "withered away", "was killed by magic", "was killed by even more magic",
+    # --- Explosion ---
+    "blew up", "was killed by [Intentional Game Design]",
+    # --- Blitz ---
+    "was struck by lightning",
+    # --- Eis/Freeze ---
+    "was frozen", "froze to death",
+    # --- Kinetik/Elytra ---
+    "experienced kinetic energy",
+    # --- Impale/Trident ---
+    "was impaled", "was impaled by",
+    "was impaled on a stalagmite",
+    # --- Anvil/Stalactite ---
+    "was squashed by a falling anvil",
+    "was squashed by a falling block",
+    "was skewered by a falling stalactite",
+    # --- Generisch ---
+    "died", "was killed", "died because of",
+    # --- Warden ---
+    "was obliterated by a sonically-charged shriek",
+    # --- Modded Death-Keywords (Better MC, Forge, NeoForge) ---
+    "was consumed by", "was devoured by", "was torn apart by",
+    "was crushed by", "was incinerated by", "was electrocuted by",
+    "was dissolved by", "was absorbed by", "was eradicated by",
+    "was vaporized by", "was mauled by", "was trampled by",
+    "was swarmed by", "was bitten by", "was clawed by",
+    "was pecked to death by", "was drained by",
+    "was haunted to death by", "was cursed by",
 ]
 
 DEATH_PATTERN = "|".join(re.escape(kw) for kw in DEATH_KEYWORDS)
 DEATH_RE = re.compile(
-    rf'\[[\d:]+\]\s+\[Server thread/INFO\]:\s+(\w+) ({DEATH_PATTERN})',
+    rf'{_TS}\s+{_TH}(\w+) ({DEATH_PATTERN}).*$',
     re.MULTILINE
 )
 
+# ------------------------------------------------------------------
+# Mob-Namen Uebersetzung (Interner Name → Anzeigename mit Emoji)
+# Wird auf Death-Messages und Chat-Messages angewandt
+# ------------------------------------------------------------------
+MOB_DISPLAY_NAMES = {
+    # --- Vanilla Hostile ---
+    "Zombie": "Zombie",
+    "Skeleton": "Skelett",
+    "Creeper": "Creeper",
+    "Spider": "Spinne",
+    "Cave Spider": "Hoehlenspinne",
+    "Enderman": "Enderman",
+    "Endermite": "Endermite",
+    "Witch": "Hexe",
+    "Slime": "Schleim",
+    "Magma Cube": "Magmawuerfel",
+    "Blaze": "Lohe",
+    "Ghast": "Ghast",
+    "Wither Skeleton": "Witherskelett",
+    "Wither": "Wither",
+    "Ender Dragon": "Enderdrache",
+    "Phantom": "Phantom",
+    "Drowned": "Ertrunkener",
+    "Husk": "Wuestenzombie",
+    "Stray": "Eiswanderer",
+    "Pillager": "Pluenderer",
+    "Vindicator": "Diener",
+    "Evoker": "Magier",
+    "Vex": "Plagegeist",
+    "Ravager": "Verwuester",
+    "Guardian": "Waechter",
+    "Elder Guardian": "Grosser Waechter",
+    "Shulker": "Shulker",
+    "Silverfish": "Silberfischchen",
+    "Piglin": "Piglin",
+    "Piglin Brute": "Piglin-Barbar",
+    "Hoglin": "Hoglin",
+    "Zoglin": "Zoglin",
+    "Zombified Piglin": "Zombifizierter Piglin",
+    "Warden": "Waechter des Deep Dark",
+    "Breeze": "Brise",
+    "Bogged": "Moorskelett",
+    # --- Vanilla Neutral ---
+    "Wolf": "Wolf",
+    "Iron Golem": "Eisengolem",
+    "Bee": "Biene",
+    "Llama": "Lama",
+    "Panda": "Panda",
+    "Polar Bear": "Eisbaer",
+    "Dolphin": "Delfin",
+    "Goat": "Ziege",
+    "Fox": "Fuchs",
+    # --- Vanilla Passive ---
+    "Chicken": "Huhn",
+    "Cow": "Kuh",
+    "Pig": "Schwein",
+    "Sheep": "Schaf",
+    "Horse": "Pferd",
+    "Cat": "Katze",
+    "Villager": "Dorfbewohner",
+    "Wandering Trader": "Fahrender Haendler",
+    # --- Modded Mobs (Better MC / beliebte Mods) ---
+    "Creeperling": "Creeperling",
+    "Lich": "Lich",
+    "Naga": "Naga",
+    "Hydra": "Hydra",
+    "Minotaur": "Minotaurus",
+    "Goblin": "Goblin",
+    "Kobold": "Kobold",
+    "Wraith": "Geist",
+    "Banshee": "Banshee",
+    "Ogre": "Oger",
+    "Troll": "Troll",
+    "Dark Knight": "Dunkler Ritter",
+    "Ice Dragon": "Eisdrache",
+    "Fire Dragon": "Feuerdrache",
+    "Lightning Dragon": "Blitzdrache",
+    "Sea Serpent": "Seeschlange",
+    "Hippogryph": "Hippogreif",
+    "Pixie": "Pixie",
+    "Siren": "Sirene",
+    "Cockatrice": "Basilisk",
+    "Death Worm": "Todeswurm",
+    "Myrmex": "Myrmex",
+    "Amphithere": "Amphithere",
+    "Cyclops": "Zyklop",
+    "Gorgon": "Gorgone",
+    "Grizzly Bear": "Grizzlybaer",
+    "Flywheel": "Schwungrad",
+}
+
 # Server-Nachrichten (z.B. "Stopping the server")
 SERVER_MSG_RE = re.compile(
-    r'\[[\d:]+\]\s+\[Server thread/INFO\]:\s+(?:Stopping|Starting|Done \(|Preparing)',
+    rf'{_TS}\s+{_TH}(?:Stopping|Starting|Done \(|Preparing)',
     re.MULTILINE
 )
+
+
+def translate_mob_names(message: str) -> str:
+    """
+    Ersetzt englische Mob-Namen in einer Nachricht durch deutsche Anzeigenamen.
+    Wird auf Death-Messages angewandt fuer bessere Lesbarkeit.
+
+    Verwendet Word-Boundaries und sortiert nach Laenge (laengste zuerst),
+    damit z.B. "Elder Guardian" vor "Guardian" und "Cave Spider" vor "Spider"
+    ersetzt wird.
+    """
+    result = message
+    # Laengste Namen zuerst ersetzen, um Teilwort-Matches zu vermeiden
+    for eng_name, de_name in sorted(MOB_DISPLAY_NAMES.items(), key=lambda x: len(x[0]), reverse=True):
+        if eng_name in result and eng_name != de_name:
+            # Word-Boundary regex statt einfachem replace
+            result = re.sub(rf'\b{re.escape(eng_name)}\b', de_name, result)
+    return result
 
 
 class MinecraftChatBridge:
@@ -244,6 +408,8 @@ class MinecraftChatBridge:
                 death_msg = re.sub(
                     r'^\[[\d:]+\]\s+\[Server thread/INFO\]:\s+', '', death_msg
                 )
+                # Mob-Namen uebersetzen fuer bessere Lesbarkeit
+                death_msg = translate_mob_names(death_msg)
                 try:
                     await self.on_death(self.server_id, player, death_msg)
                 except Exception as e:

@@ -1,0 +1,302 @@
+"""
+MCCountdownTimer — Erweitert RestartTimer um MC-spezifische RCON /title Banner.
+
+Der bestehende RestartTimer nutzt die Satisfactory API für In-Game-Nachrichten.
+MCCountdownTimer ersetzt diese Logik durch RCON-Befehle für Minecraft-Server:
+- /title @a title {...}   — Großes Banner mittig auf dem Bildschirm
+- /title @a subtitle {...} — Untertitel unter dem Banner
+- /tellraw @a [...]        — Formatierte Chat-Nachricht
+
+Nutzung:
+    timer = MCCountdownTimer(mc_server, channel)
+    result = await timer.countdown(
+        duration_minutes=10,
+        action_name="Update",
+        extra_info="v48.5",
+    )
+"""
+
+import asyncio
+from typing import Optional, List
+
+import discord
+
+from modules.restart_timer import RestartTimer, TimerResult
+from utils.logger import get_logger
+
+logger = get_logger("minecraft.mc_countdown")
+
+
+class MCCountdownTimer(RestartTimer):
+    """
+    Countdown-Timer mit MC-spezifischen RCON /title Bannern.
+
+    Erweitert RestartTimer und überschreibt die In-Game-Nachrichten-Logik.
+    Discord-Nachrichten werden vom RestartTimer geerbt.
+    """
+
+    def __init__(
+        self,
+        mc_server=None,
+        channel: Optional[discord.TextChannel] = None,
+        extra_info: str = "",
+    ) -> None:
+        """
+        Args:
+            mc_server: MinecraftServer-Instanz (für RCON-Zugriff)
+            channel: Discord-Textkanal für Nachrichten
+            extra_info: Zusatzinfo für Banner (z.B. "Update auf v48.5")
+        """
+        # RestartTimer OHNE api initialisieren — wir nutzen RCON statt SAT API
+        super().__init__(api=None, channel=channel)
+        self.mc_server = mc_server
+        self.extra_info = extra_info
+
+    async def countdown(
+        self,
+        duration_minutes: int = 10,
+        action_name: str = "Update",
+        warnings: Optional[List[int]] = None,
+        on_complete=None,
+        extra_info: str = "",
+    ) -> TimerResult:
+        """
+        Startet Countdown mit MC-spezifischen Warnungen.
+
+        Erweitert die Standard-Warnings um 2-Minuten und 30-Sekunden-Banner.
+        """
+        if extra_info:
+            self.extra_info = extra_info
+
+        # MC-spezifische Warning-Intervalle (inkl. 2 Min)
+        if warnings is None:
+            if duration_minutes >= 10:
+                warnings = [10, 5, 2, 1]
+            elif duration_minutes >= 5:
+                warnings = [5, 2, 1]
+            else:
+                warnings = [duration_minutes, 1]
+
+        return await super().countdown(
+            duration_minutes=duration_minutes,
+            action_name=action_name,
+            warnings=warnings,
+            on_complete=on_complete,
+        )
+
+    # ------------------------------------------------------------------
+    # Überschriebene Methoden für MC-spezifische In-Game-Nachrichten
+    # ------------------------------------------------------------------
+
+    async def _send_warning(
+        self,
+        message: str,
+        is_initial: bool = False,
+        is_final: bool = False,
+    ) -> None:
+        """
+        Sendet Warnung an Discord UND In-Game via RCON /title Banner.
+
+        Überschreibt RestartTimer._send_warning() komplett.
+        """
+        # Discord-Nachricht (gleiche Logik wie RestartTimer)
+        await self._send_discord_warning(message, is_initial, is_final)
+
+        # MC In-Game Banner via RCON
+        await self._send_mc_banner(message, is_initial, is_final)
+
+    async def _send_discord_warning(
+        self,
+        message: str,
+        is_initial: bool = False,
+        is_final: bool = False,
+    ) -> None:
+        """Discord-Nachricht senden (übernommen von RestartTimer)."""
+        if not self.channel:
+            return
+
+        try:
+            if is_initial:
+                desc = f"Nutze `/mc modpack cancel` oder In-Game `!cancel` zum Abbrechen."
+                if self.extra_info:
+                    desc = f"{self.extra_info}\n{desc}"
+                embed = discord.Embed(
+                    title=f"⏰ {message}",
+                    description=desc,
+                    color=0xe67e22,
+                )
+                await self.channel.send(embed=embed)
+            elif is_final:
+                await self.channel.send(f"🔄 {message}")
+            else:
+                await self.channel.send(f"⏰ {message}")
+        except discord.DiscordException as e:
+            logger.debug(f"Discord-Nachricht fehlgeschlagen: {e}")
+
+    async def _send_mc_banner(
+        self,
+        message: str,
+        is_initial: bool = False,
+        is_final: bool = False,
+    ) -> None:
+        """
+        Sendet /title Banner an alle MC-Spieler.
+
+        Banner-Stil:
+        - > 2 Min: Gold (Server Update)
+        - <= 2 Min: Rot (Server Neustart)
+        - Final: Dunkelrot
+        - Abbruch: Grün
+        - Erfolg: Grün
+        """
+        if not self.mc_server:
+            return
+
+        try:
+            # Minuten aus der Nachricht extrahieren
+            minutes = self._extract_minutes(message)
+
+            if is_final:
+                # Server wird jetzt heruntergefahren
+                await self._rcon_title(
+                    title_text="SERVER NEUSTART",
+                    title_color="dark_red",
+                    subtitle_text="Jetzt!",
+                    subtitle_color="red",
+                )
+            elif is_initial:
+                # Erste Ankündigung
+                subtitle = f"in {minutes} Minuten"
+                if self.extra_info:
+                    subtitle += f" — {self.extra_info}"
+                await self._rcon_title(
+                    title_text="SERVER UPDATE",
+                    title_color="gold",
+                    subtitle_text=subtitle,
+                    subtitle_color="yellow",
+                )
+            elif minutes is not None and minutes <= 2:
+                # Dringend (2 Min oder weniger)
+                await self._rcon_title(
+                    title_text="SERVER NEUSTART",
+                    title_color="red",
+                    subtitle_text=f"in {minutes} Minute{'n' if minutes != 1 else ''}!",
+                    subtitle_color="red",
+                )
+            else:
+                # Normal (> 2 Min)
+                await self._rcon_title(
+                    title_text="SERVER UPDATE",
+                    title_color="gold",
+                    subtitle_text=f"in {minutes} Minuten" if minutes else "",
+                    subtitle_color="yellow",
+                )
+
+            # 30-Sekunden-Warnung am Ende (extra)
+            if minutes == 1:
+                # Nach dem 1-Minuten-Banner: 30s warten, dann nochmal warnen
+                asyncio.get_event_loop().call_later(
+                    30,
+                    lambda: asyncio.ensure_future(
+                        self._rcon_title(
+                            "SERVER NEUSTART", "dark_red",
+                            "in 30 Sekunden!", "red",
+                        )
+                    ),
+                )
+
+        except Exception as e:
+            logger.debug(f"MC-Banner fehlgeschlagen: {e}")
+
+    async def _send_cancel_message(self) -> None:
+        """Sendet Abbruch-Nachricht an Discord + MC In-Game."""
+        # Discord (geerbt)
+        if self.channel:
+            try:
+                embed = discord.Embed(
+                    title=f"❌ {self._action_name} abgebrochen",
+                    color=0x95a5a6,
+                )
+                await self.channel.send(embed=embed)
+            except discord.DiscordException as e:
+                logger.debug(f"Discord-Abbruch fehlgeschlagen: {e}")
+
+        # MC In-Game Banner
+        if self.mc_server:
+            try:
+                await self._rcon_title(
+                    title_text="UPDATE ABGEBROCHEN",
+                    title_color="green",
+                    subtitle_text="Entwarnung — Server läuft weiter",
+                    subtitle_color="green",
+                )
+            except Exception as e:
+                logger.debug(f"MC-Abbruch-Banner fehlgeschlagen: {e}")
+
+        logger.info(f"Timer abgebrochen: {self._action_name}")
+
+    async def send_success_banner(self, new_version: str) -> None:
+        """Sendet Erfolgs-Banner nach erfolgreichem Update."""
+        if self.mc_server:
+            try:
+                await self._rcon_title(
+                    title_text="Server aktualisiert!",
+                    title_color="green",
+                    subtitle_text=f"Neue Version: {new_version}",
+                    subtitle_color="green",
+                )
+            except Exception as e:
+                logger.debug(f"Erfolgs-Banner fehlgeschlagen: {e}")
+
+    # ------------------------------------------------------------------
+    # RCON-Hilfsmethoden
+    # ------------------------------------------------------------------
+
+    async def _rcon_title(
+        self,
+        title_text: str,
+        title_color: str = "gold",
+        subtitle_text: str = "",
+        subtitle_color: str = "yellow",
+    ) -> None:
+        """
+        Sendet /title + /subtitle Befehle via RCON.
+
+        Args:
+            title_text: Haupttext (groß, mittig)
+            title_color: MC-Farbname (gold, red, dark_red, green, etc.)
+            subtitle_text: Untertitel
+            subtitle_color: MC-Farbname für Untertitel
+        """
+        if not self.mc_server:
+            return
+
+        title_cmd = (
+            f'/title @a title '
+            f'{{"text":"{title_text}","color":"{title_color}"}}'
+        )
+        await self._safe_rcon(title_cmd)
+
+        if subtitle_text:
+            sub_cmd = (
+                f'/title @a subtitle '
+                f'{{"text":"{subtitle_text}","color":"{subtitle_color}"}}'
+            )
+            await self._safe_rcon(sub_cmd)
+
+    async def _safe_rcon(self, command: str) -> Optional[str]:
+        """Sendet RCON-Befehl mit Fehlerbehandlung."""
+        try:
+            return await self.mc_server.rcon_command(command)
+        except Exception as e:
+            logger.debug(f"RCON-Befehl fehlgeschlagen: {command[:50]}... — {e}")
+            return None
+
+    @staticmethod
+    def _extract_minutes(message: str) -> Optional[int]:
+        """Extrahiert Minutenzahl aus einer Warnnachricht."""
+        import re
+        match = re.search(r'(\d+)\s*Minute', message)
+        if match:
+            return int(match.group(1))
+        return None

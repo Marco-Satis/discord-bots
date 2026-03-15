@@ -2,15 +2,12 @@
 Backup Manager for Satisfactory Server
 Creates compressed backups of savegames, handles rotation, and restore
 
-Dual-Read Mode: Writes to SQLite backup_history table,
-reads from SQLite primary with JSON fallback.
+Persistenz: SQLite backup_history Tabelle (alleinige Datenquelle)
 """
 
-import json
 import shutil
 import tarfile
 import asyncio
-import aiofiles
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict, Any
 from datetime import datetime
@@ -20,8 +17,6 @@ from utils.formatting import format_bytes
 from modules.database.db_manager import get_db
 
 logger = get_logger("backup.manager")
-
-BACKUP_HISTORY = DATA_DIR / "backup_history.json"
 
 
 class BackupManager:
@@ -36,29 +31,11 @@ class BackupManager:
         self._history = {"backups": []}
 
     async def load(self) -> None:
-        """Load backup history from SQLite, fall back to JSON"""
-        # Try SQLite first
-        loaded = await self.load_from_db()
-        if loaded:
-            return
+        """Load backup history from SQLite."""
+        await self.load_from_db()
 
-        # Fallback: load from JSON
-        try:
-            if BACKUP_HISTORY.exists():
-                async with aiofiles.open(BACKUP_HISTORY, "r", encoding="utf-8") as f:
-                    content = await f.read()
-                    self._history = json.loads(content)
-                logger.info("Backup history loaded from JSON fallback")
-            else:
-                self._history = {"backups": []}
-        except (json.JSONDecodeError, OSError) as e:
-            logger.error(f"Failed to load backup history from JSON: {e}")
-
-    async def load_from_db(self) -> bool:
-        """
-        Load backup history from SQLite backup_history table.
-        Returns True if successful, False otherwise (triggers JSON fallback).
-        """
+    async def load_from_db(self) -> None:
+        """Load backup history from SQLite backup_history table."""
         try:
             db = await get_db()
             cursor = await db.execute(
@@ -71,15 +48,10 @@ class BackupManager:
             )
             rows = await cursor.fetchall()
 
-            if not rows and not BACKUP_HISTORY.exists():
-                # No data in DB and no JSON file — fresh start
-                self._history = {"backups": []}
-                logger.info("No backup history found in DB or JSON — starting fresh")
-                return True
-
             if not rows:
-                # DB empty but JSON might have data — let caller fall back
-                return False
+                self._history = {"backups": []}
+                logger.info("Keine Backup-Historie in SQLite — starte leer")
+                return
 
             backups = []
             for row in rows:
@@ -92,6 +64,10 @@ class BackupManager:
                     name = name[:-4]
 
                 backup_path = self.backup_path / filename
+                # Path-Traversal-Schutz: Sicherstellen dass der Pfad im Backup-Verzeichnis bleibt
+                if not backup_path.resolve().is_relative_to(self.backup_path.resolve()):
+                    logger.warning(f"Path-Traversal erkannt: {filename} — übersprungen")
+                    continue
 
                 entry = {
                     "name": name,
@@ -112,11 +88,9 @@ class BackupManager:
 
             self._history = {"backups": backups}
             logger.info(f"Backup history loaded from SQLite: {len(backups)} entries")
-            return True
 
         except Exception as e:
             logger.error(f"Failed to load backup history from SQLite: {e}")
-            return False
 
     async def _save_history(self) -> None:
         """Save backup history to SQLite backup_history table"""
@@ -307,7 +281,7 @@ class BackupManager:
     def list_backups(self, max_results: int = 50) -> List[Dict[str, Any]]:
         """List all backups sorted by date (newest first).
 
-        Uses in-memory data loaded at startup (from SQLite or JSON fallback).
+        Uses in-memory data loaded at startup (from SQLite).
         Also scans filesystem for untracked backups.
         """
         backups = []
@@ -315,7 +289,7 @@ class BackupManager:
         # Combine history with actual files
         known_files = {b["filename"] for b in self._history.get("backups", [])}
 
-        # From in-memory history (loaded from SQLite or JSON)
+        # From in-memory history (loaded from SQLite)
         for bp in self._history.get("backups", []):
             bp_path = Path(bp["path"])
             if bp_path.exists():

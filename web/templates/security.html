@@ -3,11 +3,104 @@
 {% block nav_security %}active{% endblock %}
 
 {% block content %}
-<h1>Sicherheit</h1>
+<div class="page-header">
+    <h1>Sicherheit</h1>
+    <p class="page-subtitle">Firewall, Fail2Ban, SSL und IP-Sperren</p>
+</div>
+
+<!-- F44: Ban-Statistiken -->
+<div class="stats-grid" style="margin-bottom: 1.5rem;" id="ban-stats-area">
+    <div class="stat-card">
+        <div class="stat-label">Gesperrte IPs gesamt</div>
+        <div class="stat-value">{{ ip_overview.total|default(0) }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">iptables-Regeln</div>
+        <div class="stat-value">{{ ip_overview.iptables|length if ip_overview and ip_overview.iptables else 0 }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Fail2Ban-Bans</div>
+        <div class="stat-value">{{ ip_overview.fail2ban|length if ip_overview and ip_overview.fail2ban else 0 }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Blacklist</div>
+        <div class="stat-value">{{ ip_overview.blacklist|length if ip_overview and ip_overview.blacklist else 0 }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Aktive Bans (DB)</div>
+        <div class="stat-value">{{ ip_overview.bans|length if ip_overview and ip_overview.bans else 0 }}</div>
+    </div>
+</div>
+
+<!-- F44: Vereinheitlichte IP-Sperren-Tabelle -->
+<section class="config-section">
+    <h2 class="section-title">IP-Sperren — Alle Quellen</h2>
+    <div id="unban-result" style="margin-bottom: 0.75rem;"></div>
+
+    {% if ip_overview and ip_overview.unified and ip_overview.unified|length > 0 %}
+    <div class="table-wrapper">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>IP-Adresse</th>
+                    <th>Quelle</th>
+                    <th>Detail</th>
+                    <th>Zeitpunkt</th>
+                    <th>Aktion</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for entry in ip_overview.unified %}
+                <tr>
+                    <td><code>{{ entry.ip }}</code></td>
+                    <td>
+                        {% if entry.source == "iptables" %}
+                        <span class="status-badge" style="background: var(--danger); color: #fff; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.8rem;">iptables</span>
+                        {% elif entry.source == "fail2ban" %}
+                        <span class="status-badge" style="background: var(--warning); color: #fff; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.8rem;">Fail2Ban</span>
+                        {% elif entry.source == "blacklist" %}
+                        <span class="status-badge" style="background: #6c757d; color: #fff; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.8rem;">Blacklist</span>
+                        {% elif entry.source == "ban" %}
+                        <span class="status-badge" style="background: #e74c3c; color: #fff; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.8rem;">Ban</span>
+                        {% endif %}
+                    </td>
+                    <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
+                        title="{{ entry.detail|default('') }}">
+                        {{ entry.detail|default("—") }}
+                    </td>
+                    <td style="font-size: 0.85rem; color: var(--text-muted);">
+                        {{ entry.timestamp[:16]|replace("T", " ") if entry.timestamp else "—" }}
+                    </td>
+                    <td>
+                        {% if entry.ip and entry.ip != "—" %}
+                        <button class="btn btn-sm btn-danger"
+                                hx-post="/api/security/unban"
+                                hx-vals='{"ip": "{{ entry.ip }}", "source": "{{ entry.source }}"{% if entry.extra %}, "jail": "{{ entry.extra }}"{% endif %}}'
+                                hx-target="#unban-result"
+                                hx-swap="innerHTML"
+                                hx-confirm="IP {{ entry.ip }} ({{ entry.source }}) wirklich entsperren?">
+                            Entsperren
+                        </button>
+                        {% else %}
+                        <span style="color: var(--text-muted);">—</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.5rem;">
+        {{ ip_overview.total }} Eintraege aus {{ [ip_overview.iptables|length > 0, ip_overview.fail2ban|length > 0, ip_overview.blacklist|length > 0, ip_overview.bans|length > 0]|select|list|length }} Quellen
+    </p>
+    {% else %}
+    <p style="color: var(--success); font-weight: 600;">Keine IP-Sperren aktiv — alles sauber.</p>
+    {% endif %}
+</section>
 
 <!-- Fail2Ban Status -->
-<div class="card">
-    <h2>Fail2Ban</h2>
+<section class="config-section">
+    <h2 class="section-title">Fail2Ban</h2>
     {% if fail2ban and fail2ban.running %}
     <p class="status-online">Fail2Ban aktiv — {{ fail2ban.jail_count|default(0) }} Jails</p>
 
@@ -64,11 +157,11 @@
     {% else %}
     <p class="text-muted">Keine Fail2Ban-Daten verfuegbar.</p>
     {% endif %}
-</div>
+</section>
 
 <!-- SSL Zertifikat Status -->
-<div class="card">
-    <h2>SSL-Zertifikat</h2>
+<section class="config-section">
+    <h2 class="section-title">SSL-Zertifikat</h2>
     {% if ssl and ssl.domain %}
     <table class="data-table">
         <tbody>
@@ -116,11 +209,11 @@
     {% else %}
     <p class="text-muted">Keine SSL-Daten verfuegbar.</p>
     {% endif %}
-</div>
+</section>
 
 <!-- Port Status -->
-<div class="card">
-    <h2>Port-Status</h2>
+<section class="config-section">
+    <h2 class="section-title">Port-Status</h2>
     {% if ports and ports.ports %}
     <table class="data-table">
         <thead>
@@ -162,5 +255,47 @@
     {% else %}
     <p class="text-muted">Keine Port-Daten verfuegbar.</p>
     {% endif %}
-</div>
+</section>
+
+<!-- F44: Haeufigste gebannte IPs (Top 10) -->
+<section class="config-section">
+    <h2 class="section-title">Haeufigste gebannte IPs</h2>
+    <div id="top-ips-area">
+        {% if ip_overview and ip_overview.bans and ip_overview.bans|length > 0 %}
+        <div class="table-wrapper">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>IP-Adresse</th>
+                        <th>Spieler</th>
+                        <th>Server</th>
+                        <th>Grund</th>
+                        <th>Gebannt am</th>
+                        <th>Gebannt von</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for ban in ip_overview.bans %}
+                    <tr>
+                        <td><code>{{ ban.ip }}</code></td>
+                        <td>{{ ban.player_name|default("—") }}</td>
+                        <td>{{ ban.server_type|default("—") }}</td>
+                        <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
+                            title="{{ ban.reason|default('') }}">
+                            {{ ban.reason|default("—") }}
+                        </td>
+                        <td style="font-size: 0.85rem; color: var(--text-muted);">
+                            {{ ban.banned_at[:16]|replace("T", " ") if ban.banned_at else "—" }}
+                        </td>
+                        <td>{{ ban.banned_by|default("—") }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p style="color: var(--text-muted);">Keine aktiven Bans in der Datenbank.</p>
+        {% endif %}
+    </div>
+</section>
 {% endblock %}

@@ -148,8 +148,32 @@ class UpdateChecker:
         return None
 
     async def _get_available_buildid(self) -> Optional[str]:
-        """Check Steam for the latest available build ID"""
+        """Check Steam for the latest available build ID via SteamCMD"""
         try:
+            # SteamCMD braucht ein beschreibbares HOME-Verzeichnis fuer Cache/Logs.
+            # /home/botuser ist read-only, deshalb /tmp/steamcmd_home verwenden.
+            import os
+            env = os.environ.copy()
+            steam_home = Path("/tmp/steamcmd_home")
+            steam_home.mkdir(parents=True, exist_ok=True)
+            env["HOME"] = str(steam_home)
+            # Steam-Verzeichnisse sicherstellen
+            steam_dir = steam_home / "Steam"
+            steam_dir.mkdir(parents=True, exist_ok=True)
+            (steam_dir / "logs").mkdir(parents=True, exist_ok=True)
+            # .steam Symlinks erstellen falls nicht vorhanden
+            dot_steam = steam_home / ".steam"
+            dot_steam.mkdir(parents=True, exist_ok=True)
+            for link_name in ("root", "steam"):
+                link_path = dot_steam / link_name
+                if not link_path.exists():
+                    try:
+                        link_path.symlink_to(steam_dir)
+                    except OSError:
+                        pass
+
+            logger.debug(f"SteamCMD starten mit HOME={steam_home}")
+
             proc = await asyncio.create_subprocess_exec(
                 self.steamcmd,
                 "+login", "anonymous",
@@ -158,9 +182,16 @@ class UpdateChecker:
                 "+quit",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                env=env,
             )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=120)
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
             output = stdout.decode("utf-8", errors="ignore")
+            stderr_text = stderr.decode("utf-8", errors="ignore")
+
+            if proc.returncode != 0:
+                logger.warning(f"SteamCMD Exit-Code: {proc.returncode}")
+                if stderr_text:
+                    logger.debug(f"SteamCMD stderr: {stderr_text[:500]}")
 
             # Find the public branch buildid
             # Look for "branches" section, then "public" branch
@@ -186,17 +217,62 @@ class UpdateChecker:
 
         return None
 
-    async def perform_update(self, server: Any) -> Tuple[bool, str]:
+    async def perform_update(self, server: Any = None,
+                             har: Any = None) -> Tuple[bool, str]:
         """
-        Perform the actual update via SteamCMD.
-        Server should be stopped before calling this.
+        Vollständiges SAT-Update via SteamCMD.
 
-        Returns (success, message)
+        Ablauf:
+        1. HAR unterdrücken (falls übergeben)
+        2. Prüfen ob Server gestoppt ist
+        3. SteamCMD app_update ausführen
+        4. Exit-Code UND Output prüfen
+        5. Build-ID nach Update verifizieren
+        6. Server starten
+        7. Health-Check (is_running)
+
+        Args:
+            server: SatisfactoryServer-Instanz (optional, für Stop/Start)
+            har: HealthAutoRestart-Instanz (optional, für Suppress)
+
+        Returns:
+            (success, message)
         """
-        logger.info("Starting server update via SteamCMD...")
+        logger.info("SAT-Update wird durchgeführt...")
+
+        old_buildid = self.installed_buildid
 
         try:
-            # Run as server_user for correct file ownership
+            # Schritt 1: HAR unterdrücken
+            if har and hasattr(har, "suppress"):
+                har.suppress(900)  # 15 Minuten
+                logger.info("Health-Auto-Restart für 15 Min unterdrückt")
+
+            # Schritt 2: Server stoppen (falls noch aktiv)
+            if server and hasattr(server, "is_running"):
+                try:
+                    is_running = await server.is_running()
+                    if is_running:
+                        logger.info("SAT-Server wird gestoppt...")
+                        if hasattr(server, "stop"):
+                            await server.stop()
+                        # Warten bis gestoppt
+                        for _ in range(15):
+                            await asyncio.sleep(2)
+                            if not await server.is_running():
+                                break
+                        else:
+                            logger.warning("SAT-Server nach 30s noch aktiv")
+                except Exception as e:
+                    logger.warning(f"Server-Stop Fehler (wird fortgesetzt): {e}")
+
+            # Schritt 3: SteamCMD ausführen
+            import os
+            env = os.environ.copy()
+            steam_home = Path("/tmp/steamcmd_home")
+            steam_home.mkdir(parents=True, exist_ok=True)
+            env["HOME"] = str(steam_home)
+
             cmd = [
                 "sudo", "-u", self.server_user,
                 self.steamcmd,
@@ -205,28 +281,93 @@ class UpdateChecker:
                 "+app_update", self.app_id, "validate",
                 "+quit",
             ]
+
+            logger.info(f"SteamCMD wird ausgeführt: {' '.join(cmd[3:])}")
+
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                env=env,
             )
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=600)
             output = stdout.decode("utf-8", errors="ignore")
+            err_output = stderr.decode("utf-8", errors="ignore")
 
-            if proc.returncode == 0:
-                # Check if update actually happened
-                if "already up to date" in output.lower():
-                    return True, "Server ist bereits aktuell"
-                elif "success" in output.lower() or "fully installed" in output.lower():
-                    self.update_available = False
-                    return True, "Update erfolgreich installiert"
+            # Schritt 4: Exit-Code UND Output prüfen
+            if proc.returncode != 0:
+                error_msg = err_output[:300] if err_output else output[:300]
+                logger.error(f"SteamCMD Fehler (Code {proc.returncode}): {error_msg}")
+                # Server trotzdem starten
+                await self._safe_start(server)
+                return False, f"SteamCMD Fehler (Code {proc.returncode}): {error_msg}"
+
+            # Output-Analyse
+            output_lower = output.lower()
+            if "already up to date" in output_lower:
+                logger.info("SAT-Server ist bereits aktuell")
+                await self._safe_start(server)
+                return True, "Server ist bereits aktuell"
+
+            update_success = (
+                "success" in output_lower
+                or "fully installed" in output_lower
+                or proc.returncode == 0
+            )
+
+            if not update_success:
+                logger.warning(f"SteamCMD-Output unklar: {output[:200]}")
+
+            # Schritt 5: Build-ID nach Update verifizieren
+            new_buildid = await self._get_installed_buildid()
+            if new_buildid and old_buildid and new_buildid != old_buildid:
+                logger.info(
+                    f"Build-ID geändert: {old_buildid} → {new_buildid}"
+                )
+                self.installed_buildid = new_buildid
+                self.update_available = False
+            elif new_buildid:
+                self.installed_buildid = new_buildid
+
+            # Schritt 6+7: Server starten + Health-Check
+            if server:
+                start_ok = await self._safe_start(server)
+                if start_ok:
+                    msg = f"Update erfolgreich (Build-ID: {new_buildid or '?'})"
+                    logger.info(msg)
+                    return True, msg
                 else:
-                    return True, "SteamCMD abgeschlossen"
+                    msg = "SteamCMD erfolgreich, aber Server startet nicht"
+                    logger.warning(msg)
+                    return False, msg
             else:
-                error = stderr.decode("utf-8", errors="ignore")
-                return False, f"SteamCMD Fehler (Code {proc.returncode}): {error[:200]}"
+                return True, f"SteamCMD erfolgreich (Build-ID: {new_buildid or '?'})"
 
         except asyncio.TimeoutError:
+            logger.error("SteamCMD Timeout (>10 Minuten)")
+            await self._safe_start(server)
             return False, "Update Timeout (>10 Minuten)"
         except Exception as e:
+            logger.error(f"Update Fehler: {e}")
+            await self._safe_start(server)
             return False, f"Update Fehler: {str(e)}"
+
+    async def _safe_start(self, server: Any = None) -> bool:
+        """Versucht den Server zu starten (best-effort, max 90s Timeout)."""
+        if not server or not hasattr(server, "start"):
+            return False
+        try:
+            async def _start_and_wait() -> bool:
+                await server.start()
+                for _ in range(30):
+                    await asyncio.sleep(2)
+                    if hasattr(server, "is_running") and await server.is_running():
+                        return True
+                return False
+            return await asyncio.wait_for(_start_and_wait(), timeout=90)
+        except asyncio.TimeoutError:
+            logger.error("Server-Start Timeout nach 90 Sekunden")
+            return False
+        except Exception as e:
+            logger.error(f"Server-Start fehlgeschlagen: {e}")
+            return False

@@ -26,7 +26,7 @@ class MinecraftUpdateChecker:
     Prueft auf Paper-Server-Updates via Paper API.
 
     Fuer Paper/Spigot-basierte Server (z.B. Vanilla mit Paper).
-    Nicht geeignet fuer Fabric/Forge-Server (z.B. Better MC).
+    Nicht geeignet fuer NeoForge/Forge-Server (z.B. Better MC 5).
 
     Usage:
         checker = MinecraftUpdateChecker(server_path, server_id="VANILLA")

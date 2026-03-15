@@ -170,12 +170,12 @@ class TicketsCog(commands.Cog):
         # nach einem Neustart wieder funktionieren
         self.bot.add_view(TicketCreateView())
         self.bot.add_view(TicketCloseView())
-        # F28: Tickets aus SQLite laden (ueberschreibt JSON-Fallback)
+        # Tickets aus SQLite laden
         try:
             await self.ticket_mgr.load_from_db()
             logger.info("Ticket-Daten aus SQLite geladen")
         except Exception as e:
-            logger.warning(f"SQLite-Load fehlgeschlagen, nutze JSON-Fallback: {e}")
+            logger.warning(f"SQLite-Load fehlgeschlagen: {e}")
         logger.info("Ticket-Cog geladen, persistente Views registriert")
 
     # ==================================================================

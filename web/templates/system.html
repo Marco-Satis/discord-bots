@@ -6,7 +6,7 @@
 {% block content %}
 <div class="page-header">
     <h1>System-Verwaltung</h1>
-    <p class="page-subtitle">Server-Informationen und Webmin-Administration</p>
+    <p class="page-subtitle">Server-Informationen und Service-Verwaltung</p>
 </div>
 
 <!-- System-Info Kacheln -->
@@ -29,35 +29,136 @@
     </div>
     <div class="stat-card">
         <div class="stat-label">CPU</div>
+        <div class="progress-bar" style="margin-bottom: 0.5rem;">
+            <div class="progress-fill {% if system_info.cpu_percent > 80 %}progress-danger{% elif system_info.cpu_percent > 60 %}progress-warning{% else %}progress-ok{% endif %}"
+                 style="width: {{ system_info.cpu_percent|default(0) }}%"></div>
+        </div>
         <div class="stat-value">{{ system_info.cpu_percent|default(0) }}%</div>
         <div class="stat-sub">{{ system_info.cpu_count|default(0) }} Kerne</div>
     </div>
     <div class="stat-card">
         <div class="stat-label">RAM</div>
+        <div class="progress-bar" style="margin-bottom: 0.5rem;">
+            <div class="progress-fill {% if system_info.ram_used_percent > 85 %}progress-danger{% elif system_info.ram_used_percent > 70 %}progress-warning{% else %}progress-ok{% endif %}"
+                 style="width: {{ system_info.ram_used_percent|default(0) }}%"></div>
+        </div>
         <div class="stat-value">{{ system_info.ram_used_percent|default(0) }}%</div>
         <div class="stat-sub">{{ system_info.ram_total_gb|default(0) }} GB gesamt</div>
     </div>
     <div class="stat-card">
         <div class="stat-label">Disk</div>
+        <div class="progress-bar" style="margin-bottom: 0.5rem;">
+            <div class="progress-fill {% if system_info.disk_used_percent > 90 %}progress-danger{% elif system_info.disk_used_percent > 75 %}progress-warning{% else %}progress-ok{% endif %}"
+                 style="width: {{ system_info.disk_used_percent|default(0) }}%"></div>
+        </div>
         <div class="stat-value">{{ system_info.disk_used_percent|default(0) }}%</div>
         <div class="stat-sub">{{ system_info.disk_total_gb|default(0) }} GB gesamt</div>
     </div>
 </div>
 
-<!-- Webmin Iframe -->
+<!-- Service-Verwaltung -->
+<section class="config-section">
+    <h2 class="section-title">Service-Verwaltung</h2>
+    <div id="service-status-result" style="margin-bottom: 0.75rem;"></div>
+    <div class="table-wrapper">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Service</th>
+                    <th>Status</th>
+                    <th>Aktionen</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for svc in services %}
+                <tr>
+                    <td>
+                        <span style="font-weight: 600;">{{ svc.display_name }}</span>
+                        <br><small style="color: var(--text-muted);">{{ svc.service_name }}</small>
+                    </td>
+                    <td>
+                        <span class="status-badge {% if svc.active %}status-online{% else %}status-offline{% endif %}">
+                            {{ 'Aktiv' if svc.active else 'Gestoppt' }}
+                        </span>
+                    </td>
+                    <td>
+                        <div style="display: flex; gap: 0.35rem;">
+                            {% if not svc.active %}
+                            <button class="btn btn-sm btn-primary"
+                                    hx-post="/api/system/service/action"
+                                    hx-vals='{"service": "{{ svc.service_name }}", "action": "start"}'
+                                    hx-target="#service-status-result"
+                                    hx-swap="innerHTML"
+                                    hx-confirm="{{ svc.display_name }} starten?">
+                                Start
+                            </button>
+                            {% endif %}
+                            {% if svc.active %}
+                            <button class="btn btn-sm btn-danger"
+                                    hx-post="/api/system/service/action"
+                                    hx-vals='{"service": "{{ svc.service_name }}", "action": "stop"}'
+                                    hx-target="#service-status-result"
+                                    hx-swap="innerHTML"
+                                    hx-confirm="{{ svc.display_name }} stoppen?">
+                                Stop
+                            </button>
+                            <button class="btn btn-sm btn-secondary"
+                                    hx-post="/api/system/service/action"
+                                    hx-vals='{"service": "{{ svc.service_name }}", "action": "restart"}'
+                                    hx-target="#service-status-result"
+                                    hx-swap="innerHTML"
+                                    hx-confirm="{{ svc.display_name }} neustarten?">
+                                Restart
+                            </button>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<!-- Package-Updates -->
+<section class="config-section">
+    <h2 class="section-title">System-Updates</h2>
+    <div id="package-update-result" style="margin-bottom: 0.75rem;"></div>
+    <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap;">
+        <button class="btn btn-sm btn-secondary"
+                hx-post="/api/system/packages/check"
+                hx-target="#package-list-area"
+                hx-swap="innerHTML">
+            Auf Updates pruefen
+        </button>
+        <button class="btn btn-sm btn-primary"
+                hx-post="/api/system/packages/upgrade"
+                hx-target="#package-update-result"
+                hx-swap="innerHTML"
+                hx-confirm="Alle verfuegbaren Pakete aktualisieren? Der Vorgang kann einige Minuten dauern.">
+            Alle Updates installieren
+        </button>
+    </div>
+    <div id="package-list-area"
+         hx-get="/api/system/packages/list"
+         hx-trigger="load"
+         hx-swap="innerHTML">
+        <p style="color: var(--text-muted);">Lade Update-Informationen...</p>
+    </div>
+</section>
+
+<!-- Webmin Link -->
 <section class="config-section">
     <h2 class="section-title">Webmin Server-Administration</h2>
-    <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 1rem;">
-        Eingebettetes Webmin-Interface fuer erweiterte Server-Verwaltung.
+    <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 1rem;">
+        Webmin laeuft als eigener Service mit selbstsigniertem Zertifikat.
+        Browser blockieren solche Zertifikate in eingebetteten Frames — bitte Webmin direkt oeffnen.
     </p>
-    <div class="iframe-container">
-        <iframe src="{{ webmin_url|default('/webmin/') }}"
-                class="webmin-iframe"
-                title="Webmin Server-Verwaltung"
-                sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
-                loading="lazy">
-            <p>Webmin konnte nicht geladen werden. Stelle sicher, dass Webmin auf dem Server laeuft.</p>
-        </iframe>
-    </div>
+    <a href="{{ webmin_url }}" target="_blank" class="btn btn-primary" style="display: inline-flex; gap: 0.5rem; align-items: center;">
+        <span>&#9881;</span> Webmin oeffnen ({{ webmin_url }})
+    </a>
+    <p style="color: var(--text-muted); font-size: 0.8rem; margin-top: 0.75rem;">
+        Beim ersten Zugriff muss das selbstsignierte Zertifikat im Browser akzeptiert werden.
+    </p>
 </section>
 {% endblock %}

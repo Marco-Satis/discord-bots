@@ -21,7 +21,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from utils.config import load_env, get_env
 from utils.logger import get_logger
-from web.middleware.csrf import CSRFMiddleware, generate_csrf_token
+from web.middleware.csrf import CSRFMiddleware
 from web.middleware.session_timeout import SessionTimeoutMiddleware
 from web.middleware.rate_limiter import RateLimitMiddleware
 from modules.database.db_manager import init_db, close_db
@@ -53,26 +53,13 @@ app = FastAPI(
 # HTTPS-Modus erkennen (Nginx Reverse-Proxy setzt X-Forwarded-Proto)
 WEB_HTTPS = get_env("WEB_HTTPS", "true", cast=bool)
 
-# Session-Middleware fuer Cookie-basierte Sessions
-app.add_middleware(
-    SessionMiddleware,
-    secret_key=WEB_SECRET_KEY,
-    session_cookie="dashboard_session",
-    max_age=86400,       # 24 Stunden
-    same_site="lax",
-    https_only=WEB_HTTPS
-)
+# Middleware-Reihenfolge (WICHTIG!):
+# Starlette verarbeitet Middlewares in LIFO — die LETZTE add_middleware()
+# wird als ERSTE ausgefuehrt (aeusserste Schicht).
+# Session muss ZULETZT registriert werden, damit request.session fuer
+# alle anderen Middlewares verfuegbar ist.
 
-# F64: CSRF-Schutz Middleware
-app.add_middleware(CSRFMiddleware)
-
-# F65: Session-Timeout Middleware
-app.add_middleware(SessionTimeoutMiddleware)
-
-# F48: Rate-Limiting Middleware
-app.add_middleware(RateLimitMiddleware)
-
-# CORS-Middleware fuer API-Zugriffe
+# CORS-Middleware (innerste Schicht — laeuft als letztes)
 SERVER_IP = get_env("SERVER_IP", "203.0.113.10")
 DOMAIN = get_env("WEB_DOMAIN", "marco-satisfactory.duckdns.org")
 ALLOWED_ORIGINS = [
@@ -88,6 +75,25 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["Content-Type", "Authorization", "X-Requested-With", "X-CSRF-Token"],
+)
+
+# F48: Rate-Limiting Middleware
+app.add_middleware(RateLimitMiddleware)
+
+# F64: CSRF-Schutz Middleware (braucht request.session)
+app.add_middleware(CSRFMiddleware)
+
+# F65: Session-Timeout Middleware (braucht request.session)
+app.add_middleware(SessionTimeoutMiddleware)
+
+# Session-Middleware (aeusserste Schicht — laeuft als ERSTE, stellt request.session bereit)
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=WEB_SECRET_KEY,
+    session_cookie="dashboard_session",
+    max_age=86400,       # 24 Stunden
+    same_site="lax",
+    https_only=WEB_HTTPS
 )
 
 # Statische Dateien und Templates einbinden
@@ -158,6 +164,16 @@ from web.routes.analytics_route import router as analytics_router    # noqa: E40
 from web.routes.admin_bot_route import router as admin_bot_router    # noqa: E402
 from web.routes.health_route import router as health_router          # noqa: E402
 from web.routes.security_route import router as security_router      # noqa: E402
+from web.routes.sse_route import router as sse_router                # noqa: E402
+from web.routes.forecast_route import router as forecast_router      # noqa: E402
+from web.routes.backup_status_route import router as backup_status_router  # noqa: E402
+from web.routes.export_route import router as export_router          # noqa: E402
+from web.routes.changelog_route import router as changelog_router    # noqa: E402
+from web.routes.theme_route import router as theme_router            # noqa: E402
+from web.routes.config_reload_route import router as config_reload_router  # noqa: E402
+from web.routes.webhook_route import router as webhook_router        # noqa: E402
+from web.routes.correlation_route import router as correlation_router  # noqa: E402
+from web.routes.search_route import router as search_router            # noqa: E402
 
 app.include_router(auth_router)
 app.include_router(dashboard_router)
@@ -169,15 +185,21 @@ app.include_router(analytics_router)
 app.include_router(admin_bot_router)
 app.include_router(health_router)
 app.include_router(security_router)
+app.include_router(sse_router)
+app.include_router(forecast_router)
+app.include_router(backup_status_router)
+app.include_router(export_router)
+app.include_router(changelog_router)
+app.include_router(theme_router)
+app.include_router(config_reload_router)
+app.include_router(webhook_router)
+app.include_router(correlation_router)
+app.include_router(search_router)
 
 
-# F64: CSRF-Token als Template-Globale bereitstellen
-@app.middleware("http")
-async def add_csrf_to_templates(request, call_next):
-    """Stellt csrf_token fuer alle Templates bereit."""
-    request.state.csrf_token = generate_csrf_token(request)
-    response = await call_next(request)
-    return response
+# F64: CSRF-Token wird jetzt direkt in der CSRFMiddleware (Pure ASGI) gesetzt.
+# Die separate add_csrf_to_templates Middleware ist nicht mehr noetig,
+# da CSRFMiddleware scope["state"].csrf_token setzt.
 
 
 # --- Startup/Shutdown Events ---

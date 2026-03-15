@@ -40,7 +40,13 @@ class ModManager:
 
         self.server_path = Path(server_path)
         self.mods_dir = mods_dir or self.server_path / "mods"
-        self.mods_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            self.mods_dir.mkdir(parents=True, exist_ok=True)
+        except PermissionError:
+            logger.warning(
+                f"ModManager [{game}]: Kein Zugriff auf {self.mods_dir} — "
+                f"Mod-Verwaltung eingeschraenkt. Berechtigungen pruefen!"
+            )
 
         self._mods_file = DATA_DIR / f"{self.game}_mods.json"
         self._mods: List[Dict[str, Any]] = []

@@ -1,0 +1,57 @@
+/* ============================================================
+ *  Theme Toggle — Light-Theme Overrides
+ *
+ *  Das Dark-Theme ist Standard (in style.css definiert).
+ *  Diese Datei ueberschreibt nur die CSS-Variablen fuer das
+ *  Light-Theme, wenn die Klasse 'light-theme' auf <html> gesetzt ist.
+ *
+ *  Akzentfarbe (lila) bleibt in beiden Themes gleich.
+ * ============================================================ */
+
+html.light-theme {
+    --bg-primary: #f0f2f5;
+    --bg-sidebar: #ffffff;
+    --bg-card: #ffffff;
+    --bg-input: #f8f9fa;
+    --bg-hover: #e9ecef;
+    --accent: #533483;
+    --accent-light: #6c44a0;
+    --text-primary: #1a1a2e;
+    --text-secondary: #495057;
+    --text-muted: #868e96;
+    --border-color: #dee2e6;
+    --shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+/* Sidebar-Logo im Light-Theme besser lesbar */
+html.light-theme .sidebar {
+    box-shadow: 2px 0 8px rgba(0, 0, 0, 0.06);
+}
+
+/* Toggle-Button Styling */
+.theme-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.7rem 1.25rem;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: none;
+    background: none;
+    width: 100%;
+    text-align: left;
+    border-left: 3px solid transparent;
+}
+
+.theme-toggle:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.theme-toggle .nav-icon {
+    font-size: 1.1rem;
+    width: 24px;
+    text-align: center;
+}

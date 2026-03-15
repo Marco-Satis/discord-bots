@@ -63,6 +63,16 @@ RATE_LIMIT_MAX = 5           # Maximal 5 Versuche
 RATE_LIMIT_WINDOW = 900      # innerhalb von 15 Minuten (900 Sekunden)
 
 
+def _cleanup_rate_limit_dict() -> None:
+    """Entfernt abgelaufene IPs aus dem Rate-Limit-Dict (verhindert Memory-Leak)."""
+    now = time.time()
+    cutoff = now - RATE_LIMIT_WINDOW
+    expired = [ip for ip, attempts in _login_attempts.items()
+               if not attempts or attempts[-1] < cutoff]
+    for ip in expired:
+        del _login_attempts[ip]
+
+
 def _check_rate_limit(ip: str) -> bool:
     """
     Prueft ob die IP das Login-Limit ueberschritten hat.
@@ -70,6 +80,10 @@ def _check_rate_limit(ip: str) -> bool:
     """
     now = time.time()
     cutoff = now - RATE_LIMIT_WINDOW
+
+    # Periodisch alte IPs aufraeumen (alle 100 Aufrufe oder bei >1000 Eintraegen)
+    if len(_login_attempts) > 1000:
+        _cleanup_rate_limit_dict()
 
     if ip not in _login_attempts:
         _login_attempts[ip] = []

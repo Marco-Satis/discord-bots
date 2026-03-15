@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Discord Bot — Command-Übersicht</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f1117; color: #e1e4e8; padding: 30px; }
+
+  h1 { font-size: 24px; margin-bottom: 6px; }
+  .subtitle { font-size: 14px; color: #8b949e; margin-bottom: 24px; }
+
+  /* Filter Bar */
+  .filter-bar { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; align-items: center; }
+  .filter-bar input { padding: 8px 14px; background: #161b22; border: 1px solid #30363d; border-radius: 6px; color: #c9d1d9; font-size: 14px; width: 300px; font-family: inherit; }
+  .filter-bar input:focus { border-color: #58a6ff; outline: none; }
+  .filter-btn { padding: 6px 14px; border-radius: 16px; border: 1px solid #30363d; background: #161b22; color: #8b949e; font-size: 12px; cursor: pointer; font-family: inherit; transition: all .15s; }
+  .filter-btn:hover { color: #c9d1d9; border-color: #58a6ff; }
+  .filter-btn.active { background: #58a6ff; color: #fff; border-color: #58a6ff; }
+  .count { font-size: 13px; color: #8b949e; margin-left: auto; }
+
+  /* Table */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead { position: sticky; top: 0; z-index: 2; }
+  th { text-align: left; padding: 10px 12px; background: #161b22; color: #8b949e; font-weight: 600; border-bottom: 2px solid #30363d; font-size: 12px; text-transform: uppercase; letter-spacing: .3px; cursor: pointer; user-select: none; }
+  th:hover { color: #58a6ff; }
+  td { padding: 10px 12px; border-bottom: 1px solid #21262d; color: #c9d1d9; vertical-align: top; }
+  tr:hover td { background: rgba(88,166,255,.03); }
+
+  /* Category Header Rows */
+  .cat-row td { background: #161b22; font-weight: 600; font-size: 14px; color: #58a6ff; padding: 14px 12px 8px; border-bottom: 1px solid #30363d; }
+
+  /* Tags */
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 500; }
+  .tag-sat { background: rgba(210,153,34,.15); color: #d29922; }
+  .tag-mc { background: rgba(63,185,80,.15); color: #3fb950; }
+  .tag-mon { background: rgba(88,166,255,.15); color: #58a6ff; }
+  .tag-gen { background: rgba(139,148,158,.15); color: #8b949e; }
+  .tag-maint { background: rgba(188,140,255,.15); color: #bc8cff; }
+  .tag-sched { background: rgba(248,132,73,.15); color: #f88449; }
+  .tag-mod { background: rgba(248,81,73,.15); color: #f85149; }
+  .tag-timeout { background: rgba(248,81,73,.15); color: #f85149; }
+
+  .perm { font-size: 11px; padding: 2px 8px; border-radius: 10px; }
+  .perm-owner { background: rgba(248,81,73,.1); color: #f85149; }
+  .perm-admin { background: rgba(210,153,34,.1); color: #d29922; }
+  .perm-all { background: rgba(63,185,80,.1); color: #3fb950; }
+
+  code { background: #21262d; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+
+<h1>Discord Bot — Alle Commands</h1>
+<div class="subtitle">Komplette Übersicht aller 96 Slash-Commands | Stand: v3.1.0</div>
+
+<div class="filter-bar">
+  <input type="text" id="search" placeholder="🔍 Command suchen..." oninput="filterTable()">
+  <button class="filter-btn active" onclick="filterBot('all', this)">Alle</button>
+  <button class="filter-btn" onclick="filterBot('sat', this)">🏭 Satisfactory</button>
+  <button class="filter-btn" onclick="filterBot('mc', this)">⛏️ Minecraft</button>
+  <button class="filter-btn" onclick="filterBot('mon', this)">📊 Monitor</button>
+  <button class="filter-btn" onclick="filterBot('gen', this)">⚙️ General</button>
+  <button class="filter-btn" onclick="filterBot('maint', this)">🔧 Maintenance</button>
+  <button class="filter-btn" onclick="filterBot('sched', this)">📅 Scheduler</button>
+  <button class="filter-btn" onclick="filterBot('mod', this)">📦 Mods</button>
+  <button class="filter-btn" onclick="filterBot('timeout', this)">🔇 Timeout</button>
+  <span class="count" id="count">96 Commands</span>
+</div>
+
+<table id="cmdTable">
+<thead>
+  <tr>
+    <th style="width:60px;">#</th>
+    <th style="width:100px;">Bot/Cog</th>
+    <th style="width:120px;">Gruppe</th>
+    <th style="width:280px;">Command</th>
+    <th>Beschreibung</th>
+    <th style="width:80px;">Berechtigung</th>
+  </tr>
+</thead>
+<tbody>
+
+<!-- ===== SATISFACTORY ===== -->
+<tr class="cmd-row" data-bot="sat"><td>1</td><td><span class="tag tag-sat">SAT</span></td><td>Server</td><td><code>/sat status</code></td><td>Server-Status, Spieler und Tick Rate anzeigen</td><td><span class="perm perm-all">Alle</span></td></tr>
+<tr class="cmd-row" data-bot="sat"><td>2</td><td><span class="tag tag-sat">SAT</span></td><td>Server</td><td><code>/sat start</code></td><td>Server starten</td><td><span class="perm perm-admin">Admin</span></td></tr>
+<tr class="cmd-row" data-bot="sat"><td>3</td><td><span class="tag tag-sat">SAT</span></td><td>Server</td><td><code>/sat stop</code></td><td>Server mit Countdown stoppen</td><td><span class="perm perm-admin">Admin</span></td></tr>
+<tr class="cmd-row" data-bot="sat"><td>4</td><td><span class="tag tag-sat">SAT</span></td><td>Server</td><td><code>/sat restart</code></td><td>Server neu starten (sofort oder Countdown)</td><td><span class="perm perm-admin">Admin</span></td></tr>
+<tr class="cmd-row" data-bot="sat"><td>5</td><td><span class="tag tag-sat">SAT</span></td><td>Server</td><td><code>/sat cancel</code></td><td>Laufenden Restart/Stop abbrechen</td><td><span class="perm perm-admin">Admin</span></td></tr>
+
+<tr class="cmd-row" data-bot="sat"><td>6</td><td><span class="tag tag-sat">SAT</span></td><td>Spieler</td><td><code>/sat players online</code></td><td>Online-Spieler und Spieler-Limit anzeigen</td><td><span class="perm perm-all">Alle</span></td></tr>
+<tr class="cmd-row" data-bot="sat"><td>7</td><td><span class="tag tag-sat">SAT</span></td><td>Spieler</td><td><code>/sat players ban &lt;spieler&gt; [grund]</code></td><td>Spieler permanent bannen (IP-Block)</td><td><span class="perm perm-admin">Admin</span></td></tr>
+<tr class="cmd-row" data-bot="sat"><td>8</td><td><span class="tag tag-sat">SAT</span></td><td>Spieler</td><td><code>/sat players unban &lt;spieler&gt;</code></td><td>Ban aufheben</td><td><span class="perm perm-admin">Admin</span></td></tr>
+<tr class="cmd-row" data-bot="sat"><td>9</td><td><span class="tag tag-sat">SAT</span></td><td>Spieler</td><td><code>/sat players bans</code></td><td>Alle aktiven Bans anzeigen</td><td><span class="perm perm-all">Alle</span></td></tr>
+
+<tr class="cmd-row" data-bot="sat"><td>10</td><td><span class="tag tag-sat">SAT</span></td><td>Backup</td><td><code>/sat backup create [name]</code></td><td>Manuelles Backup erstellen</td><td><span class="perm perm-all">Alle</span></td></tr>
+<tr class="cmd-row" data-bot="sat"><td>11</td><td><span class="tag tag-sat">SAT</span></td><td>Backup</td><td><code>/sat backup save</code></td><td>Spiel via API speichern</td><td><span class="perm perm-all">Alle</span></td></tr>
+<tr class="cmd-row" data-bot="sat"><td>12</td><td><span class="tag tag-sat">SAT</span></td><td>Backup</td><td><code>/sat backup download</code></td><td>Neuestes Savegame herunterladen</td><td><span class="perm perm-all">Alle</span></td></tr>
+<tr class="cmd-row" data-bot="sat"><td>13</td><td><span class="tag tag-sat">SAT</span></td><td>Backup</td><td><code>/sat backup list</code></td><td>Verfügbare Backups anzeigen (max. 20)</td><td><span class="perm perm-all">Alle</span></td></tr>
+<tr class="cmd-row" data-bot="sat"><td>14</td><td><span class="tag tag-sat">SAT</span></td><td>Backup</td><td><code>/sat backup restore &lt;name&gt;</code></td><td>Backup wiederherstellen</td><td><span class="perm perm-owner">Owner</span></td></tr>
+
+<tr class="cmd-row" data-bot="sat"><td>15</td><td><span class="tag tag-sat">SAT</span></td><td>Config</td><td><code>/sat config settings</code></td><td>Server-Einstellungen anzeigen</td><td><span class="perm perm-all">Alle</span></td></tr>
+<tr class="cmd-row" data-bot="sat"><td>16</td><td><span class="tag tag-sat">SAT</span></td><td>Config</td><td><code>/sat config playerlimit &lt;limit&gt;</code></td><td>Max. Spielerzahl ändern</td><td><span class="perm perm-admin">Admin</span></td></tr>
+<tr class="cmd-row" data-bot="sat"><td>17</td><td><span class="tag tag-sat">SAT</span></td><td>Config</td><td><code>/sat config autosave &lt;sek&gt;</code></td><td>Autosave-Intervall setzen</td><td><span class="perm perm-admin">Admin</span></td></tr>
+<tr class="cmd-row" data-bot="sat"><td>18</td><td><span class="tag tag-sat">SAT</span></td><td>Config</td><td><code>/sat config console &lt;befehl&gt;</code></td><td>Konsolen-Befehl ausführen</td><td><span class="perm perm-owner">Owner</span></td></tr>
+<tr class="cmd-row" data-bot="sat"><td>19</td><td><span class="tag tag-sat">SAT</span></td><td>Config</td><td><code>/sat config load &lt;save&gt;</code></td><td>Savegame laden</td><td><span class="perm perm-owner">Owner</span></td></tr>
+<tr class="cmd-row" data-bot="sat"><td>20</td><td><span class="tag tag-sat">SAT</span></td><td>Config</td><td><code>/sat config update</code></td><td>Server-Update via SteamCMD</td><td><span class="perm perm-owner">Owner</span></td></tr>
+<tr class="cmd-row" data-bot="sat"><td>21</td><td><span class="tag tag-sat">SAT</span></td><td>Config</td><td><code>/sat config stats</code></td><td>Savegame-Statistiken anzeigen</td><td><span class="perm perm-all">Alle</span></td></tr>
+<tr class="cmd-row" data-bot="sat"><td>22</td><td><span class="tag tag-sat">SAT</span></td><td>Config</td><td><code>/sat config settings_backup [name]</code></td><td>Server-Einstellungen sichern</td><td><span class="perm perm-admin">Admin</span></td></tr>
+<tr class="cmd-row" data-bot="sat"><td>23</td><td><span class="tag tag-sat">SAT</span></td><td>Config</td><td><code>/sat config settings_restore &lt;file&gt;</code></td><td>Einstellungen wiederherstellen</td><td><span class="perm perm-owner">Owner</span></td></tr>
+
+<tr class="cmd-row" data-bot="sat"><td>24</td><td><span class="tag tag-sat">SAT</span></td><td>Blueprints</td><td><code>/sat blueprints upload &lt;kat&gt; &lt;datei&gt;</code></td><td>Blueprint hochladen (.sbp+.sbpcfg oder .zip)</td><td><span class="perm perm-all">Alle</span></td></tr>
+<tr class="cmd-row" data-bot="sat"><td>25</td><td><span class="tag tag-sat">SAT</span></td><td>Blueprints</td><td><code>/sat blueprints list [kat]</code></td><td>Blueprints anzeigen (optional nach Kategorie)</td><td><span class="perm perm-all">Alle</span></td></tr>
+<tr class="cmd-row" data-bot="sat"><td>26</td><td><span class="tag tag-sat">SAT</span></td><td>Blueprints</td><td><code>/sat blueprints download &lt;name&gt;</code></td><td>Blueprint herunterladen</td><td><span class="perm perm-all">Alle</span></td></tr>
+<tr class="cmd-row" data-bot="sat"><td>27</td><td><span class="tag tag-sat">SAT</span></td><td>Blueprints</td><td><code>/sat blueprints delete &lt;name&gt;</code></td><td>Blueprint löschen</td><td><span class="perm perm-all">Alle</span></td></tr>
+
+<tr class="cmd-row" data-bot="sat"><td>28</td><td><span class="tag tag-sat">SAT</span></td><td>Whitelist</td><td><code>/sat whitelist add &lt;spieler&gt;</code></td><td>Spieler zur Whitelist hinzufügen</td><td><span class="perm perm-admin">Admin</span></td></tr>
+<tr class="cmd-row" data-bot="sat"><td>29</td><td><span class="tag tag-sat">SAT</span></td><td>Whitelist</td><td><code>/sat whitelist remove &lt;spieler&gt;</code></td><td>Spieler von Whitelist entfernen</td><td><span class="perm perm-admin">Admin</span></td></tr>
+<tr class="cmd-row" data-bot="sat"><td>30</td><td><span class="tag tag-sat">SAT</span></td><td>Whitelist</td><td><code>/sat whitelist list</code></td><td>Whitelist anzeigen</td><td><span class="perm perm-all">Alle</span></td></tr>
+
+<tr class="cmd-row" data-bot="sat"><td>31</td><td><span class="tag tag-sat">SAT</span></td><td>Blacklist</td><td><code>/sat blacklist add &lt;spieler&gt; &lt;grund&gt;</code></td><td>Spieler auf Blacklist setzen</td><td><span class="perm perm-admin">Admin</span></td></tr>
+<tr class="cmd-row" data-bot="sat"><td>32</td><td><span class="tag tag-sat">SAT</span></td><td>Blacklist</td><td><code>/sat blacklist remove &lt;spieler&gt;</code></td><td>Spieler von Blacklist entfernen</td><td><span class="perm perm-admin">Admin</span></td></tr>
+<tr class="cmd-row" data-bot="sat"><td>33</td><td><span class="tag tag-sat">SAT</span></td><td>Blacklist</td><td><code>/sat blacklist list</code></td><td>Blacklist anzeigen</td><td><span class="perm perm-admin">Admin</span></td></tr>
+
+<!-- ===== MINECRAFT ===== -->
+<tr class="cmd-row" data-bot="mc"><td>34</td><td><span class="tag tag-mc">MC</span></td><td>Server</td><td><code>/mc status [server]</code></td><td>Server-Status anzeigen</td><td><span class="perm perm-all">Alle</span></td></tr>
+<tr class="cmd-row" data-bot="mc"><td>35</td><td><span class="tag tag-mc">MC</span></td><td>Server</td><td><code>/mc start [server]</code></td><td>MC-Server starten</td><td><span class="perm perm-admin">Admin</span></td></tr>
+<tr class="cmd-row" data-bot="mc"><td>36</td><td><span class="tag tag-mc">MC</span></td><td>Server</td><td><code>/mc stop [countdown] [server]</code></td><td>MC-Server mit Countdown stoppen</td><td><span class="perm perm-admin">Admin</span></td></tr>
+<tr class="cmd-row" data-bot="mc"><td>37</td><td><span class="tag tag-mc">MC</span></td><td>Server</td><td><code>/mc restart [countdown] [server]</code></td><td>MC-Server neu starten</td><td><span class="perm perm-admin">Admin</span></td></tr>
+<tr class="cmd-row" data-bot="mc"><td>38</td><td><span class="tag tag-mc">MC</span></td><td>Server</td><td><code>/mc cancel</code></td><td>Aktiven Timer abbrechen</td><td><span class="perm perm-admin">Admin</span></td></tr>
+
+<tr class="cmd-row" data-bot="mc"><td>39</td><td><span class="tag tag-mc">MC</span></td><td>Spieler</td><td><code>/mc players list [server]</code></td><td>Online-Spieler anzeigen</td><td><span class="perm perm-all">Alle</span></td></tr>
+<tr class="cmd-row" data-bot="mc"><td>40</td><td><span class="tag tag-mc">MC</span></td><td>Spieler</td><td><code>/mc players kick &lt;spieler&gt; [grund]</code></td><td>Spieler vom Server kicken</td><td><span class="perm perm-admin">Admin</span></td></tr>
+<tr class="cmd-row" data-bot="mc"><td>41</td><td><span class="tag tag-mc">MC</span></td><td>Spieler</td><td><code>/mc players ban &lt;spieler&gt; [grund]</code></td><td>Spieler bannen</td><td><span class="perm perm-admin">Admin</span></td></tr>
+<tr class="cmd-row" data-bot="mc"><td>42</td><td><span class="tag tag-mc">MC</span></td><td>Spieler</td><td><code>/mc players pardon &lt;spieler&gt;</code></td><td>Spieler entbannen</td><td><span class="perm perm-admin">Admin</span></td></tr>
+
+<tr class="cmd-row" data-bot="mc"><td>43</td><td><span class="tag tag-mc">MC</span></td><td>Whitelist</td><td><code>/mc whitelist add &lt;spieler&gt; [server]</code></td><td>Zur Whitelist hinzufügen</td><td><span class="perm perm-admin">Admin</span></td></tr>
+<tr class="cmd-row" data-bot="mc"><td>44</td><td><span class="tag tag-mc">MC</span></td><td>Whitelist</td><td><code>/mc whitelist remove &lt;spieler&gt; [server]</code></td><td>Von Whitelist entfernen</td><td><span class="perm perm-admin">Admin</span></td></tr>
+<tr class="cmd-row" data-bot="mc"><td>45</td><td><span class="tag tag-mc">MC</span></td><td>Whitelist</td><td><code>/mc whitelist list [server]</code></td><td>Whitelist anzeigen</td><td><span class="perm perm-all">Alle</span></td></tr>
+
+<tr class="cmd-row" data-bot="mc"><td>46</td><td><span class="tag tag-mc">MC</span></td><td>Backup</td><td><code>/mc backup create [name] [server]</code></td><td>Welt-Backup erstellen</td><td><span class="perm perm-all">Alle</span></td></tr>
+<tr class="cmd-row" data-bot="mc"><td>47</td><td><span class="tag tag-mc">MC</span></td><td>Backup</td><td><code>/mc backup list [server]</code></td><td>Verfügbare Backups anzeigen</td><td><span class="perm perm-all">Alle</span></td></tr>
+<tr class="cmd-row" data-bot="mc"><td>48</td><td><span class="tag tag-mc">MC</span></td><td>Backup</td><td><code>/mc backup restore &lt;name&gt; [server]</code></td><td>Backup wiederherstellen</td><td><span class="perm perm-owner">Owner</span></td></tr>
+<tr class="cmd-row" data-bot="mc"><td>49</td><td><span class="tag tag-mc">MC</span></td><td>Backup</td><td><code>/mc backup download [name] [server]</code></td><td>Backup als ZIP herunterladen (max. 25 MB)</td><td><span class="perm perm-all">Alle</span></td></tr>
+
+<tr class="cmd-row" data-bot="mc"><td>50</td><td><span class="tag tag-mc">MC</span></td><td>Admin (InGame)</td><td><code>/mc say &lt;nachricht&gt; [server]</code></td><td>Nachricht im Spiel senden</td><td><span class="perm perm-admin">Admin</span></td></tr>
+<tr class="cmd-row" data-bot="mc"><td>51</td><td><span class="tag tag-mc">MC</span></td><td>Admin (InGame)</td><td><code>/mc difficulty &lt;level&gt; [server]</code></td><td>Schwierigkeitsgrad setzen</td><td><span class="perm perm-admin">Admin</span></td></tr>
+<tr class="cmd-row" data-bot="mc"><td>52</td><td><span class="tag tag-mc">MC</span></td><td>Admin (InGame)</td><td><code>/mc weather &lt;typ&gt; [server]</code></td><td>Wetter ändern</td><td><span class="perm perm-admin">Admin</span></td></tr>
+<tr class="cmd-row" data-bot="mc"><td>53</td><td><span class="tag tag-mc">MC</span></td><td>Admin (InGame)</td><td><code>/mc time &lt;wert&gt; [server]</code></td><td>Tageszeit setzen</td><td><span class="perm perm-admin">Admin</span></td></tr>
+<tr class="cmd-row" data-bot="mc"><td>54</td><td><span class="tag tag-mc">MC</span></td><td>Admin (InGame)</td><td><code>/mc gamemode &lt;mode&gt; [spieler]</code></td><td>Spielmodus setzen</td><td><span class="perm perm-admin">Admin</span></td></tr>
+
+<tr class="cmd-row" data-bot="mc"><td>55</td><td><span class="tag tag-mc">MC</span></td><td>Config</td><td><code>/mc config settings [server]</code></td><td>server.properties Werte anzeigen</td><td><span class="perm perm-all">Alle</span></td></tr>
+<tr class="cmd-row" data-bot="mc"><td>56</td><td><span class="tag tag-mc">MC</span></td><td>Config</td><td><code>/mc config set &lt;key&gt; &lt;value&gt;</code></td><td>server.properties Wert ändern</td><td><span class="perm perm-admin">Admin</span></td></tr>
+<tr class="cmd-row" data-bot="mc"><td>57</td><td><span class="tag tag-mc">MC</span></td><td>Config</td><td><code>/mc config backup [name] [server]</code></td><td>server.properties sichern</td><td><span class="perm perm-admin">Admin</span></td></tr>
+<tr class="cmd-row" data-bot="mc"><td>58</td><td><span class="tag tag-mc">MC</span></td><td>Config</td><td><code>/mc config restore &lt;file&gt; [server]</code></td><td>server.properties wiederherstellen</td><td><span class="perm perm-owner">Owner</span></td></tr>
+<tr class="cmd-row" data-bot="mc"><td>59</td><td><span class="tag tag-mc">MC</span></td><td>Config</td><td><code>/mc config update [install] [server]</code></td><td>Paper-Updates prüfen/installieren</td><td><span class="perm perm-owner">Owner</span></td></tr>
+<tr class="cmd-row" data-bot="mc"><td>60</td><td><span class="tag tag-mc">MC</span></td><td>Config</td><td><code>/mc config stats [server]</code></td><td>World-Statistiken anzeigen</td><td><span class="perm perm-all">Alle</span></td></tr>
+<tr class="cmd-row" data-bot="mc"><td>61</td><td><span class="tag tag-mc">MC</span></td><td>Config</td><td><code>/mc config autosave &lt;intervall&gt;</code></td><td>Autosave-Intervall konfigurieren</td><td><span class="perm perm-admin">Admin</span></td></tr>
+<tr class="cmd-row" data-bot="mc"><td>62</td><td><span class="tag tag-mc">MC</span></td><td>Config</td><td><code>/mc config modpack_check</code></td><td>Manuell auf Modpack-Updates prüfen</td><td><span class="perm perm-admin">Admin</span></td></tr>
+
+<tr class="cmd-row" data-bot="mc"><td>63</td><td><span class="tag tag-mc">MC</span></td><td>RCON</td><td><code>/mc command &lt;cmd&gt; [server]</code></td><td>RCON-Befehl ausführen</td><td><span class="perm perm-owner">Owner</span></td></tr>
+
+<tr class="cmd-row" data-bot="mc"><td>64</td><td><span class="tag tag-mc">MC</span></td><td>Blacklist</td><td><code>/mc blacklist add &lt;spieler&gt; &lt;grund&gt;</code></td><td>Serverübergreifende Blacklist</td><td><span class="perm perm-admin">Admin</span></td></tr>
+<tr class="cmd-row" data-bot="mc"><td>65</td><td><span class="tag tag-mc">MC</span></td><td>Blacklist</td><td><code>/mc blacklist remove &lt;spieler&gt;</code></td><td>Von Blacklist entfernen</td><td><span class="perm perm-admin">Admin</span></td></tr>
+<tr class="cmd-row" data-bot="mc"><td>66</td><td><span class="tag tag-mc">MC</span></td><td>Blacklist</td><td><code>/mc blacklist list</code></td><td>Aktive Bans anzeigen</td><td><span class="perm perm-all">Alle</span></td></tr>
+<tr class="cmd-row" data-bot="mc"><td>67</td><td><span class="tag tag-mc">MC</span></td><td>Blacklist</td><td><code>/mc blacklist history &lt;spieler&gt;</code></td><td>Ban-Historie eines Spielers</td><td><span class="perm perm-all">Alle</span></td></tr>
+
+<!-- ===== MONITOR ===== -->
+<tr class="cmd-row" data-bot="mon"><td>68</td><td><span class="tag tag-mon">Monitor</span></td><td>Performance</td><td><code>/performance</code></td><td>System-Performance (CPU, RAM, Disk, Uptime)</td><td><span class="perm perm-all">Alle</span></td></tr>
+<tr class="cmd-row" data-bot="mon"><td>69</td><td><span class="tag tag-mon">Monitor</span></td><td>Performance</td><td><code>/stats [spieler]</code></td><td>Spieler-Statistiken anzeigen</td><td><span class="perm perm-all">Alle</span></td></tr>
+<tr class="cmd-row" data-bot="mon"><td>70</td><td><span class="tag tag-mon">Monitor</span></td><td>Performance</td><td><code>/report [zeitraum]</code></td><td>Wochenbericht (7/31/90 Tage)</td><td><span class="perm perm-all">Alle</span></td></tr>
+<tr class="cmd-row" data-bot="mon"><td>71</td><td><span class="tag tag-mon">Monitor</span></td><td>Performance</td><td><code>/mon world</code></td><td>Detaillierte Welt-Statistiken</td><td><span class="perm perm-all">Alle</span></td></tr>
+
+<tr class="cmd-row" data-bot="mon"><td>72</td><td><span class="tag tag-mon">Monitor</span></td><td>Dashboard</td><td><code>/dashboard</code></td><td>Dashboard manuell aktualisieren</td><td><span class="perm perm-admin">Admin</span></td></tr>
+<tr class="cmd-row" data-bot="mon"><td>73</td><td><span class="tag tag-mon">Monitor</span></td><td>Dashboard</td><td><code>/selftest</code></td><td>Alle Bot-Systeme prüfen</td><td><span class="perm perm-admin">Admin</span></td></tr>
+<tr class="cmd-row" data-bot="mon"><td>74</td><td><span class="tag tag-mon">Monitor</span></td><td>Dashboard</td><td><code>/commandlog [anzahl]</code></td><td>Letzte Bot-Commands anzeigen</td><td><span class="perm perm-admin">Admin</span></td></tr>
+
+<tr class="cmd-row" data-bot="mon"><td>75</td><td><span class="tag tag-mon">Monitor</span></td><td>MC Monitoring</td><td><code>/mcstats [server]</code></td><td>MC Server-Statistiken</td><td><span class="perm perm-all">Alle</span></td></tr>
+<tr class="cmd-row" data-bot="mon"><td>76</td><td><span class="tag tag-mon">Monitor</span></td><td>MC Monitoring</td><td><code>/mcreport [zeitraum] [server]</code></td><td>MC Wochenbericht</td><td><span class="perm perm-all">Alle</span></td></tr>
+<tr class="cmd-row" data-bot="mon"><td>77</td><td><span class="tag tag-mon">Monitor</span></td><td>MC Monitoring</td><td><code>/mccrashlog [nummer] [server]</code></td><td>MC Crash-Replays anzeigen/herunterladen</td><td><span class="perm perm-admin">Admin</span></td></tr>
+
+<tr class="cmd-row" data-bot="mon"><td>78</td><td><span class="tag tag-mon">Monitor</span></td><td>E-Mail</td><td><code>/mail test</code></td><td>Test-E-Mail senden</td><td><span class="perm perm-admin">Admin</span></td></tr>
+<tr class="cmd-row" data-bot="mon"><td>79</td><td><span class="tag tag-mon">Monitor</span></td><td>E-Mail</td><td><code>/mail status</code></td><td>E-Mail-Konfiguration anzeigen</td><td><span class="perm perm-admin">Admin</span></td></tr>
+
+<tr class="cmd-row" data-bot="mon"><td>80</td><td><span class="tag tag-mon">Monitor</span></td><td>Cloud</td><td><code>/onedrive status</code></td><td>OneDrive-Backup Status</td><td><span class="perm perm-admin">Admin</span></td></tr>
+<tr class="cmd-row" data-bot="mon"><td>81</td><td><span class="tag tag-mon">Monitor</span></td><td>Cloud</td><td><code>/onedrive upload</code></td><td>Letztes Backup zu OneDrive hochladen</td><td><span class="perm perm-admin">Admin</span></td></tr>
+<tr class="cmd-row" data-bot="mon"><td>82</td><td><span class="tag tag-mon">Monitor</span></td><td>Cloud</td><td><code>/onedrive list</code></td><td>Cloud-Backups anzeigen</td><td><span class="perm perm-admin">Admin</span></td></tr>
+
+<tr class="cmd-row" data-bot="mon"><td>83</td><td><span class="tag tag-mon">Monitor</span></td><td>System</td><td><code>/backup stats</code></td><td>Backup-Statistiken aller Server</td><td><span class="perm perm-all">Alle</span></td></tr>
+<tr class="cmd-row" data-bot="mon"><td>84</td><td><span class="tag tag-mon">Monitor</span></td><td>System</td><td><code>/configbackup</code></td><td>Server-Config Backup manuell erstellen</td><td><span class="perm perm-admin">Admin</span></td></tr>
+<tr class="cmd-row" data-bot="mon"><td>85</td><td><span class="tag tag-mon">Monitor</span></td><td>System</td><td><code>/crashlog [nummer]</code></td><td>Crash-Replays anzeigen/herunterladen</td><td><span class="perm perm-admin">Admin</span></td></tr>
+<tr class="cmd-row" data-bot="mon"><td>86</td><td><span class="tag tag-mon">Monitor</span></td><td>System</td><td><code>/rollback</code></td><td>Rollback-Status und Crash-Loop-Reset</td><td><span class="perm perm-owner">Owner</span></td></tr>
+
+<!-- ===== GENERAL ===== -->
+<tr class="cmd-row" data-bot="gen"><td>87</td><td><span class="tag tag-gen">General</span></td><td>Allgemein</td><td><code>/help</code></td><td>Alle Befehle und Beschreibungen</td><td><span class="perm perm-all">Alle</span></td></tr>
+<tr class="cmd-row" data-bot="gen"><td>88</td><td><span class="tag tag-gen">General</span></td><td>Allgemein</td><td><code>/server</code></td><td>Server-Übersicht mit System-Info</td><td><span class="perm perm-all">Alle</span></td></tr>
+<tr class="cmd-row" data-bot="gen"><td>89</td><td><span class="tag tag-gen">General</span></td><td>Allgemein</td><td><code>/ping</code></td><td>Bot-Latenz anzeigen</td><td><span class="perm perm-owner">Owner</span></td></tr>
+<tr class="cmd-row" data-bot="gen"><td>90</td><td><span class="tag tag-gen">General</span></td><td>Allgemein</td><td><code>/clear [anzahl] [filter]</code></td><td>Nachrichten im Channel löschen</td><td><span class="perm perm-admin">Admin</span></td></tr>
+<tr class="cmd-row" data-bot="gen"><td>91</td><td><span class="tag tag-gen">General</span></td><td>Allgemein</td><td><code>/reload &lt;cog&gt;</code></td><td>Cog zur Laufzeit neu laden</td><td><span class="perm perm-owner">Owner</span></td></tr>
+
+<!-- ===== MAINTENANCE ===== -->
+<tr class="cmd-row" data-bot="maint"><td>92</td><td><span class="tag tag-maint">Maint</span></td><td>Wartung</td><td><code>/maint version</code></td><td>Bot-Version und Python-Version</td><td><span class="perm perm-all">Alle</span></td></tr>
+<tr class="cmd-row" data-bot="maint"><td>93</td><td><span class="tag tag-maint">Maint</span></td><td>Wartung</td><td><code>/maint network</code></td><td>Netzwerk-Diagnostik (DNS, Internet, APIs)</td><td><span class="perm perm-admin">Admin</span></td></tr>
+<tr class="cmd-row" data-bot="maint"><td>94</td><td><span class="tag tag-maint">Maint</span></td><td>Wartung</td><td><code>/maint ports</code></td><td>Port-Verfügbarkeit prüfen</td><td><span class="perm perm-admin">Admin</span></td></tr>
+<tr class="cmd-row" data-bot="maint"><td>95</td><td><span class="tag tag-maint">Maint</span></td><td>Wartung</td><td><code>/maint tokens</code></td><td>Token-Rotations-Status</td><td><span class="perm perm-owner">Owner</span></td></tr>
+<tr class="cmd-row" data-bot="maint"><td>96</td><td><span class="tag tag-maint">Maint</span></td><td>Wartung</td><td><code>/maint restart-bot</code></td><td>Bot-Prozesse neu starten</td><td><span class="perm perm-owner">Owner</span></td></tr>
+
+<!-- ===== SCHEDULER ===== -->
+<tr class="cmd-row" data-bot="sched"><td>97</td><td><span class="tag tag-sched">Sched</span></td><td>Scheduler</td><td><code>/scheduler</code></td><td>Scheduler-Status und Konfiguration</td><td><span class="perm perm-admin">Admin</span></td></tr>
+<tr class="cmd-row" data-bot="sched"><td>98</td><td><span class="tag tag-sched">Sched</span></td><td>Scheduler</td><td><code>/update_check</code></td><td>Manuell nach Server-Updates prüfen</td><td><span class="perm perm-admin">Admin</span></td></tr>
+<tr class="cmd-row" data-bot="sched"><td>99</td><td><span class="tag tag-sched">Sched</span></td><td>Nachrichten</td><td><code>/schedule add &lt;msg&gt; &lt;zeit&gt; [ch]</code></td><td>Geplante Nachricht erstellen</td><td><span class="perm perm-admin">Admin</span></td></tr>
+<tr class="cmd-row" data-bot="sched"><td>100</td><td><span class="tag tag-sched">Sched</span></td><td>Nachrichten</td><td><code>/schedule list</code></td><td>Alle geplanten Nachrichten anzeigen</td><td><span class="perm perm-admin">Admin</span></td></tr>
+<tr class="cmd-row" data-bot="sched"><td>101</td><td><span class="tag tag-sched">Sched</span></td><td>Nachrichten</td><td><code>/schedule cancel &lt;id&gt;</code></td><td>Geplante Nachricht löschen</td><td><span class="perm perm-admin">Admin</span></td></tr>
+
+<!-- ===== MOD MANAGEMENT ===== -->
+<tr class="cmd-row" data-bot="mod"><td>102</td><td><span class="tag tag-mod">Mods</span></td><td>Mod-Verwaltung</td><td><code>/mod list [game]</code></td><td>Installierte Mods anzeigen</td><td><span class="perm perm-all">Alle</span></td></tr>
+<tr class="cmd-row" data-bot="mod"><td>103</td><td><span class="tag tag-mod">Mods</span></td><td>Mod-Verwaltung</td><td><code>/mod install &lt;game&gt; &lt;mod_id&gt;</code></td><td>Mod installieren</td><td><span class="perm perm-admin">Admin</span></td></tr>
+<tr class="cmd-row" data-bot="mod"><td>104</td><td><span class="tag tag-mod">Mods</span></td><td>Mod-Verwaltung</td><td><code>/mod uninstall &lt;game&gt; &lt;mod&gt;</code></td><td>Mod deinstallieren</td><td><span class="perm perm-admin">Admin</span></td></tr>
+<tr class="cmd-row" data-bot="mod"><td>105</td><td><span class="tag tag-mod">Mods</span></td><td>Mod-Verwaltung</td><td><code>/mod update &lt;game&gt; [mod]</code></td><td>Mod(s) aktualisieren</td><td><span class="perm perm-admin">Admin</span></td></tr>
+<tr class="cmd-row" data-bot="mod"><td>106</td><td><span class="tag tag-mod">Mods</span></td><td>Mod-Verwaltung</td><td><code>/mod search &lt;game&gt; &lt;query&gt;</code></td><td>Nach Mods suchen</td><td><span class="perm perm-all">Alle</span></td></tr>
+<tr class="cmd-row" data-bot="mod"><td>107</td><td><span class="tag tag-mod">Mods</span></td><td>Mod-Verwaltung</td><td><code>/mod info &lt;mod&gt;</code></td><td>Mod-Details anzeigen</td><td><span class="perm perm-all">Alle</span></td></tr>
+<tr class="cmd-row" data-bot="mod"><td>108</td><td><span class="tag tag-mod">Mods</span></td><td>Mod-Verwaltung</td><td><code>/mod export &lt;game&gt; [name]</code></td><td>Modpack exportieren</td><td><span class="perm perm-admin">Admin</span></td></tr>
+<tr class="cmd-row" data-bot="mod"><td>109</td><td><span class="tag tag-mod">Mods</span></td><td>Mod-Verwaltung</td><td><code>/mod import &lt;game&gt; &lt;datei&gt;</code></td><td>Modpack importieren</td><td><span class="perm perm-admin">Admin</span></td></tr>
+
+<!-- ===== TIMEOUT ===== -->
+<tr class="cmd-row" data-bot="timeout"><td>110</td><td><span class="tag tag-timeout">Timeout</span></td><td>Moderation</td><td><code>/timeout &lt;spieler&gt; &lt;min&gt; [grund]</code></td><td>Kick vom Server + Discord-Timeout</td><td><span class="perm perm-admin">Admin</span></td></tr>
+
+</tbody>
+</table>
+
+<script>
+let activeBot = 'all';
+
+function filterBot(bot, btn) {
+  activeBot = bot;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  filterTable();
+}
+
+function filterTable() {
+  const search = document.getElementById('search').value.toLowerCase();
+  const rows = document.querySelectorAll('.cmd-row');
+  let visible = 0;
+
+  rows.forEach(row => {
+    const bot = row.dataset.bot;
+    const text = row.textContent.toLowerCase();
+    const botMatch = activeBot === 'all' || bot === activeBot;
+    const searchMatch = !search || text.includes(search);
+
+    if (botMatch && searchMatch) {
+      row.classList.remove('hidden');
+      visible++;
+    } else {
+      row.classList.add('hidden');
+    }
+  });
+
+  document.getElementById('count').textContent = visible + ' Command' + (visible !== 1 ? 's' : '');
+}
+</script>
+</body>
+</html>

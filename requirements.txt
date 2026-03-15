@@ -37,3 +37,9 @@ itsdangerous>=2.1.0
 # Optional: Deep savegame analysis (building counts, power stats)
 # pip install satisfactory-save --break-system-packages
 satisfactory-save>=0.1.0
+
+# Optional: Minecraft NBT-Parsing (MC savegame analysis)
+nbtlib>=2.0.0
+
+# Optional: TeamSpeak 3 Server Query
+ts3>=2.0.0

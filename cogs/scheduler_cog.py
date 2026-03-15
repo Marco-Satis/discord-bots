@@ -271,9 +271,10 @@ class SchedulerCog(commands.Cog):
             except Exception as e:
                 logger.warning(f"save_game() vor Auto-Backup fehlgeschlagen: {e}")
 
-            # Create backup
+            # Create backup (mit Timestamp um Duplikate zu vermeiden)
+            timestamp = now.strftime("%Y%m%d_%H%M%S")
             success, msg, backup_path = await self.backup_manager.create_backup(
-                name="auto-backup", created_by="scheduler"
+                name=f"auto-backup_{timestamp}", created_by="scheduler"
             )
 
             if success and backup_path:
@@ -392,6 +393,10 @@ class SchedulerCog(commands.Cog):
             )
 
             if result == TimerResult.COMPLETED:
+                # Health-Check unterdruecken waehrend geplanter Restart
+                har = getattr(self.bot, "health_auto_restart", None)
+                if har:
+                    har.suppress("sat", "main", duration_seconds=300)
                 success, msg = await self.sat_server.restart()
             elif result == TimerResult.CANCELLED:
                 logger.info("Daily restart timer cancelled")
@@ -399,6 +404,9 @@ class SchedulerCog(commands.Cog):
             else:
                 logger.warning(f"Daily restart timer error: {result}")
                 # Try direct restart as fallback
+                har = getattr(self.bot, "health_auto_restart", None)
+                if har:
+                    har.suppress("sat", "main", duration_seconds=300)
                 success, msg = await self.sat_server.restart()
 
             if self.notifier:
@@ -525,6 +533,10 @@ class SchedulerCog(commands.Cog):
                     pass
                 await asyncio.sleep(120)  # 2 Min Warnung
 
+                # Health-Check unterdruecken waehrend Auto-Update
+                har = getattr(self.bot, "health_auto_restart", None)
+                if har:
+                    har.suppress("sat", "main", duration_seconds=900)
                 stop_ok, stop_msg = await self.sat_server.stop()
                 if not stop_ok:
                     logger.error(f"Auto-Update: Server Stop fehlgeschlagen: {stop_msg}")
@@ -664,6 +676,11 @@ class SchedulerCog(commands.Cog):
         logger.warning("Auto-Rollback: Stelle Pre-Update-Backup wieder her...")
 
         try:
+            # Health-Check unterdruecken waehrend Rollback (15 Min)
+            har = getattr(self.bot, "health_auto_restart", None)
+            if har:
+                har.suppress("sat", "main", duration_seconds=900)
+
             # Server stoppen falls er haengt
             try:
                 await self.sat_server.stop()
@@ -784,6 +801,10 @@ class SchedulerCog(commands.Cog):
             except Exception as e:
                 logger.debug(f"[{server_id}] MC Restart-Warnung fehlgeschlagen: {e}")
 
+            # Health-Check unterdruecken waehrend MC-Restart
+            har = getattr(self.bot, "health_auto_restart", None)
+            if har:
+                har.suppress("mc", server_id.upper(), duration_seconds=300)
             success, msg = await srv.restart()
 
             if self.notifier:
@@ -836,8 +857,9 @@ class SchedulerCog(commands.Cog):
             except Exception as e:
                 logger.debug(f"[{server_id}] save-all vor Backup fehlgeschlagen: {e}")
 
+            timestamp = now.strftime("%Y%m%d_%H%M%S")
             success, msg, backup_path = await mgr.create_backup(
-                name="auto-backup", created_by="scheduler"
+                name=f"auto-backup_{timestamp}", created_by="scheduler"
             )
 
             if success and backup_path:

@@ -20,6 +20,9 @@ data/
 logs/
 backups/
 
+# Claude Code (persoenliche Overrides)
+.claude/settings.local.json
+
 # IDE
 .vscode/
 .idea/

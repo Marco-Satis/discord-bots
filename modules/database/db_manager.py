@@ -108,9 +108,14 @@ async def close_db() -> None:
             return
 
         try:
-            # WAL-Checkpoint: Alle WAL-Daten in die Hauptdatei schreiben
-            await _connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            # WAL-Checkpoint: Alle WAL-Daten in die Hauptdatei schreiben (max 10s)
+            await asyncio.wait_for(
+                _connection.execute("PRAGMA wal_checkpoint(TRUNCATE)"),
+                timeout=10.0
+            )
             logger.info("WAL-Checkpoint abgeschlossen")
+        except asyncio.TimeoutError:
+            logger.warning("WAL-Checkpoint Timeout nach 10 Sekunden — übersprungen")
         except Exception as e:
             logger.warning(f"WAL-Checkpoint fehlgeschlagen: {e}")
 

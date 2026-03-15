@@ -4,6 +4,79 @@ Alle relevanten Aenderungen am Discord Bot System werden hier dokumentiert.
 
 ---
 
+## [4.0.0] — 2026-02-22
+
+### Hinzugefuegt
+
+- **Phase 1: Sicherheit + Stabilitaet (14 Features)**
+  - F62: Selftest — Pre-Boot-Pruefungen (ENV, Config, Permissions, Packages)
+  - F61: Shutdown — Graceful Shutdown mit Signal-Handler + Cleanup-Callbacks
+  - F64: CSRF-Schutz — Token-basierte Middleware fuer POST/PUT/DELETE/PATCH
+  - F65: Session Timeout — Automatische Abmeldung nach 60 Min Inaktivitaet
+  - F27: Health Auto-Restart — SAT+MC UDP/TCP-Probes, Auto-Restart bei haengendem Server
+  - F49: Disk Guard — 3-Stufen Disk-Warnung (Warning/Critical/Emergency)
+  - F50: Service Watchdog — systemd-Service-Monitoring mit Auto-Restart
+  - F51: DuckDNS Monitor — DNS-vs-IP-Pruefung mit Auto-Update
+  - F52: Port Monitor — TCP-Connect-Tests fuer alle kritischen Ports
+  - F31: Fail2Ban-Monitoring — Echtzeit-Status, Ban-Statistiken, Dashboard-Widget
+  - F32: SSL-Zertifikat-Monitor — Ablauf-Pruefung, automatische Warnungen
+  - F33: Backup-Integritaet — SHA256-Checksummen, tar-Validierung, Groessen-Check
+  - F34: Health-Route — /api/health Endpoint mit Server/Bot/System-Status
+  - F48: Rate-Limiter — Token-Bucket pro IP (Login 5/min, Actions 10/min, Read 60/min)
+
+- **Phase 2: Datenbankschicht (4 Features)**
+  - F28: SQLite-Migration — aiosqlite WAL-Modus, 31 Tabellen, JSON→SQLite Dual-Read
+  - F63: Retention/Cleanup — Automatisches Bereinigen alter Datenbankeintraege
+  - F56: Backup-Rotation — Automatische Rotation von DB- und Server-Backups
+  - F53: Config-Versionierung — Aenderungs-Historie der config.json
+
+- **Phase 3: Dashboard-Erweiterungen (9 Features)**
+  - F29: SSE Live-Updates — Server-Sent Events fuer Echtzeit-Dashboard
+  - F35: Korrelations-Dashboard — CPU/RAM/Tick-Rate Zusammenhaenge visualisieren
+  - F36: Export-Funktionen — CSV/JSON-Export von Monitoring-Daten
+  - F37: Ressourcen-Forecasting — Lineare Regression fuer Disk/RAM-Prognosen
+  - F44: Error-Dashboard — Fehler-Uebersicht mit Filterung und Gruppierung
+  - F55: Dashboard-Suche — FTS5-Volltextsuche ueber alle Dashboard-Inhalte
+  - F57: Stats-Collector — Zentrale Metrik-Erfassung (CPU, RAM, Spieler, Tick-Rate)
+  - F58: Analytics-Dashboard — Heatmaps, Peaks, Trends, Server-Vergleich
+  - F45: Changelog-Seite — Steam/Satisfactory Update-Historie im Dashboard
+
+- **Phase 4: Bot-Erweiterungen (7 Features)**
+  - F30: Crash-Replay — Automatische Log-Analyse nach Server-Crashes
+  - F39: Moderation — Warn-System, Auto-Mod, Timeout, Ban mit Audit-Trail
+  - F40: Leveling — XP-System mit Rollen-Rewards und Leaderboard
+  - F41: Giveaways — Gewinnspiel-System mit Timer und Teilnehmer-Verwaltung
+  - F43: Custom Commands — Benutzerdefinierte Bot-Befehle per Discord
+  - F54: Alert-Deduplizierung — Identische Warnungen zusammenfassen statt spammen
+  - F59: Graceful Degradation — Feature-Isolation bei Teilausfaellen
+
+- **Phase 5: Polishing (5 Features)**
+  - F38: Maintenance-Mode — Bot-weiter Wartungsmodus mit Benutzer-Info
+  - F42: Paket-Checker — apt-Update-Pruefung mit Dashboard-Anzeige
+  - F46: Dark Mode — CSS-Theme-Toggle fuer das Dashboard
+  - F60: Webhook-Integration — Externe Systeme per Webhook anbinden
+  - F47: Performance-Optimierung — Connection-Pooling, Caching, Index-Optimierung
+
+### Behoben (Review-Fixes)
+
+- Middleware-Reihenfolge in web/app.py korrigiert (SessionMiddleware als aeusserste Schicht)
+- Health-Checker Schwellenwerte angepasst (Failures 3→10, Timeout 10→20s)
+- DB-Backup Thread-Safety in maintenance.py (eigene Connections in asyncio.to_thread)
+- FTS5 Search-Index initial befuellt (12 Eintraege)
+- DB-Backup nach Thread-Safety-Fix verifiziert (0.48 MB mit Integritaet OK)
+
+### Technisch
+
+- 39 Features in 5 Phasen implementiert
+- Reine Python-Implementierungen (keine numpy/scipy Abhaengigkeit) fuer Forecasting + Korrelation
+- SQLite WAL-Modus mit aiosqlite fuer concurrent access, 31 Tabellen inkl. FTS5
+- SSE ersetzt HTMX-Polling fuer Echtzeit-Updates
+- Middleware-Stack (LIFO): CORSMiddleware → RateLimitMiddleware → CSRFMiddleware → SessionTimeoutMiddleware → SessionMiddleware (aeusserste)
+- 20 API-Router im Web-Dashboard registriert
+- 26 Cogs in 3 Bots geladen
+
+---
+
 ## [3.2.0] — 2026-02-20
 
 ### Hinzugefuegt

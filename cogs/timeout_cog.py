@@ -563,36 +563,21 @@ class TimeoutCog(commands.Cog):
         return results
 
     async def _ban_sat(self, player_name: str, grund: str) -> str:
-        """SAT-Server: Kick + IP-Ban via UFW"""
-        # Kick vom SAT-Server
-        kick_ok = False
-        try:
-            if await self.sat_server.is_running():
-                result = await self.sat_api.run_command(
-                    f"KickPlayer {player_name}"
-                )
-                if "Error" not in str(result):
-                    kick_ok = True
-        except Exception as e:
-            logger.warning(f"SAT-Kick fehlgeschlagen: {e}")
-
-        # IP-Ban via PlayerIPTracker (falls verfuegbar auf diesem Bot)
+        """SAT-Server: IP-Ban via iptables REJECT (sofortige Trennung)"""
+        # IP-Ban via PlayerIPTracker (nutzt iptables REJECT)
         ip_banned = False
         sat_tracker = getattr(self.bot, "player_ip_tracker", None)
         if sat_tracker:
             success, msg = await sat_tracker.ban_player(
-                player_name, grund, "Timeout-System"
+                player_name, grund, "Timeout-System",
+                api=self.sat_api  # SaveGame vor Ban
             )
             ip_banned = success
 
-        if kick_ok and ip_banned:
-            return "Gekickt + IP gesperrt"
-        elif kick_ok:
-            return "Gekickt (IP-Ban nicht moeglich)"
-        elif ip_banned:
-            return "IP gesperrt (Server offline)"
+        if ip_banned:
+            return "IP gesperrt + Verbindung getrennt (iptables REJECT)"
         else:
-            return "Kick fehlgeschlagen"
+            return "Ban fehlgeschlagen (keine IP bekannt?)"
 
     async def _ban_mc(self, player_name: str, server_id: str, grund: str) -> str:
         """MC-Server: RCON ban + IP-Ban via UFW"""

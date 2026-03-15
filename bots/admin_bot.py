@@ -80,6 +80,11 @@ INITIAL_COGS: list[str] = [
     "cogs.teamspeak_cog",       # Phase 12b-d: TeamSpeak-Integration
     "cogs.server_backup_cog",   # Phase 12e: Server-Backup
     "cogs.embed_sender_cog",    # Embed-Sender (Dashboard-Queue)
+    "cogs.custom_commands_cog", # F30: Custom-Commands
+    "cogs.profile_cog",        # F39: Spieler-Profil + Leaderboard
+    "cogs.notify_cog",         # F40: Spieler-Benachrichtigungen
+    "cogs.welcome_cog",        # F41: Willkommens-System
+    "cogs.command_stats_cog",  # F59: Command-Nutzungsstatistik
 ]
 
 
@@ -104,7 +109,7 @@ def _write_admin_bot_status():
 
         data = {
             "status": "online" if bot.is_ready() else "offline",
-            "ping_ms": round(bot.latency * 1000) if bot.latency else 0,
+            "ping_ms": round(bot.latency * 1000) if bot.latency and bot.latency != float("inf") else 0,
             "uptime": uptime_str,
             "last_update": datetime.now(timezone.utc).isoformat(),
         }

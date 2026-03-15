@@ -1,9 +1,8 @@
 """
-Phase 13c: Stats Collector — Sammelt periodisch System- und Server-Metriken.
+Stats Collector — Sammelt periodisch System- und Server-Metriken.
 
 Laeuft als Hintergrund-Task im Monitor Bot und schreibt Daten
 in die SQLite-Datenbank (Tabelle stats_history).
-Fallback: Liest aus data/monitor/stats_history.json falls DB leer (read-only).
 """
 
 import asyncio
@@ -19,9 +18,6 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-# Pfad fuer die persistierte Stats-Historie (nur noch als Fallback fuer Lesen)
-STATS_HISTORY_FILE = MONITOR_DATA_DIR / "stats_history.json"
-
 # Maximale Anzahl Eintraege im Ringbuffer
 # 30 Tage * 24 Stunden * 60 Minuten / 5 Minuten Intervall = 8640
 MAX_ENTRIES = 8640
@@ -32,7 +28,6 @@ class StatsCollector:
     Sammelt periodisch System- und Server-Metriken und speichert
     sie in der SQLite-Datenbank (stats_history-Tabelle).
     In-Memory-Ringbuffer dient als Cache fuer schnellen Zugriff.
-    JSON-Datei wird nur noch als read-only Fallback gelesen falls DB leer.
     """
 
     def __init__(self, interval: int = 300) -> None:
@@ -53,40 +48,9 @@ class StatsCollector:
         # Sicherstellen, dass das Datenverzeichnis existiert
         MONITOR_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-        # JSON-Fallback laden (wird nur verwendet wenn DB leer ist)
-        self._load_history()
         logger.info(
-            f"StatsCollector initialisiert — Intervall: {self.interval}s, "
-            f"JSON-Fallback-Eintraege: {len(self._history['entries'])}"
+            f"StatsCollector initialisiert — Intervall: {self.interval}s"
         )
-
-    def _load_history(self) -> None:
-        """Laedt die bestehende Stats-Historie aus der JSON-Datei (Fallback, read-only)."""
-        try:
-            if STATS_HISTORY_FILE.exists():
-                with open(STATS_HISTORY_FILE, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                if isinstance(data, dict) and "entries" in data:
-                    self._history = data
-                    # max_entries aktualisieren falls sich der Wert geaendert hat
-                    self._history["max_entries"] = MAX_ENTRIES
-                    logger.info(
-                        f"JSON-Fallback geladen: {len(self._history['entries'])} Eintraege"
-                    )
-        except (json.JSONDecodeError, IOError, OSError) as e:
-            logger.error(f"Fehler beim Laden der JSON-Fallback-Historie: {e}")
-            # Bei Fehler mit leerer Historie starten
-            self._history = {"entries": [], "max_entries": MAX_ENTRIES}
-
-    async def _save_history_async(self) -> None:
-        """Speichert den aktuellen Eintrag in die SQLite-Datenbank."""
-        # Schreiben erfolgt jetzt direkt in collect_once() per SQLite INSERT.
-        # Diese Methode bleibt fuer Kompatibilitaet erhalten (z.B. stop()-Aufruf).
-        pass
-
-    def _save_history_sync(self) -> None:
-        """No-op — JSON-Schreiben wurde durch SQLite ersetzt."""
-        pass
 
     def _save_history(self, entry: dict) -> None:
         """
@@ -327,7 +291,6 @@ class StatsCollector:
         """
         Liest Metrik-Eintraege direkt aus der SQLite-Datenbank.
         Primaere Lesemethode fuer Dashboard-Abfragen.
-        Faellt auf In-Memory-Daten (JSON-Fallback) zurueck wenn DB leer.
 
         Args:
             limit: Maximale Anzahl Eintraege (Standard: 8640 = 30 Tage)
@@ -350,11 +313,7 @@ class StatsCollector:
             rows = await cursor.fetchall()
 
             if not rows:
-                # DB leer — Fallback auf In-Memory-Daten (aus JSON geladen)
-                logger.debug(
-                    "stats_history-Tabelle leer, verwende In-Memory-Fallback "
-                    f"({len(self._history.get('entries', []))} Eintraege)"
-                )
+                logger.debug("stats_history-Tabelle leer")
                 return self._history.get("entries", [])
 
             entries = []
@@ -380,7 +339,6 @@ class StatsCollector:
 
         except Exception as e:
             logger.error(f"Fehler beim Lesen aus stats_history-DB: {e}")
-            # Bei DB-Fehler auf In-Memory-Daten zurueckfallen
             return self._history.get("entries", [])
 
     def get_entry_count(self) -> int:

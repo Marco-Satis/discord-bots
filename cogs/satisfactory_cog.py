@@ -7,7 +7,7 @@ ins Dashboard migriert. Backup umbenannt in Savegame (/sat sav).
 Command-Struktur:
   /sat status                                     (Server-Status - Alle)
   /sat players online|ban|unban|bans              (Spieler-Verwaltung)
-  /sat sav save|download|list|restore|load|stats  (Savegame-Verwaltung)
+  /sat sav save|download|upload|list|restore|load|stats  (Savegame-Verwaltung)
   /sat config settings                            (Einstellungen anzeigen)
   /sat blueprints upload|list|download|delete     (Blueprint-Manager)
   /sat whitelist add|remove|list                  (Whitelist)
@@ -658,6 +658,71 @@ class SatisfactoryCog(commands.Cog):
         except Exception as e:
             await interaction.followup.send(f"Analyse fehlgeschlagen: {e}")
 
+    @sav_grp.command(
+        name="upload",
+        description="Savegame hochladen (.sav Datei)",
+    )
+    @app_commands.describe(
+        datei="Savegame-Datei (.sav)",
+    )
+    @owner_only()
+    async def sav_upload(
+        self,
+        interaction: discord.Interaction,
+        datei: discord.Attachment,
+    ):
+        await interaction.response.defer()
+
+        # Nur .sav Dateien erlauben
+        if not datei.filename.lower().endswith(".sav"):
+            await interaction.followup.send(
+                "Nur `.sav` Dateien sind erlaubt!"
+            )
+            return
+
+        # Groessen-Check (max. 500 MB)
+        max_size = 500 * 1024 * 1024
+        if datei.size > max_size:
+            await interaction.followup.send(
+                f"Datei zu gross ({format_bytes(datei.size)})! "
+                f"Maximale Groesse: {format_bytes(max_size)}"
+            )
+            return
+
+        try:
+            savegame_dir = self.bot.savegame_stats.savegame_path / "server"
+            savegame_dir.mkdir(parents=True, exist_ok=True)
+            target_path = savegame_dir / datei.filename
+
+            # Pruefen ob Datei bereits existiert
+            exists = target_path.exists()
+
+            # Bestaetigungs-View anzeigen
+            view = UploadConfirmView(
+                self, interaction, datei, target_path, exists
+            )
+            desc = f"Savegame **{datei.filename}** hochladen?\n\n"
+            desc += f"Groesse: {format_bytes(datei.size)}\n"
+            desc += f"Ziel: `{savegame_dir.name}/{datei.filename}`\n"
+            if exists:
+                existing_size = target_path.stat().st_size
+                desc += (
+                    f"\n**Datei existiert bereits** "
+                    f"({format_bytes(existing_size)}) — wird ueberschrieben!"
+                )
+
+            embed = discord.Embed(
+                title="Savegame Upload bestaetigen",
+                description=desc,
+                color=0xe67e22 if exists else 0x3498db,
+            )
+            embed.set_footer(text=f"von {interaction.user.display_name}")
+            await interaction.followup.send(embed=embed, view=view)
+
+        except Exception as e:
+            logger.error(f"Savegame upload prep failed: {e}")
+            await interaction.followup.send(f"Upload fehlgeschlagen: {e}")
+
     # ╔════════════════════════════════════════════════════════════════╗
     # ║  BLUEPRINTS: /sat blueprints upload|list|download|delete     ║
     # ╚════════════════════════════════════════════════════════════════╝
@@ -786,163 +851,236 @@ class SatisfactoryCog(commands.Cog):
         ][:25]
 
     @blueprints_grp.command(
-        name="list", description="Blueprints anzeigen"
+        name="list", description="Alle Blueprints auf dem Server anzeigen"
     )
-    @app_commands.describe(kategorie="Optional nach Kategorie filtern")
     @spieler_only()
     async def blueprints_list(
         self,
         interaction: discord.Interaction,
-        kategorie: str = None,
     ):
         await interaction.response.defer()
 
-        blueprints = self.bot.blueprint_mgr.get_list(category=kategorie)
+        mgr = self.bot.blueprint_mgr
+        blueprints = mgr.list_from_filesystem()
 
         if not blueprints:
-            msg = "Keine Blueprints vorhanden."
-            if kategorie:
-                msg = f"Keine Blueprints in Kategorie '{kategorie}'."
-            await interaction.followup.send(msg)
+            await interaction.followup.send("Keine Blueprints auf dem Server vorhanden.")
             return
 
-        embed = discord.Embed(
-            title=f"Blueprints ({len(blueprints)})", color=0x3498db
-        )
-        if kategorie:
-            embed.title += f" \u2014 {kategorie}"
+        active_world = mgr._active_world or "?"
 
-        entries = []
-        for i, bp in enumerate(blueprints[:20], 1):
-            size = format_bytes(bp.get("size_bytes", 0))
-            date = bp.get("uploaded_at", "?")[:10]
-            entries.append(
-                f"`{i}.` **{bp['name']}** [{bp['category']}]\n"
-                f"   {size} | {date} | von {bp['uploader_name']}"
-            )
+        # Seiten erstellen
+        pages = []
+        page_size = 15
+        for page_start in range(0, len(blueprints), page_size):
+            page_bps = blueprints[page_start:page_start + page_size]
+            entries = []
+            for i, bp in enumerate(page_bps, page_start + 1):
+                size = format_bytes(bp.get("size_bytes", 0))
+                cfg_ok = "\u2705" if bp["has_cfg"] else "\u274c"
+                entries.append(
+                    f"`{i}.` {cfg_ok} **{bp['name']}**  \u2014  {size}"
+                )
+            pages.append("\n".join(entries))
 
-        embed.description = "\n".join(entries)
-        embed.set_footer(
-            text=f"Gesamt: {self.bot.blueprint_mgr.count()} Blueprints"
-        )
-        await interaction.followup.send(embed=embed)
+        view = BlueprintListView(pages, len(blueprints), active_world, interaction.user.id)
+        embed = view.build_embed(0)
+        await interaction.followup.send(embed=embed, view=view)
 
     @blueprints_grp.command(
-        name="download", description="Blueprint herunterladen"
+        name="download", description="Blueprint herunterladen (Nummer oder Name)"
     )
-    @app_commands.describe(name="Name des Blueprints")
+    @app_commands.describe(
+        blueprint="Nummer aus der Liste oder Name des Blueprints"
+    )
     @spieler_only()
     async def blueprints_download(
-        self, interaction: discord.Interaction, name: str
+        self, interaction: discord.Interaction, blueprint: str
     ):
         await interaction.response.defer()
 
-        bp = self.bot.blueprint_mgr.get_blueprint(name)
-        if not bp:
-            await interaction.followup.send(
-                f"Blueprint '{name}' nicht gefunden!"
-            )
-            return
+        # Nummer oder Name aufloesen
+        bp_name = blueprint.strip()
+        if bp_name.isdigit():
+            idx = int(bp_name) - 1
+            all_bps = self.bot.blueprint_mgr.list_from_filesystem()
+            if 0 <= idx < len(all_bps):
+                bp_name = all_bps[idx]["name"]
+            else:
+                await interaction.followup.send(
+                    f"Nummer {blueprint} ungueltig. "
+                    f"Es gibt {len(all_bps)} Blueprints."
+                )
+                return
 
-        sbp_path, cfg_path = self.bot.blueprint_mgr.get_files(name)
-        if not sbp_path or not cfg_path:
+        sbp_path, cfg_path = self.bot.blueprint_mgr.get_files(bp_name)
+        if not sbp_path:
             await interaction.followup.send(
-                "Blueprint-Dateien nicht gefunden!"
+                f"Blueprint '{bp_name}' nicht gefunden!"
             )
             return
 
         try:
-            files = [
-                discord.File(sbp_path, filename=sbp_path.name),
-                discord.File(cfg_path, filename=cfg_path.name),
-            ]
+            files = [discord.File(sbp_path, filename=sbp_path.name)]
+            if cfg_path and cfg_path.exists():
+                files.append(discord.File(cfg_path, filename=cfg_path.name))
+
+            size = sbp_path.stat().st_size
+            if cfg_path and cfg_path.exists():
+                size += cfg_path.stat().st_size
+
             embed = discord.Embed(
-                title=f"Blueprint: {name}", color=0x3498db
+                title=f"Blueprint: {bp_name}", color=0x3498db
             )
             embed.add_field(
-                name="Kategorie", value=bp["category"], inline=True
+                name="Groesse", value=format_bytes(size), inline=True
             )
             embed.add_field(
-                name="Uploader", value=bp["uploader_name"], inline=True
-            )
-            embed.add_field(
-                name="Datum", value=bp["uploaded_at"][:10], inline=True
+                name="Dateien",
+                value=f"{len(files)} ({', '.join(f.filename for f in files)})",
+                inline=True,
             )
             embed.set_footer(
                 text="Beide Dateien (.sbp + .sbpcfg) in den Blueprint-Ordner kopieren"
             )
             await interaction.followup.send(embed=embed, files=files)
             logger.info(
-                f"Blueprint downloaded: {name} by {interaction.user}"
+                f"Blueprint downloaded: {bp_name} by {interaction.user}"
             )
         except Exception as e:
             await interaction.followup.send(f"Download fehlgeschlagen: {e}")
 
-    @blueprints_download.autocomplete("name")
+    @blueprints_download.autocomplete("blueprint")
     async def bp_download_autocomplete(
         self, interaction: discord.Interaction, current: str
     ):
-        blueprints = self.bot.blueprint_mgr.get_list()
-        return [
-            app_commands.Choice(
-                name=f"{bp['name']} ({bp['category']})"[:100],
-                value=bp["name"],
+        bps = self.bot.blueprint_mgr.list_from_filesystem()
+        choices = []
+        for i, bp in enumerate(bps, 1):
+            label = f"{i}. {bp['name']}"
+            if current and current.lower() not in label.lower() and current != str(i):
+                continue
+            choices.append(
+                app_commands.Choice(
+                    name=label[:100],
+                    value=str(i),
+                )
             )
-            for bp in blueprints
-            if current.lower() in bp["name"].lower()
-        ][:25]
+        return choices[:25]
 
     @blueprints_grp.command(
-        name="delete", description="Blueprint loeschen"
+        name="delete", description="Blueprints loeschen (Einzel, Mehrfach, Bereich)"
     )
-    @app_commands.describe(name="Name des Blueprints")
+    @app_commands.describe(
+        blueprint="Nummern: 3 | 1,3,5 | 1-5 | 1,3-7,12 | oder Name"
+    )
     @spieler_only()
     async def blueprints_delete(
-        self, interaction: discord.Interaction, name: str
+        self, interaction: discord.Interaction, blueprint: str
     ):
-        bp = self.bot.blueprint_mgr.get_blueprint(name)
-        if not bp:
-            await interaction.response.send_message(
-                f"Blueprint '{name}' nicht gefunden!", ephemeral=True
-            )
+        await interaction.response.defer()
+
+        all_bps = self.bot.blueprint_mgr.list_from_filesystem()
+        input_str = blueprint.strip()
+
+        # Namen aufloesen
+        names_to_delete = []
+        has_numbers = any(c.isdigit() for c in input_str) and not input_str.endswith(".sbp")
+
+        if has_numbers and (
+            "," in input_str or "-" in input_str or input_str.isdigit()
+        ):
+            # Nummern-Eingabe parsen: 1,3,5 oder 1-5 oder 1,3-7,12
+            indices = set()
+            for part in input_str.split(","):
+                part = part.strip()
+                if "-" in part:
+                    try:
+                        start, end = part.split("-", 1)
+                        for n in range(int(start), int(end) + 1):
+                            indices.add(n)
+                    except ValueError:
+                        pass
+                elif part.isdigit():
+                    indices.add(int(part))
+
+            invalid = []
+            for idx in sorted(indices):
+                if 1 <= idx <= len(all_bps):
+                    names_to_delete.append(all_bps[idx - 1]["name"])
+                else:
+                    invalid.append(str(idx))
+
+            if invalid:
+                await interaction.followup.send(
+                    f"Ungueltige Nummern: {', '.join(invalid)} "
+                    f"(es gibt {len(all_bps)} Blueprints)."
+                )
+                if not names_to_delete:
+                    return
+        else:
+            # Einzelner Name
+            names_to_delete.append(input_str)
+
+        if not names_to_delete:
+            await interaction.followup.send("Keine Blueprints zum Loeschen angegeben.")
             return
 
-        user_is_admin = is_admin(interaction)
-        success, msg = await self.bot.blueprint_mgr.delete(
-            name, interaction.user.id, is_admin=user_is_admin
-        )
+        # Loeschen mit Bestaetigungs-View bei Mehrfachauswahl
+        if len(names_to_delete) > 1:
+            view = BlueprintDeleteConfirmView(
+                self, interaction, names_to_delete
+            )
+            desc = f"**{len(names_to_delete)} Blueprints** loeschen?\n\n"
+            desc += "\n".join(
+                f"\u2022 {n}" for n in names_to_delete[:30]
+            )
+            if len(names_to_delete) > 30:
+                desc += f"\n... und {len(names_to_delete) - 30} weitere"
 
-        if success:
             embed = discord.Embed(
-                title="Blueprint geloescht",
-                description=f"**{name}** wurde geloescht.",
+                title="Loeschen bestaetigen",
+                description=desc,
                 color=0xe74c3c,
             )
-            embed.set_footer(text=f"von {interaction.user.display_name}")
-            await interaction.response.send_message(embed=embed)
-            logger.info(
-                f"Blueprint deleted: {name} by {interaction.user}"
-            )
+            await interaction.followup.send(embed=embed, view=view)
         else:
-            await interaction.response.send_message(msg, ephemeral=True)
+            # Einzeln direkt loeschen (mit Rechte-Pruefung)
+            name = names_to_delete[0]
+            success, msg = await self.bot.blueprint_mgr.delete(
+                name, interaction.user.id, is_admin(interaction)
+            )
+            if success:
+                embed = discord.Embed(
+                    title="Blueprint geloescht",
+                    description=f"**{name}** wurde geloescht (.sbp + .sbpcfg).",
+                    color=0xe74c3c,
+                )
+                embed.set_footer(text=f"von {interaction.user.display_name}")
+                await interaction.followup.send(embed=embed)
+                logger.info(
+                    f"Blueprint deleted: {name} by {interaction.user}"
+                )
+            else:
+                await interaction.followup.send(msg)
 
-    @blueprints_delete.autocomplete("name")
+    @blueprints_delete.autocomplete("blueprint")
     async def bp_delete_autocomplete(
         self, interaction: discord.Interaction, current: str
     ):
-        blueprints = self.bot.blueprint_mgr.get_list()
-        user_is_admin = is_admin(interaction)
-        filtered = []
-        for bp in blueprints:
-            if user_is_admin or bp["uploader_id"] == interaction.user.id:
-                if current.lower() in bp["name"].lower():
-                    filtered.append(
-                        app_commands.Choice(
-                            name=f"{bp['name']} ({bp['category']})"[:100],
-                            value=bp["name"],
-                        )
-                    )
-        return filtered[:25]
+        bps = self.bot.blueprint_mgr.list_from_filesystem()
+        choices = []
+        for i, bp in enumerate(bps, 1):
+            label = f"{i}. {bp['name']}"
+            if current and current.lower() not in label.lower() and current != str(i):
+                continue
+            choices.append(
+                app_commands.Choice(
+                    name=label[:100],
+                    value=str(i),
+                )
+            )
+        return choices[:25]
 
     # ╔════════════════════════════════════════════════════════════════╗
     # ║  WHITELIST: /sat whitelist add|remove|list                   ║
@@ -1291,6 +1429,10 @@ class BlueprintRestartView(discord.ui.View):
         )
 
         if result == TimerResult.COMPLETED:
+            # Health-Check unterdruecken waehrend Restart
+            har = getattr(self.cog.bot, "health_auto_restart", None)
+            if har:
+                har.suppress("sat", "main", duration_seconds=300)
             success, msg = await self.cog.server.restart()
             if success:
                 embed = discord.Embed(
@@ -1320,6 +1462,233 @@ class BlueprintRestartView(discord.ui.View):
         await interaction.followup.send(
             "Blueprints sind nach dem naechsten Server-Restart verfuegbar.",
             ephemeral=True,
+        )
+
+
+class UploadConfirmView(discord.ui.View):
+    """Confirmation for uploading a savegame file"""
+
+    def __init__(self, cog, interaction, attachment, target_path, exists):
+        super().__init__(timeout=60)
+        self.cog = cog
+        self.original_interaction = interaction
+        self.attachment = attachment
+        self.target_path = target_path
+        self.exists = exists
+
+    @discord.ui.button(
+        label="Ja, hochladen", style=discord.ButtonStyle.danger
+    )
+    async def confirm(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        if interaction.user.id != self.original_interaction.user.id:
+            await interaction.response.send_message(
+                "Nur der Ersteller kann bestaetigen.", ephemeral=True
+            )
+            return
+
+        await interaction.response.edit_message(
+            content=f"Lade `{self.attachment.filename}` hoch...",
+            embed=None,
+            view=None,
+        )
+
+        try:
+            import shutil
+
+            # Datei von Discord herunterladen
+            file_data = await self.attachment.read()
+
+            # Backup der existierenden Datei erstellen
+            backed_up = False
+            if self.exists:
+                backup_path = self.target_path.with_suffix(".sav.bak")
+                shutil.copy2(self.target_path, backup_path)
+                backed_up = True
+                logger.info(f"Backup erstellt: {backup_path.name}")
+
+            # Savegame direkt schreiben
+            self.target_path.write_bytes(file_data)
+
+            embed = discord.Embed(
+                title="Savegame hochgeladen",
+                description=(
+                    f"**{self.attachment.filename}** wurde erfolgreich hochgeladen.\n\n"
+                    f"Groesse: {format_bytes(len(file_data))}\n"
+                    f"Ziel: `{self.target_path.parent.name}/{self.target_path.name}`"
+                ),
+                color=0x2ecc71,
+            )
+            if backed_up:
+                embed.add_field(
+                    name="Backup",
+                    value=f"Vorherige Version gesichert als `{self.target_path.stem}.sav.bak`",
+                    inline=False,
+                )
+            embed.set_footer(
+                text=f"von {interaction.user.display_name}"
+            )
+
+            await interaction.edit_original_response(
+                content=None, embed=embed
+            )
+            logger.info(
+                f"Savegame uploaded by {interaction.user}: "
+                f"{self.attachment.filename} ({len(file_data)} bytes)"
+            )
+
+        except Exception as e:
+            logger.error(f"Savegame upload failed: {e}")
+            await interaction.edit_original_response(
+                content=f"Upload fehlgeschlagen: {e}"
+            )
+
+    @discord.ui.button(
+        label="Abbrechen", style=discord.ButtonStyle.secondary
+    )
+    async def cancel(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        await interaction.response.edit_message(
+            content="Upload abgebrochen.", embed=None, view=None
+        )
+
+
+class BlueprintListView(discord.ui.View):
+    """Paginierte Blueprint-Liste mit Vor/Zurueck-Buttons"""
+
+    def __init__(self, pages, total_count, active_world, user_id):
+        super().__init__(timeout=120)
+        self.pages = pages
+        self.total_count = total_count
+        self.active_world = active_world
+        self.user_id = user_id
+        self.current_page = 0
+        self._update_buttons()
+
+    def build_embed(self, page: int) -> discord.Embed:
+        embed = discord.Embed(
+            title=f"Blueprints ({self.total_count}) \u2014 Welt: {self.active_world}",
+            description=self.pages[page],
+            color=0x3498db,
+        )
+        embed.set_footer(
+            text=f"Seite {page + 1}/{len(self.pages)} | "
+                 f"Gesamt: {self.total_count} Blueprints"
+        )
+        return embed
+
+    def _update_buttons(self):
+        self.prev_btn.disabled = self.current_page == 0
+        self.next_btn.disabled = self.current_page >= len(self.pages) - 1
+
+    @discord.ui.button(label="\u25c0 Zurueck", style=discord.ButtonStyle.secondary)
+    async def prev_btn(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message(
+                "Nur der Ersteller kann blaettern.", ephemeral=True
+            )
+            return
+        self.current_page = max(0, self.current_page - 1)
+        self._update_buttons()
+        await interaction.response.edit_message(
+            embed=self.build_embed(self.current_page), view=self
+        )
+
+    @discord.ui.button(label="Weiter \u25b6", style=discord.ButtonStyle.secondary)
+    async def next_btn(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message(
+                "Nur der Ersteller kann blaettern.", ephemeral=True
+            )
+            return
+        self.current_page = min(len(self.pages) - 1, self.current_page + 1)
+        self._update_buttons()
+        await interaction.response.edit_message(
+            embed=self.build_embed(self.current_page), view=self
+        )
+
+
+class BlueprintDeleteConfirmView(discord.ui.View):
+    """Bestaetigungs-View fuer Mehrfach-Blueprint-Loeschung"""
+
+    def __init__(self, cog, interaction: discord.Interaction, names: list[str]):
+        super().__init__(timeout=60)
+        self.cog = cog
+        self.user_id = interaction.user.id
+        self.names = names
+
+    @discord.ui.button(label="Ja, loeschen", style=discord.ButtonStyle.danger, emoji="\U0001f5d1")
+    async def confirm_btn(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message(
+                "Nur der Ersteller kann bestaetigen.", ephemeral=True
+            )
+            return
+
+        await interaction.response.defer()
+        deleted = []
+        failed = []
+
+        for name in self.names:
+            success, msg = await self.cog.bot.blueprint_mgr.delete(
+                name, interaction.user.id, is_admin(interaction)
+            )
+            if success:
+                deleted.append(name)
+            else:
+                failed.append(f"{name}: {msg}")
+
+        # Ergebnis-Embed
+        desc = ""
+        if deleted:
+            desc += f"**{len(deleted)} geloescht:**\n"
+            desc += "\n".join(f"\u2705 {n}" for n in deleted[:30])
+            if len(deleted) > 30:
+                desc += f"\n... und {len(deleted) - 30} weitere"
+        if failed:
+            if desc:
+                desc += "\n\n"
+            desc += f"**{len(failed)} fehlgeschlagen:**\n"
+            desc += "\n".join(f"\u274c {f}" for f in failed[:10])
+
+        embed = discord.Embed(
+            title="Blueprints geloescht",
+            description=desc,
+            color=0xe74c3c if not failed else 0xe67e22,
+        )
+        embed.set_footer(text=f"von {interaction.user.display_name}")
+
+        logger.info(
+            f"Bulk blueprint delete: {len(deleted)} OK, {len(failed)} failed "
+            f"by {interaction.user}"
+        )
+
+        self.stop()
+        await interaction.followup.edit_message(
+            message_id=interaction.message.id,
+            embed=embed, view=None
+        )
+
+    @discord.ui.button(label="Abbrechen", style=discord.ButtonStyle.secondary)
+    async def cancel_btn(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message(
+                "Nur der Ersteller kann abbrechen.", ephemeral=True
+            )
+            return
+        self.stop()
+        await interaction.response.edit_message(
+            content="Loeschen abgebrochen.", embed=None, view=None
         )
 
 

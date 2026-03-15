@@ -121,3 +121,32 @@ async def errors_page(request: Request, level: str = ""):
         "active_filter": level.upper() if level else "ALL",
         "is_htmx": is_htmx,
     })
+
+
+@router.post("/api/errors/clear")
+async def clear_error_logs(request: Request):
+    """
+    Leert alle Log-Dateien (truncate), um alte Fehler-Eintraege zu entfernen.
+    Neue Fehler werden ab sofort wieder geloggt.
+    """
+    user = get_current_user(request)
+    if user is None:
+        return RedirectResponse(url="/auth/login", status_code=302)
+
+    cleared = 0
+    errors_count = 0
+
+    if LOG_DIR.exists():
+        for log_file in LOG_DIR.glob("*.log"):
+            try:
+                # Datei leeren (nicht loeschen, damit Logger weiter schreibt)
+                with open(log_file, "w", encoding="utf-8") as f:
+                    f.truncate(0)
+                cleared += 1
+            except (IOError, OSError):
+                errors_count += 1
+
+    logger.info(f"Log-Dateien geleert: {cleared} Dateien (von {user.get('username', 'Unbekannt')})")
+
+    # Seite komplett neu laden
+    return RedirectResponse(url="/errors", status_code=303)

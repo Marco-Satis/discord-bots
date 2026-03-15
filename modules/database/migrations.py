@@ -11,7 +11,7 @@ from utils.logger import get_logger
 logger = get_logger("database.migrations")
 
 # Aktuelle Schema-Version
-CURRENT_VERSION = 1
+CURRENT_VERSION = 4
 
 
 # Komplettes Schema (23 Tabellen + Indices + FTS5)
@@ -363,10 +363,26 @@ async def run_migrations(db: aiosqlite.Connection) -> None:
         await set_schema_version(db, 1)
         logger.info("Migration v0 → v1 abgeschlossen")
 
-    # Zukuenftige Migrationen hier einfuegen:
-    # if current < 2:
-    #     await _apply_migration_v2(db)
-    #     await set_schema_version(db, 2)
+    # Version 1 → 2: Server-Stats-Tracker Tabelle
+    if current < 2:
+        logger.info("Migration v1 → v2: Erstelle server_stats_tracker Tabelle")
+        await _apply_migration_v2(db)
+        await set_schema_version(db, 2)
+        logger.info("Migration v1 → v2 abgeschlossen")
+
+    # Version 2 → 3: Reaction-Roles Tabelle
+    if current < 3:
+        logger.info("Migration v2 → v3: Erstelle reaction_roles Tabelle")
+        await _apply_migration_v3(db)
+        await set_schema_version(db, 3)
+        logger.info("Migration v2 → v3 abgeschlossen")
+
+    # Version 3 → 4: Auto-Update-System (Modpack + SAT)
+    if current < 4:
+        logger.info("Migration v3 → v4: Erstelle Auto-Update-Tabellen")
+        await _apply_migration_v4(db)
+        await set_schema_version(db, 4)
+        logger.info("Migration v3 → v4 abgeschlossen")
 
     final = await get_schema_version(db)
     logger.info(f"Alle Migrationen abgeschlossen. Schema-Version: {final}")
@@ -387,6 +403,11 @@ async def _apply_schema_v1(db: aiosqlite.Connection) -> None:
 
     await db.commit()
 
+    # v2+v3+v4-Tabellen auch gleich anlegen bei Fresh-Install
+    await _apply_migration_v2(db)
+    await _apply_migration_v3(db)
+    await _apply_migration_v4(db)
+
     # Tabellen zaehlen zur Verifikation
     cursor = await db.execute(
         "SELECT COUNT(*) FROM sqlite_master WHERE type='table' "
@@ -395,3 +416,128 @@ async def _apply_schema_v1(db: aiosqlite.Connection) -> None:
     row = await cursor.fetchone()
     table_count = row[0] if row else 0
     logger.info(f"Schema erstellt: {table_count} Tabellen")
+
+
+# =====================================================
+# Migration v2: Server-Stats-Tracker
+# =====================================================
+
+SCHEMA_V2 = """
+-- =====================================================
+-- Server-Stats-Tracker (ersetzt stats_history_*.json)
+-- Einzelne Metriken: uptime, player_count, savegame_size, crash
+-- =====================================================
+CREATE TABLE IF NOT EXISTS server_stats_tracker (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    server_type TEXT NOT NULL,
+    server_id TEXT,
+    metric_type TEXT NOT NULL,
+    timestamp TIMESTAMP NOT NULL,
+    value_int INTEGER,
+    value_real REAL
+);
+CREATE INDEX IF NOT EXISTS idx_sst_lookup
+    ON server_stats_tracker(server_type, metric_type, timestamp);
+CREATE INDEX IF NOT EXISTS idx_sst_server
+    ON server_stats_tracker(server_type, server_id, metric_type, timestamp);
+"""
+
+
+async def _apply_migration_v2(db: aiosqlite.Connection) -> None:
+    """Erstellt die server_stats_tracker Tabelle."""
+    await db.executescript(SCHEMA_V2)
+    await db.commit()
+    logger.info("server_stats_tracker Tabelle erstellt")
+
+
+# =====================================================
+# Migration v3: Reaction-Roles
+# =====================================================
+
+SCHEMA_V3 = """
+-- =====================================================
+-- Reaction-Roles (ersetzt reaction_roles.json)
+-- Eine Nachricht kann mehrere Emoji-Rollen-Paare haben
+-- =====================================================
+CREATE TABLE IF NOT EXISTS reaction_roles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id TEXT NOT NULL,
+    channel_id TEXT NOT NULL,
+    guild_id TEXT NOT NULL,
+    emoji TEXT NOT NULL,
+    role_id TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(message_id, emoji)
+);
+CREATE INDEX IF NOT EXISTS idx_rr_message
+    ON reaction_roles(message_id);
+"""
+
+
+async def _apply_migration_v3(db: aiosqlite.Connection) -> None:
+    """Erstellt die reaction_roles Tabelle."""
+    await db.executescript(SCHEMA_V3)
+    await db.commit()
+    logger.info("reaction_roles Tabelle erstellt")
+
+
+# =====================================================
+# Migration v4: Auto-Update-System (Modpack + SAT)
+# =====================================================
+
+SCHEMA_V4 = """
+-- =====================================================
+-- Modpack-Update-Log (MC + SAT)
+-- Protokolliert alle Update-Vorgänge mit Crash-Recovery
+-- =====================================================
+CREATE TABLE IF NOT EXISTS modpack_updates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    server_id TEXT NOT NULL,
+    old_version TEXT NOT NULL,
+    new_version TEXT NOT NULL,
+    old_curseforge_id INTEGER,
+    new_curseforge_id INTEGER,
+    update_type TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'in_progress',
+    update_phase TEXT,
+    neoforge_updated BOOLEAN DEFAULT 0,
+    old_neoforge TEXT,
+    new_neoforge TEXT,
+    attempts INTEGER DEFAULT 0,
+    error_message TEXT,
+    backup_path TEXT,
+    rollback_path TEXT,
+    download_url TEXT,
+    download_hash_sha1 TEXT,
+    file_size_bytes INTEGER,
+    started_at TIMESTAMP NOT NULL,
+    completed_at TIMESTAMP,
+    duration_seconds INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_mu_server_status
+    ON modpack_updates(server_id, status);
+CREATE INDEX IF NOT EXISTS idx_mu_started
+    ON modpack_updates(started_at DESC);
+
+-- =====================================================
+-- Server-Versions-Tracking (ersetzt .env-basiertes Tracking)
+-- Speichert die aktuelle Version jedes Servers
+-- =====================================================
+CREATE TABLE IF NOT EXISTS server_versions (
+    server_id TEXT PRIMARY KEY,
+    display_version TEXT NOT NULL,
+    curseforge_file_id INTEGER,
+    curseforge_server_file_id INTEGER,
+    steam_buildid TEXT,
+    neoforge_version TEXT,
+    updated_at TIMESTAMP NOT NULL,
+    updated_by TEXT DEFAULT 'system'
+);
+"""
+
+
+async def _apply_migration_v4(db: aiosqlite.Connection) -> None:
+    """Erstellt die Auto-Update-Tabellen (modpack_updates + server_versions)."""
+    await db.executescript(SCHEMA_V4)
+    await db.commit()
+    logger.info("Auto-Update-Tabellen erstellt (modpack_updates, server_versions)")

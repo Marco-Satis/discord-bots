@@ -243,12 +243,12 @@ class GiveawayCog(commands.Cog):
 
     async def cog_load(self) -> None:
         """DB-Daten laden und Background-Task starten."""
-        # F28: Giveaway-Daten aus SQLite laden (ueberschreibt JSON-Fallback)
+        # Giveaway-Daten aus SQLite laden
         try:
             await self.manager.load_from_db()
             logger.info("Giveaway-Daten aus SQLite geladen")
         except Exception as e:
-            logger.warning(f"SQLite-Load fehlgeschlagen, nutze JSON-Fallback: {e}")
+            logger.warning(f"SQLite-Load fehlgeschlagen: {e}")
         self.check_giveaways.start()
         logger.info("Giveaway-Background-Task gestartet")
 

@@ -18,6 +18,8 @@ F56: Automatische Daten-Retention mit konfigurierbaren Fristen
 
 from __future__ import annotations
 
+import asyncio
+import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
@@ -94,20 +96,22 @@ class DatabaseMaintenance:
             backup_path = self.backup_dir / filename
             result["path"] = str(backup_path)
 
-            # 3. Quell-Datenbank holen
-            source_db = await get_db()
+            # 3. Quell-Datenbank-Pfad holen
+            db_path = get_db_path()
 
-            # 4. Backup via SQLite backup API
-            #    aiosqlite wraps sqlite3.Connection -> Zugriff via ._conn
-            dest_db: Optional[aiosqlite.Connection] = None
-            try:
-                dest_db = await aiosqlite.connect(str(backup_path))
-                # backup() ist synchron auf dem sqlite3.Connection-Objekt
-                source_db._conn.backup(dest_db._conn)
-                logger.info(f"Backup erstellt: {backup_path.name}")
-            finally:
-                if dest_db is not None:
-                    await dest_db.close()
+            # 4. Backup via SQLite backup API in eigenem Thread
+            #    Eigene sqlite3-Connections im Backup-Thread erstellen,
+            #    um Thread-Safety-Fehler zu vermeiden (aiosqlite-Connections
+            #    duerfen nur im aiosqlite-Thread verwendet werden).
+            def _do_backup() -> None:
+                src = sqlite3.connect(str(db_path))
+                dst = sqlite3.connect(str(backup_path))
+                src.backup(dst)
+                dst.close()
+                src.close()
+
+            await asyncio.to_thread(_do_backup)
+            logger.info(f"Backup erstellt: {backup_path.name}")
 
             # 5. Integritaetscheck auf dem Backup
             integrity_ok = await self._check_backup_integrity(backup_path)

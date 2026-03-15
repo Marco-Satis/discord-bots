@@ -154,7 +154,6 @@ from modules.monitoring.player_ip_tracker import PlayerIPTracker
 bot.mc_ip_trackers: dict[str, PlayerIPTracker] = {}
 for _sid in bot.mc_servers:
     bot.mc_ip_trackers[_sid] = PlayerIPTracker(
-        data_file=PROJECT_ROOT / "data" / f"player_ips_mc_{_sid.lower()}.json",
         game_type="mc",
     )
     logger.info(f"MC IP-Tracker aktiviert: {_sid}")
@@ -224,7 +223,7 @@ def _write_gs_bot_status():
 
         data = {
             "status": "online" if bot.is_ready() else "offline",
-            "ping_ms": round(bot.latency * 1000) if bot.latency else 0,
+            "ping_ms": round(bot.latency * 1000) if bot.latency and bot.latency != float("inf") else 0,
             "uptime": uptime_str,
             "last_update": datetime.now(timezone.utc).isoformat(),
         }
@@ -357,16 +356,13 @@ async def setup_hook():
     except Exception as e:
         logger.error(f"Datenbank-Initialisierung fehlgeschlagen: {e}")
 
-    # Initialize async managers (JSON-Fallback laden)
-    await bot.whitelist_mgr.load()
-    await bot.blacklist_mgr.load()
+    # Initialize async managers
     await bot.blueprint_mgr.load()
     await bot.backup_mgr.load()
     await bot.word_filter.load()
-    await bot.mc_blacklist.load()
-    logger.info("All managers initialized")
+    logger.info("Blueprint/Backup/WordFilter managers initialized")
 
-    # F28: SQLite Dual-Read — Daten aus DB laden (ueberschreibt JSON-Fallback)
+    # Daten aus SQLite laden (alleinige Datenquelle)
     try:
         await bot.whitelist_mgr.load_from_db()
         await bot.blacklist_mgr.load_from_db()

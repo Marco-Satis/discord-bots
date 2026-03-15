@@ -451,17 +451,17 @@ async def server_action(request: Request, server_id: str):
         elif server_type == "satisfactory":
             # SAT: Kick/Ban per UFW IP-Block + conntrack flush
             # (KickPlayer funktioniert nicht ueber die Satisfactory API)
-            ip_data_file = DATA_DIR / "player_ips.json"
-            blacklist_file = DATA_DIR / "blacklist.json"
 
-            # IP des Spielers aus SQLite lesen (Fallback: player_ips.json)
+            # IP des Spielers aus SQLite lesen
+            # Schema: players(id, name) → player_ips(player_id, ip_address)
             player_ip = None
             try:
                 db = await get_db()
                 cursor = await db.execute(
-                    "SELECT ip_address FROM player_ips "
-                    "WHERE LOWER(player_name) = ? AND server_type = 'satisfactory' "
-                    "ORDER BY last_seen DESC LIMIT 1",
+                    "SELECT pi.ip_address FROM player_ips pi "
+                    "JOIN players p ON p.id = pi.player_id "
+                    "WHERE LOWER(p.name) = ? AND pi.server_type = 'satisfactory' "
+                    "ORDER BY pi.last_seen DESC LIMIT 1",
                     (target.lower(),),
                 )
                 row = await cursor.fetchone()
@@ -470,22 +470,6 @@ async def server_action(request: Request, server_id: str):
                     logger.debug(f"IP fuer {target} aus DB geladen: {player_ip}")
             except Exception as e:
                 logger.warning(f"DB-Abfrage fuer Spieler-IP fehlgeschlagen: {e}")
-
-            # Fallback: player_ips.json lesen falls DB kein Ergebnis lieferte
-            if not player_ip:
-                try:
-                    if ip_data_file.exists():
-                        with open(ip_data_file, "r") as f:
-                            ip_data = json.load(f)
-                        entry = ip_data.get("ip_map", {}).get(target)
-                        if isinstance(entry, dict):
-                            player_ip = entry.get("ip")
-                        elif isinstance(entry, str):
-                            player_ip = entry
-                        if player_ip:
-                            logger.debug(f"IP fuer {target} aus JSON-Fallback geladen: {player_ip}")
-                except Exception as e:
-                    logger.warning(f"Fehler beim Lesen der IP-Daten (JSON-Fallback): {e}")
 
             if not player_ip:
                 return HTMLResponse(content=f"""
@@ -562,45 +546,6 @@ async def server_action(request: Request, server_id: str):
                     logger.info(f"Ban fuer {target} ({player_ip}) in SQLite gespeichert")
                 except Exception as e:
                     logger.warning(f"SQLite Ban-Eintrag fehlgeschlagen: {e}")
-
-                # Backward-Compat: player_ips.json Ban-Eintrag speichern
-                try:
-                    if ip_data_file.exists():
-                        with open(ip_data_file, "r") as f:
-                            ip_data = json.load(f)
-                    else:
-                        ip_data = {"ip_map": {}, "bans": {}}
-
-                    ip_data.setdefault("bans", {})[target] = {
-                        "ip": player_ip,
-                        "reason": "Gebannt via Dashboard",
-                        "banned_by": banned_by,
-                        "banned_at": ban_time,
-                    }
-                    with open(ip_data_file, "w") as f:
-                        json.dump(ip_data, f, indent=2, ensure_ascii=False)
-                except Exception as e:
-                    logger.warning(f"JSON Ban-Eintrag speichern fehlgeschlagen (backward-compat): {e}")
-
-                # Backward-Compat: blacklist.json eintragen
-                try:
-                    bl_data = {"players": []}
-                    if blacklist_file.exists():
-                        with open(blacklist_file, "r") as f:
-                            bl_data = json.load(f)
-
-                    already = any(p["name"].lower() == target.lower() for p in bl_data.get("players", []))
-                    if not already:
-                        bl_data.setdefault("players", []).append({
-                            "name": target,
-                            "reason": "Gebannt via Dashboard",
-                            "banned_by": banned_by,
-                            "banned_at": ban_time,
-                        })
-                        with open(blacklist_file, "w") as f:
-                            json.dump(bl_data, f, indent=2, ensure_ascii=False)
-                except Exception as e:
-                    logger.warning(f"JSON Blacklist-Eintrag fehlgeschlagen (backward-compat): {e}")
 
                 logger.info(f"SAT Ban erfolgreich: {target} (IP: {player_ip}) via Dashboard")
                 return HTMLResponse(content=f"""

@@ -17,7 +17,7 @@
                     <br><small style="color: var(--text-muted); font-family: monospace; font-size: 0.75rem;">{{ player.uuid }}</small>
                     {% endif %}
                 </td>
-                <td class="col-timestamp">{{ player.joined if player.joined is defined else 'N/A' }}</td>
+                <td class="col-timestamp">{{ player.join_time if player.join_time is defined and player.join_time else 'N/A' }}</td>
                 <td>
                     <div style="display: flex; gap: 0.35rem;">
                         <button class="btn btn-sm btn-warning"

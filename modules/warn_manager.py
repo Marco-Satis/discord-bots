@@ -1,17 +1,12 @@
 """
-Warn Manager — Phase 11c + SQLite Dual-Read
+Warn Manager — Verwarnungssystem mit SQLite-Persistenz
 Verwaltet Verwarnungen (Warns) fuer Discord-User mit Punktesystem.
 
 Jeder Warn hat eine Punktzahl. Bei Ueberschreitung konfigurierbarer
 Schwellenwerte werden automatische Aktionen ausgeloest (Mute, Kick, Ban).
 Warns verfallen nach einer einstellbaren Anzahl von Tagen (Standard: 30).
 
-SQLite Dual-Read Modus:
-  WRITE: Nur in SQLite `warns` Tabelle
-  READ:  SQLite primaer, JSON Fallback (read-only)
-  JSON-Datei wird NICHT geloescht (Fallback)
-
-SQLite-Tabelle `warns`:
+Persistenz: SQLite `warns` Tabelle (alleineige Datenquelle)
   id INTEGER PK AUTOINCREMENT
   user_id TEXT NOT NULL
   moderator_id TEXT NOT NULL
@@ -25,14 +20,11 @@ SQLite-Tabelle `warns`:
 from __future__ import annotations
 
 import asyncio
-import json
 import uuid
 from datetime import datetime, timedelta
-from pathlib import Path
 from typing import Any, Optional
 
 from utils.logger import get_logger
-from utils.config import ADMIN_DATA_DIR
 from modules.database.db_manager import get_db
 
 logger = get_logger("warn_manager")
@@ -56,7 +48,7 @@ class WarnManager:
     - Warns hinzufuegen/entfernen mit Punktzahl
     - Automatischer Verfall nach konfigurierbarer Anzahl Tagen
     - Schwellenwert-Pruefung fuer automatische Aktionen
-    - SQLite primaer, JSON Fallback (read-only)
+    - Persistenz ausschliesslich ueber SQLite
 
     Der Manager kuemmert sich nur um die Datenverwaltung.
     Das tatsaechliche Muten/Kicken/Bannen wird vom Cog uebernommen.
@@ -64,54 +56,28 @@ class WarnManager:
 
     def __init__(
         self,
-        data_file: Optional[Path] = None,
         thresholds: Optional[dict[str, int]] = None,
         decay_days: int = DEFAULT_DECAY_DAYS,
+        **kwargs,
     ) -> None:
         """
         Args:
-            data_file: Pfad zur JSON-Datei (Standard: data/admin/warns.json)
             thresholds: Schwellenwerte fuer Aktionen {"mute": 3, "kick": 6, "ban": 10}
             decay_days: Nach wie vielen Tagen ein Warn verfaellt (Standard: 30)
         """
-        self.data_file = data_file or (ADMIN_DATA_DIR / "warns.json")
         self.thresholds = thresholds or DEFAULT_THRESHOLDS.copy()
         self.decay_days = decay_days
         self._data: dict[str, dict[str, Any]] = {}
         self._db_loaded = False
-        self._load()
 
     # ------------------------------------------------------------------
-    # Persistenz
+    # Persistenz — SQLite (alleinige Datenquelle)
     # ------------------------------------------------------------------
-
-    def _load(self) -> None:
-        """Warn-Daten von JSON laden (Fallback-Daten)"""
-        try:
-            if self.data_file.exists():
-                with open(self.data_file, "r", encoding="utf-8") as f:
-                    self._data = json.load(f)
-                total_users = len(self._data)
-                total_warns = sum(
-                    len(entry.get("warns", []))
-                    for entry in self._data.values()
-                )
-                logger.info(
-                    f"Warn-Daten (JSON Fallback) geladen: {total_users} User, "
-                    f"{total_warns} Warns insgesamt"
-                )
-            else:
-                self._data = {}
-                logger.info("Keine Warn-JSON-Datei vorhanden, starte leer")
-        except (json.JSONDecodeError, IOError) as e:
-            logger.error(f"Warn-Daten (JSON) laden fehlgeschlagen: {e}")
-            self._data = {}
 
     async def load_from_db(self) -> None:
         """
         Laedt Warns aus SQLite und baut die interne Datenstruktur auf.
-        Wird beim Cog-Load aufgerufen. Ueberschreibt die JSON-Daten
-        falls SQLite-Daten vorhanden sind.
+        Wird beim Cog-Load aufgerufen.
         """
         try:
             db = await get_db()
@@ -122,9 +88,9 @@ class WarnManager:
             rows = await cursor.fetchall()
 
             if not rows:
-                logger.info(
-                    "Keine Warns in SQLite gefunden, verwende JSON-Fallback"
-                )
+                logger.info("Keine Warns in SQLite gefunden, starte leer")
+                self._data = {}
+                self._db_loaded = True
                 return
 
             # Interne Struktur aus SQLite-Daten aufbauen
@@ -185,8 +151,7 @@ class WarnManager:
 
         except Exception as e:
             logger.error(
-                f"Warn-Daten aus SQLite laden fehlgeschlagen, "
-                f"verwende JSON-Fallback: {e}",
+                f"Warn-Daten aus SQLite laden fehlgeschlagen: {e}",
                 exc_info=True,
             )
 
@@ -470,7 +435,7 @@ class WarnManager:
     def get_warns(self, user_id: int) -> list[dict[str, Any]]:
         """
         Aktive (nicht abgelaufene) Warns eines Users zurueckgeben.
-        Liest primaer aus internem Cache (befuellt aus SQLite oder JSON-Fallback).
+        Liest aus internem Cache (befuellt aus SQLite).
 
         Args:
             user_id: Discord-User-ID
@@ -545,7 +510,7 @@ class WarnManager:
     def get_all_warns(self, user_id: int) -> list[dict[str, Any]]:
         """
         Alle Warns eines Users zurueckgeben (inklusive abgelaufener).
-        Liest primaer aus internem Cache (befuellt aus SQLite oder JSON-Fallback).
+        Liest aus internem Cache (befuellt aus SQLite).
 
         Args:
             user_id: Discord-User-ID

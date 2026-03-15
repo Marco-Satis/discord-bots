@@ -5,12 +5,8 @@ Verwaltet Erfahrungspunkte (XP) und Level fuer Server-Mitglieder.
 XP werden durch Nachrichten und Voice-Aktivitaet gesammelt.
 Bei Level-Ups koennen automatisch Rollen vergeben werden.
 
-Dual-Read Mode: Schreibt in SQLite leveling-Tabelle,
-liest primaer aus SQLite mit JSON-Fallback.
-
 Persistenz:
-  - Userdaten:    SQLite leveling-Tabelle (primaer)
-  - Userdaten:    data/admin/leveling.json (Fallback fuer initialen Load)
+  - Userdaten:     SQLite leveling-Tabelle (alleinige Datenquelle)
   - Einstellungen: data/admin/leveling_config.json (bleibt JSON)
 
 SQLite-Tabelle leveling:
@@ -21,17 +17,6 @@ SQLite-Tabelle leveling:
   messages INTEGER DEFAULT 0,
   voice_minutes INTEGER DEFAULT 0,
   last_xp_time TIMESTAMP
-
-Datenformat (leveling.json — nur noch Fallback):
-{
-  "user_id_str": {
-    "xp": 0,
-    "level": 0,
-    "total_messages": 0,
-    "voice_minutes": 0,
-    "last_xp_at": "2025-01-01T00:00:00"
-  }
-}
 
 Level-Formel: xp_needed = 5 * level^2 + 50 * level + 100
 """
@@ -52,7 +37,6 @@ from modules.database.db_manager import get_db
 logger = get_logger("leveling_manager")
 
 # Standard-Pfade
-LEVELING_FILE = ADMIN_DATA_DIR / "leveling.json"
 LEVELING_CONFIG_FILE = ADMIN_DATA_DIR / "leveling_config.json"
 
 
@@ -73,11 +57,9 @@ class LevelingManager:
     """
     Verwaltet XP, Level und Belohnungen fuer Server-Mitglieder.
 
-    Dual-Read Mode:
-    - Liest primaer aus SQLite (leveling-Tabelle)
-    - Faellt auf JSON zurueck wenn SQLite leer/nicht verfuegbar
+    Persistenz:
+    - Liest aus SQLite (leveling-Tabelle)
     - Schreibt alle Aenderungen in SQLite (fire-and-forget)
-    - _save() ist ein No-Op (kein JSON-Schreiben mehr)
     - Konfiguration bleibt vollstaendig in JSON
 
     Funktionen:
@@ -96,45 +78,20 @@ class LevelingManager:
 
     def __init__(
         self,
-        data_file: Path | None = None,
         config_file: Path | None = None,
+        **kwargs,
     ) -> None:
         """
         Args:
-            data_file: Pfad zur User-Daten-JSON (Fallback: data/admin/leveling.json)
             config_file: Pfad zur Config-JSON (Standard: data/admin/leveling_config.json)
         """
-        self.data_file = data_file or LEVELING_FILE
         self.config_file = config_file or LEVELING_CONFIG_FILE
         self._data: dict[str, dict[str, Any]] = {}
         self._config: dict[str, Any] = _default_config()
-        self._load()
         self._load_config()
 
     # ------------------------------------------------------------------
-    # Persistence — User-Daten (JSON-Fallback)
-    # ------------------------------------------------------------------
-
-    def _load(self) -> None:
-        """Leveling-Daten von JSON laden (Fallback fuer initialen Start)."""
-        try:
-            if self.data_file.exists():
-                with open(self.data_file, "r", encoding="utf-8") as f:
-                    self._data = json.load(f)
-                logger.info(
-                    f"Leveling-Daten aus JSON geladen: {len(self._data)} User (Fallback)"
-                )
-            else:
-                logger.info("Keine Leveling-JSON-Datei vorhanden, starte leer")
-        except (json.JSONDecodeError, IOError) as e:
-            logger.error(f"Leveling-Daten laden fehlgeschlagen: {e}")
-
-    def _save(self) -> None:
-        """No-Op — Daten werden nur noch in SQLite geschrieben."""
-        pass
-
-    # ------------------------------------------------------------------
-    # Persistence — SQLite (primaer)
+    # Persistence — SQLite (alleinige Datenquelle)
     # ------------------------------------------------------------------
 
     async def load_from_db(self) -> bool:
@@ -142,7 +99,7 @@ class LevelingManager:
         Leveling-Daten aus SQLite laden und in _data uebernehmen.
 
         Returns:
-            True wenn erfolgreich geladen, False bei Fehler (JSON-Fallback bleibt)
+            True wenn erfolgreich geladen, False bei Fehler
         """
         try:
             db = await get_db()
@@ -152,16 +109,10 @@ class LevelingManager:
             )
             rows = await cursor.fetchall()
 
-            if not rows and not self.data_file.exists():
-                # Weder DB noch JSON haben Daten — frischer Start
-                self._data = {}
-                logger.info("Keine Leveling-Daten in DB oder JSON — starte leer")
-                return True
-
             if not rows:
-                # DB leer, aber JSON koennte Daten haben — Fallback nutzen
-                logger.info("Keine Leveling-Daten in SQLite, verwende JSON-Fallback")
-                return False
+                self._data = {}
+                logger.info("Keine Leveling-Daten in SQLite — starte leer")
+                return True
 
             # SQLite-Daten in internes Format konvertieren
             loaded: dict[str, dict[str, Any]] = {}

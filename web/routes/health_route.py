@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse
 
 from utils.logger import get_logger
 from utils.config import get_config, get_env, PROJECT_ROOT
-from utils.config import MONITOR_DATA_DIR, GAMESERVER_DATA_DIR
+from utils.config import MONITOR_DATA_DIR, GAMESERVER_DATA_DIR, ADMIN_DATA_DIR
 
 logger = get_logger("web.routes.health")
 
@@ -253,3 +253,68 @@ async def health_selftest() -> JSONResponse:
             },
             status_code=500,
         )
+
+
+# ------------------------------------------------------------------
+# F27: Health Auto-Restart Status
+# ------------------------------------------------------------------
+
+@router.get("/api/health/auto-restart")
+async def health_auto_restart() -> JSONResponse:
+    """F27: Gibt den Status der Health-Auto-Restart-Ueberwachung zurueck."""
+    data = _read_status_file(MONITOR_DATA_DIR / "health_auto_restart.json")
+    if data is None:
+        return JSONResponse(content={"status": "unknown", "message": "Keine Daten"}, status_code=200)
+    return JSONResponse(content=data)
+
+
+# ------------------------------------------------------------------
+# F49: Disk Guard Status
+# ------------------------------------------------------------------
+
+@router.get("/api/health/disk")
+async def health_disk() -> JSONResponse:
+    """F49: Gibt den aktuellen Festplatten-Status zurueck."""
+    data = _read_status_file(MONITOR_DATA_DIR / "disk_guard.json")
+    if data is None:
+        return JSONResponse(content={"status": "unknown", "message": "Keine Daten"}, status_code=200)
+    return JSONResponse(content=data)
+
+
+# ------------------------------------------------------------------
+# F50: Service Watchdog Status
+# ------------------------------------------------------------------
+
+@router.get("/api/health/services")
+async def health_services() -> JSONResponse:
+    """F50: Gibt den Status der ueberwachten Services zurueck."""
+    data = _read_status_file(MONITOR_DATA_DIR / "service_watchdog.json")
+    if data is None:
+        return JSONResponse(content={"status": "unknown", "message": "Keine Daten"}, status_code=200)
+    return JSONResponse(content=data)
+
+
+# ------------------------------------------------------------------
+# F51: DuckDNS Monitor Status
+# ------------------------------------------------------------------
+
+@router.get("/api/health/dns")
+async def health_dns() -> JSONResponse:
+    """F51: Gibt den DuckDNS DNS-Check-Status zurueck."""
+    data = _read_status_file(MONITOR_DATA_DIR / "duckdns_monitor.json")
+    if data is None:
+        return JSONResponse(content={"status": "unknown", "message": "Keine Daten"}, status_code=200)
+    return JSONResponse(content=data)
+
+
+# ------------------------------------------------------------------
+# F52: Port Monitor Status
+# ------------------------------------------------------------------
+
+@router.get("/api/health/ports")
+async def health_ports() -> JSONResponse:
+    """F52: Gibt den Port-Monitor-Status zurueck."""
+    data = _read_status_file(MONITOR_DATA_DIR / "port_monitor.json")
+    if data is None:
+        return JSONResponse(content={"status": "unknown", "message": "Keine Daten"}, status_code=200)
+    return JSONResponse(content=data)

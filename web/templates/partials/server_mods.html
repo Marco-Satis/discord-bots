@@ -149,8 +149,12 @@
                 color: var(--text-primary);
                 font-size: 0.9rem;
             ">
+                {% if server_type == 'satisfactory' %}
+                <option value="ficsit">ficsit.app (SMR)</option>
+                {% else %}
                 <option value="modrinth">Modrinth</option>
                 <option value="curseforge">CurseForge</option>
+                {% endif %}
             </select>
             <button type="submit" class="btn btn-primary btn-sm">Suchen</button>
         </form>

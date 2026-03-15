@@ -1,11 +1,12 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="de" id="html-root">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ request.state.csrf_token|default('') }}">
     <title>{% block title %}Dashboard{% endblock %} — Bot Dashboard</title>
     <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/themes.css">
     <script src="https://unpkg.com/htmx.org@1.9.10/dist/htmx.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script>
@@ -56,7 +57,93 @@
                 }
             }, 5000);
         })();
+
+        // Theme-Toggle: Liest Praeferenz aus localStorage und synchronisiert mit Server
+        (function() {
+            // Theme sofort anwenden (vor DOMContentLoaded, verhindert Flackern)
+            var savedTheme = localStorage.getItem('dashboard-theme') || 'dark';
+            if (savedTheme === 'light') {
+                document.documentElement.classList.add('light-theme');
+            }
+
+            document.addEventListener('DOMContentLoaded', function() {
+                var toggleBtn = document.getElementById('themeToggle');
+                var themeIcon = document.getElementById('themeIcon');
+                var themeLabel = document.getElementById('themeLabel');
+
+                if (!toggleBtn) return;
+
+                // Icon/Label passend zum aktuellen Theme setzen
+                function updateToggleUI(theme) {
+                    if (theme === 'light') {
+                        // Im Light-Mode: Mond-Symbol zeigen (= zurueck zu Dark)
+                        themeIcon.innerHTML = '&#9790;';
+                        themeLabel.textContent = 'Dark Mode';
+                    } else {
+                        // Im Dark-Mode: Sonnen-Symbol zeigen (= zu Light wechseln)
+                        themeIcon.innerHTML = '&#9728;';
+                        themeLabel.textContent = 'Light Mode';
+                    }
+                }
+
+                // Initiales UI-Update
+                updateToggleUI(savedTheme);
+
+                toggleBtn.addEventListener('click', function() {
+                    var html = document.documentElement;
+                    var isLight = html.classList.contains('light-theme');
+                    var newTheme = isLight ? 'dark' : 'light';
+
+                    // CSS-Klasse umschalten
+                    html.classList.toggle('light-theme');
+
+                    // In localStorage speichern
+                    localStorage.setItem('dashboard-theme', newTheme);
+
+                    // UI aktualisieren
+                    updateToggleUI(newTheme);
+
+                    // Mit Server-Session synchronisieren
+                    var csrfMeta = document.querySelector('meta[name="csrf-token"]');
+                    var headers = {'Content-Type': 'application/json'};
+                    if (csrfMeta) {
+                        headers['X-CSRF-Token'] = csrfMeta.content;
+                    }
+                    fetch('/api/theme/toggle', {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: headers
+                    }).catch(function() {
+                        // Fehler bei Server-Sync ignorieren — localStorage reicht
+                    });
+                });
+            });
+        })();
     </script>
+    <style>
+        /* F55: Sidebar-Suchfeld */
+        .sidebar-search {
+            padding: 0 0.75rem 0.5rem;
+        }
+        .sidebar-search-input {
+            width: 100%;
+            padding: 0.4rem 0.6rem;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-sm);
+            color: var(--text-primary);
+            font-size: 0.8rem;
+            box-sizing: border-box;
+        }
+        .sidebar-search-input:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 2px rgba(88, 101, 242, 0.2);
+        }
+        .sidebar-search-input::placeholder {
+            color: var(--text-secondary);
+        }
+    </style>
 </head>
 <body>
     <!-- Sidebar-Navigation -->
@@ -78,6 +165,11 @@
             <span class="user-name">{{ user.username }}</span>
         </div>
         {% endif %}
+
+        <!-- F55: Suchfeld in Sidebar -->
+        <form method="get" action="/search" class="sidebar-search">
+            <input type="text" name="q" placeholder="Suche..." class="sidebar-search-input" autocomplete="off">
+        </form>
 
         <nav class="sidebar-nav">
             <a href="/" class="nav-item {% block nav_dashboard %}{% endblock %}">
@@ -118,6 +210,17 @@
                 <span class="nav-icon">&#9654;</span>
                 <span class="nav-label">MC Vanilla</span>
             </a>
+            <a href="/search" class="nav-item {% block nav_search %}{% endblock %}">
+                <span class="nav-icon">&#128269;</span>
+                <span class="nav-label">Suche</span>
+            </a>
+
+            <div class="nav-separator">Info</div>
+            <a href="/changelog" class="nav-item {% block nav_changelog %}{% endblock %}">
+                <span class="nav-icon">&#9776;</span>
+                <span class="nav-label">Changelog</span>
+            </a>
+
             <a href="/auth/logout" class="nav-item nav-logout">
                 <span class="nav-icon">&#10140;</span>
                 <span class="nav-label">Abmelden</span>
@@ -125,6 +228,10 @@
         </nav>
 
         <div class="sidebar-footer">
+            <button class="theme-toggle" id="themeToggle" type="button" title="Theme wechseln">
+                <span class="nav-icon" id="themeIcon">&#9790;</span>
+                <span class="nav-label" id="themeLabel">Light Mode</span>
+            </button>
             <small>Dashboard &middot; v4.0.0</small>
         </div>
     </aside>

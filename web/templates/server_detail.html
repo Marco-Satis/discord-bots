@@ -83,131 +83,94 @@
 
 <!-- Tab-Navigation -->
 <section class="section">
-    <div class="detail-tabs" style="
-        display: flex;
-        gap: 0;
-        border-bottom: 2px solid var(--border-color);
-        margin-bottom: 1.5rem;
-        flex-wrap: wrap;
-    ">
-        <button class="detail-tab active"
-                onclick="switchTab(this, 'tab-players')"
-                style="
-                    padding: 0.6rem 1.25rem;
-                    background: none;
-                    border: none;
-                    border-bottom: 2px solid transparent;
-                    margin-bottom: -2px;
-                    color: var(--text-secondary);
-                    font-size: 0.9rem;
-                    font-weight: 600;
-                    cursor: pointer;
-                    transition: all 0.2s ease;
-                ">
-            Spieler
-        </button>
+    <div class="detail-tabs">
+        <button class="detail-tab active" onclick="switchTab(this, 'tab-overview')">Uebersicht</button>
+        <button class="detail-tab" onclick="switchTab(this, 'tab-players')">Spieler</button>
         {% if server.has_rcon %}
-        <button class="detail-tab"
-                onclick="switchTab(this, 'tab-rcon')"
-                style="
-                    padding: 0.6rem 1.25rem;
-                    background: none;
-                    border: none;
-                    border-bottom: 2px solid transparent;
-                    margin-bottom: -2px;
-                    color: var(--text-secondary);
-                    font-size: 0.9rem;
-                    font-weight: 600;
-                    cursor: pointer;
-                    transition: all 0.2s ease;
-                ">
-            RCON Console
-        </button>
+        <button class="detail-tab" onclick="switchTab(this, 'tab-rcon')">RCON Console</button>
         {% endif %}
-        <button class="detail-tab"
-                onclick="switchTab(this, 'tab-backups')"
-                style="
-                    padding: 0.6rem 1.25rem;
-                    background: none;
-                    border: none;
-                    border-bottom: 2px solid transparent;
-                    margin-bottom: -2px;
-                    color: var(--text-secondary);
-                    font-size: 0.9rem;
-                    font-weight: 600;
-                    cursor: pointer;
-                    transition: all 0.2s ease;
-                ">
-            Backups
-        </button>
-        <button class="detail-tab"
-                onclick="switchTab(this, 'tab-world')"
-                style="
-                    padding: 0.6rem 1.25rem;
-                    background: none;
-                    border: none;
-                    border-bottom: 2px solid transparent;
-                    margin-bottom: -2px;
-                    color: var(--text-secondary);
-                    font-size: 0.9rem;
-                    font-weight: 600;
-                    cursor: pointer;
-                    transition: all 0.2s ease;
-                ">
-            World/Savegame
-        </button>
-        <button class="detail-tab"
-                onclick="switchTab(this, 'tab-config')"
-                style="
-                    padding: 0.6rem 1.25rem;
-                    background: none;
-                    border: none;
-                    border-bottom: 2px solid transparent;
-                    margin-bottom: -2px;
-                    color: var(--text-secondary);
-                    font-size: 0.9rem;
-                    font-weight: 600;
-                    cursor: pointer;
-                    transition: all 0.2s ease;
-                ">
-            Server Config
-        </button>
-        <button class="detail-tab"
-                onclick="switchTab(this, 'tab-mods')"
-                style="
-                    padding: 0.6rem 1.25rem;
-                    background: none;
-                    border: none;
-                    border-bottom: 2px solid transparent;
-                    margin-bottom: -2px;
-                    color: var(--text-secondary);
-                    font-size: 0.9rem;
-                    font-weight: 600;
-                    cursor: pointer;
-                    transition: all 0.2s ease;
-                ">
-            Mods
-        </button>
-        <button class="detail-tab"
-                onclick="switchTab(this, 'tab-updates')"
-                style="
-                    padding: 0.6rem 1.25rem;
-                    background: none;
-                    border: none;
-                    border-bottom: 2px solid transparent;
-                    margin-bottom: -2px;
-                    color: var(--text-secondary);
-                    font-size: 0.9rem;
-                    font-weight: 600;
-                    cursor: pointer;
-                    transition: all 0.2s ease;
-                ">
-            Update Status
-        </button>
+        <button class="detail-tab" onclick="switchTab(this, 'tab-backups')">Backups</button>
+        <button class="detail-tab" onclick="switchTab(this, 'tab-world')">World/Savegame</button>
+        <button class="detail-tab" onclick="switchTab(this, 'tab-config')">Server Config</button>
+        <button class="detail-tab" onclick="switchTab(this, 'tab-mods')">Mods</button>
+        <button class="detail-tab" onclick="switchTab(this, 'tab-updates')">Update Status</button>
+    </div>
+
+    <!-- Tab: Uebersicht (Standard) -->
+    <div id="tab-overview" class="tab-content" style="display: block;">
+        <div class="stats-grid" style="margin-bottom: 1.5rem;">
+            <div class="stat-card">
+                <div class="stat-label">Status</div>
+                <div style="display: flex; align-items: center; gap: 0.75rem; margin-top: 0.5rem;">
+                    <span class="bot-indicator {% if server.status == 'online' %}indicator-online{% elif server.status == 'offline' %}indicator-offline{% else %}indicator-unknown{% endif %}"></span>
+                    <span class="stat-value" style="font-size: 1.2rem;">{{ server.status|capitalize if server.status else 'Unbekannt' }}</span>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Spieler Online</div>
+                <div class="stat-value" style="font-size: 1.5rem; margin-top: 0.5rem;">{{ server.players_online }} / {{ server.max_players }}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Uptime</div>
+                <div class="stat-value" style="font-size: 1.2rem; margin-top: 0.5rem;">{{ server.uptime }}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Typ</div>
+                <div class="stat-value" style="font-size: 1.2rem; margin-top: 0.5rem;">{{ server.type|capitalize }}</div>
+            </div>
+        </div>
+
+        {% if server.type == 'satisfactory' and server.world_info %}
+        <div class="stats-grid">
+            {% if server.world_info.get('Session-Name', 'N/A') != 'N/A' %}
+            <div class="stat-card">
+                <div class="stat-label">Session</div>
+                <div class="stat-value" style="font-size: 1rem; margin-top: 0.5rem;">{{ server.world_info['Session-Name'] }}</div>
+            </div>
+            {% endif %}
+            {% if server.world_info.get('Tick-Rate', 'N/A') != 'N/A' %}
+            <div class="stat-card">
+                <div class="stat-label">Tick-Rate</div>
+                <div class="stat-value" style="font-size: 1.2rem; margin-top: 0.5rem;">{{ server.world_info['Tick-Rate'] }}</div>
+            </div>
+            {% endif %}
+            {% if server.world_info.get('CPU-Auslastung', 'N/A') != 'N/A' %}
+            <div class="stat-card">
+                <div class="stat-label">CPU</div>
+                <div class="progress-bar" style="margin: 0.5rem 0;">
+                    <div class="progress-fill {% if server.world_info['CPU-Auslastung']|replace('%','')|float > 80 %}progress-danger{% elif server.world_info['CPU-Auslastung']|replace('%','')|float > 60 %}progress-warning{% else %}progress-ok{% endif %}"
+                         style="width: {{ server.world_info['CPU-Auslastung'] }}"></div>
+                </div>
+                <div class="stat-value">{{ server.world_info['CPU-Auslastung'] }}</div>
+            </div>
+            {% endif %}
+            {% if server.world_info.get('RAM-Verbrauch', 'N/A') != 'N/A' %}
+            <div class="stat-card">
+                <div class="stat-label">RAM</div>
+                <div class="stat-value" style="font-size: 1.2rem; margin-top: 0.5rem;">{{ server.world_info['RAM-Verbrauch'] }}</div>
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        <!-- Adresse -->
+        {% if server.address != 'N/A' %}
+        <div class="config-section" style="margin-top: 1.5rem;">
+            <h3 class="subsection-title">Verbindungsinformationen</h3>
+            <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
+                <div>
+                    <span style="color: var(--text-secondary); font-size: 0.85rem;">Adresse:</span>
+                    <code style="background: var(--bg-primary); padding: 0.3rem 0.6rem; border-radius: 4px; font-size: 0.95rem; margin-left: 0.5rem;">
+                        {{ server.address }}{% if server.port != 'N/A' %}:{{ server.port }}{% endif %}
+                    </code>
+                </div>
+            </div>
+        </div>
+        {% endif %}
     </div>
 
     <!-- Tab: Spieler -->
-    <div id="tab-players" class="tab-content" style="display: block;">
+    <div id="tab-players" class="tab-content" style="display: none;">
         <div hx-get="/api/server/{{ server.server_id }}/players"
              hx-trigger="load, every 10s"
              hx-swap="innerHTML">
@@ -414,14 +377,6 @@
 
 <!-- Tab-Umschaltung JavaScript -->
 <style>
-    .detail-tab.active {
-        color: var(--text-primary) !important;
-        border-bottom-color: var(--accent) !important;
-    }
-    .detail-tab:hover {
-        color: var(--text-primary) !important;
-        background: var(--bg-hover);
-    }
     .rcon-line {
         padding: 0.2rem 0;
         color: var(--text-primary);

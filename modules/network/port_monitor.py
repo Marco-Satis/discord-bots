@@ -22,10 +22,11 @@ COLOR_SUCCESS: int = 0x2ECC71
 COLOR_INFO: int = 0x5865F2
 
 # Standard-Port-Konfiguration
+# Hinweis: Nur TCP-Ports hier eintragen!
+# SAT Port 7777 ist UDP-only (kein TCP) → wird vom Health-Checker per
+# UDP-Probe geprueft, nicht hier im TCP-Port-Monitor.
 DEFAULT_PORTS: list[Dict[str, Any]] = [
-    {"port": 7777, "label": "Satisfactory Game", "host": "127.0.0.1", "enabled": True},
-    {"port": 15000, "label": "Satisfactory API", "host": "127.0.0.1", "enabled": True},
-    {"port": 15777, "label": "Satisfactory Query", "host": "127.0.0.1", "enabled": True},
+    {"port": 8080, "label": "Web-Dashboard", "host": "127.0.0.1", "enabled": True},
 ]
 
 # Timeout fuer einzelne Port-Checks (Sekunden)

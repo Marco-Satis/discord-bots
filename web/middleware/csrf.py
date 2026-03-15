@@ -3,12 +3,18 @@ F64: CSRF-Schutz fuer Dashboard — Cross-Site Request Forgery Prevention
 
 Generiert CSRF-Token pro Session, validiert bei POST/PUT/DELETE.
 HTMX-Requests senden Token als X-CSRF-Token Header.
+
+WICHTIG: Pure ASGI Middleware (kein BaseHTTPMiddleware), um
+Body-Forwarding-Probleme bei POST-Requests zu vermeiden.
+BaseHTTPMiddleware kann den Request-Body konsumieren, sodass
+nachfolgende Route-Handler leere Form-Daten erhalten.
 """
 
 import secrets
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.datastructures import State
 from starlette.requests import Request
 from starlette.responses import Response, JSONResponse
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from utils.logger import get_logger
 
@@ -44,62 +50,110 @@ def validate_csrf_token(request: Request, token: str) -> bool:
     return secrets.compare_digest(session_token, token)
 
 
-class CSRFMiddleware(BaseHTTPMiddleware):
+class CSRFMiddleware:
     """
-    CSRF-Schutz Middleware fuer FastAPI.
+    Pure ASGI CSRF-Schutz Middleware.
 
-    - Generiert Token und speichert in Session
-    - Validiert Token bei geschuetzten Methoden
-    - Token wird aus Header X-CSRF-Token oder Form-Feld csrf_token gelesen
+    Validiert X-CSRF-Token Header bei geschuetzten HTTP-Methoden.
+    Liest NICHT den Request-Body (im Gegensatz zu BaseHTTPMiddleware),
+    um Body-Forwarding-Probleme zu vermeiden.
+
+    Setzt ausserdem request.state.csrf_token fuer Template-Rendering,
+    sodass die separate add_csrf_to_templates Middleware entfaellt.
     """
 
-    async def dispatch(self, request: Request, call_next) -> Response:
-        # CSRF-Token in Session sicherstellen
-        generate_csrf_token(request)
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        # Nur HTTP-Requests verarbeiten (kein WebSocket, Lifespan etc.)
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        request = Request(scope)
+
+        # CSRF-Token in Session sicherstellen + in scope.state fuer Templates
+        try:
+            csrf_token = generate_csrf_token(request)
+        except Exception:
+            # Session noch nicht verfuegbar (z.B. Static Files)
+            csrf_token = ""
+
+        # Token in scope["state"] setzen fuer Template-Zugriff via request.state.csrf_token
+        # Starlette setzt scope["state"] manchmal als dict, manchmal als State-Objekt.
+        # Wir arbeiten direkt mit dem dict-Zugriff um kompatibel zu bleiben.
+        if "state" not in scope:
+            scope["state"] = {"csrf_token": csrf_token}
+        elif isinstance(scope["state"], dict):
+            scope["state"]["csrf_token"] = csrf_token
+        else:
+            # State-Objekt (hat __setattr__)
+            scope["state"].csrf_token = csrf_token
 
         # Nur geschuetzte Methoden pruefen
-        if request.method not in PROTECTED_METHODS:
-            return await call_next(request)
+        method = scope.get("method", "GET")
+        if method not in PROTECTED_METHODS:
+            await self.app(scope, receive, send)
+            return
+
+        # Pfad ermitteln
+        path = scope.get("path", "")
 
         # Ausgenommene Pfade
-        path = request.url.path
-        if path in EXEMPT_PATHS:
-            return await call_next(request)
+        if path in EXEMPT_PATHS or path.startswith("/api/health"):
+            await self.app(scope, receive, send)
+            return
 
-        # Health-API Pfade ausnehmen
-        if path.startswith("/api/health"):
-            return await call_next(request)
+        # Webhook-Pfade ausnehmen (externe Systeme haben kein CSRF-Token)
+        if path.startswith("/api/webhook"):
+            await self.app(scope, receive, send)
+            return
 
-        # Token aus Header oder Form lesen
-        token = request.headers.get("X-CSRF-Token", "")
-
-        if not token:
-            # Versuche aus Form-Daten zu lesen (fuer normale Formulare)
-            content_type = request.headers.get("content-type", "")
-            if "form" in content_type:
-                try:
-                    form = await request.form()
-                    token = form.get("csrf_token", "")
-                except Exception:
-                    token = ""
+        # Token NUR aus Header lesen — NICHT aus Form-Body!
+        # (Form-Body lesen wuerde den Body konsumieren und nachfolgende
+        #  Handler bekommen leere Form-Daten)
+        headers = dict(scope.get("headers", []))
+        token = ""
+        for key, value in scope.get("headers", []):
+            if key == b"x-csrf-token":
+                token = value.decode("utf-8", errors="replace")
+                break
 
         # Token validieren
         if not token or not validate_csrf_token(request, token):
             # Nicht eingeloggte Benutzer nicht mit CSRF blockieren
-            user = request.session.get("user")
-            if not user:
-                return await call_next(request)
+            try:
+                user = request.session.get("user")
+            except Exception:
+                user = None
 
-            logger.warning(f"CSRF-Validierung fehlgeschlagen: {request.method} {path}")
-            if "application/json" in request.headers.get("accept", ""):
-                return JSONResponse(
+            if not user:
+                # Kein Login → durchlassen (Route prueft Auth separat)
+                await self.app(scope, receive, send)
+                return
+
+            logger.warning(f"CSRF-Validierung fehlgeschlagen: {method} {path}")
+
+            accept_header = ""
+            for key, value in scope.get("headers", []):
+                if key == b"accept":
+                    accept_header = value.decode("utf-8", errors="replace")
+                    break
+
+            if "application/json" in accept_header:
+                response = JSONResponse(
                     {"detail": "CSRF-Token ungueltig oder fehlend"},
                     status_code=403
                 )
-            return Response(
-                "403 Forbidden — CSRF-Token ungueltig",
-                status_code=403,
-                media_type="text/plain"
-            )
+            else:
+                response = Response(
+                    "403 Forbidden — CSRF-Token ungueltig",
+                    status_code=403,
+                    media_type="text/plain"
+                )
+            await response(scope, receive, send)
+            return
 
-        return await call_next(request)
+        # Alles OK — Request weiterleiten (Body bleibt unangetastet!)
+        await self.app(scope, receive, send)
