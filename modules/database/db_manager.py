@@ -8,7 +8,7 @@ von mehreren Prozessen (3 Bots + Dashboard).
 
 import asyncio
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, Optional, Tuple, Union
 
 import aiosqlite
 
@@ -182,3 +182,41 @@ async def get_db_size() -> int:
         return DB_PATH.stat().st_size if DB_PATH.exists() else 0
     except OSError:
         return 0
+
+
+class DBHelper:
+    """
+    Duenner Wrapper um aiosqlite.Connection fuer UpdateManager & Co.
+
+    Bietet convenience-Methoden die aiosqlite nicht direkt hat:
+      - fetch_one(sql, params) -> dict | None
+      - execute(sql, params) -> lastrowid (fuer INSERT) oder None
+    """
+
+    def __init__(self, connection: aiosqlite.Connection) -> None:
+        self._conn = connection
+
+    async def fetch_one(
+        self, sql: str, params: Tuple = ()
+    ) -> Optional[Dict[str, Any]]:
+        """Fuehrt eine Query aus und gibt die erste Zeile als dict zurueck."""
+        cursor = await self._conn.execute(sql, params)
+        row = await cursor.fetchone()
+        if row is None:
+            return None
+        # aiosqlite.Row unterstuetzt dict-aehnlichen Zugriff,
+        # aber .get() braucht ein echtes dict
+        return dict(row)
+
+    async def execute(
+        self, sql: str, params: Tuple = ()
+    ) -> Union[int, None]:
+        """
+        Fuehrt ein INSERT/UPDATE/DELETE aus und committet.
+
+        Returns:
+            lastrowid bei INSERT, sonst None
+        """
+        cursor = await self._conn.execute(sql, params)
+        await self._conn.commit()
+        return cursor.lastrowid

@@ -64,6 +64,7 @@ from modules.minecraft.update_checker import MinecraftUpdateChecker
 from modules.monitoring.web_status import WebStatusGenerator
 from modules.monitoring.status_writer import StatusWriter
 from modules.minecraft.modpack_updater import ModpackUpdater
+from modules.minecraft.update_manager import UpdateManager
 from modules.monitoring.stats_collector import StatsCollector
 from utils.selftest import execute_selftest
 from utils.shutdown import register_cleanup
@@ -75,7 +76,7 @@ from modules.network.port_monitor import PortMonitor
 from modules.security.ssl_monitor import SSLMonitor
 from modules.security.fail2ban import Fail2BanManager
 from modules.backup.integrity import BackupIntegrity
-from modules.database.db_manager import init_db, close_db, check_integrity
+from modules.database.db_manager import init_db, close_db, check_integrity, DBHelper
 from modules.database.json_importer import import_all, check_import_needed
 from modules.security.ban_manager import BanManager
 from modules.database.maintenance import DatabaseMaintenance
@@ -553,24 +554,27 @@ else:
 bot.web_status_generator = web_status_generator
 
 # ------------------------------------------------------------------
-# Modpack-Update-Checker (Phase 8h)
+# Modpack-Update-Checker (Phase 8h) — pro MC-Server via from_env()
 # ------------------------------------------------------------------
 
-modpack_updater = ModpackUpdater(
-    modpack_id=get_env("MC_BMC_MODPACK_ID", ""),
-    current_version=get_env("MC_BMC_MODPACK_VERSION", ""),
-    source=get_env("MC_BMC_MODPACK_SOURCE", "modrinth"),
-    curseforge_api_key=get_env("CURSEFORGE_API_KEY", ""),
-)
-if modpack_updater.enabled:
-    logger.info(
-        f"Modpack-Updater aktiviert: {modpack_updater.source} "
-        f"(ID: {modpack_updater.modpack_id}, Version: {modpack_updater.current_version})"
-    )
-else:
-    logger.info("Modpack-Updater deaktiviert (MC_BMC_MODPACK_ID/VERSION nicht gesetzt)")
+mc_modpack_updaters: dict[str, ModpackUpdater] = {}
+for _mc_sid in mc_servers:
+    _mpu = ModpackUpdater.from_env(server_id=_mc_sid)
+    if _mpu.enabled:
+        mc_modpack_updaters[_mc_sid] = _mpu
+        logger.info(
+            f"Modpack-Updater [{_mc_sid}] aktiviert: CurseForge "
+            f"(Projekt: {_mpu.project_id}, File-ID: {_mpu.current_file_id}, "
+            f"Version: {_mpu.current_version})"
+        )
 
-bot.modpack_updater = modpack_updater
+if not mc_modpack_updaters:
+    logger.info("Kein Modpack-Updater aktiviert (ENV-Variablen nicht gesetzt)")
+
+bot.mc_modpack_updaters = mc_modpack_updaters
+
+# Abwaertskompatibilitaet: bot.modpack_updater zeigt auf BMC (falls vorhanden)
+bot.modpack_updater = mc_modpack_updaters.get("BMC", ModpackUpdater())
 
 # ------------------------------------------------------------------
 # Stats Collector (Phase 13c) — Sammelt System/Server-Metriken
@@ -2332,6 +2336,7 @@ async def on_ready():
     _build_mc_chat_channel_map()
 
     # F28: SQLite-Datenbank initialisieren (idempotent bei Reconnect)
+    db = None
     try:
         db = await init_db()
         # Beim ersten Start: JSON-Daten importieren falls DB leer
@@ -2349,6 +2354,66 @@ async def on_ready():
             await _st_tracker.load_from_db()
     except Exception as e:
         logger.warning(f"StatsTracker DB-Load fehlgeschlagen: {e}")
+
+    # ------------------------------------------------------------------
+    # UpdateManager pro MC-Server erstellen / aktualisieren
+    # ------------------------------------------------------------------
+    try:
+        db_helper = DBHelper(db) if db else None
+
+        if not hasattr(bot, 'mc_update_managers') or not bot.mc_update_managers:
+            # Erster Start: UpdateManager-Instanzen erstellen
+
+            # ModpackUpdater-Versionen aus DB laden (bevorzugt gegenueber ENV)
+            for _um_sid, _um_mpu in mc_modpack_updaters.items():
+                if db_helper:
+                    await _um_mpu.load_from_db(db_helper)
+
+            mc_update_managers: dict[str, UpdateManager] = {}
+            for _um_sid, _um_srv in mc_servers.items():
+                # Discord-Channel fuer Update-Nachrichten
+                _um_channel = None
+                if _um_srv.game_chat_channel_id:
+                    _um_channel = bot.get_channel(_um_srv.game_chat_channel_id)
+
+                _um = UpdateManager(
+                    server_id=_um_sid,
+                    mc_server=_um_srv,
+                    modpack_updater=mc_modpack_updaters.get(_um_sid),
+                    channel=_um_channel,
+                    db=db_helper,
+                    har=health_auto_restart,
+                    notifier=notifier,
+                    backup_manager=getattr(bot, 'mc_backup_mgrs', {}).get(_um_sid),
+                    onedrive_backup=onedrive_backup,
+                )
+                mc_update_managers[_um_sid] = _um
+                logger.info(f"UpdateManager [{_um_sid}] erstellt")
+
+            bot.mc_update_managers = mc_update_managers
+
+            # Chat-Bridge: Referenzen auf UpdateManager + MinecraftServer setzen
+            for _um_sid, _um_bridge in mc_chat_bridges.items():
+                _um_bridge.mc_server = mc_servers.get(_um_sid)
+                _um_bridge.update_manager = mc_update_managers.get(_um_sid)
+
+            # Crash-Recovery: Abgebrochene Updates pruefen und fortsetzen
+            for _um_sid, _um_mgr in mc_update_managers.items():
+                try:
+                    await _um_mgr.check_and_resume()
+                except Exception as e:
+                    logger.error(f"[{_um_sid}] Crash-Recovery fehlgeschlagen: {e}")
+        else:
+            # Reconnect: Channel-Referenzen aktualisieren
+            for _um_sid, _um_mgr in bot.mc_update_managers.items():
+                _um_srv = mc_servers.get(_um_sid)
+                if _um_srv and _um_srv.game_chat_channel_id:
+                    _um_mgr.channel = bot.get_channel(_um_srv.game_chat_channel_id)
+
+    except Exception as e:
+        logger.error(f"UpdateManager-Initialisierung fehlgeschlagen: {e}")
+        if not hasattr(bot, 'mc_update_managers'):
+            bot.mc_update_managers = {}
 
     # F28-8: Boot-Restore — iptables-Bans aus DB wiederherstellen
     try:
