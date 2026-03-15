@@ -56,19 +56,20 @@ python tests/test_imports.py
 
 Zuerst: **alle A0-Bugs fixen!**
 
-### I1: monitor_bot.py — UpdateManager einbinden
+### ~~I1: monitor_bot.py — UpdateManager einbinden~~ ERLEDIGT
 **Feature-Plan:** §2, §4 Phase 0, §7
-**Datei:** `bots/monitor_bot.py`
+**Datei:** `bots/monitor_bot.py`, `modules/database/db_manager.py`
 **Deploy-Gruppe 1:** MUSS zusammen mit I4 deployed werden
 
-Was zu tun ist:
-- `UpdateManager` importieren und pro MC-Server instanziieren (nach mc_servers Loop)
-- `ModpackUpdater.from_env()` aufrufen (ersetzt alten Konstruktor, Zeile 559-564)
-- `check_and_resume()` in `on_ready` aufrufen (Crash-Recovery)
-- Chat-Bridge: Referenzen auf UpdateManager + MinecraftServer übergeben
-- Voice-Channel von "X Online" auf "X/Y Online" — alle bestehenden Caller anpassen
-- UpdateManager an `bot.mc_update_managers` hängen (für Scheduler + Discord-Commands)
-- **Caller-Check VOR Implementierung:** `grep -rn "get_player_count" modules/ bots/ cogs/ web/`
+Erledigt am 15.03.2026:
+- ~~`UpdateManager` importieren und pro MC-Server instanziieren (nach mc_servers Loop)~~
+- ~~`ModpackUpdater.from_env()` aufrufen (ersetzt alten Konstruktor, Zeile 559-564)~~
+- ~~`check_and_resume()` in `on_ready` aufrufen (Crash-Recovery)~~
+- ~~Chat-Bridge: Referenzen auf UpdateManager + MinecraftServer übergeben~~
+- ~~Voice-Channel von "X Online" auf "X/Y Online"~~ — war bereits durch I4 erledigt
+- ~~UpdateManager an `bot.mc_update_managers` hängen (für Scheduler + Discord-Commands)~~
+- ~~**Caller-Check:** Alle 6 Caller verwenden bereits Tuple-Unpacking~~
+- Zusaetzlich: `DBHelper`-Wrapper in `db_manager.py` fuer fetch_one/execute
 
 ### I2: scheduler_cog.py — Update-Zeitplan
 **Feature-Plan:** §3, §11, §16
@@ -234,5 +235,5 @@ Pycache (128 .pyc), Temp-Dateien, WEB_ADMIN_PASS_HASH, .env-Scanner blockieren, 
 ## Reihenfolge
 
 **Phase 1 — A0 Bug-Fixes:** BUG-6→7→4→5→1→2→3→RISK-5 → Tests
-**Phase 2 — Integration:** I6 → I4 → I5 → I1 (Gruppe 1 mit I4) → I3 → I2 → I7+I8 → I9
+**Phase 2 — Integration:** ~~I6~~ → ~~I4~~ → ~~I5~~ → ~~I1~~ (Gruppe 1 mit I4) → I3 → I2 → I7+I8 → I9
 **Phase 3 — Deploy:** B0-B4 → C (DB zuerst, dann Rest)
