@@ -3,6 +3,8 @@ Discord Notifier Module - Centralized Notification System
 Handles all Discord notifications (admin alerts, player events, etc.)
 """
 
+import os
+
 import discord
 from datetime import datetime
 from typing import Optional, List, Tuple
@@ -272,6 +274,41 @@ class DiscordNotifier:
             NotifyLevel.ERROR,
             ping_role=True,
         )
+
+    # ------------------------------------------------------------------
+    # DM an Owner (I5)
+    # ------------------------------------------------------------------
+
+    async def send_dm_to_owner(
+        self,
+        title: str,
+        description: str,
+        level: NotifyLevel = NotifyLevel.CRITICAL,
+        fields: Optional[List[Tuple[str, str, bool]]] = None,
+    ) -> None:
+        """Sendet eine DM an den Bot-Owner (fuer kritische Fehler)."""
+        owner_id = int(os.getenv("BOT_OWNER_ID", "0"))
+        if not owner_id:
+            logger.warning("BOT_OWNER_ID nicht konfiguriert — DM nicht gesendet")
+            return
+
+        try:
+            user = await self.bot.fetch_user(owner_id)
+            _, color, emoji = level.value
+            embed = discord.Embed(
+                title=f"{emoji} {title}",
+                description=description,
+                color=color,
+                timestamp=datetime.now(),
+            )
+            if fields:
+                for name, value, inline in fields:
+                    embed.add_field(name=name, value=value, inline=inline)
+            await user.send(embed=embed)
+        except discord.Forbidden:
+            logger.warning("Owner hat DMs deaktiviert — Benachrichtigung nur via Channel")
+        except Exception as e:
+            logger.error(f"DM an Owner fehlgeschlagen: {e}")
 
     # ------------------------------------------------------------------
     # Scheduled events
