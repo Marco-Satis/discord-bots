@@ -195,8 +195,10 @@ class NeoForgeUpdater:
                     ) as resp:
                         if resp.status != 200:
                             return False, f"Installer-Download fehlgeschlagen: HTTP {resp.status}"
-                        content = await resp.read()
-                        installer_jar.write_bytes(content)
+                        # BUG-3: Streaming-Download statt alles in RAM
+                        with open(installer_jar, "wb") as f:
+                            async for chunk in resp.content.iter_chunked(8192):
+                                f.write(chunk)
                         logger.info(f"Installer heruntergeladen: {len(content)} Bytes")
             except Exception as e:
                 return False, f"Installer-Download fehlgeschlagen: {e}"
