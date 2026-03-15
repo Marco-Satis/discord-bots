@@ -8,6 +8,7 @@ Konfiguration per ENV-Variablen mit Server-ID-Prefix:
 """
 
 import asyncio
+import re
 from pathlib import Path
 from typing import Tuple, Optional, Dict, List
 from utils.logger import get_logger
@@ -315,23 +316,41 @@ class MinecraftServer:
 
     async def get_player_count(self) -> Tuple[int, int]:
         """
-        Online-Spielerzahl via RCON.
+        Online-Spielerzahl via RCON (I4: Regex fuer 3 Formate).
+
+        Matcht:
+        - "There are 2 of a max of 20 players online" (NeoForge)
+        - "There are 2 of max 20 players online" (Paper)
+        - "There are 2/20 players online" (Vanilla)
 
         Returns:
             (spieler_online, spieler_max)
         """
         try:
             response = await self.rcon_command("list")
-            # Parse: "There are X of max Y players online"
-            parts = response.lower().split(" of max ")
-            if len(parts) >= 2:
-                online = int(parts[0].split()[-1])
-                max_players = int(parts[1].split()[0])
-                return online, max_players
-            return 0, 20
+            # Regex fuer alle bekannten Formate
+            match = re.search(
+                r'There are (\d+)(?:\s+of\s+(?:a\s+)?max\s+(?:of\s+)?|/)(\d+)',
+                response,
+            )
+            if match:
+                return int(match.group(1)), int(match.group(2))
+            # Fallback: nur Online-Zahl
+            match = re.search(r'There are (\d+)', response)
+            if match:
+                return int(match.group(1)), await self._get_max_players_fallback()
+            return 0, await self._get_max_players_fallback()
         except Exception as e:
             logger.debug(f"[{self.server_id}] Spielerzahl nicht parsbar: {e}")
             return 0, 20
+
+    async def _get_max_players_fallback(self) -> int:
+        """Liest max-players aus server.properties als Fallback."""
+        try:
+            props = await self.get_properties()
+            return int(props.get("max-players", "20"))
+        except (ValueError, TypeError):
+            return 20
 
     # ------------------------------------------------------------------
     # Server Properties
