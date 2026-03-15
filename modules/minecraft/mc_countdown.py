@@ -51,6 +51,7 @@ class MCCountdownTimer(RestartTimer):
         super().__init__(api=None, channel=channel)
         self.mc_server = mc_server
         self.extra_info = extra_info
+        self._30s_task: Optional[asyncio.Task] = None
 
     async def countdown(
         self,
@@ -192,24 +193,31 @@ class MCCountdownTimer(RestartTimer):
                     subtitle_color="yellow",
                 )
 
-            # 30-Sekunden-Warnung am Ende (extra)
+            # 30-Sekunden-Warnung am Ende (BUG-1: Task statt call_later)
             if minutes == 1:
-                # Nach dem 1-Minuten-Banner: 30s warten, dann nochmal warnen
-                asyncio.get_event_loop().call_later(
-                    30,
-                    lambda: asyncio.ensure_future(
-                        self._rcon_title(
-                            "SERVER NEUSTART", "dark_red",
-                            "in 30 Sekunden!", "red",
-                        )
-                    ),
-                )
+                self._30s_task = asyncio.create_task(self._delayed_30s_warning())
 
         except Exception as e:
             logger.debug(f"MC-Banner fehlgeschlagen: {e}")
 
+    async def _delayed_30s_warning(self) -> None:
+        """30-Sekunden-Warnung als cancelbarer Task (BUG-1)."""
+        try:
+            await asyncio.sleep(30)
+            await self._rcon_title(
+                "SERVER NEUSTART", "dark_red",
+                "in 30 Sekunden!", "red",
+            )
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.debug(f"30s-Warnung fehlgeschlagen: {e}")
+
     async def _send_cancel_message(self) -> None:
         """Sendet Abbruch-Nachricht an Discord + MC In-Game."""
+        # BUG-1: 30s-Task abbrechen
+        if self._30s_task and not self._30s_task.done():
+            self._30s_task.cancel()
         # Discord (geerbt)
         if self.channel:
             try:
