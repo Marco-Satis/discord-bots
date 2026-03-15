@@ -96,69 +96,55 @@ class MCCountdownTimer(RestartTimer):
         is_final: bool = False,
     ) -> None:
         """
-        Sendet Warnung an Discord UND In-Game via RCON /title Banner.
+        Sendet Warnung an Discord (MC-spezifisch) + In-Game via RCON.
 
-        Überschreibt RestartTimer._send_warning() komplett.
+        Ueberschreibt Discord-Text fuer MC-spezifische Cancel-Hinweise.
+        In-Game-Logik wird ueber _send_ingame_warning() dispatched (I6).
         """
-        # Discord-Nachricht (gleiche Logik wie RestartTimer)
-        await self._send_discord_warning(message, is_initial, is_final)
+        # Discord-Nachricht (MC-spezifisch: extra_info + !cancel Hinweis)
+        if self.channel:
+            try:
+                if is_initial:
+                    desc = "Nutze `/mc modpack cancel` oder In-Game `!cancel` zum Abbrechen."
+                    if self.extra_info:
+                        desc = f"{self.extra_info}\n{desc}"
+                    embed = discord.Embed(
+                        title=f"\u23f0 {message}",
+                        description=desc,
+                        color=0xe67e22,
+                    )
+                    await self.channel.send(embed=embed)
+                elif is_final:
+                    await self.channel.send(f"\U0001f504 {message}")
+                else:
+                    await self.channel.send(f"\u23f0 {message}")
+            except discord.DiscordException as e:
+                logger.debug(f"Discord-Nachricht fehlgeschlagen: {e}")
 
-        # MC In-Game Banner via RCON
-        await self._send_mc_banner(message, is_initial, is_final)
+        # In-Game via RCON (I6: ueberschriebene Methode)
+        await self._send_ingame_warning(message, is_initial, is_final)
 
-    async def _send_discord_warning(
-        self,
-        message: str,
-        is_initial: bool = False,
-        is_final: bool = False,
-    ) -> None:
-        """Discord-Nachricht senden (übernommen von RestartTimer)."""
-        if not self.channel:
-            return
-
-        try:
-            if is_initial:
-                desc = f"Nutze `/mc modpack cancel` oder In-Game `!cancel` zum Abbrechen."
-                if self.extra_info:
-                    desc = f"{self.extra_info}\n{desc}"
-                embed = discord.Embed(
-                    title=f"⏰ {message}",
-                    description=desc,
-                    color=0xe67e22,
-                )
-                await self.channel.send(embed=embed)
-            elif is_final:
-                await self.channel.send(f"🔄 {message}")
-            else:
-                await self.channel.send(f"⏰ {message}")
-        except discord.DiscordException as e:
-            logger.debug(f"Discord-Nachricht fehlgeschlagen: {e}")
-
-    async def _send_mc_banner(
+    async def _send_ingame_warning(
         self,
         message: str,
         is_initial: bool = False,
         is_final: bool = False,
     ) -> None:
         """
-        Sendet /title Banner an alle MC-Spieler.
+        RCON /title Banner statt SAT API (I6: Override von RestartTimer).
 
         Banner-Stil:
         - > 2 Min: Gold (Server Update)
         - <= 2 Min: Rot (Server Neustart)
         - Final: Dunkelrot
-        - Abbruch: Grün
-        - Erfolg: Grün
         """
         if not self.mc_server:
             return
 
         try:
-            # Minuten aus der Nachricht extrahieren
             minutes = self._extract_minutes(message)
 
             if is_final:
-                # Server wird jetzt heruntergefahren
                 await self._rcon_title(
                     title_text="SERVER NEUSTART",
                     title_color="dark_red",
@@ -166,10 +152,9 @@ class MCCountdownTimer(RestartTimer):
                     subtitle_color="red",
                 )
             elif is_initial:
-                # Erste Ankündigung
                 subtitle = f"in {minutes} Minuten"
                 if self.extra_info:
-                    subtitle += f" — {self.extra_info}"
+                    subtitle += f" \u2014 {self.extra_info}"
                 await self._rcon_title(
                     title_text="SERVER UPDATE",
                     title_color="gold",
@@ -177,7 +162,6 @@ class MCCountdownTimer(RestartTimer):
                     subtitle_color="yellow",
                 )
             elif minutes is not None and minutes <= 2:
-                # Dringend (2 Min oder weniger)
                 await self._rcon_title(
                     title_text="SERVER NEUSTART",
                     title_color="red",
@@ -185,7 +169,6 @@ class MCCountdownTimer(RestartTimer):
                     subtitle_color="red",
                 )
             else:
-                # Normal (> 2 Min)
                 await self._rcon_title(
                     title_text="SERVER UPDATE",
                     title_color="gold",
@@ -214,34 +197,23 @@ class MCCountdownTimer(RestartTimer):
             logger.debug(f"30s-Warnung fehlgeschlagen: {e}")
 
     async def _send_cancel_message(self) -> None:
-        """Sendet Abbruch-Nachricht an Discord + MC In-Game."""
-        # BUG-1: 30s-Task abbrechen
+        """Sendet Abbruch-Nachricht (BUG-1: 30s-Task abbrechen, I6: super nutzen)."""
         if self._30s_task and not self._30s_task.done():
             self._30s_task.cancel()
-        # Discord (geerbt)
-        if self.channel:
-            try:
-                embed = discord.Embed(
-                    title=f"❌ {self._action_name} abgebrochen",
-                    color=0x95a5a6,
-                )
-                await self.channel.send(embed=embed)
-            except discord.DiscordException as e:
-                logger.debug(f"Discord-Abbruch fehlgeschlagen: {e}")
+        await super()._send_cancel_message()
 
-        # MC In-Game Banner
+    async def _send_ingame_cancel(self) -> None:
+        """RCON Cancel-Banner statt SAT API (I6: Override von RestartTimer)."""
         if self.mc_server:
             try:
                 await self._rcon_title(
                     title_text="UPDATE ABGEBROCHEN",
                     title_color="green",
-                    subtitle_text="Entwarnung — Server läuft weiter",
+                    subtitle_text="Entwarnung \u2014 Server l\u00e4uft weiter",
                     subtitle_color="green",
                 )
             except Exception as e:
                 logger.debug(f"MC-Abbruch-Banner fehlgeschlagen: {e}")
-
-        logger.info(f"Timer abgebrochen: {self._action_name}")
 
     async def send_success_banner(self, new_version: str) -> None:
         """Sendet Erfolgs-Banner nach erfolgreichem Update."""

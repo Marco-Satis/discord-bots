@@ -202,10 +202,14 @@ class RestartTimer:
             except discord.DiscordException as e:
                 logger.debug(f"Discord message failed: {e}")
 
-        # In-game message via API
+        # In-game message (I6: extrahiert fuer Override durch MCCountdownTimer)
+        await self._send_ingame_warning(message, is_initial, is_final)
+
+    async def _send_ingame_warning(self, message: str, is_initial: bool = False,
+                                   is_final: bool = False) -> None:
+        """Send in-game warning via API. Override in MCCountdownTimer for RCON."""
         if self.api:
             try:
-                # Strip markdown for in-game
                 clean_msg = message.replace("**", "").replace("*", "")
                 await self.api.run_command(f"say {clean_msg}")
             except Exception as e:
@@ -223,6 +227,13 @@ class RestartTimer:
             except discord.DiscordException as e:
                 logger.debug(f"Failed to send cancel embed: {e}")
 
+        # In-game cancel (I6: extrahiert fuer Override durch MCCountdownTimer)
+        await self._send_ingame_cancel()
+
+        logger.info(f"Timer cancelled: {self._action_name}")
+
+    async def _send_ingame_cancel(self) -> None:
+        """Send in-game cancel message. Override in MCCountdownTimer for RCON."""
         if self.api:
             try:
                 await self.api.run_command(
@@ -230,8 +241,6 @@ class RestartTimer:
                 )
             except Exception as e:
                 logger.debug(f"Failed to send in-game cancel message: {e}")
-
-        logger.info(f"Timer cancelled: {self._action_name}")
 
 
 class RestartTimerManager:
