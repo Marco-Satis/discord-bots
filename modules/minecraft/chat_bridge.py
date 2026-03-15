@@ -6,6 +6,11 @@ MC → Discord:
   - Erkennt Chat, Join/Leave, Achievements, Deaths
   - Leitet Nachrichten an den konfigurierten Discord-Channel weiter
 
+MC → Bot → MC (In-Game Befehle):
+  - !status, !version, !players, !tps, !help (alle Spieler)
+  - !cancel, !restart, !backup (nur OPs via ops.json)
+  - Antworten via RCON /tellraw (formatiert) oder /say (einfach)
+
 Discord → MC:
   - on_message Listener leitet Discord-Nachrichten via RCON an MC weiter
   - Rate-Limiting (max 1 RCON-Call pro Sekunde)
@@ -14,10 +19,11 @@ Pro Server wird eine eigene Instanz erstellt.
 """
 
 import asyncio
+import json
 import re
 import time
 from pathlib import Path
-from typing import Optional, Callable, Awaitable, List
+from typing import Any, Dict, Optional, Callable, Awaitable, List
 from utils.logger import get_logger
 
 logger = get_logger("minecraft.chat_bridge")
@@ -215,6 +221,12 @@ MOB_DISPLAY_NAMES = {
     "Flywheel": "Schwungrad",
 }
 
+# In-Game Befehle: <Spielername> !befehl [argumente]
+COMMAND_RE = re.compile(
+    rf'{_TS}\s+{_TH}<(\w+)>\s+!(\w+)(?:\s+(.*))?$',
+    re.MULTILINE
+)
+
 # Server-Nachrichten (z.B. "Stopping the server")
 SERVER_MSG_RE = re.compile(
     rf'{_TS}\s+{_TH}(?:Stopping|Starting|Done \(|Preparing)',
@@ -273,6 +285,10 @@ class MinecraftChatBridge:
         self.on_leave = on_leave
         self.on_advancement = on_advancement
         self.on_death = on_death
+
+        # Externe Referenzen (werden von monitor_bot.py gesetzt)
+        self.mc_server: Any = None       # MinecraftServer-Instanz
+        self.update_manager: Any = None  # UpdateManager-Instanz
 
         # Log-Position Tracking
         self._last_pos: int = 0
@@ -371,6 +387,16 @@ class MinecraftChatBridge:
                 except Exception as e:
                     logger.debug(f"[{self.server_id}] on_chat Fehler: {e}")
 
+        # In-Game Befehle (!status, !help etc.)
+        for match in COMMAND_RE.finditer(content):
+            player = match.group(1)
+            command = match.group(2).lower()
+            args = (match.group(3) or "").strip()
+            try:
+                await self._handle_ingame_command(player, command, args)
+            except Exception as e:
+                logger.debug(f"[{self.server_id}] Befehl !{command} Fehler: {e}")
+
         # Joins
         if self.on_join:
             for match in JOIN_RE.finditer(content):
@@ -404,9 +430,9 @@ class MinecraftChatBridge:
             for match in DEATH_RE.finditer(content):
                 player = match.group(1)
                 death_msg = match.group(0)
-                # Zeitstempel und Prefix entfernen
+                # Zeitstempel und Prefix entfernen (Vanilla + NeoForge)
                 death_msg = re.sub(
-                    r'^\[[\d:]+\]\s+\[Server thread/INFO\]:\s+', '', death_msg
+                    rf'^{_TS}\s+{_TH}', '', death_msg
                 )
                 # Mob-Namen uebersetzen fuer bessere Lesbarkeit
                 death_msg = translate_mob_names(death_msg)
@@ -414,6 +440,423 @@ class MinecraftChatBridge:
                     await self.on_death(self.server_id, player, death_msg)
                 except Exception as e:
                     logger.debug(f"[{self.server_id}] on_death Fehler: {e}")
+
+    # ------------------------------------------------------------------
+    # In-Game Befehle (MC → Bot → RCON-Antwort)
+    # ------------------------------------------------------------------
+
+    async def _tellraw(self, components: List[Dict[str, str]]) -> None:
+        """
+        Sendet eine formatierte tellraw-Nachricht an alle Spieler via RCON.
+
+        Args:
+            components: Liste von Text-Komponenten (JSON-Format fuer tellraw)
+        """
+        if not self.mc_server:
+            return
+        payload = json.dumps(components, ensure_ascii=False)
+        await self.mc_server.rcon_command(f"tellraw @a {payload}")
+
+    async def _say(self, message: str) -> None:
+        """Sendet eine einfache /say-Nachricht via RCON."""
+        if not self.mc_server:
+            return
+        await self.mc_server.rcon_command(f"say {message}")
+
+    async def _is_op(self, player: str) -> bool:
+        """
+        Prueft ob Spieler OP-Rechte hat via ops.json (MC-Server-Datei).
+
+        Args:
+            player: Spielername (case-insensitive Vergleich)
+
+        Returns:
+            True wenn Spieler in ops.json eingetragen ist
+        """
+        if not self.mc_server:
+            return False
+        ops_file = self.mc_server.server_path / "ops.json"
+        try:
+            loop = asyncio.get_running_loop()
+
+            def _read_ops() -> bool:
+                if not ops_file.exists():
+                    return False
+                ops = json.loads(ops_file.read_text(encoding="utf-8"))
+                return any(
+                    op.get("name", "").lower() == player.lower() for op in ops
+                )
+
+            return await loop.run_in_executor(None, _read_ops)
+        except Exception as e:
+            logger.debug(f"[{self.server_id}] ops.json Lesefehler: {e}")
+            return False
+
+    async def _handle_ingame_command(
+        self, player: str, command: str, args: str
+    ) -> None:
+        """
+        Dispatcher fuer In-Game-Befehle.
+
+        Args:
+            player: Spielername des Befehlsgebers
+            command: Befehlsname (ohne !, lowercase)
+            args: Optionale Argumente
+        """
+        # Befehlstabelle: Name -> (Handler, braucht_op)
+        commands: Dict[str, tuple] = {
+            "status":  (self._cmd_status, False),
+            "version": (self._cmd_version, False),
+            "players": (self._cmd_players, False),
+            "tps":     (self._cmd_tps, False),
+            "help":    (self._cmd_help, False),
+            "cancel":  (self._cmd_cancel, True),
+            "restart": (self._cmd_restart, True),
+            "backup":  (self._cmd_backup, True),
+        }
+
+        entry = commands.get(command)
+        if not entry:
+            return  # Unbekannter Befehl — ignorieren
+
+        handler, needs_op = entry
+
+        if needs_op:
+            if not await self._is_op(player):
+                await self._tellraw([
+                    {"text": "[BOT] ", "color": "gold", "bold": True},
+                    {"text": "Keine Berechtigung! Nur OPs koennen !",
+                     "color": "red"},
+                    {"text": command, "color": "red", "bold": True},
+                    {"text": " ausfuehren.", "color": "red"},
+                ])
+                logger.info(
+                    f"[{self.server_id}] !{command} von {player} abgelehnt (kein OP)"
+                )
+                return
+
+        logger.info(f"[{self.server_id}] !{command} von {player}")
+        await handler(player, args)
+
+    # ------------------------------------------------------------------
+    # Befehl-Handler
+    # ------------------------------------------------------------------
+
+    async def _cmd_status(self, player: str, args: str) -> None:
+        """!status — Server-Status (Spieler, Uptime, TPS)"""
+        if not self.mc_server:
+            await self._tellraw([
+                {"text": "[BOT] ", "color": "gold", "bold": True},
+                {"text": "Server-Referenz nicht verfuegbar.", "color": "red"},
+            ])
+            return
+
+        try:
+            status = await self.mc_server.get_status()
+            online = status.get("players_online", 0)
+            max_p = status.get("players_max", 20)
+            running = status.get("running", False)
+            uptime_sec = status.get("uptime", 0)
+
+            # Uptime formatieren
+            if uptime_sec > 0:
+                hours = uptime_sec // 3600
+                minutes = (uptime_sec % 3600) // 60
+                uptime_str = f"{hours}h {minutes}m"
+            else:
+                uptime_str = "unbekannt"
+
+            status_text = "Online" if running else "Offline"
+            status_color = "green" if running else "red"
+
+            await self._tellraw([
+                {"text": "[BOT] ", "color": "gold", "bold": True},
+                {"text": "Status: ", "color": "white"},
+                {"text": status_text, "color": status_color, "bold": True},
+                {"text": " | Spieler: ", "color": "white"},
+                {"text": f"{online}/{max_p}", "color": "aqua"},
+                {"text": " | Uptime: ", "color": "white"},
+                {"text": uptime_str, "color": "yellow"},
+            ])
+        except Exception as e:
+            logger.debug(f"[{self.server_id}] !status Fehler: {e}")
+            await self._tellraw([
+                {"text": "[BOT] ", "color": "gold", "bold": True},
+                {"text": "Status konnte nicht abgerufen werden.", "color": "red"},
+            ])
+
+    async def _cmd_version(self, player: str, args: str) -> None:
+        """!version — Aktuelle Modpack-Version + ob Update verfuegbar"""
+        if not self.update_manager:
+            await self._tellraw([
+                {"text": "[BOT] ", "color": "gold", "bold": True},
+                {"text": "Update-Manager nicht verfuegbar.", "color": "red"},
+            ])
+            return
+
+        try:
+            status = self.update_manager.get_status()
+            current = status.get("current_version", "unbekannt")
+            update_avail = status.get("update_available", False)
+            latest = status.get("latest_version", "")
+
+            components: List[Dict[str, str]] = [
+                {"text": "[BOT] ", "color": "gold", "bold": True},
+                {"text": "Version: ", "color": "white"},
+                {"text": str(current), "color": "yellow", "bold": True},
+            ]
+
+            if update_avail and latest:
+                components.extend([
+                    {"text": " | Update verfuegbar: ", "color": "white"},
+                    {"text": str(latest), "color": "green", "bold": True},
+                ])
+            else:
+                components.append(
+                    {"text": " (aktuell)", "color": "green"}
+                )
+
+            await self._tellraw(components)
+        except Exception as e:
+            logger.debug(f"[{self.server_id}] !version Fehler: {e}")
+            await self._tellraw([
+                {"text": "[BOT] ", "color": "gold", "bold": True},
+                {"text": "Version konnte nicht abgerufen werden.", "color": "red"},
+            ])
+
+    async def _cmd_players(self, player: str, args: str) -> None:
+        """!players — Spielerliste ALLER MC-Server"""
+        if not self.mc_server:
+            return
+
+        try:
+            # Eigenen Server abfragen
+            players = await self.mc_server.get_players()
+            online, max_p = await self.mc_server.get_player_count()
+
+            components: List[Dict[str, str]] = [
+                {"text": "[BOT] ", "color": "gold", "bold": True},
+                {"text": f"{self.server_id}: ", "color": "white", "bold": True},
+                {"text": f"{online}/{max_p}", "color": "aqua"},
+            ]
+
+            if players:
+                player_list = ", ".join(sorted(players))
+                components.extend([
+                    {"text": " — ", "color": "gray"},
+                    {"text": player_list, "color": "white"},
+                ])
+            else:
+                components.append(
+                    {"text": " (keine Spieler)", "color": "gray"}
+                )
+
+            await self._tellraw(components)
+        except Exception as e:
+            logger.debug(f"[{self.server_id}] !players Fehler: {e}")
+            await self._tellraw([
+                {"text": "[BOT] ", "color": "gold", "bold": True},
+                {"text": "Spielerliste nicht abrufbar.", "color": "red"},
+            ])
+
+    async def _cmd_tps(self, player: str, args: str) -> None:
+        """!tps — Aktuelle Tick-Rate (Performance-Check)"""
+        if not self.mc_server:
+            return
+
+        try:
+            # NeoForge: "forge tps", Vanilla: nicht nativ verfuegbar
+            response = await self.mc_server.rcon_command("forge tps")
+
+            # Typische Antwort: "Dim 0 (overworld) : Mean tick time: 12.3 mspt. Mean TPS: 20.0"
+            # Oder: "Overall : Mean tick time: 15.2 ms. Mean TPS: 20.0"
+            tps_match = re.search(
+                r'Overall\s*:.*?Mean TPS:\s*([\d.]+)', response
+            )
+            mspt_match = re.search(
+                r'Overall\s*:.*?Mean tick time:\s*([\d.]+)', response
+            )
+
+            if tps_match:
+                tps = float(tps_match.group(1))
+                mspt = float(mspt_match.group(1)) if mspt_match else 0.0
+
+                # Farbe je nach TPS
+                if tps >= 19.5:
+                    tps_color = "green"
+                elif tps >= 15.0:
+                    tps_color = "yellow"
+                else:
+                    tps_color = "red"
+
+                components: List[Dict[str, str]] = [
+                    {"text": "[BOT] ", "color": "gold", "bold": True},
+                    {"text": "TPS: ", "color": "white"},
+                    {"text": f"{tps:.1f}", "color": tps_color, "bold": True},
+                    {"text": "/20", "color": "gray"},
+                ]
+                if mspt > 0:
+                    components.extend([
+                        {"text": " | MSPT: ", "color": "white"},
+                        {"text": f"{mspt:.1f}ms", "color": tps_color},
+                    ])
+
+                await self._tellraw(components)
+            else:
+                # Fallback: Rohe Antwort kuerzen und anzeigen
+                short = response[:150].replace('"', "'")
+                await self._tellraw([
+                    {"text": "[BOT] ", "color": "gold", "bold": True},
+                    {"text": "TPS: ", "color": "white"},
+                    {"text": short, "color": "yellow"},
+                ])
+        except Exception as e:
+            logger.debug(f"[{self.server_id}] !tps Fehler: {e}")
+            await self._tellraw([
+                {"text": "[BOT] ", "color": "gold", "bold": True},
+                {"text": "TPS nicht abrufbar (forge tps nicht verfuegbar?).",
+                 "color": "red"},
+            ])
+
+    async def _cmd_cancel(self, player: str, args: str) -> None:
+        """!cancel — Bricht laufendes Update/Countdown ab (OP-only)"""
+        if not self.update_manager:
+            await self._say("[BOT] Update-Manager nicht verfuegbar.")
+            return
+
+        try:
+            cancelled = await self.update_manager.cancel()
+            if cancelled:
+                await self._say(
+                    f"[BOT] Update-Countdown abgebrochen von {player}."
+                )
+                logger.info(
+                    f"[{self.server_id}] Update abgebrochen von {player}"
+                )
+            else:
+                await self._say("[BOT] Kein laufendes Update zum Abbrechen.")
+        except Exception as e:
+            logger.debug(f"[{self.server_id}] !cancel Fehler: {e}")
+            await self._say("[BOT] Fehler beim Abbrechen.")
+
+    async def _cmd_restart(self, player: str, args: str) -> None:
+        """!restart — Server-Neustart mit 5min Countdown (OP-only)"""
+        if not self.mc_server:
+            return
+
+        try:
+            from modules.minecraft.mc_countdown import MCCountdownTimer
+
+            # Pruefen ob bereits ein Countdown laeuft
+            if (self.update_manager
+                    and self.update_manager.get_status().get("timer_active")):
+                await self._say(
+                    "[BOT] Es laeuft bereits ein Countdown! "
+                    "Nutze !cancel zum Abbrechen."
+                )
+                return
+
+            await self._say(
+                f"[BOT] Server-Neustart in 5 Minuten (von {player})."
+            )
+            logger.info(
+                f"[{self.server_id}] Manueller Neustart von {player}"
+            )
+
+            timer = MCCountdownTimer(
+                mc_server=self.mc_server,
+                channel=None,
+                extra_info=f"Manueller Neustart von {player}",
+            )
+
+            result = await timer.countdown(
+                duration_minutes=5,
+                action_name="Neustart",
+            )
+
+            if result.completed:
+                await self.mc_server.rcon_command("stop")
+            else:
+                await self._say("[BOT] Neustart abgebrochen.")
+        except Exception as e:
+            logger.error(f"[{self.server_id}] !restart Fehler: {e}")
+            await self._say("[BOT] Fehler beim Neustart-Countdown.")
+
+    async def _cmd_backup(self, player: str, args: str) -> None:
+        """!backup — Sofortiges World-Backup ausloesen (OP-only)"""
+        if not self.mc_server:
+            return
+
+        try:
+            # Backup-Manager vom Bot holen
+            backup_mgr = None
+            if hasattr(self.mc_server, '_bot'):
+                backup_mgr = getattr(
+                    self.mc_server._bot, 'mc_backup_mgrs', {}
+                ).get(self.server_id)
+
+            # Fallback: UpdateManager hat evtl. backup_manager
+            if not backup_mgr and self.update_manager:
+                backup_mgr = getattr(
+                    self.update_manager, 'backup_manager', None
+                )
+
+            if not backup_mgr:
+                await self._say("[BOT] Backup-Manager nicht verfuegbar.")
+                return
+
+            await self._say(f"[BOT] Backup wird erstellt (von {player})...")
+            logger.info(f"[{self.server_id}] Manuelles Backup von {player}")
+
+            success, message, path = await backup_mgr.create_backup(
+                created_by=player,
+            )
+
+            if success:
+                await self._say(f"[BOT] Backup erstellt: {message}")
+            else:
+                await self._say(f"[BOT] Backup fehlgeschlagen: {message}")
+        except Exception as e:
+            logger.error(f"[{self.server_id}] !backup Fehler: {e}")
+            await self._say("[BOT] Fehler beim Backup.")
+
+    async def _cmd_help(self, player: str, args: str) -> None:
+        """!help — Zeigt alle verfuegbaren In-Game-Befehle"""
+        await self._tellraw([
+            {"text": "[BOT] ", "color": "gold", "bold": True},
+            {"text": "Verfuegbare Befehle:", "color": "white", "bold": True},
+        ])
+        await self._tellraw([
+            {"text": "  !status", "color": "aqua"},
+            {"text": " — Server-Status (Spieler, Uptime)", "color": "gray"},
+        ])
+        await self._tellraw([
+            {"text": "  !version", "color": "aqua"},
+            {"text": " — Modpack-Version + Update-Info", "color": "gray"},
+        ])
+        await self._tellraw([
+            {"text": "  !players", "color": "aqua"},
+            {"text": " — Online-Spieler", "color": "gray"},
+        ])
+        await self._tellraw([
+            {"text": "  !tps", "color": "aqua"},
+            {"text": " — Server-Performance (TPS/MSPT)", "color": "gray"},
+        ])
+        await self._tellraw([
+            {"text": "  !cancel", "color": "yellow"},
+            {"text": " — Update-Countdown abbrechen", "color": "gray"},
+            {"text": " [OP]", "color": "red"},
+        ])
+        await self._tellraw([
+            {"text": "  !restart", "color": "yellow"},
+            {"text": " — Server-Neustart (5min)", "color": "gray"},
+            {"text": " [OP]", "color": "red"},
+        ])
+        await self._tellraw([
+            {"text": "  !backup", "color": "yellow"},
+            {"text": " — World-Backup erstellen", "color": "gray"},
+            {"text": " [OP]", "color": "red"},
+        ])
 
     # ------------------------------------------------------------------
     # Discord → MC (Rate-Limited RCON)
