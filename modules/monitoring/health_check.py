@@ -73,6 +73,7 @@ class HealthChecker:
 
         self.status: HealthStatus = HealthStatus()
         self.crash_history: List[CrashEvent] = []
+        self._max_crash_history: int = 100
         self._api_fail_count: int = 0
 
         # Callbacks
@@ -177,6 +178,8 @@ class HealthChecker:
             crash_number=self.crash_count + 1
         )
         self.crash_history.append(crash)
+        if len(self.crash_history) > self._max_crash_history:
+            self.crash_history = self.crash_history[-self._max_crash_history:]
         logger.warning(f"Crash #{crash.crash_number} detected!")
 
         # Notify

@@ -34,6 +34,7 @@ class LoginAudit:
         self._last_pos: int = 0
         self._last_size: int = 0
         self._recent_alerts: List[Dict[str, Any]] = []
+        self._max_recent_alerts: int = 200
 
         # Callbacks
         self.on_unknown_login: Optional[Callable] = None
@@ -102,6 +103,8 @@ class LoginAudit:
                         }
                         alerts.append(alert)
                         self._recent_alerts.append(alert)
+                        if len(self._recent_alerts) > self._max_recent_alerts:
+                            self._recent_alerts = self._recent_alerts[-self._max_recent_alerts:]
                         logger.warning(f"Unknown SSH login: {user}@{ip}")
 
                         if self.on_unknown_login:

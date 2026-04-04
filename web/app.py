@@ -34,7 +34,12 @@ logger = get_logger("web.dashboard")
 # Pruefen ob Web-Dashboard aktiviert ist
 WEB_ENABLED = get_env("WEB_ENABLED", "false", cast=bool)
 WEB_PORT = get_env("WEB_PORT", 8080, cast=int)
-WEB_SECRET_KEY = get_env("WEB_SECRET_KEY", "CHANGE_ME_INSECURE_DEFAULT_KEY")
+WEB_SECRET_KEY = get_env("WEB_SECRET_KEY", "")
+if not WEB_SECRET_KEY:
+    import secrets as _secrets
+    WEB_SECRET_KEY = _secrets.token_hex(32)
+    logger.warning("WEB_SECRET_KEY nicht in .env gesetzt! Generiere temporaeren Key. "
+                    "Setze WEB_SECRET_KEY in config/.env fuer persistente Sessions.")
 
 if not WEB_ENABLED:
     logger.warning("WEB_ENABLED ist nicht 'true'. Dashboard ist deaktiviert.")

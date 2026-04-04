@@ -34,7 +34,11 @@ auth_router = APIRouter(prefix="/auth", tags=["Authentifizierung"])
 DISCORD_CLIENT_ID = get_env("DISCORD_CLIENT_ID", "")
 DISCORD_CLIENT_SECRET = get_env("DISCORD_CLIENT_SECRET", "")
 DISCORD_REDIRECT_URI = get_env("DISCORD_REDIRECT_URI", "http://localhost:8080/auth/discord/callback")
-WEB_SECRET_KEY = get_env("WEB_SECRET_KEY", "CHANGE_ME_INSECURE_DEFAULT_KEY")
+WEB_SECRET_KEY = get_env("WEB_SECRET_KEY", "")
+if not WEB_SECRET_KEY:
+    import secrets as _secrets
+    WEB_SECRET_KEY = _secrets.token_hex(32)
+    logger.warning("WEB_SECRET_KEY nicht in .env gesetzt — temporaerer Key generiert.")
 WEB_ADMIN_USER = get_env("WEB_ADMIN_USER", "admin")
 WEB_ADMIN_PASS_HASH = get_env("WEB_ADMIN_PASS_HASH", "")
 GUILD_ID = get_env("GUILD_ID", "")

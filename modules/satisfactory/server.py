@@ -78,7 +78,9 @@ class SatisfactoryServer:
             "pid": None
         }
         if running:
-            proc_info = self._find_process()
+            proc_info = await asyncio.get_running_loop().run_in_executor(
+                None, self._find_process
+            )
             if proc_info:
                 info["pid"] = proc_info["pid"]
                 info["uptime"] = proc_info["uptime"]
@@ -87,7 +89,8 @@ class SatisfactoryServer:
 
             # Fallback: Wenn psutil keine Stats liefert (AccessDenied bei anderem User)
             # oder Prozess gar nicht gefunden wurde → /proc direkt lesen
-            if info["cpu_percent"] == 0.0 and info["memory_mb"] == 0:
+            # OR statt AND: auch wenn nur CPU fehlt (AccessDenied) Fallback nutzen
+            if info["cpu_percent"] == 0.0 or info["memory_mb"] == 0:
                 fallback = await self._get_stats_from_systemd()
                 if fallback:
                     info["pid"] = fallback["pid"]
@@ -99,8 +102,11 @@ class SatisfactoryServer:
         return info
 
     def _find_process(self) -> Optional[Dict[str, Any]]:
-        """Find FactoryServer process via psutil"""
+        """Find FactoryServer process via psutil.
+        Bevorzugt den echten Game-Prozess (FactoryServer-Linux-Shipping)
+        statt dem Wrapper-Script (FactoryServer.sh)."""
         try:
+            candidates = []
             for proc in psutil.process_iter(["name", "username", "pid",
                                               "create_time", "memory_info",
                                               "cmdline"]):
@@ -118,25 +124,34 @@ class SatisfactoryServer:
                     )
 
                     if is_factory:
-                        # cpu_percent() braucht 2 Aufrufe fuer sinnvollen Wert
-                        try:
-                            p = psutil.Process(proc.info["pid"])
-                            p.cpu_percent()  # Initialisierung (gibt 0 zurueck)
-                            time.sleep(0.1)
-                            cpu = p.cpu_percent()  # Jetzt echten Wert messen
-                        except (psutil.NoSuchProcess, psutil.AccessDenied):
-                            cpu = 0.0
-
                         mem_info = proc.info.get("memory_info")
-                        return {
-                            "pid": proc.info["pid"],
-                            "uptime": int(time.time() - proc.info["create_time"]),
-                            "cpu": round(cpu, 1),
-                            "mem_mb": (mem_info.rss // (1024 * 1024)
-                                      if mem_info else 0)
-                        }
+                        mem_mb = mem_info.rss // (1024 * 1024) if mem_info else 0
+                        # Sammle alle Kandidaten, bevorzuge den mit meistem RAM
+                        candidates.append((proc.info, mem_mb))
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     continue
+
+            if not candidates:
+                return None
+
+            # Waehle den Prozess mit dem meisten RAM (= echtes Game, nicht Wrapper)
+            best_info, best_mem = max(candidates, key=lambda x: x[1])
+
+            # cpu_percent() braucht 2 Aufrufe fuer sinnvollen Wert
+            try:
+                p = psutil.Process(best_info["pid"])
+                p.cpu_percent()  # Initialisierung (gibt 0 zurueck)
+                time.sleep(0.1)
+                cpu = p.cpu_percent()  # Jetzt echten Wert messen
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                cpu = 0.0
+
+            return {
+                "pid": best_info["pid"],
+                "uptime": int(time.time() - best_info["create_time"]),
+                "cpu": round(cpu, 1),
+                "mem_mb": best_mem,
+            }
         except Exception as e:
             logger.error(f"Process lookup error: {e}")
         return None
