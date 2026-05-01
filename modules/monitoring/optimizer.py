@@ -129,7 +129,7 @@ class ServerOptimizer:
             result = await asyncio.to_thread(
                 subprocess.run,
                 [
-                    "sudo", "find", "/tmp", "-type", "f",
+                    "sudo", "find", "/tmp", "-type", "f",  # nosec B108 - intentional cleanup-Target
                     "-atime", "+7", "-delete",
                 ],
                 capture_output=True, text=True, timeout=30,

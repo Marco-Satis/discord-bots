@@ -265,7 +265,7 @@ class NeoForgeUpdater:
             # Schritt 1: In Staging schreiben (botuser hat hier Schreibrechte)
             tmp_file.write_text(content)
             # Exec-Bit setzen (vor dem Copy, wird mitübernommen)
-            _os.chmod(tmp_file, 0o755)
+            _os.chmod(tmp_file, 0o755)  # nosec B103 - run.sh muss executable sein
 
             # Schritt 2: sudo cp zum Ziel (sudoers: /bin/cp /home/minecraft/*)
             proc = await asyncio.create_subprocess_exec(

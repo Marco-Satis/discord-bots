@@ -232,11 +232,14 @@ async def on_shutdown():
 # --- Einstiegspunkt fuer direkten Start ---
 
 if __name__ == "__main__":
+    import os
     import uvicorn
+    # Etappe 4-Followup B104: Default 127.0.0.1, override via WEB_HOST=0.0.0.0 nur in Dev
+    # Production laeuft eh ueber systemd-ExecStart mit --host 127.0.0.1 (Etappe 1.4).
     uvicorn.run(
         "web.app:app",
-        host="0.0.0.0",
+        host=os.getenv("WEB_HOST", "127.0.0.1"),
         port=WEB_PORT,
         reload=False,
-        log_level="info"
+        log_level="info",
     )

@@ -154,7 +154,7 @@ class UpdateChecker:
             # /home/botuser ist read-only, deshalb /tmp/steamcmd_home verwenden.
             import os
             env = os.environ.copy()
-            steam_home = Path("/tmp/steamcmd_home")
+            steam_home = Path("/tmp/steamcmd_home")  # nosec B108 - botuser-HOME ist read-only, intentional /tmp
             steam_home.mkdir(parents=True, exist_ok=True)
             env["HOME"] = str(steam_home)
             # Steam-Verzeichnisse sicherstellen
@@ -269,7 +269,7 @@ class UpdateChecker:
             # Schritt 3: SteamCMD ausführen
             import os
             env = os.environ.copy()
-            steam_home = Path("/tmp/steamcmd_home")
+            steam_home = Path("/tmp/steamcmd_home")  # nosec B108 - botuser-HOME read-only
             steam_home.mkdir(parents=True, exist_ok=True)
             env["HOME"] = str(steam_home)
 

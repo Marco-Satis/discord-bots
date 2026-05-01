@@ -1,8 +1,8 @@
 """
-DuckDNS Monitor Module (F51) - Ueberprueft DNS-Aufloesung gegen tatsaechliche Server-IP.
-Taeglicher Check: Vergleicht die IP, die die DuckDNS-Domain aufloest,
-mit der tatsaechlichen externen IP des Servers (via api.ipify.org).
-Bei Abweichung wird eine kritische Warnung ausgeloest.
+DuckDNS Monitor Module (F51) - Überprüft DNS-Auflösung gegen tatsächliche Server-IP.
+Täglicher Check: Vergleicht die IP, die die DuckDNS-Domain aufgelöst,
+mit der tatsächlichen externen IP des Servers (via api.ipify.org).
+Bei Abweichung wird eine kritische Warnung ausgelöst.
 """
 
 import asyncio
@@ -24,14 +24,14 @@ COLOR_INFO: int = 0x5865F2
 # Standard-Endpunkt fuer externe IP-Abfrage
 DEFAULT_IP_API: str = "https://api.ipify.org"
 
-# Taegliches Intervall in Sekunden (24 Stunden)
+# Tägliches Intervall in Sekunden (24 Stunden)
 DAILY_INTERVAL: int = 86400
 
 
 class DuckDNSMonitor:
     """
-    Ueberprueft ob die DuckDNS-Domain auf die korrekte Server-IP zeigt.
-    Vergleicht DNS-Aufloesung mit der tatsaechlichen externen IP.
+    Überprüft ob die DuckDNS-Domain auf die korrekte Server-IP zeigt.
+    Vergleicht DNS-Auflösung mit der tatsächlichen externen IP.
 
     Usage:
         monitor = DuckDNSMonitor(bot, domain="mein-server.duckdns.org")
@@ -83,7 +83,7 @@ class DuckDNSMonitor:
     # ------------------------------------------------------------------
 
     def start(self) -> None:
-        """Startet den taeglichen Background-Check-Task."""
+        """Startet den täglichen Background-Check-Task."""
         if not self.domain:
             logger.error("DuckDNSMonitor kann nicht starten: Keine Domain konfiguriert")
             return
@@ -101,7 +101,7 @@ class DuckDNSMonitor:
             logger.info("DuckDNSMonitor Background-Task gestoppt")
 
     async def _loop(self) -> None:
-        """Endlos-Schleife: Prueft taeglich die DNS-Aufloesung."""
+        """Endlos-Schleife: Prüft täglich die DNS-Auflösung."""
         try:
             while True:
                 try:
@@ -110,7 +110,7 @@ class DuckDNSMonitor:
                 except asyncio.CancelledError:
                     raise
                 except OSError as e:
-                    logger.error(f"DuckDNS-Pruefung fehlgeschlagen: {e}")
+                    logger.error(f"DuckDNS-Prüfung fehlgeschlagen: {e}")
                     if self.on_error:
                         await self.on_error(f"OS-Fehler: {e}")
                 except RuntimeError as e:
@@ -128,15 +128,15 @@ class DuckDNSMonitor:
 
     async def check_dns(self) -> Dict[str, Any]:
         """
-        Prueft die DNS-Aufloesung der konfigurierten Domain
-        und vergleicht sie mit der tatsaechlichen externen IP.
+        Prüft die DNS-Auflösung der konfigurierten Domain
+        und vergleicht sie mit der tatsächlichen externen IP.
 
         Returns:
             dict mit Keys:
-                - domain: Die geprueft Domain
-                - resolved_ip: IP aus DNS-Aufloesung (oder None bei Fehler)
-                - actual_ip: Tatsaechliche externe IP (oder None bei Fehler)
-                - match: True wenn beide IPs uebereinstimmen
+                - domain: Die geprüft Domain
+                - resolved_ip: IP aus DNS-Auflösung (oder None bei Fehler)
+                - actual_ip: Tatsächliche externe IP (oder None bei Fehler)
+                - match: True wenn beide IPs übereinstimmen
                 - checked_at: ISO-Zeitstempel
                 - error: Optionaler Fehlertext
         """
@@ -153,17 +153,17 @@ class DuckDNSMonitor:
             result["error"] = "Keine Domain konfiguriert"
             return result
 
-        # DNS-Aufloesung der Domain
+        # DNS-Auflösung der Domain
         resolved_ip: Optional[str] = await self._resolve_domain(self.domain)
         result["resolved_ip"] = resolved_ip
 
-        # Tatsaechliche externe IP abrufen
+        # Tatsächliche externe IP abrufen
         actual_ip: Optional[str] = await self._get_external_ip()
         result["actual_ip"] = actual_ip
 
         # Vergleich
         if resolved_ip is None:
-            result["error"] = f"DNS-Aufloesung fuer '{self.domain}' fehlgeschlagen"
+            result["error"] = f"DNS-Auflösung für '{self.domain}' fehlgeschlagen"
             logger.error(result["error"])
         elif actual_ip is None:
             result["error"] = "Externe IP konnte nicht ermittelt werden"
@@ -185,17 +185,17 @@ class DuckDNSMonitor:
         return result
 
     # ------------------------------------------------------------------
-    # DNS-Aufloesung
+    # DNS-Auflösung
     # ------------------------------------------------------------------
 
     async def _resolve_domain(self, domain: str) -> Optional[str]:
         """
-        Loest eine Domain per socket.getaddrinfo auf.
-        Gibt die erste IPv4-Adresse zurueck oder None bei Fehler.
+        Löst eine Domain per socket.getaddrinfo auf.
+        Gibt die erste IPv4-Adresse zurück oder None bei Fehler.
         """
         loop = asyncio.get_running_loop()
         try:
-            # getaddrinfo im Executor ausfuehren (blockierender I/O)
+            # getaddrinfo im Executor ausführen (blockierender I/O)
             addr_info: List[Any] = await loop.run_in_executor(
                 None,
                 lambda: socket.getaddrinfo(
@@ -205,14 +205,14 @@ class DuckDNSMonitor:
             if addr_info:
                 # Format: (family, type, proto, canonname, (ip, port))
                 ip: str = addr_info[0][4][0]
-                logger.debug(f"DNS aufgeloest: {domain} -> {ip}")
+                logger.debug(f"DNS aufgelöst: {domain} -> {ip}")
                 return ip
             return None
         except socket.gaierror as e:
-            logger.error(f"DNS-Aufloesung fehlgeschlagen fuer '{domain}': {e}")
+            logger.error(f"DNS-Auflösung fehlgeschlagen für '{domain}': {e}")
             return None
         except OSError as e:
-            logger.error(f"Netzwerkfehler bei DNS-Aufloesung: {e}")
+            logger.error(f"Netzwerkfehler bei DNS-Auflösung: {e}")
             return None
 
     # ------------------------------------------------------------------
@@ -222,7 +222,7 @@ class DuckDNSMonitor:
     async def _get_external_ip(self) -> Optional[str]:
         """
         Ermittelt die externe IP-Adresse des Servers via httpx (api.ipify.org).
-        Faellt bei fehlendem httpx auf urllib zurueck.
+        Fällt bei fehlendem httpx auf urllib zurück.
         """
         # Versuch 1: httpx (async, bevorzugt)
         try:
@@ -237,7 +237,7 @@ class DuckDNSMonitor:
                     f"IP-API Antwort-Code: {response.status_code}"
                 )
         except ImportError:
-            logger.debug("httpx nicht verfuegbar, Fallback auf urllib")
+            logger.debug("httpx nicht verfügbar, Fallback auf urllib")
         except httpx.HTTPError as e:
             logger.warning(f"httpx Fehler bei IP-Abfrage: {e}")
 
@@ -247,7 +247,7 @@ class DuckDNSMonitor:
             import urllib.request
             ip_str: str = await loop.run_in_executor(
                 None,
-                lambda: urllib.request.urlopen(
+                lambda: urllib.request.urlopen(  # nosec B310 - ip_api_url ist hardcoded https-Konstante
                     self.ip_api_url, timeout=15
                 ).read().decode("utf-8").strip(),
             )
@@ -265,9 +265,9 @@ class DuckDNSMonitor:
     # ------------------------------------------------------------------
 
     async def _handle_result(self, result: Dict[str, Any]) -> None:
-        """Reagiert auf das Pruefergebnis: Callback bei Match/Mismatch."""
+        """Reagiert auf das Prüfungsergebnis: Callback bei Match/Mismatch."""
         if result.get("error"):
-            # Fehler beim Pruefen - kein klares Match/Mismatch
+            # Fehler beim Prüfen - kein klares Match/Mismatch
             return
 
         if result["match"]:
@@ -289,7 +289,7 @@ class DuckDNSMonitor:
     # ------------------------------------------------------------------
 
     def get_embed_color(self, match: bool) -> int:
-        """Gibt die passende Embed-Farbe zurueck."""
+        """Gibt die passende Embed-Farbe zurück."""
         return COLOR_SUCCESS if match else COLOR_ERROR
 
     async def auto_update(self, token: str, ip: str) -> bool:
@@ -333,7 +333,7 @@ class DuckDNSMonitor:
             import urllib.request
             result = await loop.run_in_executor(
                 None,
-                lambda: urllib.request.urlopen(url, timeout=15).read().decode("utf-8").strip(),
+                lambda: urllib.request.urlopen(url, timeout=15).read().decode("utf-8").strip(),  # nosec B310 - DuckDNS-Endpoint ist hardcoded https://www.duckdns.org/update
             )
             success = result == "OK"
             if success:
@@ -347,11 +347,11 @@ class DuckDNSMonitor:
 
     @property
     def last_result(self) -> Optional[Dict[str, Any]]:
-        """Gibt das letzte Pruefergebnis zurueck."""
+        """Gibt das letzte Prüfungsergebnis zurück."""
         return self._last_result
 
     def format_status(self, result: Dict[str, Any]) -> str:
-        """Formatiert das DNS-Pruefergebnis als lesbaren String."""
+        """Formatiert das DNS-Prüfungsergebnis als lesbaren String."""
         status_icon: str = "OK" if result["match"] else "ABWEICHUNG"
         lines: list[str] = [
             f"**DuckDNS-Check: {status_icon}**",
