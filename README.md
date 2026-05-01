@@ -1,4 +1,4 @@
-# Discord Bot System v4.0.0
+# Discord Bot System v4.2.0
 
 **3-Bot-System + Web-Dashboard fuer Game-Server-Management**
 
@@ -55,6 +55,37 @@ Crash-Replay, Moderation mit Warn-System, Leveling/XP mit Leaderboard, Giveaway-
 
 ### Polishing (Phase 5)
 Maintenance-Mode, Paket-Checker, Dark Mode, Webhook-Integration und Performance-Optimierung.
+
+### Auto-Update System (I1–I9, v4.2.0)
+Vollautomatischer Update-Flow fuer Minecraft-Server mit Crash-Recovery:
+- **Phase 0**: Crash-Recovery beim Bot-Start (abgebrochene Updates fortsetzen)
+- **Phase 1**: Erkennung neuer Versionen via CurseForge-API
+- **Phase 2**: 10-Min-Countdown-Ankuendigung via In-Game-Chat
+- **Phase 3**: Vorbereitung (Disk-Check, HAR-Suppress, Server-Stop)
+- **Phase 4**: Backup (World + mods/config Rollback)
+- **Phase 5**: Custom-Dateien sichern
+- **Phase 6**: Update (Download, SHA1+MD5-Hash-Check, Extract, NeoForge, Atomic Swap)
+- **Phase 7**: Verifikation (3 Startversuche, RCON-Check)
+- **Phase 8**: Benachrichtigungen (Discord, DM, E-Mail, In-Game)
+
+Sicherheitsfeatures:
+- `asyncio.Lock` pro Server (kein paralleles Update)
+- 3-Versuche-System mit automatischem Rollback bei Fehlschlag
+- Pinned Lockfile (`requirements-lock.txt`) fuer reproduzierbare Deployments
+- RCON-Bind-Drift-Schutz (rcon.host=127.0.0.1 nach jedem Update enforced)
+- Pre-Push-Hook mit `detect-secrets` (verhindert Secret-Leaks in git-History)
+
+Slash-Commands: `/modpack` + `/update` (siehe `cogs/update_cog.py`).
+
+### Sicherheits-Review 2026-04-30 (Etappe 1+2+3+4)
+- Token-Leak entfernt + History-Cleanup-Plan dokumentiert
+- 6 CVE-Pakete aktualisiert (aiohttp, pyjwt, python-dotenv, python-multipart, pip, setuptools)
+- uvicorn auf 127.0.0.1 gebunden (Defense-in-Depth)
+- nginx Security-Headers ergaenzt (HSTS, CSP, X-Frame-DENY)
+- 74× Bandit B110 + 10× B608 + 12× B105/B324/B202 refaktoriert/annotiert
+- Player-Privacy-Hashing in persistenten Logs (`utils/privacy.py`)
+- Marco aus botuser-Group entfernt (Defense-in-Depth)
+- journald MaxUse=500M + 30day Retention
 
 ---
 
