@@ -1,12 +1,12 @@
 """
-F29: Server-Sent Events (SSE) — Echtzeit-Updates fuer das Dashboard
+F29: Server-Sent Events (SSE) — Echtzeit-Updates für das Dashboard
 
 Stellt zwei SSE-Endpunkte bereit:
   1. /api/sse/dashboard — Streamt alle Dashboard-Daten (Server, System, Bots, Events)
   2. /api/sse/events   — Streamt nur neue Ereignisse aus der SQLite-Datenbank
 
 Verwendet StreamingResponse mit text/event-stream Content-Type.
-Heartbeat alle 15 Sekunden haelt die Verbindung offen.
+Heartbeat alle 15 Sekunden hält die Verbindung offen.
 """
 
 import asyncio
@@ -15,13 +15,13 @@ import time
 from pathlib import Path
 from typing import AsyncGenerator
 
-from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import StreamingResponse
 
 from utils.config import DATA_DIR, MONITOR_DATA_DIR
 from utils.logger import get_logger
 from modules.database.db_manager import get_db
-from web.auth import get_current_user
+from web.auth import require_auth_api
 
 logger = get_logger("web.routes.sse")
 
@@ -38,7 +38,7 @@ HEARTBEAT_INTERVAL = 15
 # ================================================================
 
 def _load_json_safe(filepath: Path) -> dict:
-    """Laedt eine JSON-Datei sicher. Gibt leeres Dict bei Fehler zurueck."""
+    """Lädt eine JSON-Datei sicher. Gibt leeres Dict bei Fehler zurück."""
     try:
         if filepath.exists():
             with open(filepath, "r", encoding="utf-8") as f:
@@ -51,7 +51,7 @@ def _load_json_safe(filepath: Path) -> dict:
 def _collect_server_status() -> list[dict]:
     """
     Sammelt Server-Status-Daten aus data/monitor/*_status.json Dateien.
-    Gibt eine Liste von Server-Status-Dicts zurueck.
+    Gibt eine Liste von Server-Status-Dicts zurück.
     """
     servers = []
 
@@ -84,7 +84,7 @@ def _collect_server_status() -> list[dict]:
 def _collect_system_stats() -> dict:
     """
     Sammelt System-Performance-Daten (CPU, RAM, Disk) via psutil.
-    Gibt Fallback-Werte zurueck wenn psutil nicht verfuegbar ist.
+    Gibt Fallback-Werte zurück wenn psutil nicht verfügbar ist.
     """
     stats = {
         "cpu_percent": 0,
@@ -110,7 +110,7 @@ def _collect_system_stats() -> dict:
         stats["disk_used_gb"] = round(disk.used / (1024 ** 3), 1)
         stats["disk_total_gb"] = round(disk.total / (1024 ** 3), 1)
     except ImportError:
-        logger.debug("psutil nicht installiert — System-Stats nicht verfuegbar")
+        logger.debug("psutil nicht installiert — System-Stats nicht verfügbar")
     except Exception as e:
         logger.warning(f"Fehler beim Lesen der System-Stats: {e}")
 
@@ -120,7 +120,7 @@ def _collect_system_stats() -> dict:
 def _collect_bot_status() -> list[dict]:
     """
     Sammelt Bot-Status-Informationen aus den jeweiligen bot_status.json Dateien.
-    Prueft data/{gameserver,monitor,admin}/bot_status.json.
+    Prüft data/{gameserver,monitor,admin}/bot_status.json.
     """
     bots = []
     bot_names = {
@@ -330,7 +330,7 @@ async def _events_stream(request: Request) -> AsyncGenerator[str, None]:
 # ================================================================
 
 @router.get("/dashboard")
-async def sse_dashboard(request: Request):
+async def sse_dashboard(request: Request, current_user: dict = Depends(require_auth_api)):
     """
     SSE-Endpoint fuer vollstaendige Dashboard-Updates.
 
@@ -344,13 +344,6 @@ async def sse_dashboard(request: Request):
       event: dashboard_update
       data: {"servers": [...], "system": {...}, "bots": [...], "events": [...]}
     """
-    user = get_current_user(request)
-    if user is None:
-        return JSONResponse(
-            status_code=401,
-            content={"error": "Nicht authentifiziert"},
-        )
-
     return StreamingResponse(
         _dashboard_stream(request),
         media_type="text/event-stream",
@@ -363,7 +356,7 @@ async def sse_dashboard(request: Request):
 
 
 @router.get("/events")
-async def sse_events(request: Request):
+async def sse_events(request: Request, current_user: dict = Depends(require_auth_api)):
     """
     SSE-Endpoint fuer neue Ereignisse (Delta-Modus).
 
@@ -374,13 +367,6 @@ async def sse_events(request: Request):
       event: new_events
       data: [{"timestamp": ..., "event_type": ..., "message": ...}, ...]
     """
-    user = get_current_user(request)
-    if user is None:
-        return JSONResponse(
-            status_code=401,
-            content={"error": "Nicht authentifiziert"},
-        )
-
     return StreamingResponse(
         _events_stream(request),
         media_type="text/event-stream",

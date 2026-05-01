@@ -2,7 +2,7 @@
 Phase 13i: System / Webmin — Service-Verwaltung und System-Info
 
 Zeigt System-Informationen, Service-Status und einen Link
-zum Webmin-Interface an. Ermoeglicht Start/Stop/Restart von Services.
+zum Webmin-Interface an. Ermöglicht Start/Stop/Restart von Services.
 """
 
 import asyncio
@@ -11,13 +11,13 @@ import json
 import platform
 from pathlib import Path
 
-from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
 from utils.config import get_env, MONITOR_DATA_DIR
 from utils.logger import get_logger
-from web.auth import get_current_user
+from web.auth import require_auth, require_auth_api
 from modules.database.db_manager import get_db
 
 logger = get_logger("web.routes.system")
@@ -41,12 +41,12 @@ KNOWN_SERVICES = [
     {"service_name": "minecraft-vanilla.service", "display_name": "MC Vanilla"},
 ]
 
-# Erlaubte Services fuer Start/Stop/Restart
+# Erlaubte Services für Start/Stop/Restart
 ALLOWED_SERVICES = {svc["service_name"] for svc in KNOWN_SERVICES}
 
 
 async def _is_service_active(service_name: str) -> bool:
-    """Prueft ob ein systemd-Service aktiv ist."""
+    """Prüft ob ein systemd-Service aktiv ist."""
     try:
         proc = await asyncio.create_subprocess_exec(
             "systemctl", "is-active", "--quiet", service_name,
@@ -73,7 +73,7 @@ async def _collect_service_status() -> list[dict]:
 
 
 def _get_system_info() -> dict:
-    """Sammelt grundlegende System-Informationen via psutil (falls verfuegbar)."""
+    """Sammelt grundlegende System-Informationen via psutil (falls verfügbar)."""
     info = {
         "hostname": platform.node(),
         "os": f"{platform.system()} {platform.release()}",
@@ -108,7 +108,7 @@ def _get_system_info() -> dict:
         minutes, _ = divmod(remainder, 60)
         info["uptime"] = f"{days}d {hours}h {minutes}m"
     except ImportError:
-        logger.debug("psutil nicht verfuegbar — System-Info eingeschraenkt")
+        logger.debug("psutil nicht verfügbar — System-Info eingeschränkt")
     except Exception as e:
         logger.warning(f"Fehler beim Sammeln der System-Info: {e}")
 
@@ -116,21 +116,17 @@ def _get_system_info() -> dict:
 
 
 @router.get("/system", response_class=HTMLResponse)
-async def system_page(request: Request):
+async def system_page(request: Request, current_user: dict = Depends(require_auth)):
     """
     Zeigt die System-Verwaltungsseite mit System-Info, Service-Status
     und einem Link zum Webmin-Interface.
     """
-    user = get_current_user(request)
-    if user is None:
-        return RedirectResponse(url="/auth/login", status_code=302)
-
     system_info = _get_system_info()
     services = await _collect_service_status()
 
     return templates.TemplateResponse("system.html", {
         "request": request,
-        "user": user,
+        "user": current_user,
         "webmin_url": WEBMIN_URL,
         "system_info": system_info,
         "services": services,
@@ -138,18 +134,12 @@ async def system_page(request: Request):
 
 
 @router.post("/api/system/service/action")
-async def service_action(request: Request):
+async def service_action(request: Request, current_user: dict = Depends(require_auth_api)):
     """
-    Fuehrt eine Service-Aktion aus (start/stop/restart).
-    Nur fuer authentifizierte Benutzer.
+    Führt eine Service-Aktion aus (start/stop/restart).
+    Nur für authentifizierte Benutzer.
     """
-    user = get_current_user(request)
-    if user is None:
-        return JSONResponse(
-            status_code=401,
-            content={"error": "Nicht authentifiziert"}
-        )
-
+    user = current_user
     try:
         form = await request.form()
         service_name = form.get("service", "")
@@ -163,10 +153,10 @@ async def service_action(request: Request):
 
         if action not in ("start", "stop", "restart"):
             return HTMLResponse(
-                f'<div class="alert alert-danger">Ungueltige Aktion: {html.escape(action)}</div>'
+                f'<div class="alert alert-danger">Ungültige Aktion: {html.escape(action)}</div>'
             )
 
-        # Service-Aktion ausfuehren
+        # Service-Aktion ausführen
         proc = await asyncio.create_subprocess_exec(
             "sudo", "systemctl", action, service_name,
             stdout=asyncio.subprocess.PIPE,
@@ -182,7 +172,7 @@ async def service_action(request: Request):
             username = user.get("username", "Unbekannt")
             logger.info(f"Service {service_name} {label} von {username}")
 
-            # F35: Audit-Log-Eintrag fuer Service-Aktionen
+            # F35: Audit-Log-Eintrag für Service-Aktionen
             try:
                 from datetime import datetime, timezone
                 db = await get_db()
@@ -267,12 +257,8 @@ async def _get_upgradable_packages() -> list[dict]:
 
 
 @router.get("/api/system/packages/list", response_class=HTMLResponse)
-async def get_package_list(request: Request):
+async def get_package_list(current_user: dict = Depends(require_auth_api)):
     """Gibt die Liste verfuegbarer Updates als HTML-Partial zurueck."""
-    user = get_current_user(request)
-    if user is None:
-        return HTMLResponse('<div class="alert alert-danger">Nicht authentifiziert</div>', status_code=401)
-
     packages = await _get_upgradable_packages()
 
     if not packages:
@@ -303,13 +289,9 @@ async def get_package_list(request: Request):
 
 
 @router.post("/api/system/packages/check", response_class=HTMLResponse)
-async def check_package_updates(request: Request):
+async def check_package_updates(current_user: dict = Depends(require_auth_api)):
     """Fuehrt apt update aus und gibt dann die Update-Liste zurueck."""
-    user = get_current_user(request)
-    if user is None:
-        return HTMLResponse('<div class="alert alert-danger">Nicht authentifiziert</div>', status_code=401)
-
-    logger.info(f"Package-Update-Check von {user.get('username', 'Unbekannt')}")
+    logger.info(f"Package-Update-Check von {current_user.get('username', 'Unbekannt')}")
 
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -353,13 +335,9 @@ async def check_package_updates(request: Request):
 
 
 @router.post("/api/system/packages/upgrade", response_class=HTMLResponse)
-async def upgrade_packages(request: Request):
+async def upgrade_packages(current_user: dict = Depends(require_auth_api)):
     """Fuehrt apt upgrade -y aus und aktualisiert alle Pakete."""
-    user = get_current_user(request)
-    if user is None:
-        return HTMLResponse('<div class="alert alert-danger">Nicht authentifiziert</div>', status_code=401)
-
-    logger.info(f"Package-Upgrade gestartet von {user.get('username', 'Unbekannt')}")
+    logger.info(f"Package-Upgrade gestartet von {current_user.get('username', 'Unbekannt')}")
 
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -418,12 +396,8 @@ def _read_json_file(filepath: Path) -> dict | None:
 
 
 @router.get("/api/system/packages/status")
-async def package_checker_status(request: Request):
+async def package_checker_status(current_user: dict = Depends(require_auth_api)):
     """F42: Gibt den letzten Package-Check-Status zurueck (aus JSON-Bridge)."""
-    user = get_current_user(request)
-    if user is None:
-        return JSONResponse(status_code=401, content={"error": "Nicht authentifiziert"})
-
     data = _read_json_file(MONITOR_DATA_DIR / "package_checker.json")
     if data is None:
         return JSONResponse(content={"status": "unknown", "message": "Noch kein Check"})
@@ -431,12 +405,8 @@ async def package_checker_status(request: Request):
 
 
 @router.get("/api/system/packages/history")
-async def package_checker_history(request: Request):
+async def package_checker_history(current_user: dict = Depends(require_auth_api)):
     """F42: Gibt die Historie der Package-Checks aus SQLite zurueck."""
-    user = get_current_user(request)
-    if user is None:
-        return JSONResponse(status_code=401, content={"error": "Nicht authentifiziert"})
-
     try:
         db = await get_db()
         cursor = await db.execute(

@@ -5,33 +5,24 @@ Stellt die Ergebnisse der CorrelationAnalyzer-Klasse als JSON-API bereit.
 Authentifizierung erforderlich (Dashboard-Login).
 """
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
 from modules.analytics.correlation import CorrelationAnalyzer
 from utils.logger import get_logger
-from web.auth import get_current_user
+from web.auth import require_auth_api
 
 logger = get_logger("web.routes.correlation")
 
-router = APIRouter(prefix="/api/analytics", tags=["Correlation"])
-
-
-def _check_auth(request: Request) -> dict | None:
-    """
-    Prueft die Authentifizierung. Gibt den User zurueck oder None.
-
-    Args:
-        request: FastAPI Request-Objekt
-
-    Returns:
-        User-Dict oder None bei fehlender Authentifizierung
-    """
-    return get_current_user(request)
+router = APIRouter(
+    prefix="/api/analytics",
+    tags=["Correlation"],
+    dependencies=[Depends(require_auth_api)],
+)
 
 
 @router.get("/correlation")
-async def correlation_analysis(request: Request):
+async def correlation_analysis():
     """
     Vollstaendige Korrelations-Analyse aller Server-Metriken.
 
@@ -44,13 +35,6 @@ async def correlation_analysis(request: Request):
 
     Erfordert Dashboard-Authentifizierung.
     """
-    user = _check_auth(request)
-    if user is None:
-        return JSONResponse(
-            status_code=401,
-            content={"error": "Nicht authentifiziert"},
-        )
-
     try:
         analyzer = CorrelationAnalyzer()
         result = await analyzer.get_full_analysis()
@@ -66,7 +50,7 @@ async def correlation_analysis(request: Request):
 
 
 @router.get("/anomalies")
-async def current_anomalies(request: Request):
+async def current_anomalies():
     """
     Aktuelle Anomalien in RAM- und CPU-Verbrauch.
 
@@ -80,13 +64,6 @@ async def current_anomalies(request: Request):
 
     Erfordert Dashboard-Authentifizierung.
     """
-    user = _check_auth(request)
-    if user is None:
-        return JSONResponse(
-            status_code=401,
-            content={"error": "Nicht authentifiziert"},
-        )
-
     try:
         analyzer = CorrelationAnalyzer()
         anomalies = await analyzer.get_anomalies()

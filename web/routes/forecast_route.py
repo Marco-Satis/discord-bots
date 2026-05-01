@@ -8,12 +8,12 @@ Auth erforderlich (JWT-Cookie).
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
 from modules.monitoring.forecasting import ResourceForecaster
 from utils.logger import get_logger
-from web.auth import get_current_user
+from web.auth import require_auth_api
 
 logger = get_logger("web.routes.forecast")
 
@@ -21,7 +21,7 @@ router = APIRouter(prefix="/api", tags=["Forecast"])
 
 
 @router.get("/forecast")
-async def get_forecast(request: Request) -> JSONResponse:
+async def get_forecast(current_user: dict = Depends(require_auth_api)) -> JSONResponse:
     """
     Ressourcen-Prognose fuer Disk und RAM.
 
@@ -36,14 +36,6 @@ async def get_forecast(request: Request) -> JSONResponse:
         HTTP 401 bei fehlender Authentifizierung.
         HTTP 500 bei internen Fehlern.
     """
-    # Authentifizierung pruefen
-    user = get_current_user(request)
-    if user is None:
-        return JSONResponse(
-            status_code=401,
-            content={"error": "Nicht authentifiziert"},
-        )
-
     try:
         forecaster = ResourceForecaster()
         result = await forecaster.get_all_forecasts()

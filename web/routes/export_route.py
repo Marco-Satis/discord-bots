@@ -11,34 +11,26 @@ import io
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Request, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from modules.database.db_manager import get_db
 from utils.logger import get_logger
-from web.auth import get_current_user
+from web.auth import require_auth_api
 
 logger = get_logger("web.routes.export")
 
-router = APIRouter(prefix="/api/export", tags=["Export"])
+router = APIRouter(
+    prefix="/api/export",
+    tags=["Export"],
+    dependencies=[Depends(require_auth_api)],
+)
 
 # Unterstuetzte Exportzeitraeume (in Tagen)
 ALLOWED_DAYS = {7, 30, 90}
 
 
 # --- Hilfsfunktionen ---
-
-def _check_auth(request: Request) -> Optional[dict]:
-    """
-    Prueft die Authentifizierung. Gibt den User zurueck oder None.
-
-    Args:
-        request: FastAPI Request-Objekt
-
-    Returns:
-        User-Dict oder None bei fehlender Authentifizierung
-    """
-    return get_current_user(request)
 
 
 def _rows_to_csv(headers: list[str], rows: list) -> str:
@@ -119,8 +111,8 @@ def _validate_days(days: int) -> int:
 
 @router.get("/player-sessions")
 async def export_player_sessions(
-    request: Request,
     days: int = Query(default=30, description="Zeitraum in Tagen (7, 30, 90)"),
+    current_user: dict = Depends(require_auth_api),
 ):
     """
     Exportiert Spieler-Sessions als CSV.
@@ -131,10 +123,6 @@ async def export_player_sessions(
     Query-Parameter:
         days: Zeitraum zurueck in Tagen (Standard: 30)
     """
-    user = _check_auth(request)
-    if user is None:
-        return JSONResponse(status_code=401, content={"error": "Nicht authentifiziert"})
-
     days = _validate_days(days)
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
@@ -158,15 +146,15 @@ async def export_player_sessions(
 
     logger.info(
         f"CSV-Export: player_sessions ({len(rows)} Zeilen, {days} Tage) "
-        f"von {user.get('username', 'Unbekannt')}"
+        f"von {current_user.get('username', 'Unbekannt')}"
     )
     return _csv_response(csv_content, "player_sessions")
 
 
 @router.get("/events")
 async def export_events(
-    request: Request,
     days: int = Query(default=30, description="Zeitraum in Tagen (7, 30, 90)"),
+    current_user: dict = Depends(require_auth_api),
 ):
     """
     Exportiert das Ereignis-Log als CSV.
@@ -177,10 +165,6 @@ async def export_events(
     Query-Parameter:
         days: Zeitraum zurueck in Tagen (Standard: 30)
     """
-    user = _check_auth(request)
-    if user is None:
-        return JSONResponse(status_code=401, content={"error": "Nicht authentifiziert"})
-
     days = _validate_days(days)
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
@@ -201,15 +185,15 @@ async def export_events(
 
     logger.info(
         f"CSV-Export: events ({len(rows)} Zeilen, {days} Tage) "
-        f"von {user.get('username', 'Unbekannt')}"
+        f"von {current_user.get('username', 'Unbekannt')}"
     )
     return _csv_response(csv_content, "events")
 
 
 @router.get("/stats-history")
 async def export_stats_history(
-    request: Request,
     days: int = Query(default=30, description="Zeitraum in Tagen (7, 30, 90)"),
+    current_user: dict = Depends(require_auth_api),
 ):
     """
     Exportiert die System-Stats-Historie als CSV.
@@ -220,10 +204,6 @@ async def export_stats_history(
     Query-Parameter:
         days: Zeitraum zurueck in Tagen (Standard: 30)
     """
-    user = _check_auth(request)
-    if user is None:
-        return JSONResponse(status_code=401, content={"error": "Nicht authentifiziert"})
-
     days = _validate_days(days)
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
@@ -244,15 +224,15 @@ async def export_stats_history(
 
     logger.info(
         f"CSV-Export: stats_history ({len(rows)} Zeilen, {days} Tage) "
-        f"von {user.get('username', 'Unbekannt')}"
+        f"von {current_user.get('username', 'Unbekannt')}"
     )
     return _csv_response(csv_content, "stats_history")
 
 
 @router.get("/audit-log")
 async def export_audit_log(
-    request: Request,
     days: int = Query(default=30, description="Zeitraum in Tagen (7, 30, 90)"),
+    current_user: dict = Depends(require_auth_api),
 ):
     """
     Exportiert das Audit-Log als CSV.
@@ -263,10 +243,6 @@ async def export_audit_log(
     Query-Parameter:
         days: Zeitraum zurueck in Tagen (Standard: 30)
     """
-    user = _check_auth(request)
-    if user is None:
-        return JSONResponse(status_code=401, content={"error": "Nicht authentifiziert"})
-
     days = _validate_days(days)
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
@@ -287,15 +263,15 @@ async def export_audit_log(
 
     logger.info(
         f"CSV-Export: audit_log ({len(rows)} Zeilen, {days} Tage) "
-        f"von {user.get('username', 'Unbekannt')}"
+        f"von {current_user.get('username', 'Unbekannt')}"
     )
     return _csv_response(csv_content, "audit_log")
 
 
 @router.get("/command-log")
 async def export_command_log(
-    request: Request,
     days: int = Query(default=30, description="Zeitraum in Tagen (7, 30, 90)"),
+    current_user: dict = Depends(require_auth_api),
 ):
     """
     Exportiert das Command-Log als CSV.
@@ -306,10 +282,6 @@ async def export_command_log(
     Query-Parameter:
         days: Zeitraum zurueck in Tagen (Standard: 30)
     """
-    user = _check_auth(request)
-    if user is None:
-        return JSONResponse(status_code=401, content={"error": "Nicht authentifiziert"})
-
     days = _validate_days(days)
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
@@ -330,6 +302,6 @@ async def export_command_log(
 
     logger.info(
         f"CSV-Export: command_log ({len(rows)} Zeilen, {days} Tage) "
-        f"von {user.get('username', 'Unbekannt')}"
+        f"von {current_user.get('username', 'Unbekannt')}"
     )
     return _csv_response(csv_content, "command_log")

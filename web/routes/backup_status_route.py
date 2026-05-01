@@ -8,12 +8,12 @@ und Upload-Historie zurueckgibt. Auth erforderlich.
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
 from utils.logger import get_logger
 from modules.backup.onedrive_status import OnedriveStatus
-from web.auth import get_current_user
+from web.auth import require_auth_api
 
 logger = get_logger("web.routes.backup_status")
 
@@ -24,7 +24,7 @@ _status_collector = OnedriveStatus()
 
 
 @router.get("/cloud-status")
-async def cloud_backup_status(request: Request) -> JSONResponse:
+async def cloud_backup_status(current_user: dict = Depends(require_auth_api)) -> JSONResponse:
     """
     Gibt den aktuellen Cloud-Backup-Status als JSON zurueck.
 
@@ -35,13 +35,6 @@ async def cloud_backup_status(request: Request) -> JSONResponse:
         JSON mit Keys: last_upload, overdue, recent_uploads,
         storage, upload_count_7d, timestamp
     """
-    user = get_current_user(request)
-    if user is None:
-        return JSONResponse(
-            status_code=401,
-            content={"error": "Nicht authentifiziert"},
-        )
-
     try:
         summary = await _status_collector.get_status_summary()
 
@@ -50,7 +43,7 @@ async def cloud_backup_status(request: Request) -> JSONResponse:
 
         logger.debug(
             "Cloud-Status abgerufen von %s",
-            user.get("username", "Unbekannt"),
+            current_user.get("username", "Unbekannt"),
         )
 
         return JSONResponse(content=summary, status_code=200)

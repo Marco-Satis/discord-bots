@@ -1,8 +1,8 @@
 """
 Phase 13a/13g: Konfigurations-Panel — Bearbeitung der config.json
 
-Ermoeglicht das Anzeigen und Aendern der Bot-Konfiguration
-ueber das Web-Dashboard. Nur fuer Owner zugaenglich.
+Ermöglicht das Anzeigen und Ändern der Bot-Konfiguration
+über das Web-Dashboard. Nur für Owner zugänglich.
 
 Phase 13g erweitert:
   - Benachrichtigungs-Routing (Notification Matrix)
@@ -12,20 +12,20 @@ Phase 13g erweitert:
 
 from pathlib import Path
 
-from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from utils.config import get_config, save_config
 from utils.logger import get_logger
-from web.auth import get_current_user
+from web.auth import require_auth
 
 logger = get_logger("web.routes.config")
 
 TEMPLATE_DIR = Path(__file__).parent.parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 
-router = APIRouter(tags=["Konfiguration"])
+router = APIRouter(tags=["Konfiguration"], dependencies=[Depends(require_auth)])
 
 # --- Standard-Benachrichtigungs-Routing ---
 DEFAULT_NOTIFICATION_ROUTING = {
@@ -47,14 +47,14 @@ DEFAULT_NOTIFICATION_ROUTING = {
 # --- Standard-Bot-Profile ---
 DEFAULT_BOT_PROFILES = {
     "gameserver": {"display_name": "GameServer Bot", "status": "Verwaltet Server", "avatar_url": ""},
-    "monitor": {"display_name": "Monitor Bot", "status": "Ueberwacht alles", "avatar_url": ""},
+    "monitor": {"display_name": "Monitor Bot", "status": "Überwacht alles", "avatar_url": ""},
     "admin": {"display_name": "Admin Bot", "status": "Community Management", "avatar_url": ""},
 }
 
-# --- Erlaubte Kanal-Werte fuer Benachrichtigungen ---
+# --- Erlaubte Kanal-Werte für Benachrichtigungen ---
 ALLOWED_CHANNELS = ["admin", "spieler", "log", "mod", "aus"]
 
-# --- Kategorien fuer Benachrichtigungs-Ereignisse (fuer Gruppierung) ---
+# --- Kategorien für Benachrichtigungs-Ereignisse (für Gruppierung) ---
 NOTIFICATION_CATEGORIES = {
     "Server": ["server_start", "server_stop", "server_crash"],
     "Backups": ["backup_success", "backup_failed"],
@@ -78,42 +78,30 @@ NOTIFICATION_LABELS = {
     "mod_ban": "Moderation: Bann",
     "cpu_warning": "CPU-Warnung",
     "disk_warning": "Speicherplatz-Warnung",
-    "update_available": "Update verfuegbar",
-    "config_change": "Konfigurationsaenderung",
+    "update_available": "Update verfügbar",
+    "config_change": "Konfigurationsänderung",
 }
 
 
 def _is_owner(user: dict) -> bool:
-    """Prueft ob der Benutzer Owner-Rechte hat."""
+    """Prüft ob der Benutzer Owner-Rechte hat."""
     return user.get("is_owner") in (True, "True", "true")
 
 
 @router.get("/config", response_class=HTMLResponse)
-async def config_page(request: Request):
+async def config_page(request: Request, current_user: dict = Depends(require_auth)):
     """
     Zeigt die aktuelle Konfiguration in einem bearbeitbaren Formular.
-    Nur fuer Owner zugaenglich.
+    Nur für Owner zugänglich.
     """
-    user = get_current_user(request)
-    if user is None:
-        return RedirectResponse(url="/auth/login", status_code=302)
-
-    if not _is_owner(user):
-        return templates.TemplateResponse("dashboard.html", {
-            "request": request,
-            "user": user,
-            "servers": [],
-            "system": {},
-            "bots": [],
-            "events": [],
-            "error": "Nur der Owner darf die Konfiguration aendern.",
-        })
+    if not _is_owner(current_user):
+        raise HTTPException(403, "Nur der Owner darf die Konfiguration aendern")
 
     config = get_config()
 
     return templates.TemplateResponse("config.html", {
         "request": request,
-        "user": user,
+        "user": current_user,
         "config": config,
         "success": "",
         "error": "",
@@ -121,18 +109,15 @@ async def config_page(request: Request):
 
 
 @router.post("/config", response_class=HTMLResponse)
-async def config_save(request: Request):
+async def config_save(request: Request, current_user: dict = Depends(require_auth)):
     """
     Speichert die geaenderte Konfiguration.
     Liest alle Formularfelder und aktualisiert config.json.
     """
-    user = get_current_user(request)
-    if user is None:
-        return RedirectResponse(url="/auth/login", status_code=302)
+    if not _is_owner(current_user):
+        raise HTTPException(403, "Nur der Owner darf die Konfiguration aendern")
 
-    if not _is_owner(user):
-        return RedirectResponse(url="/", status_code=302)
-
+    user = current_user  # Alias fuer Backward-Compatibility im Body
     try:
         form = await request.form()
         config = get_config()
@@ -252,21 +237,17 @@ async def config_save(request: Request):
 # ==============================================================
 
 @router.get("/config/notifications", response_class=HTMLResponse)
-async def notifications_page(request: Request):
+async def notifications_page(request: Request, current_user: dict = Depends(require_auth)):
     """Benachrichtigungs-Routing Matrix — zeigt alle Event-Typen mit Kanal- und E-Mail-Zuordnung."""
-    user = get_current_user(request)
-    if user is None:
-        return RedirectResponse(url="/auth/login", status_code=302)
-
-    if not _is_owner(user):
-        return RedirectResponse(url="/", status_code=302)
+    if not _is_owner(current_user):
+        raise HTTPException(403, "Nur der Owner darf das Benachrichtigungs-Routing aendern")
 
     config = get_config()
     routing = config.get("notification_routing", DEFAULT_NOTIFICATION_ROUTING)
 
     return templates.TemplateResponse("partials/config_notifications.html", {
         "request": request,
-        "user": user,
+        "user": current_user,
         "routing": routing,
         "categories": NOTIFICATION_CATEGORIES,
         "labels": NOTIFICATION_LABELS,
@@ -277,15 +258,12 @@ async def notifications_page(request: Request):
 
 
 @router.post("/config/notifications", response_class=HTMLResponse)
-async def save_notifications(request: Request):
+async def save_notifications(request: Request, current_user: dict = Depends(require_auth)):
     """Speichert Benachrichtigungs-Routing in config.json."""
-    user = get_current_user(request)
-    if user is None:
-        return RedirectResponse(url="/auth/login", status_code=302)
+    if not _is_owner(current_user):
+        raise HTTPException(403, "Nur der Owner darf das Benachrichtigungs-Routing aendern")
 
-    if not _is_owner(user):
-        return RedirectResponse(url="/", status_code=302)
-
+    user = current_user
     try:
         form = await request.form()
         config = get_config()
@@ -340,14 +318,10 @@ async def save_notifications(request: Request):
 # ==============================================================
 
 @router.get("/config/login", response_class=HTMLResponse)
-async def login_management(request: Request):
+async def login_management(request: Request, current_user: dict = Depends(require_auth)):
     """Dashboard-Login-Verwaltung — Berechtigte Rollen und Benutzer anzeigen."""
-    user = get_current_user(request)
-    if user is None:
-        return RedirectResponse(url="/auth/login", status_code=302)
-
-    if not _is_owner(user):
-        return RedirectResponse(url="/", status_code=302)
+    if not _is_owner(current_user):
+        raise HTTPException(403, "Nur der Owner darf die Login-Verwaltung anpassen")
 
     config = get_config()
     allowed_roles = config.get("web_allowed_role_ids", [])
@@ -355,7 +329,7 @@ async def login_management(request: Request):
 
     return templates.TemplateResponse("partials/config_login.html", {
         "request": request,
-        "user": user,
+        "user": current_user,
         "allowed_roles": allowed_roles,
         "allowed_users": allowed_users,
         "success": "",
@@ -364,15 +338,12 @@ async def login_management(request: Request):
 
 
 @router.post("/config/login", response_class=HTMLResponse)
-async def save_login_settings(request: Request):
+async def save_login_settings(request: Request, current_user: dict = Depends(require_auth)):
     """Speichert Login-Einstellungen (berechtigte Rollen- und Benutzer-IDs)."""
-    user = get_current_user(request)
-    if user is None:
-        return RedirectResponse(url="/auth/login", status_code=302)
+    if not _is_owner(current_user):
+        raise HTTPException(403, "Nur der Owner darf die Login-Verwaltung anpassen")
 
-    if not _is_owner(user):
-        return RedirectResponse(url="/", status_code=302)
-
+    user = current_user
     try:
         form = await request.form()
         config = get_config()
@@ -423,21 +394,17 @@ async def save_login_settings(request: Request):
 # ==============================================================
 
 @router.get("/config/bot-profiles", response_class=HTMLResponse)
-async def bot_profiles(request: Request):
+async def bot_profiles(request: Request, current_user: dict = Depends(require_auth)):
     """Bot-Profile verwalten (Namen, Avatare, Status)."""
-    user = get_current_user(request)
-    if user is None:
-        return RedirectResponse(url="/auth/login", status_code=302)
-
-    if not _is_owner(user):
-        return RedirectResponse(url="/", status_code=302)
+    if not _is_owner(current_user):
+        raise HTTPException(403, "Nur der Owner darf Bot-Profile anpassen")
 
     config = get_config()
     profiles = config.get("bot_profiles", DEFAULT_BOT_PROFILES)
 
     return templates.TemplateResponse("partials/config_bot_profiles.html", {
         "request": request,
-        "user": user,
+        "user": current_user,
         "profiles": profiles,
         "success": "",
         "error": "",
@@ -445,15 +412,12 @@ async def bot_profiles(request: Request):
 
 
 @router.post("/config/bot-profiles", response_class=HTMLResponse)
-async def save_bot_profiles(request: Request):
+async def save_bot_profiles(request: Request, current_user: dict = Depends(require_auth)):
     """Speichert Bot-Profile (Anzeigename, Status, Avatar-URL)."""
-    user = get_current_user(request)
-    if user is None:
-        return RedirectResponse(url="/auth/login", status_code=302)
+    if not _is_owner(current_user):
+        raise HTTPException(403, "Nur der Owner darf Bot-Profile anpassen")
 
-    if not _is_owner(user):
-        return RedirectResponse(url="/", status_code=302)
-
+    user = current_user
     try:
         form = await request.form()
         config = get_config()

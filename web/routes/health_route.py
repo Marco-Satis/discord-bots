@@ -4,6 +4,11 @@ F34: Health Route — Oeffentlicher Health-Check Endpunkt.
 Stellt GET /api/health und GET /api/health/selftest bereit.
 Kein Auth erforderlich (Rate-Limiting kommt in spaeterer Phase).
 Liest Status-JSON-Dateien aus data/monitor/ und data/gameserver/.
+
+NOTE (3.4 Refactor 2026-05-01 evening): KEIN Depends(require_auth) — alle
+Health-Endpunkte sind bewusst PUBLIC (allow_anon) fuer externe Monitoring-
+Systeme (Uptime Robot, Healthcheck.io etc.). Geben nur Status-Daten aus,
+keine Writes. Rate-Limiting + IP-Allowlist in Plan v1.3 / v1.4.
 """
 
 import json
@@ -21,6 +26,7 @@ from utils.config import MONITOR_DATA_DIR, GAMESERVER_DATA_DIR, ADMIN_DATA_DIR
 logger = get_logger("web.routes.health")
 
 router = APIRouter(tags=["Health"])
+# allow_anon: bewusst public — Monitoring-Endpunkte fuer externe Health-Checks
 
 # Bekannte Server-Status-Dateien die geprueft werden
 SERVER_STATUS_FILES: list[dict] = [

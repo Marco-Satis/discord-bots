@@ -8,13 +8,13 @@ Konvertiert Markdown zu HTML mit einfachem Regex-Konverter
 import re
 from pathlib import Path
 
-from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from utils.config import PROJECT_ROOT
 from utils.logger import get_logger
-from web.auth import get_current_user
+from web.auth import require_auth
 
 logger = get_logger("web.routes.changelog")
 
@@ -113,18 +113,14 @@ def _extract_version(md_text: str) -> str:
 
 
 @router.get("/changelog", response_class=HTMLResponse)
-async def changelog_page(request: Request):
+async def changelog_page(request: Request, current_user: dict = Depends(require_auth)):
     """
     Zeigt die Changelog-Seite mit dem gerenderten Inhalt von CHANGELOG.md.
 
     Liest die Datei, konvertiert Markdown zu HTML und zeigt
     die aktuelle Version als Badge an.
     """
-    # Authentifizierung pruefen
-    user = get_current_user(request)
-    if user is None:
-        return RedirectResponse(url="/auth/login", status_code=302)
-
+    user = current_user
     # Changelog-Datei lesen
     if CHANGELOG_PATH.exists():
         try:

@@ -10,11 +10,11 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 
 from utils.logger import get_logger
-from web.auth import get_current_user
+from web.auth import require_auth_api
 
 logger = get_logger("web.routes.config_reload")
 
@@ -27,7 +27,7 @@ def _is_owner(user: dict) -> bool:
 
 
 @router.post("/api/config/reload")
-async def force_config_reload(request: Request) -> JSONResponse:
+async def force_config_reload(current_user: dict = Depends(require_auth_api)) -> JSONResponse:
     """
     Erzwingt einen sofortigen Config-Reload.
 
@@ -37,23 +37,13 @@ async def force_config_reload(request: Request) -> JSONResponse:
     Returns:
         JSON mit Status, ausgefuehrten Callbacks und Zeitstempel.
     """
-    # --- Authentifizierung pruefen ---
-    user = get_current_user(request)
-    if user is None:
-        return JSONResponse(
-            content={"error": "Nicht authentifiziert"},
-            status_code=401,
-        )
-
+    user = current_user
     if not _is_owner(user):
         logger.warning(
             "Config-Reload verweigert fuer Benutzer '%s' — keine Owner-Rechte",
             user.get("username", "Unbekannt"),
         )
-        return JSONResponse(
-            content={"error": "Nur der Owner darf einen Config-Reload ausloesen"},
-            status_code=403,
-        )
+        raise HTTPException(403, "Nur der Owner darf einen Config-Reload ausloesen")
 
     # --- ConfigReloader-Instanz holen ---
     try:
@@ -122,7 +112,7 @@ async def force_config_reload(request: Request) -> JSONResponse:
 
 
 @router.get("/api/config/reload/status")
-async def reload_status(request: Request) -> JSONResponse:
+async def reload_status(current_user: dict = Depends(require_auth_api)) -> JSONResponse:
     """
     Gibt den Status des ConfigReloaders zurueck.
 
@@ -132,14 +122,6 @@ async def reload_status(request: Request) -> JSONResponse:
     Returns:
         JSON mit Reloader-Status.
     """
-    # --- Authentifizierung pruefen ---
-    user = get_current_user(request)
-    if user is None:
-        return JSONResponse(
-            content={"error": "Nicht authentifiziert"},
-            status_code=401,
-        )
-
     # --- ConfigReloader-Instanz holen ---
     try:
         from modules.config_reloader import get_reloader

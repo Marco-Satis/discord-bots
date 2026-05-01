@@ -7,12 +7,12 @@ POST /api/search/reindex (Admin: Index neu aufbauen) bereit.
 
 from pathlib import Path
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
 from utils.logger import get_logger
-from web.auth import get_current_user
+from web.auth import require_auth, require_auth_api
 from modules.database.search_indexer import SearchIndexer
 
 logger = get_logger("web.routes.search")
@@ -37,13 +37,8 @@ SOURCE_LABELS = {
 
 
 @router.get("/search", response_class=HTMLResponse)
-async def search_page(request: Request, q: str = ""):
+async def search_page(request: Request, q: str = "", current_user: dict = Depends(require_auth)):
     """F55: Suchseite mit Ergebnissen."""
-    user = get_current_user(request)
-    if user is None:
-        from fastapi.responses import RedirectResponse
-        return RedirectResponse(url="/auth/login", status_code=303)
-
     results = []
     grouped = {}
     total = 0
@@ -71,7 +66,7 @@ async def search_page(request: Request, q: str = ""):
 
     return templates.TemplateResponse("search.html", {
         "request": request,
-        "user": user,
+        "user": current_user,
         "query": q,
         "results": results,
         "grouped": grouped,
@@ -81,12 +76,13 @@ async def search_page(request: Request, q: str = ""):
 
 
 @router.get("/api/search")
-async def api_search(request: Request, q: str = "", source: str = "", limit: int = 50):
+async def api_search(
+    q: str = "",
+    source: str = "",
+    limit: int = 50,
+    current_user: dict = Depends(require_auth_api),
+):
     """F55: JSON-API fuer die Volltextsuche."""
-    user = get_current_user(request)
-    if user is None:
-        return JSONResponse(content={"error": "Nicht angemeldet"}, status_code=401)
-
     if not q.strip():
         return JSONResponse(content={"results": [], "total": 0, "query": ""})
 
@@ -105,30 +101,22 @@ async def api_search(request: Request, q: str = "", source: str = "", limit: int
 
 
 @router.post("/api/search/reindex")
-async def api_reindex(request: Request):
+async def api_reindex(current_user: dict = Depends(require_auth_api)):
     """F55: Admin — Index komplett neu aufbauen."""
-    user = get_current_user(request)
-    if user is None:
-        return JSONResponse(content={"error": "Nicht angemeldet"}, status_code=401)
-
     result = await _indexer.full_reindex()
 
     if "error" in result:
         return JSONResponse(content=result, status_code=500)
 
     logger.info(
-        f"Reindex durch {user.get('username', '?')}: "
+        f"Reindex durch {current_user.get('username', '?')}: "
         f"{result.get('indexed_total', 0)} Eintraege"
     )
     return JSONResponse(content=result)
 
 
 @router.get("/api/search/stats")
-async def api_search_stats(request: Request):
+async def api_search_stats(current_user: dict = Depends(require_auth_api)):
     """F55: Index-Statistiken."""
-    user = get_current_user(request)
-    if user is None:
-        return JSONResponse(content={"error": "Nicht angemeldet"}, status_code=401)
-
     stats = _indexer.get_stats()
     return JSONResponse(content=stats)

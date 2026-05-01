@@ -8,13 +8,13 @@ aktuelle Ereignisse in einer Kacheluebersicht an.
 import json
 from pathlib import Path
 
-from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from utils.config import PROJECT_ROOT, DATA_DIR, MONITOR_DATA_DIR
 from utils.logger import get_logger
-from web.auth import get_current_user
+from web.auth import require_auth, require_auth_api
 from modules.database.db_manager import get_db
 
 EVENTS_FILE = MONITOR_DATA_DIR / "events.json"
@@ -183,15 +183,11 @@ async def _collect_recent_events_db() -> list[dict]:
 
 
 @router.get("/", response_class=HTMLResponse)
-async def dashboard_overview(request: Request):
+async def dashboard_overview(request: Request, current_user: dict = Depends(require_auth)):
     """
     Hauptseite des Dashboards mit Uebersicht aller Server,
     Bots und System-Performance.
     """
-    user = get_current_user(request)
-    if user is None:
-        return RedirectResponse(url="/auth/login", status_code=302)
-
     servers = _collect_server_status()
     system_stats = _collect_system_stats()
     bot_status = _collect_bot_status()
@@ -199,7 +195,7 @@ async def dashboard_overview(request: Request):
 
     return templates.TemplateResponse("dashboard.html", {
         "request": request,
-        "user": user,
+        "user": current_user,
         "servers": servers,
         "system": system_stats,
         "bots": bot_status,
@@ -208,12 +204,9 @@ async def dashboard_overview(request: Request):
 
 
 @router.post("/api/events/clear", response_class=HTMLResponse)
-async def clear_events(request: Request):
+async def clear_events(current_user: dict = Depends(require_auth_api)):
     """Loescht alle Ereignisse aus dem Event-Log."""
-    user = get_current_user(request)
-    if user is None:
-        return HTMLResponse('<div class="alert alert-danger">Nicht authentifiziert</div>', status_code=401)
-
+    user = current_user
     try:
         # SQLite: Alle Events loeschen
         try:

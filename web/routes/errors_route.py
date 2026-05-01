@@ -8,13 +8,13 @@ und stellt sie in einer filterbaren Tabelle dar.
 import re
 from pathlib import Path
 
-from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from utils.config import LOG_DIR
 from utils.logger import get_logger
-from web.auth import get_current_user
+from web.auth import require_auth, require_auth_api
 
 logger = get_logger("web.routes.errors")
 
@@ -100,15 +100,11 @@ def _collect_all_errors(level_filter: str = "") -> list[dict]:
 
 
 @router.get("/errors", response_class=HTMLResponse)
-async def errors_page(request: Request, level: str = ""):
+async def errors_page(request: Request, level: str = "", current_user: dict = Depends(require_auth)):
     """
     Fehler-Uebersicht mit optionalem Level-Filter.
     Unterstuetzt HTMX-Fragment-Anfragen fuer Auto-Refresh.
     """
-    user = get_current_user(request)
-    if user is None:
-        return RedirectResponse(url="/auth/login", status_code=302)
-
     entries = _collect_all_errors(level_filter=level.upper() if level else "")
 
     # Pruefen ob es ein HTMX-Request ist (nur Tabellen-Fragment zurueckgeben)
@@ -116,7 +112,7 @@ async def errors_page(request: Request, level: str = ""):
 
     return templates.TemplateResponse("errors.html", {
         "request": request,
-        "user": user,
+        "user": current_user,
         "entries": entries,
         "active_filter": level.upper() if level else "ALL",
         "is_htmx": is_htmx,
@@ -124,15 +120,12 @@ async def errors_page(request: Request, level: str = ""):
 
 
 @router.post("/api/errors/clear")
-async def clear_error_logs(request: Request):
+async def clear_error_logs(current_user: dict = Depends(require_auth_api)):
     """
     Leert alle Log-Dateien (truncate), um alte Fehler-Eintraege zu entfernen.
     Neue Fehler werden ab sofort wieder geloggt.
     """
-    user = get_current_user(request)
-    if user is None:
-        return RedirectResponse(url="/auth/login", status_code=302)
-
+    user = current_user
     cleared = 0
     errors_count = 0
 

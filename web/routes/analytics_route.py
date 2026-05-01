@@ -11,16 +11,20 @@ import json
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Request, Query
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import JSONResponse
 
 from modules.database.db_manager import get_db
 from utils.logger import get_logger
-from web.auth import get_current_user
+from web.auth import require_auth_api
 
 logger = get_logger(__name__)
 
-router = APIRouter(prefix="/api/analytics", tags=["Analytics"])
+router = APIRouter(
+    prefix="/api/analytics",
+    tags=["Analytics"],
+    dependencies=[Depends(require_auth_api)],
+)
 
 # Unterstuetzte Zeitraeume und ihre Dauer in Stunden
 PERIOD_HOURS = {
@@ -141,24 +145,10 @@ def _downsample(entries: list[dict], max_points: int = 200) -> list[dict]:
     return [entries[i] for i in indices]
 
 
-def _check_auth(request: Request) -> Optional[dict]:
-    """
-    Prueft die Authentifizierung. Gibt den User zurueck oder None.
-
-    Args:
-        request: FastAPI Request-Objekt
-
-    Returns:
-        User-Dict oder None bei fehlender Authentifizierung
-    """
-    return get_current_user(request)
-
-
 @router.get("/system")
 async def analytics_system(
-    request: Request,
     period: str = Query(default="24h", pattern="^(24h|7d|30d)$"),
-):
+    ):
     """
     System-Stats-Historie (CPU, RAM, Disk ueber Zeit).
 
@@ -167,13 +157,6 @@ async def analytics_system(
     Query-Parameter:
         period: Zeitraum — '24h', '7d' oder '30d'
     """
-    user = _check_auth(request)
-    if user is None:
-        return JSONResponse(
-            status_code=401,
-            content={"error": "Nicht authentifiziert"}
-        )
-
     entries = await _load_stats_from_db(period)
     entries = _downsample(entries)
 
@@ -206,7 +189,7 @@ async def analytics_server(
     request: Request,
     server_id: str,
     period: str = Query(default="24h", pattern="^(24h|7d|30d)$"),
-):
+    ):
     """
     Server-spezifische Stats (Spieler, Status, Performance).
 
@@ -218,13 +201,6 @@ async def analytics_server(
     Query-Parameter:
         period: Zeitraum — '24h', '7d' oder '30d'
     """
-    user = _check_auth(request)
-    if user is None:
-        return JSONResponse(
-            status_code=401,
-            content={"error": "Nicht authentifiziert"}
-        )
-
     entries = await _load_stats_from_db(period)
     entries = _downsample(entries)
 
@@ -274,7 +250,7 @@ async def analytics_server(
 async def analytics_players(
     request: Request,
     period: str = Query(default="24h", pattern="^(24h|7d|30d)$"),
-):
+    ):
     """
     Spieleranzahl ueber alle Server ueber Zeit.
 
@@ -283,13 +259,6 @@ async def analytics_players(
     Query-Parameter:
         period: Zeitraum — '24h', '7d' oder '30d'
     """
-    user = _check_auth(request)
-    if user is None:
-        return JSONResponse(
-            status_code=401,
-            content={"error": "Nicht authentifiziert"}
-        )
-
     entries = await _load_stats_from_db(period)
     entries = _downsample(entries)
 
@@ -354,13 +323,6 @@ async def analytics_summary(request: Request):
 
     Berechnet Kennzahlen ueber die letzten 24 Stunden.
     """
-    user = _check_auth(request)
-    if user is None:
-        return JSONResponse(
-            status_code=401,
-            content={"error": "Nicht authentifiziert"}
-        )
-
     entries_24h = await _load_stats_from_db("24h")
     entries_7d = await _load_stats_from_db("7d")
 
@@ -440,9 +402,9 @@ async def analytics_summary(request: Request):
     return JSONResponse(content=summary)
 
 
-# ---------------------------------------------------------------------------
-# F57: Erweiterte Dashboard-Analytics — komplexe SQL-basierte Auswertungen
-# ---------------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
+    # F57: Erweiterte Dashboard-Analytics — komplexe SQL-basierte Auswertungen
+    # ---------------------------------------------------------------------------
 
 
 def _parse_timestamp(ts_str: str) -> Optional[datetime]:
@@ -496,13 +458,6 @@ async def analytics_heatmap(request: Request):
     Returns:
         JSON mit 'heatmap' (7x24 Matrix), 'max_value' (hoechster Durchschnitt)
     """
-    user = _check_auth(request)
-    if user is None:
-        return JSONResponse(
-            status_code=401,
-            content={"error": "Nicht authentifiziert"}
-        )
-
     try:
         db = await get_db()
         cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
@@ -572,13 +527,6 @@ async def analytics_peaks(request: Request):
         JSON mit 'peaks' — Liste der 10 Zeitpunkte mit hoechster Spielerzahl,
         jeweils mit Timestamp, Gesamt-Spielerzahl und Server-Aufschluesselung
     """
-    user = _check_auth(request)
-    if user is None:
-        return JSONResponse(
-            status_code=401,
-            content={"error": "Nicht authentifiziert"}
-        )
-
     try:
         db = await get_db()
         cursor = await db.execute(
@@ -635,13 +583,6 @@ async def analytics_trends(request: Request):
     Returns:
         JSON mit 'this_week', 'last_week' und 'changes' (prozentuale Aenderung)
     """
-    user = _check_auth(request)
-    if user is None:
-        return JSONResponse(
-            status_code=401,
-            content={"error": "Nicht authentifiziert"}
-        )
-
     now = datetime.now(timezone.utc)
 
     # Zeitraum-Grenzen berechnen: diese Woche (letzte 7 Tage) und letzte Woche (7-14 Tage)
@@ -784,13 +725,6 @@ async def analytics_server_comparison(request: Request):
     Returns:
         JSON mit 'servers' — Liste aller Server mit Vergleichs-Metriken
     """
-    user = _check_auth(request)
-    if user is None:
-        return JSONResponse(
-            status_code=401,
-            content={"error": "Nicht authentifiziert"}
-        )
-
     try:
         db = await get_db()
         cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()

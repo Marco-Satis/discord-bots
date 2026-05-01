@@ -11,13 +11,13 @@ import json
 from pathlib import Path
 from datetime import datetime
 
-from fastapi import APIRouter, Request, Form
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Depends, Request, Form
+from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from utils.config import PROJECT_ROOT, DATA_DIR, MONITOR_DATA_DIR, get_config, get_env
 from utils.logger import get_logger
-from web.auth import get_current_user
+from web.auth import require_auth, require_auth_api
 from modules.minecraft.rcon import MinecraftRCON
 from modules.database.db_manager import get_db
 # SatisfactoryAPI: KickPlayer funktioniert nicht ueber die API,
@@ -63,7 +63,7 @@ SERVICE_NAMES = {
 
 
 def _load_json_safe(filepath: Path) -> dict:
-    """Laedt eine JSON-Datei sicher. Gibt leeres Dict bei Fehler zurueck."""
+    """Lädt eine JSON-Datei sicher. Gibt leeres Dict bei Fehler zurück."""
     try:
         if filepath.exists():
             with open(filepath, "r", encoding="utf-8") as f:
@@ -74,21 +74,21 @@ def _load_json_safe(filepath: Path) -> dict:
 
 
 def _get_server_display_name(server_id: str) -> str:
-    """Gibt den Anzeigenamen fuer eine Server-ID zurueck."""
+    """Gibt den Anzeigenamen für eine Server-ID zurück."""
     return VALID_SERVER_IDS.get(server_id, server_id)
 
 
 def _get_server_type(server_id: str) -> str:
-    """Gibt den Server-Typ zurueck (minecraft, satisfactory, teamspeak)."""
+    """Gibt den Server-Typ zurück (minecraft, satisfactory, teamspeak)."""
     return SERVER_TYPES.get(server_id, "unknown")
 
 
 def _list_backups(server_id: str) -> list[dict]:
     """
-    Listet Backup-Dateien fuer einen Server mit Metadaten auf.
+    Listet Backup-Dateien für einen Server mit Metadaten auf.
 
     Durchsucht das Verzeichnis data/backups/{server_id}/ nach Dateien
-    und gibt eine Liste mit Name, Groesse und Datum zurueck.
+    und gibt eine Liste mit Name, Größe und Datum zurück.
     """
     backups = []
     backup_dir = BACKUP_DIRS.get(server_id, DATA_DIR / "backups" / server_id)
@@ -129,10 +129,10 @@ def _list_backups(server_id: str) -> list[dict]:
 
 def _get_server_info(server_id: str) -> dict:
     """
-    Sammelt alle verfuegbaren Informationen zu einem Server.
+    Sammelt alle verfügbaren Informationen zu einem Server.
 
     Liest Status- und Spielerdaten aus den Monitor-JSON-Dateien,
-    listet Backups auf und fuegt Konfigurationsdaten hinzu.
+    listet Backups auf und fügt Konfigurationsdaten hinzu.
     """
     display_name = _get_server_display_name(server_id)
     server_type = _get_server_type(server_id)
@@ -280,42 +280,35 @@ def _get_server_info(server_id: str) -> dict:
 
 
 @router.get("/server/{server_id}", response_class=HTMLResponse)
-async def server_detail_page(request: Request, server_id: str):
+async def server_detail_page(request: Request, server_id: str, current_user: dict = Depends(require_auth)):
     """
     Hauptseite der Server-Detailansicht.
 
     Zeigt alle Informationen zu einem bestimmten Game-Server an,
     inklusive Tabs fuer Spieler, Backups, RCON, World-Info und Config.
     """
-    user = get_current_user(request)
-    if user is None:
-        return RedirectResponse(url="/auth/login", status_code=302)
-
     # Ungueltige Server-ID abfangen
     if server_id not in VALID_SERVER_IDS:
         logger.warning(f"Unbekannte Server-ID angefragt: {server_id}")
+        from fastapi.responses import RedirectResponse
         return RedirectResponse(url="/", status_code=302)
 
     server = _get_server_info(server_id)
 
     return templates.TemplateResponse("server_detail.html", {
         "request": request,
-        "user": user,
+        "user": current_user,
         "server": server,
     })
 
 
 @router.get("/api/server/{server_id}/players", response_class=HTMLResponse)
-async def server_players_partial(request: Request, server_id: str):
+async def server_players_partial(request: Request, server_id: str, current_user: dict = Depends(require_auth_api)):
     """
     HTMX-Partial: Gibt die aktuelle Spielerliste als HTML-Fragment zurueck.
 
     Wird automatisch alle 10 Sekunden per hx-trigger aktualisiert.
     """
-    user = get_current_user(request)
-    if user is None:
-        return HTMLResponse(content="<p>Nicht angemeldet</p>", status_code=401)
-
     if server_id not in VALID_SERVER_IDS:
         return HTMLResponse(content="<p>Unbekannter Server</p>", status_code=404)
 
@@ -332,14 +325,10 @@ async def server_players_partial(request: Request, server_id: str):
 
 
 @router.get("/api/server/{server_id}/backups", response_class=HTMLResponse)
-async def server_backups_partial(request: Request, server_id: str):
+async def server_backups_partial(request: Request, server_id: str, current_user: dict = Depends(require_auth_api)):
     """
     HTMX-Partial: Gibt die Backup-Liste als HTML-Fragment zurueck.
     """
-    user = get_current_user(request)
-    if user is None:
-        return HTMLResponse(content="<p>Nicht angemeldet</p>", status_code=401)
-
     if server_id not in VALID_SERVER_IDS:
         return HTMLResponse(content="<p>Unbekannter Server</p>", status_code=404)
 
@@ -353,17 +342,14 @@ async def server_backups_partial(request: Request, server_id: str):
 
 
 @router.post("/api/server/{server_id}/action", response_class=HTMLResponse)
-async def server_action(request: Request, server_id: str):
+async def server_action(request: Request, server_id: str, current_user: dict = Depends(require_auth_api)):
     """
     Server-Steuerung: Start, Stop, Restart, Kick, Ban.
 
     Liest action und target aus Form-Daten (HTMX hx-vals).
     Gibt eine Statusmeldung als HTMX-Fragment zurueck.
     """
-    user = get_current_user(request)
-    if user is None:
-        return HTMLResponse(content="<p>Nicht angemeldet</p>", status_code=401)
-
+    user = current_user
     if server_id not in VALID_SERVER_IDS:
         return HTMLResponse(content="<p>Unbekannter Server</p>", status_code=404)
 
@@ -653,17 +639,13 @@ async def server_action(request: Request, server_id: str):
 
 
 @router.get("/api/server/{server_id}/mods", response_class=HTMLResponse)
-async def server_mods_partial(request: Request, server_id: str):
+async def server_mods_partial(request: Request, server_id: str, current_user: dict = Depends(require_auth_api)):
     """
     HTMX-Partial: Gibt die Mod-Liste als HTML-Fragment zurueck.
 
     Liest die installierte Mod-Liste aus der jeweiligen JSON-Datei
     des ModManagers und stellt sie als Tabelle dar.
     """
-    user = get_current_user(request)
-    if user is None:
-        return HTMLResponse(content="<p>Nicht angemeldet</p>", status_code=401)
-
     if server_id not in VALID_SERVER_IDS:
         return HTMLResponse(content="<p>Unbekannter Server</p>", status_code=404)
 
@@ -696,15 +678,11 @@ async def server_mods_partial(request: Request, server_id: str):
 
 
 @router.get("/api/server/{server_id}/mods/export")
-async def server_mods_export(request: Request, server_id: str):
+async def server_mods_export(request: Request, server_id: str, current_user: dict = Depends(require_auth_api)):
     """
     Exportiert die installierte Mod-Liste als JSON-Download.
     """
     from fastapi.responses import JSONResponse
-
-    user = get_current_user(request)
-    if user is None:
-        return JSONResponse(content={"error": "Nicht angemeldet"}, status_code=401)
 
     if server_id not in VALID_SERVER_IDS:
         return JSONResponse(content={"error": "Unbekannter Server"}, status_code=404)
@@ -732,7 +710,7 @@ async def server_mods_export(request: Request, server_id: str):
 
 
 @router.post("/api/server/{server_id}/mods/search", response_class=HTMLResponse)
-async def server_mods_search(request: Request, server_id: str):
+async def server_mods_search(request: Request, server_id: str, current_user: dict = Depends(require_auth_api)):
     """
     Mod-Suche — Platzhalter-Endpunkt.
 
@@ -740,10 +718,7 @@ async def server_mods_search(request: Request, server_id: str):
     - Minecraft: Modrinth / CurseForge
     - Satisfactory: ficsit.app (Satisfactory Mod Repository)
     """
-    user = get_current_user(request)
-    if user is None:
-        return HTMLResponse(content="<p>Nicht angemeldet</p>", status_code=401)
-
+    user = current_user
     form = await request.form()
     query = form.get("query", "").strip()
     source = form.get("source", "modrinth")
@@ -767,13 +742,9 @@ async def server_mods_search(request: Request, server_id: str):
 
 
 @router.post("/api/server/{server_id}/mods/check-updates", response_class=HTMLResponse)
-async def server_mods_check_updates(request: Request, server_id: str):
+async def server_mods_check_updates(server_id: str, current_user: dict = Depends(require_auth_api)):
     """Prueft auf verfuegbare Mod-Updates — Platzhalter."""
-    user = get_current_user(request)
-    if user is None:
-        return HTMLResponse(content="<p>Nicht angemeldet</p>", status_code=401)
-
-    logger.info(f"Mod-Update-Check fuer {server_id} (von {user.get('username', 'Unbekannt')})")
+    logger.info(f"Mod-Update-Check fuer {server_id} (von {current_user.get('username', 'Unbekannt')})")
     return HTMLResponse(content="""
     <div class="alert alert-warning">
         <strong>Feature in Entwicklung:</strong>
@@ -783,15 +754,11 @@ async def server_mods_check_updates(request: Request, server_id: str):
 
 
 @router.post("/api/server/{server_id}/mods/update", response_class=HTMLResponse)
-async def server_mod_update(request: Request, server_id: str):
+async def server_mod_update(request: Request, server_id: str, current_user: dict = Depends(require_auth_api)):
     """Aktualisiert einen einzelnen Mod — Platzhalter."""
-    user = get_current_user(request)
-    if user is None:
-        return HTMLResponse(content="<p>Nicht angemeldet</p>", status_code=401)
-
     form = await request.form()
     mod_name = form.get("mod_name", "")
-    logger.info(f"Mod-Update: '{mod_name}' fuer {server_id} (von {user.get('username', 'Unbekannt')})")
+    logger.info(f"Mod-Update: '{mod_name}' fuer {server_id} (von {current_user.get('username', 'Unbekannt')})")
     safe_mod_name = html_escape_module.escape(mod_name)
     return HTMLResponse(content=f"""
     <div class="alert alert-warning">
@@ -802,15 +769,11 @@ async def server_mod_update(request: Request, server_id: str):
 
 
 @router.post("/api/server/{server_id}/mods/uninstall", response_class=HTMLResponse)
-async def server_mod_uninstall(request: Request, server_id: str):
+async def server_mod_uninstall(request: Request, server_id: str, current_user: dict = Depends(require_auth_api)):
     """Deinstalliert einen Mod — Platzhalter."""
-    user = get_current_user(request)
-    if user is None:
-        return HTMLResponse(content="<p>Nicht angemeldet</p>", status_code=401)
-
     form = await request.form()
     mod_name = form.get("mod_name", "")
-    logger.info(f"Mod-Deinstallation: '{mod_name}' fuer {server_id} (von {user.get('username', 'Unbekannt')})")
+    logger.info(f"Mod-Deinstallation: '{mod_name}' fuer {server_id} (von {current_user.get('username', 'Unbekannt')})")
     safe_mod_name = html_escape_module.escape(mod_name)
     return HTMLResponse(content=f"""
     <div class="alert alert-warning">
@@ -821,17 +784,14 @@ async def server_mod_uninstall(request: Request, server_id: str):
 
 
 @router.post("/api/server/{server_id}/rcon", response_class=HTMLResponse)
-async def server_rcon(request: Request, server_id: str, command: str = Form("")):
+async def server_rcon(request: Request, server_id: str, command: str = Form(""), current_user: dict = Depends(require_auth_api)):
     """
     RCON-Befehl senden (nur Minecraft-Server).
 
     Aktuell ein Platzhalter — akzeptiert den Befehl und gibt
     eine simulierte Antwort zurueck.
     """
-    user = get_current_user(request)
-    if user is None:
-        return HTMLResponse(content="<p>Nicht angemeldet</p>", status_code=401)
-
+    user = current_user
     if server_id not in VALID_SERVER_IDS:
         return HTMLResponse(content="<p>Unbekannter Server</p>", status_code=404)
 

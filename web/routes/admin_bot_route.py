@@ -10,20 +10,20 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from utils.config import PROJECT_ROOT, DATA_DIR, get_config, save_config
 from utils.logger import get_logger
-from web.auth import get_current_user
+from web.auth import require_auth
 
 logger = get_logger("web.routes.admin_bot")
 
 TEMPLATE_DIR = Path(__file__).parent.parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 
-router = APIRouter(tags=["Admin Bot Setup"])
+router = APIRouter(tags=["Admin Bot Setup"], dependencies=[Depends(require_auth)])
 
 # Zuordnung Tab-Name → Datenverzeichnis und Dateiname
 MODULE_FILE_MAP = {
@@ -488,15 +488,12 @@ TAB_TEMPLATES = {
 # --- Routen ---
 
 @router.get("/admin-bot", response_class=HTMLResponse)
-async def admin_bot_page(request: Request):
+async def admin_bot_page(request: Request, current_user: dict = Depends(require_auth)):
     """
     Hauptseite des Admin Bot Setup mit 10 Tabs.
     Laedt standardmaessig den ersten Tab (Temp Voice).
     """
-    user = get_current_user(request)
-    if user is None:
-        return RedirectResponse(url="/auth/login", status_code=302)
-
+    user = current_user
     # Standard-Tab: Temp Voice
     config = _load_module_config("temp_voice")
 
@@ -524,15 +521,11 @@ async def admin_bot_page(request: Request):
 
 
 @router.get("/admin-bot/tab/{tab_name}", response_class=HTMLResponse)
-async def admin_bot_tab(request: Request, tab_name: str):
+async def admin_bot_tab(request: Request, tab_name: str, current_user: dict = Depends(require_auth)):
     """
     HTMX-Partial: Laedt den Inhalt eines einzelnen Tabs.
     Wird per HTMX-Request in den Tab-Content-Bereich geladen.
     """
-    user = get_current_user(request)
-    if user is None:
-        return RedirectResponse(url="/auth/login", status_code=302)
-
     if tab_name not in TAB_TEMPLATES:
         return HTMLResponse(
             content='<div class="alert alert-danger">Unbekannter Tab.</div>',
@@ -551,15 +544,12 @@ async def admin_bot_tab(request: Request, tab_name: str):
 
 
 @router.post("/admin-bot/save/{module_name}", response_class=HTMLResponse)
-async def admin_bot_save(request: Request, module_name: str):
+async def admin_bot_save(request: Request, module_name: str, current_user: dict = Depends(require_auth)):
     """
     Speichert die Einstellungen eines Moduls.
     Liest Formular-Daten, parst sie modulspezifisch und speichert als JSON.
     """
-    user = get_current_user(request)
-    if user is None:
-        return RedirectResponse(url="/auth/login", status_code=302)
-
+    user = current_user
     if module_name not in FORM_PARSERS or module_name not in TAB_TEMPLATES:
         return HTMLResponse(
             content='<div class="alert alert-danger">Unbekanntes Modul.</div>',

@@ -144,8 +144,11 @@ def get_current_user(request: Request) -> Optional[dict]:
 
 async def require_auth(request: Request):
     """
-    FastAPI-Dependency: Leitet zur Login-Seite weiter wenn nicht angemeldet.
+    FastAPI-Dependency fuer HTML-Endpoints: Leitet zur Login-Seite weiter wenn nicht angemeldet.
     Gibt den User-Dict zurueck wenn angemeldet.
+
+    Verwendung: HTML-Seiten (z. B. /config, /admin-bot, /dashboard).
+    Browser folgt der 303-Redirect-Header automatisch zur Login-Seite.
     """
     user = get_current_user(request)
     if user is None:
@@ -154,6 +157,36 @@ async def require_auth(request: Request):
             headers={"Location": "/auth/login"}
         )
     return user
+
+
+async def require_auth_api(request: Request) -> dict:
+    """
+    FastAPI-Dependency fuer JSON-API-Endpoints: gibt HTTP 401 JSON zurueck wenn nicht angemeldet.
+
+    Verwendung: alle /api/*-Endpoints (z. B. /api/analytics/*, /api/export/*, /api/system/*).
+    JSON-Clients (HTMX, Fetch, curl) erhalten klares 401 statt 303-Redirect.
+    """
+    user = get_current_user(request)
+    if user is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Nicht authentifiziert",
+        )
+    return user
+
+
+def allow_anon():
+    """
+    Markiert eine Route bewusst als public (kein Auth).
+
+    Verwendung als Dependency-Comment-Marker:
+        router = APIRouter(dependencies=[Depends(allow_anon)])
+        # oder pro Endpoint mit Dokumentations-Kommentar
+
+    Wird nicht enforced — dient nur als expliziter Marker dass die Route
+    intentional unauthenticated ist (Health-Checks, HMAC-authenticated Webhooks).
+    """
+    return None
 
 
 # --- Login-Seite ---

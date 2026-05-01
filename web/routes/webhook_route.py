@@ -1,8 +1,8 @@
 """
-F47: GitHub-Webhook fuer automatisches Deployment.
+F47: GitHub-Webhook für automatisches Deployment.
 
-Empfaengt Push-Events von GitHub, verifiziert die HMAC-Signatur
-und fuehrt bei Pushes auf den main/master-Branch automatisch
+Empfängt Push-Events von GitHub, verifiziert die HMAC-Signatur
+und führt bei Pushes auf den main/master-Branch automatisch
 ein Deployment aus (git pull, pip install, Service-Restart).
 
 Das Webhook-Secret wird aus der Umgebungsvariable GITHUB_WEBHOOK_SECRET
@@ -14,13 +14,13 @@ import hashlib
 import hmac
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
 from modules.database.db_manager import get_db
 from utils.config import get_env, PROJECT_ROOT
 from utils.logger import get_logger
-from web.auth import get_current_user
+from web.auth import require_auth_api
 
 logger = get_logger("web.routes.webhook")
 
@@ -29,7 +29,7 @@ router = APIRouter(tags=["Webhook"])
 # Webhook-Secret aus Umgebungsvariable — leer = deaktiviert
 WEBHOOK_SECRET = get_env("GITHUB_WEBHOOK_SECRET", "")
 
-# Deploy-Befehle: werden nacheinander via asyncio subprocess ausgefuehrt
+# Deploy-Befehle: werden nacheinander via asyncio subprocess ausgeführt
 DEPLOY_COMMANDS = [
     ["git", "pull", "origin", "main"],
     ["pip", "install", "-r", "requirements.txt", "-q"],
@@ -61,7 +61,7 @@ def _verify_signature(payload: bytes, signature: str, secret: str) -> bool:
 
 async def _run_command(cmd: list[str], cwd: str) -> tuple[int, str, str]:
     """
-    Fuehrt einen Shell-Befehl asynchron aus.
+    Führt einen Shell-Befehl asynchron aus.
 
     Returns:
         Tuple aus (returncode, stdout, stderr)
@@ -115,10 +115,10 @@ async def _log_deployment(
 
 async def _execute_deploy(commit_sha: str, branch: str, pusher: str) -> dict:
     """
-    Fuehrt die gesamte Deploy-Sequenz aus:
+    Führt die gesamte Deploy-Sequenz aus:
     1. git pull
     2. pip install
-    3. systemctl restart fuer alle Services
+    3. systemctl restart für alle Services
 
     Returns:
         Dict mit Status und Details
@@ -127,7 +127,7 @@ async def _execute_deploy(commit_sha: str, branch: str, pusher: str) -> dict:
     results: list[str] = []
     success = True
 
-    # --- Deploy-Befehle ausfuehren ---
+    # --- Deploy-Befehle ausführen ---
     for cmd in DEPLOY_COMMANDS:
         cmd_str = " ".join(cmd)
         logger.info(f"Deploy-Befehl: {cmd_str}")
@@ -186,15 +186,15 @@ async def _execute_deploy(commit_sha: str, branch: str, pusher: str) -> dict:
 @router.post("/api/webhook/github")
 async def github_webhook(request: Request) -> JSONResponse:
     """
-    Empfaengt GitHub-Push-Events und loest ein automatisches
+    Empfängt GitHub-Push-Events und löst ein automatisches
     Deployment aus, wenn der Push auf main/master erfolgt.
 
     Workflow:
-      1. Pruefen ob Webhook aktiviert ist (Secret gesetzt)
+      1. Prüfen ob Webhook aktiviert ist (Secret gesetzt)
       2. Signatur verifizieren (X-Hub-Signature-256)
       3. Nur Push-Events auf main/master verarbeiten
-      4. Deploy-Sequenz asynchron ausfuehren
-      5. Ergebnis zurueckgeben und ins Audit-Log schreiben
+      4. Deploy-Sequenz asynchron ausführen
+      5. Ergebnis zurückgeben und ins Audit-Log schreiben
     """
     # Webhook deaktiviert wenn kein Secret konfiguriert
     if not WEBHOOK_SECRET:
@@ -216,18 +216,18 @@ async def github_webhook(request: Request) -> JSONResponse:
         )
 
     if not _verify_signature(payload, signature, WEBHOOK_SECRET):
-        logger.warning("GitHub-Webhook: Ungueltige Signatur")
+        logger.warning("GitHub-Webhook: Ungültige Signatur")
         return JSONResponse(
             status_code=401,
-            content={"error": "Ungueltige Signatur"},
+            content={"error": "Ungültige Signatur"},
         )
 
-    # --- Event-Typ pruefen ---
+    # --- Event-Typ prüfen ---
     event_type = request.headers.get("X-GitHub-Event", "")
 
-    # Ping-Event bestaetigen (GitHub sendet Ping bei Webhook-Erstellung)
+    # Ping-Event bestätigen (GitHub sendet Ping bei Webhook-Erstellung)
     if event_type == "ping":
-        logger.info("GitHub-Webhook Ping empfangen — Verbindung bestaetigt")
+        logger.info("GitHub-Webhook Ping empfangen — Verbindung bestätigt")
         return JSONResponse(content={"status": "pong"})
 
     # Nur Push-Events verarbeiten
@@ -244,7 +244,7 @@ async def github_webhook(request: Request) -> JSONResponse:
         logger.error(f"JSON-Parsing fehlgeschlagen: {exc}")
         return JSONResponse(
             status_code=400,
-            content={"error": "Ungueltiger JSON-Payload"},
+            content={"error": "Ungültiger JSON-Payload"},
         )
 
     # Branch aus ref extrahieren: "refs/heads/main" -> "main"
@@ -271,7 +271,7 @@ async def github_webhook(request: Request) -> JSONResponse:
         f"(Commit: {commit_sha[:8]}, Nachricht: {commit_msg})"
     )
 
-    # --- Deploy asynchron ausfuehren ---
+    # --- Deploy asynchron ausführen ---
     try:
         result = await _execute_deploy(commit_sha, branch, pusher)
     except Exception as exc:
@@ -288,18 +288,14 @@ async def github_webhook(request: Request) -> JSONResponse:
 
 
 @router.get("/api/webhook/deploy-history")
-async def deploy_history(request: Request) -> JSONResponse:
+async def deploy_history(current_user: dict = Depends(require_auth_api)) -> JSONResponse:
     """
     Gibt die letzten 10 Deployments aus dem Audit-Log zurueck.
     Erfordert Authentifizierung.
-    """
-    user = get_current_user(request)
-    if user is None:
-        return JSONResponse(
-            status_code=401,
-            content={"error": "Nicht authentifiziert"},
-        )
 
+    Hinweis: github_webhook ist bewusst NICHT mit Depends(require_auth_api) versehen
+    — GitHub sendet keinen Session-Cookie, sondern HMAC-Signatur via _verify_signature().
+    """
     try:
         db = await get_db()
         cursor = await db.execute(

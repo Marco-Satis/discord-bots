@@ -15,14 +15,14 @@ import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
 from modules.database.db_manager import get_db
 from utils.config import DATA_DIR
 from utils.logger import get_logger
-from web.auth import get_current_user
+from web.auth import require_auth, require_auth_api
 
 logger = get_logger("web.routes.security")
 
@@ -46,12 +46,8 @@ def _read_json(filepath: Path) -> dict:
 
 
 @router.get("/security", response_class=HTMLResponse)
-async def security_page(request: Request):
+async def security_page(request: Request, current_user: dict = Depends(require_auth)):
     """Sicherheits-Dashboard mit Fail2Ban, SSL und Port-Status."""
-    user = get_current_user(request)
-    if user is None:
-        return RedirectResponse(url="/auth/login", status_code=302)
-
     # Fail2Ban-Status aus StatusWriter JSON lesen
     fail2ban_data = _read_json(MONITOR_DATA_DIR / "fail2ban_status.json")
     ssl_data = _read_json(MONITOR_DATA_DIR / "ssl_status.json")
@@ -62,7 +58,7 @@ async def security_page(request: Request):
 
     return templates.TemplateResponse("security.html", {
         "request": request,
-        "user": user,
+        "user": current_user,
         "fail2ban": fail2ban_data,
         "ssl": ssl_data,
         "ports": port_data,
@@ -228,12 +224,8 @@ async def _collect_ip_overview(fail2ban_data: dict | None = None) -> dict:
 
 
 @router.get("/api/security/ip-overview")
-async def api_ip_overview(request: Request) -> JSONResponse:
+async def api_ip_overview(current_user: dict = Depends(require_auth_api)) -> JSONResponse:
     """Gibt alle IP-Sperren als JSON zurueck (iptables, Fail2Ban, Blacklist, Bans)."""
-    user = get_current_user(request)
-    if user is None:
-        return JSONResponse(status_code=401, content={"error": "Nicht authentifiziert"})
-
     try:
         overview = await _collect_ip_overview()
         return JSONResponse(content=overview)
@@ -280,18 +272,12 @@ async def _audit_log_action(user: dict, action: str, target: str, details: str) 
 
 
 @router.post("/api/security/unban")
-async def api_unban_ip(request: Request) -> HTMLResponse:
+async def api_unban_ip(request: Request, current_user: dict = Depends(require_auth_api)) -> HTMLResponse:
     """
     Entsperrt eine IP aus der angegebenen Quelle.
     Gibt HTML-Partial fuer HTMX zurueck.
     """
-    user = get_current_user(request)
-    if user is None:
-        return HTMLResponse(
-            '<div class="alert alert-danger">Nicht authentifiziert</div>',
-            status_code=401,
-        )
-
+    user = current_user
     try:
         form = await request.form()
         ip = str(form.get("ip", "")).strip()
@@ -418,12 +404,8 @@ async def api_unban_ip(request: Request) -> HTMLResponse:
 
 
 @router.get("/api/security/ban-stats")
-async def api_ban_stats(request: Request) -> JSONResponse:
+async def api_ban_stats(current_user: dict = Depends(require_auth_api)) -> JSONResponse:
     """Gibt Ban-Statistiken zurueck: Gesamt, letzte 7 Tage, haeufigste IPs."""
-    user = get_current_user(request)
-    if user is None:
-        return JSONResponse(status_code=401, content={"error": "Nicht authentifiziert"})
-
     try:
         db = await get_db()
 
