@@ -42,4 +42,5 @@ satisfactory-save>=0.1.0
 nbtlib>=2.0.0
 
 # Optional: TeamSpeak 3 Server Query
-ts3>=2.0.0
+# ts3>=2.0.0  # Etappe 3.7 (2026-05-01): TS-Server inactive/not-installed, Paket deaktiviert.
+# Reaktivieren bei TS-Wiederbelebung (oder Migration zu pyTS3 / python-telnet).

@@ -10,6 +10,7 @@ from datetime import datetime
 from typing import List, Optional, Dict, Any
 
 from utils.logger import get_logger
+from utils.privacy import safe_player_log
 from modules.database.db_manager import get_db
 
 logger = get_logger("minecraft.blacklist")
@@ -147,12 +148,13 @@ class MinecraftBlacklist:
                     (ip or "", player_name.strip(), reason, banned_by),
                 )
                 await db.commit()
-                logger.debug(f"Blacklist SQLite: {player_name} in blacklist+bans eingefuegt")
+                logger.debug(f"Blacklist SQLite: {safe_player_log(player_name)} in blacklist+bans eingefuegt")
             except Exception as e:
-                logger.error(f"Blacklist SQLite-Schreiben fehlgeschlagen fuer {player_name}: {e}")
+                logger.error(f"Blacklist SQLite-Schreiben fehlgeschlagen fuer {safe_player_log(player_name)}: {e}")
 
             logger.info(
-                f"Blacklist: {player_name} gebannt von {banned_by} — {reason}"
+                f"Blacklist: {safe_player_log(player_name)} gebannt von "
+                f"{safe_player_log(banned_by)} — {reason}"
                 + (f" (IP: {ip})" if ip else "")
             )
             return True
@@ -187,11 +189,11 @@ class MinecraftBlacklist:
                         (player_name.strip(),),
                     )
                     await db.commit()
-                    logger.debug(f"Blacklist SQLite: {player_name} entfernt/deaktiviert")
+                    logger.debug(f"Blacklist SQLite: {safe_player_log(player_name)} entfernt/deaktiviert")
                 except Exception as e:
-                    logger.error(f"Blacklist SQLite-Entfernen fehlgeschlagen fuer {player_name}: {e}")
+                    logger.error(f"Blacklist SQLite-Entfernen fehlgeschlagen fuer {safe_player_log(player_name)}: {e}")
 
-                logger.info(f"Blacklist: {player_name} entbannt")
+                logger.info(f"Blacklist: {safe_player_log(player_name)} entbannt")
             return found
 
     def get_active_list(self) -> List[Dict[str, Any]]:
@@ -234,13 +236,13 @@ class MinecraftBlacklist:
                 if await srv.is_running():
                     await srv.rcon_command(f"ban {player_name} {reason}")
                     results[sid] = True
-                    logger.info(f"[{sid}] Ban fuer {player_name} ausgefuehrt")
+                    logger.info(f"[{sid}] Ban fuer {safe_player_log(player_name)} ausgefuehrt")
                 else:
                     results[sid] = False
                     logger.debug(f"[{sid}] Server offline, Ban nicht ausgefuehrt")
             except Exception as e:
                 results[sid] = False
-                logger.warning(f"[{sid}] Ban fuer {player_name} fehlgeschlagen: {e}")
+                logger.warning(f"[{sid}] Ban fuer {safe_player_log(player_name)} fehlgeschlagen: {e}")
 
         return results
 

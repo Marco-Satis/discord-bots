@@ -1,5 +1,5 @@
 """
-F37: Ressourcen-Forecasting — Vorhersage fuer Disk- und RAM-Erschoepfung.
+F37: Ressourcen-Forecasting — Vorhersage für Disk- und RAM-Erschöpfung.
 
 Analysiert die letzten 30 Tage der stats_history-Tabelle per linearer
 Regression (pure Python, ohne numpy) und prognostiziert, wann Disk
@@ -14,10 +14,10 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-# Mindestanzahl Datenpunkte fuer eine aussagekraeftige Regression
+# Mindestanzahl Datenpunkte für eine aussagekräftige Regression
 MIN_DATA_POINTS: int = 10
 
-# Forecast-Fenster in Tagen (wie weit zurueck die Daten gelesen werden)
+# Forecast-Fenster in Tagen (wie weit zurück die Daten gelesen werden)
 FORECAST_WINDOW_DAYS: int = 30
 
 # Schwellwerte fuer Warnungen
@@ -76,7 +76,7 @@ def _parse_timestamp(ts_str: str) -> Optional[datetime]:
     """
     Parst einen ISO-8601 Timestamp sicher in ein datetime-Objekt.
 
-    Unterstuetzt Formate mit und ohne Zeitzone sowie 'Z'-Suffix.
+    Unterstützt Formate mit und ohne Zeitzone sowie 'Z'-Suffix.
 
     Args:
         ts_str: ISO-8601 Timestamp-String
@@ -102,16 +102,16 @@ def _compute_forecast(
     critical_free_pct: float,
 ) -> dict:
     """
-    Fuehrt die lineare Regression durch und berechnet Prognose-Werte.
+    Führt die lineare Regression durch und berechnet Prognose-Werte.
 
     Bestimmt den aktuellen Prozentwert, den Trend pro Tag und die
-    geschaetzte Restzeit bis 100% erreicht wird.
+    geschätzte Restzeit bis 100% erreicht wird.
 
     Args:
-        x_hours:          Stunden seit dem aeltesten Datenpunkt
+        x_hours:          Stunden seit dem ältesten Datenpunkt
         y_percent:        Auslastungs-Prozentwerte
-        warning_free_pct: Schwelle fuer Warnung (freier Speicher in %)
-        critical_free_pct: Schwelle fuer kritisch (freier Speicher in %)
+        warning_free_pct: Schwelle für Warnung (freier Speicher in %)
+        critical_free_pct: Schwelle für kritisch (freier Speicher in %)
 
     Returns:
         Dict mit current_percent, trend_per_day, days_until_full, warning, critical
@@ -144,10 +144,10 @@ def _compute_forecast(
         if hours_remaining > 0:
             days_until_full = round(hours_remaining / 24.0, 1)
         else:
-            # Bereits ueber 100% laut Regression — quasi sofort
+            # Bereits über 100% laut Regression — quasi sofort
             days_until_full = 0.0
 
-    # Schwellwert-Pruefung: Warnung und kritisch
+    # Schwellwert-Prüfung: Warnung und kritisch
     free_pct = 100.0 - current_percent
     warning = False
     critical = False
@@ -179,20 +179,20 @@ def _compute_forecast(
 
 class ResourceForecaster:
     """
-    Prognostiziert die Erschoepfung von Disk und RAM basierend auf
+    Prognostiziert die Erschöpfung von Disk und RAM basierend auf
     historischen Metriken aus der stats_history-Tabelle.
 
-    Verwendet lineare Regression ueber die letzten 30 Tage um Trends
-    zu erkennen und den Zeitpunkt der Erschoepfung vorherzusagen.
+    Verwendet lineare Regression über die letzten 30 Tage um Trends
+    zu erkennen und den Zeitpunkt der Erschöpfung vorherzusagen.
     """
 
     async def _fetch_data(self, column: str) -> tuple[list[float], list[float], int]:
         """
-        Laedt historische Werte einer bestimmten Spalte aus der stats_history-Tabelle.
+        Lädt historische Werte einer bestimmten Spalte aus der stats_history-Tabelle.
 
         Liest die letzten 30 Tage, konvertiert Timestamps in Stunden
-        seit dem aeltesten Datenpunkt (x-Achse) und gibt die Werte
-        zusammen mit der Anzahl gelesener Datenpunkte zurueck.
+        seit dem ältesten Datenpunkt (x-Achse) und gibt die Werte
+        zusammen mit der Anzahl gelesener Datenpunkte zurück.
 
         Args:
             column: Spaltenname ('disk_percent' oder 'ram_percent')
@@ -210,18 +210,20 @@ class ResourceForecaster:
             cutoff = datetime.now(timezone.utc) - timedelta(days=FORECAST_WINDOW_DAYS)
             cutoff_iso = cutoff.isoformat()
 
+            if not column.isidentifier():
+                raise ValueError(f"Invalid SQL column-name in forecasting: {column!r}")
             cursor = await db.execute(
-                f"SELECT timestamp, {column} FROM stats_history "
+                f"SELECT timestamp, {column} FROM stats_history "  # nosec B608 - column validiert via .isidentifier()
                 f"WHERE timestamp >= ? ORDER BY timestamp ASC",
                 (cutoff_iso,),
             )
             rows = await cursor.fetchall()
 
             if not rows:
-                logger.debug(f"Keine Daten fuer {column} in den letzten {FORECAST_WINDOW_DAYS} Tagen")
+                logger.debug(f"Keine Daten für {column} in den letzten {FORECAST_WINDOW_DAYS} Tagen")
                 return ([], [], 0)
 
-            # Referenz-Zeitpunkt: aeltester Eintrag
+            # Referenz-Zeitpunkt: ältester Eintrag
             first_ts = _parse_timestamp(str(rows[0][0]))
             if first_ts is None:
                 logger.warning(f"Erster Timestamp nicht parsbar: {rows[0][0]}")
@@ -234,7 +236,7 @@ class ResourceForecaster:
                 if ts is None or value is None:
                     continue
 
-                # Stunden seit dem aeltesten Datenpunkt
+                # Stunden seit dem ältesten Datenpunkt
                 delta_hours = (ts - first_ts).total_seconds() / 3600.0
                 x_hours.append(delta_hours)
                 y_values.append(float(value))
@@ -246,10 +248,10 @@ class ResourceForecaster:
 
     async def get_disk_forecast(self) -> dict:
         """
-        Berechnet die Prognose fuer die Festplatten-Auslastung.
+        Berechnet die Prognose für die Festplatten-Auslastung.
 
-        Liest disk_percent-Werte der letzten 30 Tage, fuehrt lineare
-        Regression durch und prognostiziert den Zeitpunkt der Erschoepfung.
+        Liest disk_percent-Werte der letzten 30 Tage, führt lineare
+        Regression durch und prognostiziert den Zeitpunkt der Erschöpfung.
 
         Returns:
             Dict mit current_percent, trend_per_day, days_until_full,
@@ -260,9 +262,9 @@ class ResourceForecaster:
         if count < MIN_DATA_POINTS:
             logger.info(
                 f"Disk-Forecast: Zu wenig Datenpunkte ({count}/{MIN_DATA_POINTS}), "
-                f"Regression nicht moeglich"
+                f"Regression nicht möglich"
             )
-            # Aktuellen Wert trotzdem zurueckgeben falls vorhanden
+            # Aktuellen Wert trotzdem zurückgeben falls vorhanden
             current = y_values[-1] if y_values else 0.0
             return {
                 "current_percent": round(current, 1),
@@ -292,7 +294,7 @@ class ResourceForecaster:
 
     async def get_ram_forecast(self) -> dict:
         """
-        Berechnet die Prognose fuer die RAM-Auslastung.
+        Berechnet die Prognose für die RAM-Auslastung.
 
         Gleicher Ansatz wie bei Disk, verwendet aber ram_percent
         aus der stats_history-Tabelle.
@@ -306,7 +308,7 @@ class ResourceForecaster:
         if count < MIN_DATA_POINTS:
             logger.info(
                 f"RAM-Forecast: Zu wenig Datenpunkte ({count}/{MIN_DATA_POINTS}), "
-                f"Regression nicht moeglich"
+                f"Regression nicht möglich"
             )
             current = y_values[-1] if y_values else 0.0
             return {
@@ -337,11 +339,11 @@ class ResourceForecaster:
 
     async def get_all_forecasts(self) -> dict:
         """
-        Kombinierte Prognose fuer Disk und RAM.
+        Kombinierte Prognose für Disk und RAM.
 
-        Fuehrt beide Forecasts aus und gibt ein zusammengefasstes
-        Ergebnis zurueck, das auch die Anzahl der verwendeten
-        Datenpunkte und das Forecast-Fenster enthaelt.
+        Führt beide Forecasts aus und gibt ein zusammengefasstes
+        Ergebnis zurück, das auch die Anzahl der verwendeten
+        Datenpunkte und das Forecast-Fenster enthält.
 
         Returns:
             Dict mit 'disk', 'ram', 'data_points' und 'forecast_window_days'
@@ -363,7 +365,7 @@ class ResourceForecaster:
             "forecast_window_days": FORECAST_WINDOW_DAYS,
         }
 
-        # Gesamtwarnung loggen falls noetig
+        # Gesamtwarnung loggen falls nötig
         if disk_forecast.get("critical") or ram_forecast.get("critical"):
             logger.warning(
                 "Ressourcen-Forecast KRITISCH — "

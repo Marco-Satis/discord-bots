@@ -77,7 +77,8 @@ INITIAL_COGS: list[str] = [
     "cogs.audit_cog",           # Phase 11g: Audit-Logging
     "cogs.giveaway_cog",        # Phase 11h: Giveaway-System
     "cogs.temp_voice_cog",      # Phase 12a: Temp Voice Channels
-    "cogs.teamspeak_cog",       # Phase 12b-d: TeamSpeak-Integration
+    # "cogs.teamspeak_cog",     # Etappe 3.7 (2026-05-01): TS-Server inactive/not-installed,
+    #                            Cog deaktiviert. Reaktivieren falls TS-Server wieder kommt.
     "cogs.server_backup_cog",   # Phase 12e: Server-Backup
     "cogs.embed_sender_cog",    # Embed-Sender (Dashboard-Queue)
     "cogs.custom_commands_cog", # F30: Custom-Commands

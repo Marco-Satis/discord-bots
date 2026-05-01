@@ -8,6 +8,7 @@ import asyncio
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from utils.logger import get_logger
+from utils.privacy import safe_player_log
 from modules.database.db_manager import get_db
 
 logger = get_logger("satisfactory.whitelist")
@@ -85,7 +86,10 @@ class WhitelistManager:
             except Exception as e:
                 logger.error(f"Failed to add to whitelist in DB: {e}")
 
-            logger.info(f"Whitelist: {player_name} added by {added_by}")
+            logger.info(
+                f"Whitelist: {safe_player_log(player_name)} added by "
+                f"{safe_player_log(added_by)}"
+            )
             return True
 
     async def remove(self, player_name: str) -> bool:
@@ -108,7 +112,7 @@ class WhitelistManager:
                 except Exception as e:
                     logger.error(f"Failed to remove from whitelist in DB: {e}")
 
-                logger.info(f"Whitelist: {player_name} removed")
+                logger.info(f"Whitelist: {safe_player_log(player_name)} removed")
                 return True
             return False
 

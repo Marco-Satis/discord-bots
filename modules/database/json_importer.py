@@ -795,10 +795,10 @@ async def check_import_needed(db: aiosqlite.Connection) -> bool:
     Prueft ob ein JSON-Import noetig ist.
     Gibt True zurueck wenn die DB leer ist aber JSON-Dateien existieren.
     """
-    # Pruefen ob Haupt-Tabellen leer sind
+    # Pruefen ob Haupt-Tabellen leer sind (Whitelist hardcoded oben — sicher)
     for table in ["players", "stats_history", "events", "warns", "leveling"]:
         try:
-            cursor = await db.execute(f"SELECT COUNT(*) FROM [{table}]")
+            cursor = await db.execute(f"SELECT COUNT(*) FROM [{table}]")  # nosec B608 - table aus hardcoded Whitelist
             row = await cursor.fetchone()
             if row and row[0] > 0:
                 return False  # Bereits Daten vorhanden

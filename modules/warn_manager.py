@@ -261,7 +261,7 @@ class WarnManager:
             db = await get_db()
             placeholders = ",".join("?" for _ in db_ids)
             await db.execute(
-                f"UPDATE warns SET active = FALSE WHERE id IN ({placeholders})",
+                f"UPDATE warns SET active = FALSE WHERE id IN ({placeholders})",  # nosec B608 - placeholders sind nur "?,?,?"
                 db_ids,
             )
             await db.commit()

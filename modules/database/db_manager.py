@@ -165,12 +165,16 @@ async def get_table_counts() -> dict:
         tables = await cursor.fetchall()
         for table in tables:
             name = table[0]
+            if not name.isidentifier():
+                logger.warning(f"DB-Tabellen-Name nicht-Whitelist-konform: {name!r}, skip")
+                continue
             try:
-                c = await db.execute(f"SELECT COUNT(*) FROM [{name}]")
+                c = await db.execute(f"SELECT COUNT(*) FROM [{name}]")  # nosec B608 - name validiert via .isidentifier()
                 row = await c.fetchone()
                 counts[name] = row[0] if row else 0
-            except Exception:
+            except Exception as e:
                 counts[name] = -1
+                logger.debug(f"COUNT(*) auf Tabelle {name!r} fehlgeschlagen: {e}")
     except Exception as e:
         logger.error(f"Fehler beim Zaehlen der Tabellen: {e}")
     return counts

@@ -11,6 +11,7 @@ import asyncio
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from utils.logger import get_logger
+from utils.privacy import safe_player_log
 from modules.database.db_manager import get_db
 
 logger = get_logger("satisfactory.blacklist")
@@ -84,7 +85,10 @@ class BlacklistManager:
             except Exception as e:
                 logger.error(f"Failed to insert blacklist entry into SQLite: {e}")
 
-            logger.info(f"Blacklist: {player_name} banned by {banned_by} - {reason}")
+            logger.info(
+                f"Blacklist: {safe_player_log(player_name)} banned by "
+                f"{safe_player_log(banned_by)} - {reason}"
+            )
             return True
 
     async def remove(self, player_name: str) -> bool:
@@ -106,7 +110,7 @@ class BlacklistManager:
                 except Exception as e:
                     logger.error(f"Failed to delete blacklist entry from SQLite: {e}")
 
-                logger.info(f"Blacklist: {player_name} unbanned")
+                logger.info(f"Blacklist: {safe_player_log(player_name)} unbanned")
                 return True
             return False
 

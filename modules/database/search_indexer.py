@@ -292,9 +292,12 @@ class SearchIndexer:
         except Exception:
             return 0
 
-        # Daten lesen
+        # Daten lesen — Identifier-Validierung (Whitelist Defense-in-Depth)
+        for ident in [table, id_col, timestamp_col, *columns]:
+            if not ident.isidentifier():
+                raise ValueError(f"Invalid SQL identifier in search-indexer: {ident!r}")
         col_list = ", ".join([id_col] + columns + [timestamp_col])
-        sql = f"SELECT {col_list} FROM {table} WHERE {id_col} > ? ORDER BY {id_col}"
+        sql = f"SELECT {col_list} FROM {table} WHERE {id_col} > ? ORDER BY {id_col}"  # nosec B608 - alle identifiers validiert
 
         try:
             cursor = await db.execute(sql, (from_id,))
@@ -348,9 +351,12 @@ class SearchIndexer:
         for src in INDEX_SOURCES:
             table = src["table"]
             id_col = src["id_col"]
+            if not (table.isidentifier() and id_col.isidentifier()):
+                logger.warning(f"INDEX_SOURCES Eintrag ungueltig: {src!r}, skip")
+                continue
             try:
                 cursor = await db.execute(
-                    f"SELECT MAX({id_col}) FROM {table}"
+                    f"SELECT MAX({id_col}) FROM {table}"  # nosec B608 - identifiers validiert
                 )
                 row = await cursor.fetchone()
                 self._last_ids[table] = row[0] if row and row[0] else 0

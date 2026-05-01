@@ -1,9 +1,9 @@
 """
-F60: Korrelations-Analyse — automatische Erkennung von Zusammenhaengen
+F60: Korrelations-Analyse — automatische Erkennung von Zusammenhängen
 zwischen Server-Metriken.
 
 Analysiert Crash-Muster, RAM/Spielzeit-Korrelationen und erkennt
-Anomalien (ungewoehnlich hoher RAM-/CPU-Verbrauch fuer die aktuelle
+Anomalien (ungewöhnlich hoher RAM-/CPU-Verbrauch für die aktuelle
 Spieleranzahl) per Pearson-Korrelation und Standardabweichung.
 """
 
@@ -45,12 +45,12 @@ def _pearson_correlation(x: list[float], y: list[float]) -> float:
     Berechnet den Pearson-Korrelationskoeffizienten zwischen zwei Listen.
 
     Gibt einen Wert zwischen -1.0 (perfekt negativ korreliert) und
-    +1.0 (perfekt positiv korreliert) zurueck. Bei weniger als 3
-    Datenpunkten oder konstanten Werten wird 0.0 zurueckgegeben.
+    +1.0 (perfekt positiv korreliert) zurück. Bei weniger als 3
+    Datenpunkten oder konstanten Werten wird 0.0 zurückgegeben.
 
     Args:
         x: Erste Werteliste
-        y: Zweite Werteliste (gleiche Laenge wie x)
+        y: Zweite Werteliste (gleiche Länge wie x)
 
     Returns:
         Pearson-Korrelationskoeffizient als float
@@ -76,7 +76,7 @@ def _parse_timestamp(ts_str: str) -> Optional[datetime]:
     """
     Parst einen ISO-8601-Timestamp-String.
 
-    Unterstuetzt Timestamps mit 'Z'-Suffix, mit expliziter Zeitzone
+    Unterstützt Timestamps mit 'Z'-Suffix, mit expliziter Zeitzone
     oder ohne Zeitzone.
 
     Args:
@@ -140,8 +140,8 @@ class CorrelationAnalyzer:
     """
     Analysiert Korrelationen zwischen Server-Metriken.
 
-    Untersucht Zusammenhaenge zwischen:
-    - Crash-Haeufigkeit und Spieleranzahl
+    Untersucht Zusammenhänge zwischen:
+    - Crash-Häufigkeit und Spieleranzahl
     - RAM-Verbrauch und Sitzungsdauer
     - Crash-Muster nach Tageszeit und Wochentag
     - Anomalien in RAM/CPU relativ zur Spieleranzahl
@@ -149,7 +149,7 @@ class CorrelationAnalyzer:
 
     async def analyze_crash_vs_players(self) -> dict:
         """
-        Analysiert ob Server haeufiger abstuerzen wenn mehr Spieler online sind.
+        Analysiert ob Server häufiger abstürzen wenn mehr Spieler online sind.
 
         Vergleicht die durchschnittliche Spieleranzahl zum Zeitpunkt eines
         Crashs mit der Gesamtdurchschnitts-Spieleranzahl. Berechnet den
@@ -163,13 +163,13 @@ class CorrelationAnalyzer:
         try:
             db = await get_db()
 
-            # Cutoff fuer den Analysezeitraum
+            # Cutoff für den Analysezeitraum
             cutoff = (datetime.now(timezone.utc) - timedelta(days=HISTORY_DAYS)).isoformat()
 
             # Crash-Events abrufen
             placeholders = ", ".join("?" for _ in CRASH_EVENT_TYPES)
             cursor = await db.execute(
-                f"SELECT timestamp FROM events "
+                f"SELECT timestamp FROM events "  # nosec B608 - placeholders sind nur "?,?,?"
                 f"WHERE event_type IN ({placeholders}) "
                 f"AND timestamp >= ? "
                 f"ORDER BY timestamp ASC",
@@ -178,7 +178,7 @@ class CorrelationAnalyzer:
             crash_rows = await cursor.fetchall()
             crash_timestamps = [str(row[0]) for row in crash_rows if row[0]]
 
-            # Stats-Historie fuer den gleichen Zeitraum laden
+            # Stats-Historie für den gleichen Zeitraum laden
             cursor = await db.execute(
                 "SELECT timestamp, server_data FROM stats_history "
                 "WHERE timestamp >= ? ORDER BY timestamp ASC",
@@ -216,10 +216,10 @@ class CorrelationAnalyzer:
         all_player_counts = [p for _, p in player_series]
         avg_overall = sum(all_player_counts) / len(all_player_counts) if all_player_counts else 0.0
 
-        # Spieleranzahl zum Crash-Zeitpunkt ermitteln (naechstgelegener Stats-Eintrag)
+        # Spieleranzahl zum Crash-Zeitpunkt ermitteln (nächstgelegener Stats-Eintrag)
         crash_player_counts = []
         for crash_ts in crash_timestamps:
-            # Naechsten Stats-Eintrag vor/nach dem Crash finden
+            # Nächsten Stats-Eintrag vor/nach dem Crash finden
             closest_players = self._find_closest_player_count(crash_ts, player_series)
             if closest_players is not None:
                 crash_player_counts.append(closest_players)
@@ -230,7 +230,7 @@ class CorrelationAnalyzer:
         )
 
         # Pearson-Korrelation: Spieleranzahl vs. Crash-Indikator (1/0)
-        # Fuer jeden Stats-Eintrag: war in der Naehe ein Crash?
+        # Für jeden Stats-Eintrag: war in der Nähe ein Crash?
         player_values = []
         crash_indicators = []
         for ts_str, players in player_series:
@@ -252,7 +252,7 @@ class CorrelationAnalyzer:
 
     async def analyze_ram_vs_playtime(self) -> dict:
         """
-        Analysiert ob der RAM-Verbrauch linear mit der Sitzungsdauer waechst.
+        Analysiert ob der RAM-Verbrauch linear mit der Sitzungsdauer wächst.
 
         Berechnet die Korrelation zwischen der Laufzeit (Stunden seit
         erstem Eintrag) und dem RAM-Verbrauch. Ein hoher positiver Wert
@@ -322,7 +322,7 @@ class CorrelationAnalyzer:
 
         # Trend bestimmen
         if r > 0.5:
-            trend = "steigend (moegliches Memory-Leak)"
+            trend = "steigend (mögliches Memory-Leak)"
         elif r > 0.2:
             trend = "leicht steigend"
         elif r < -0.2:
@@ -344,7 +344,7 @@ class CorrelationAnalyzer:
         Erkennt Muster in Crash-Zeitpunkten (Tageszeit, Wochentag).
 
         Gruppiert Crash-Events nach Stunde (0-23) und Wochentag (Mo-So)
-        und identifiziert die haeufigsten Crash-Zeitpunkte.
+        und identifiziert die häufigsten Crash-Zeitpunkte.
 
         Returns:
             Dict mit by_hour (Stunde -> Anzahl), by_weekday (Wochentag -> Anzahl),
@@ -356,7 +356,7 @@ class CorrelationAnalyzer:
 
             placeholders = ", ".join("?" for _ in CRASH_EVENT_TYPES)
             cursor = await db.execute(
-                f"SELECT timestamp FROM events "
+                f"SELECT timestamp FROM events "  # nosec B608 - placeholders sind nur "?,?,?"
                 f"WHERE event_type IN ({placeholders}) "
                 f"AND timestamp >= ? "
                 f"ORDER BY timestamp ASC",
@@ -374,7 +374,7 @@ class CorrelationAnalyzer:
                 "total_crashes": 0,
             }
 
-        # Zaehler fuer Stunden und Wochentage
+        # Zähler für Stunden und Wochentage
         by_hour: dict[int, int] = {h: 0 for h in range(24)}
         by_weekday: dict[int, int] = {d: 0 for d in range(7)}
 
@@ -407,11 +407,11 @@ class CorrelationAnalyzer:
 
     async def get_anomalies(self) -> list[dict]:
         """
-        Erkennt ungewoehnliche RAM-/CPU-Werte fuer die aktuelle Spieleranzahl.
+        Erkennt ungewöhnliche RAM-/CPU-Werte für die aktuelle Spieleranzahl.
 
         Vergleicht die Metriken der letzten Stunde mit historischen
         Durchschnittswerten. Ein Wert gilt als anomal wenn er mehr als
-        2 Standardabweichungen ueber dem Mittelwert fuer die gleiche
+        2 Standardabweichungen über dem Mittelwert für die gleiche
         Spieleranzahl-Klasse liegt.
 
         Returns:
@@ -483,7 +483,7 @@ class CorrelationAnalyzer:
                 std = variance ** 0.5
                 class_stats[player_class][metric_name] = (mean, std)
 
-        # Aktuelle Werte gegen historische Statistiken pruefen
+        # Aktuelle Werte gegen historische Statistiken prüfen
         anomalies: list[dict] = []
 
         for ts_str, cpu, ram, server_data_raw in recent_rows:
@@ -496,7 +496,7 @@ class CorrelationAnalyzer:
 
             stats = class_stats[player_class]
 
-            # CPU-Anomalie pruefen
+            # CPU-Anomalie prüfen
             if cpu is not None and "cpu" in stats:
                 mean, std = stats["cpu"]
                 if std > 0 and float(cpu) > mean + ANOMALY_THRESHOLD_SIGMA * std:
@@ -511,7 +511,7 @@ class CorrelationAnalyzer:
                         "player_class": player_class,
                     })
 
-            # RAM-Anomalie pruefen
+            # RAM-Anomalie prüfen
             if ram is not None and "ram" in stats:
                 mean, std = stats["ram"]
                 if std > 0 and float(ram) > mean + ANOMALY_THRESHOLD_SIGMA * std:
@@ -528,19 +528,19 @@ class CorrelationAnalyzer:
 
         logger.info(
             f"Anomalie-Check abgeschlossen: {len(anomalies)} Anomalien "
-            f"in {len(recent_rows)} aktuellen Eintraegen gefunden"
+            f"in {len(recent_rows)} aktuellen Einträgen gefunden"
         )
         return anomalies
 
     async def get_full_analysis(self) -> dict:
         """
-        Fuehrt alle Korrelations-Analysen durch und gibt das kombinierte
-        Ergebnis zurueck.
+        Führt alle Korrelations-Analysen durch und gibt das kombinierte
+        Ergebnis zurück.
 
         Ruft alle Einzel-Analysen parallel auf und fasst sie in einem
         Dict zusammen:
         - crash_vs_players: Zusammenhang Spieleranzahl/Crashes
-        - ram_vs_playtime: RAM-Trend ueber Zeit
+        - ram_vs_playtime: RAM-Trend über Zeit
         - crash_patterns: Zeitliche Crash-Muster
         - anomalies: Aktuelle Anomalien
         - generated_at: Zeitstempel der Analyse
@@ -571,7 +571,7 @@ class CorrelationAnalyzer:
         target_ts: str, player_series: list[tuple[str, int]]
     ) -> Optional[int]:
         """
-        Findet die Spieleranzahl zum naechstgelegenen Zeitpunkt.
+        Findet die Spieleranzahl zum nächstgelegenen Zeitpunkt.
 
         Sucht in der Spieler-Zeitreihe den Eintrag mit dem geringsten
         zeitlichen Abstand zum Ziel-Timestamp.
@@ -605,7 +605,7 @@ class CorrelationAnalyzer:
                 best_diff = diff
                 best_count = count
 
-        # Nur zurueckgeben wenn der naechste Eintrag maximal 30 Minuten entfernt ist
+        # Nur zurückgeben wenn der nächste Eintrag maximal 30 Minuten entfernt ist
         if best_diff <= 1800:
             return best_count
         return None
@@ -615,10 +615,10 @@ class CorrelationAnalyzer:
         ts_str: str, crash_timestamps: list[str], minutes: int = 10
     ) -> bool:
         """
-        Prueft ob ein Zeitpunkt in der Naehe eines Crashs liegt.
+        Prüft ob ein Zeitpunkt in der Nähe eines Crashs liegt.
 
         Args:
-            ts_str: Zu pruefender Zeitpunkt (ISO-Format)
+            ts_str: Zu prüfender Zeitpunkt (ISO-Format)
             crash_timestamps: Liste von Crash-Zeitstempeln
             minutes: Maximaler Abstand in Minuten
 
@@ -645,7 +645,7 @@ class CorrelationAnalyzer:
     @staticmethod
     def _get_player_class(player_count: int) -> str:
         """
-        Ordnet eine Spieleranzahl einer Klasse zu fuer die Anomalie-Erkennung.
+        Ordnet eine Spieleranzahl einer Klasse zu für die Anomalie-Erkennung.
 
         Klassen:
         - '0': Keine Spieler online

@@ -275,10 +275,14 @@ class DatabaseMaintenance:
 
         # 1. Standard-Retention fuer konfigurierte Tabellen
         for table, (column, days) in self.retention.items():
+            if not (table.isidentifier() and column.isidentifier()):
+                logger.error(f"Retention-Config ungueltig: table={table!r} column={column!r}")
+                results[table] = -1
+                continue
             try:
                 cutoff = (now - timedelta(days=days)).isoformat()
                 cursor = await db.execute(
-                    f"DELETE FROM [{table}] WHERE [{column}] < ?",
+                    f"DELETE FROM [{table}] WHERE [{column}] < ?",  # nosec B608 - table+column validiert
                     (cutoff,),
                 )
                 deleted = cursor.rowcount
@@ -401,12 +405,16 @@ class DatabaseMaintenance:
             tables = await cursor.fetchall()
             for table in tables:
                 name = table[0]
+                if not name.isidentifier():
+                    logger.warning(f"DB-Tabellen-Name nicht-Whitelist-konform: {name!r}, skip")
+                    continue
                 try:
-                    c = await db.execute(f"SELECT COUNT(*) FROM [{name}]")
+                    c = await db.execute(f"SELECT COUNT(*) FROM [{name}]")  # nosec B608 - name validiert via .isidentifier()
                     row = await c.fetchone()
                     stats["table_counts"][name] = row[0] if row else 0
-                except Exception:
+                except Exception as e:
                     stats["table_counts"][name] = -1
+                    logger.debug(f"COUNT(*) auf Tabelle {name!r} fehlgeschlagen: {e}")
         except Exception as exc:
             logger.error(f"Fehler beim Lesen der Tabellenzaehler: {exc}")
 
