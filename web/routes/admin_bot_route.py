@@ -56,7 +56,7 @@ DEFAULT_CONFIGS = {
         "host": "",
         "port": 10011,
         "username": "",
-        "password": "",
+        "password": "",  # nosec B105 - leeres Default-Schema, echter Wert kommt aus Config
         "virtual_server_id": 1,
         "chat_bridge": {
             "discord_channel_id": "",

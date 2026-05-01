@@ -377,7 +377,7 @@ class BackupManager:
                 if not str(member_path).startswith(str(target_dir.resolve())):
                     raise ValueError(f"Path traversal detected in archive: {member.name}")
                 safe_members.append(member)
-            tar.extractall(path=target_dir, members=safe_members)
+            tar.extractall(path=target_dir, members=safe_members)  # nosec B202 - explicit path-traversal check oben
 
     async def verify_backup(self, backup_path: Path) -> Tuple[bool, str]:
         """

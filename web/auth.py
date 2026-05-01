@@ -46,7 +46,7 @@ WEB_HTTPS = get_env("WEB_HTTPS", "true", cast=bool)
 
 # Discord OAuth2 Endpunkte
 DISCORD_AUTH_URL = "https://discord.com/api/oauth2/authorize"
-DISCORD_TOKEN_URL = "https://discord.com/api/oauth2/token"
+DISCORD_TOKEN_URL = "https://discord.com/api/oauth2/token"  # nosec B105 - oeffentliche OAuth2-Endpoint-URL, kein Secret
 DISCORD_API_URL = "https://discord.com/api/v10"
 
 # JWT Konfiguration

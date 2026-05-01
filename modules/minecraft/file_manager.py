@@ -242,8 +242,9 @@ class FileManager:
                 total_mb = total_size / (1024 * 1024) if total_size else 0
 
                 # SHA1 + MD5 gleichzeitig berechnen während des Downloads
-                sha1 = hashlib.sha1()
-                md5 = hashlib.md5()
+                # (nicht-Security: NeoForge-Installer Integritäts-Checks vs. Mojang-Manifests)
+                sha1 = hashlib.sha1(usedforsecurity=False)
+                md5 = hashlib.md5(usedforsecurity=False)
 
                 dest_path.parent.mkdir(parents=True, exist_ok=True)
                 last_progress = -1
@@ -315,8 +316,9 @@ class FileManager:
         loop = asyncio.get_running_loop()
 
         def _compute():
-            sha1 = hashlib.sha1()
-            md5 = hashlib.md5()
+            # nicht-Security: Integritaets-Verifikation vs. Mojang/NeoForge-Manifests
+            sha1 = hashlib.sha1(usedforsecurity=False)
+            md5 = hashlib.md5(usedforsecurity=False)
             with open(file_path, "rb") as f:
                 while True:
                     chunk = f.read(65536)

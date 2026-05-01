@@ -78,7 +78,7 @@ class CSRFMiddleware:
             csrf_token = generate_csrf_token(request)
         except Exception:
             # Session noch nicht verfuegbar (z.B. Static Files)
-            csrf_token = ""
+            csrf_token = ""  # nosec B105 - leerer Default falls Session nicht initialisiert
 
         # Token in scope["state"] setzen fuer Template-Zugriff via request.state.csrf_token
         # Starlette setzt scope["state"] manchmal als dict, manchmal als State-Objekt.
@@ -114,7 +114,7 @@ class CSRFMiddleware:
         # (Form-Body lesen wuerde den Body konsumieren und nachfolgende
         #  Handler bekommen leere Form-Daten)
         headers = dict(scope.get("headers", []))
-        token = ""
+        token = ""  # nosec B105 - leerer Default vor Header-Lookup
         for key, value in scope.get("headers", []):
             if key == b"x-csrf-token":
                 token = value.decode("utf-8", errors="replace")
@@ -123,12 +123,10 @@ class CSRFMiddleware:
         # Token validieren
         if not token or not validate_csrf_token(request, token):
             # Nicht eingeloggte Benutzer nicht mit CSRF blockieren
-            try:
-                user = request.session.get("user")
-            except Exception:
-                user = None
+            # Auth laeuft per JWT-Cookie (dashboard_token), nicht per Session
+            has_auth = request.cookies.get("dashboard_token") is not None
 
-            if not user:
+            if not has_auth:
                 # Kein Login → durchlassen (Route prueft Auth separat)
                 await self.app(scope, receive, send)
                 return

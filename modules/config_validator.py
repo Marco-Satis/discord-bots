@@ -50,11 +50,11 @@ class ConfigValidator:
         """Check required environment variables"""
         errors = []
         required = {
-            "DISCORD_TOKEN_MANAGER": "Manager Bot Token",
-            "DISCORD_TOKEN_WATCHDOG": "Monitor Bot Token",
+            "DISCORD_TOKEN_MANAGER": "Manager Bot Token",  # nosec B105 - ENV-Var-Name als Dict-Key, kein hardcoded Secret
+            "DISCORD_TOKEN_WATCHDOG": "Monitor Bot Token",  # nosec B105 - ENV-Var-Name als Dict-Key
             "GUILD_ID": "Discord Server ID",
             "OWNER_ID": "Bot Owner ID",
-            "API_TOKEN": "Satisfactory API Token",
+            "API_TOKEN": "Satisfactory API Token",  # nosec B105 - ENV-Var-Name als Dict-Key
         }
 
         for key, desc in required.items():

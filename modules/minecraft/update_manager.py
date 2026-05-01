@@ -22,6 +22,7 @@ Sicherheitsfeatures:
 """
 
 import asyncio
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any, Tuple
@@ -53,6 +54,31 @@ DEFAULT_PRESERVE_FILES = [
     "banned-ips.json",
     "eula.txt",
 ]
+
+
+def _ensure_rcon_bind_localhost(props: Path) -> None:
+    """Stellt sicher, dass rcon.host=127.0.0.1 nach jedem Update gesetzt ist.
+
+    Etappe 4.12 (Survey 2026-05-01): Major-MC-Updates koennen die Property
+    auf Default zuruecksetzen. Diese Funktion ist idempotent + drift-safe.
+    Wird nach jedem atomic_swap aus update_manager._apply_update() aufgerufen.
+    """
+    try:
+        content = props.read_text(encoding="utf-8")
+    except OSError as e:
+        logger.warning(f"_ensure_rcon_bind_localhost: read failed {props}: {e}")
+        return
+    if re.search(r"^rcon\.host=127\.0\.0\.1\s*$", content, re.M):
+        return  # already correct
+    if "rcon.host=" in content:
+        new_content = re.sub(r"^rcon\.host=.*$", "rcon.host=127.0.0.1", content, flags=re.M)
+    else:
+        new_content = content.rstrip() + "\nrcon.host=127.0.0.1\n"
+    try:
+        props.write_text(new_content, encoding="utf-8")
+        logger.info(f"rcon.host=127.0.0.1 enforced post-update in {props.name}")
+    except OSError as e:
+        logger.error(f"_ensure_rcon_bind_localhost: write failed {props}: {e}")
 
 
 class UpdateManager:
@@ -287,6 +313,12 @@ class UpdateManager:
                         rollback_dir=rollback_dir,
                     )
                     result["phases"]["swap"] = swap_meta
+
+                    # Etappe 4.12: RCON-Bind-Hardening enforcen post-Update
+                    # (Major-Updates koennten rcon.host=127.0.0.1 zuruecksetzen)
+                    server_props = server_path / "server.properties"
+                    if server_props.exists():
+                        await asyncio.to_thread(_ensure_rcon_bind_localhost, server_props)
 
                     # Rollback-Rotation (2 Versionen behalten)
                     await self.file_manager.rotate_rollbacks(
