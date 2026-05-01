@@ -1,7 +1,7 @@
 """
 TeamSpeak Channel-Manager — Automatische Channel-Verwaltung.
 
-Erstellt und loescht Channels basierend auf Gameserver-Status.
+Erstellt und löscht Channels basierend auf Gameserver-Status.
 Konfiguration wird in data/admin/ts_channels.json gespeichert.
 """
 
@@ -14,14 +14,14 @@ from utils.config import ADMIN_DATA_DIR
 
 logger = get_logger("modules.teamspeak.channel_manager")
 
-# Konfigurationsdatei fuer Channel-Mappings
+# Konfigurationsdatei für Channel-Mappings
 TS_CHANNELS_FILE = ADMIN_DATA_DIR / "ts_channels.json"
 
 
 class TSChannelManager:
     """Verwaltet TeamSpeak-Channels automatisch.
 
-    Kann Channels erstellen/loeschen und bietet automatische
+    Kann Channels erstellen/löschen und bietet automatische
     Game-Channel-Verwaltung basierend auf Gameserver-Starts/-Stops.
     """
 
@@ -29,7 +29,7 @@ class TSChannelManager:
         """Initialisiert den Channel-Manager.
 
         Args:
-            ts_client: TSClient-Instanz fuer TS-Operationen.
+            ts_client: TSClient-Instanz für TS-Operationen.
         """
         self.ts_client = ts_client
         self._config = self._load_config()
@@ -39,7 +39,7 @@ class TSChannelManager:
     # ------------------------------------------------------------------
 
     def _load_config(self) -> dict:
-        """Laedt die Channel-Konfiguration aus der JSON-Datei.
+        """Lädt die Channel-Konfiguration aus der JSON-Datei.
 
         Returns:
             dict mit der Konfiguration. Standard-Struktur bei Fehler.
@@ -67,7 +67,7 @@ class TSChannelManager:
 
     @staticmethod
     def _default_config() -> dict:
-        """Gibt die Standard-Konfiguration zurueck.
+        """Gibt die Standard-Konfiguration zurück.
 
         Returns:
             dict mit leerer Standard-Konfiguration.
@@ -75,7 +75,7 @@ class TSChannelManager:
         return {
             # Parent-Channel-ID unter dem Game-Channels erstellt werden
             "game_channels_parent_id": 0,
-            # Mapping: game_name -> channel_id (fuer aktive Game-Channels)
+            # Mapping: game_name -> channel_id (für aktive Game-Channels)
             "active_game_channels": {},
             # Template-Einstellungen fuer automatisch erstellte Channels
             "channel_template": {
@@ -99,7 +99,7 @@ class TSChannelManager:
         Args:
             name: Name des neuen Channels.
             parent_id: Parent-Channel-ID (0 = Top-Level).
-            **kwargs: Weitere Channel-Eigenschaften fuer den TS-Server
+            **kwargs: Weitere Channel-Eigenschaften für den TS-Server
                       (z.B. channel_flag_temporary, channel_codec_quality).
 
         Returns:
@@ -126,7 +126,7 @@ class TSChannelManager:
                 self._save_config()
                 logger.info(f"Channel erstellt: '{name}' (ID: {channel_id})")
             else:
-                logger.error(f"Channel-Erstellung fehlgeschlagen fuer '{name}'.")
+                logger.error(f"Channel-Erstellung fehlgeschlagen für '{name}'.")
 
             return channel_id
 
@@ -135,16 +135,16 @@ class TSChannelManager:
             return 0
 
     async def delete_channel(self, channel_id: int) -> bool:
-        """Loescht einen TeamSpeak-Channel.
+        """Löscht einen TeamSpeak-Channel.
 
         Args:
-            channel_id: Die Channel-ID des zu loeschenden Channels.
+            channel_id: Die Channel-ID des zu löschenden Channels.
 
         Returns:
             True bei Erfolg, False bei Fehler.
         """
         if not self.ts_client.is_connected():
-            logger.error("Channel-Loeschung fehlgeschlagen: Keine TS-Verbindung.")
+            logger.error("Channel-Löschung fehlgeschlagen: Keine TS-Verbindung.")
             return False
 
         try:
@@ -167,12 +167,12 @@ class TSChannelManager:
                     del active[key]
 
                 self._save_config()
-                logger.info(f"Channel {channel_id} geloescht.")
+                logger.info(f"Channel {channel_id} gelöscht.")
 
             return success
 
         except Exception as e:
-            logger.error(f"Fehler beim Loeschen des Channels {channel_id}: {e}")
+            logger.error(f"Fehler beim Löschen des Channels {channel_id}: {e}")
             return False
 
     # ------------------------------------------------------------------
@@ -183,8 +183,8 @@ class TSChannelManager:
         """Erstellt automatisch einen Channel wenn ein Gameserver startet.
 
         Der Channel wird unter dem konfigurierten Parent-Channel erstellt.
-        Falls bereits ein Channel fuer dieses Spiel existiert, wird dessen ID
-        zurueckgegeben ohne einen neuen zu erstellen.
+        Falls bereits ein Channel für dieses Spiel existiert, wird dessen ID
+        zurückgegeben ohne einen neuen zu erstellen.
 
         Args:
             game_name: Name des Spiels/Gameservers.
@@ -192,20 +192,20 @@ class TSChannelManager:
         Returns:
             Die Channel-ID, oder 0 bei Fehler.
         """
-        # Pruefen ob bereits ein Channel fuer dieses Spiel existiert
+        # Prüfen ob bereits ein Channel für dieses Spiel existiert
         active_channels = self._config.get("active_game_channels", {})
         if game_name in active_channels:
             existing_id = active_channels[game_name]
-            # Pruefen ob der Channel noch existiert
+            # Prüfen ob der Channel noch existiert
             if await self._channel_exists(existing_id):
                 logger.info(
-                    f"Game-Channel fuer '{game_name}' existiert bereits (ID: {existing_id})."
+                    f"Game-Channel für '{game_name}' existiert bereits (ID: {existing_id})."
                 )
                 return existing_id
             else:
                 # Channel existiert nicht mehr — Mapping entfernen
                 logger.warning(
-                    f"Game-Channel {existing_id} fuer '{game_name}' nicht mehr vorhanden."
+                    f"Game-Channel {existing_id} für '{game_name}' nicht mehr vorhanden."
                 )
                 del active_channels[game_name]
 
@@ -228,7 +228,7 @@ class TSChannelManager:
         return channel_id
 
     async def auto_delete_game_channel(self, game_name: str) -> bool:
-        """Loescht automatisch einen Game-Channel wenn der Server stoppt.
+        """Löscht automatisch einen Game-Channel wenn der Server stoppt.
 
         Args:
             game_name: Name des Spiels/Gameservers.
@@ -239,33 +239,33 @@ class TSChannelManager:
         active_channels = self._config.get("active_game_channels", {})
 
         if game_name not in active_channels:
-            logger.debug(f"Kein aktiver Game-Channel fuer '{game_name}' gefunden.")
+            logger.debug(f"Kein aktiver Game-Channel für '{game_name}' gefunden.")
             return False
 
         channel_id = active_channels[game_name]
 
-        # Pruefen ob noch Clients im Channel sind
+        # Prüfen ob noch Clients im Channel sind
         client_count = await self._get_channel_client_count(channel_id)
         if client_count > 0:
             logger.warning(
                 f"Game-Channel '{game_name}' (ID: {channel_id}) hat noch "
-                f"{client_count} Client(s). Channel wird trotzdem geloescht."
+                f"{client_count} Client(s). Channel wird trotzdem gelöscht."
             )
 
         success = await self.delete_channel(channel_id)
 
         if success:
             # Aus aktiven Channels entfernen (wurde schon in delete_channel gemacht,
-            # aber sicherheitshalber nochmal pruefen)
+            # aber sicherheitshalber nochmal prüfen)
             if game_name in self._config.get("active_game_channels", {}):
                 del self._config["active_game_channels"][game_name]
                 self._save_config()
             logger.info(
-                f"Game-Channel automatisch geloescht: '{game_name}' (ID: {channel_id})"
+                f"Game-Channel automatisch gelöscht: '{game_name}' (ID: {channel_id})"
             )
         else:
             logger.error(
-                f"Automatisches Loeschen des Game-Channels '{game_name}' "
+                f"Automatisches Löschen des Game-Channels '{game_name}' "
                 f"(ID: {channel_id}) fehlgeschlagen."
             )
 
@@ -276,10 +276,10 @@ class TSChannelManager:
     # ------------------------------------------------------------------
 
     async def _channel_exists(self, channel_id: int) -> bool:
-        """Prueft ob ein Channel mit der gegebenen ID existiert.
+        """Prüft ob ein Channel mit der gegebenen ID existiert.
 
         Args:
-            channel_id: Die zu pruefende Channel-ID.
+            channel_id: Die zu prüfende Channel-ID.
 
         Returns:
             True wenn der Channel existiert, sonst False.
@@ -291,7 +291,7 @@ class TSChannelManager:
             return False
 
     async def _get_channel_client_count(self, channel_id: int) -> int:
-        """Zaehlt die Clients in einem bestimmten Channel.
+        """Zählt die Clients in einem bestimmten Channel.
 
         Args:
             channel_id: Die Channel-ID.
@@ -304,12 +304,12 @@ class TSChannelManager:
             for ch in channels:
                 if ch.get("cid") == channel_id:
                     return ch.get("total_clients", 0)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
         return 0
 
     def get_active_game_channels(self) -> dict:
-        """Gibt die aktuell aktiven Game-Channels zurueck.
+        """Gibt die aktuell aktiven Game-Channels zurück.
 
         Returns:
             dict mit game_name -> channel_id Mapping.
@@ -317,7 +317,7 @@ class TSChannelManager:
         return dict(self._config.get("active_game_channels", {}))
 
     def get_managed_channels(self) -> dict:
-        """Gibt alle verwalteten Channels zurueck.
+        """Gibt alle verwalteten Channels zurück.
 
         Returns:
             dict mit channel_name -> channel_id Mapping.
@@ -325,7 +325,7 @@ class TSChannelManager:
         return dict(self._config.get("managed_channels", {}))
 
     def set_game_channels_parent(self, parent_id: int) -> None:
-        """Setzt den Parent-Channel fuer automatische Game-Channels.
+        """Setzt den Parent-Channel für automatische Game-Channels.
 
         Args:
             parent_id: Die Channel-ID des Parent-Channels.

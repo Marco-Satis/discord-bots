@@ -51,6 +51,7 @@ DEFAULT_PRESERVE_FILES = [
     "whitelist.json",
     "banned-players.json",
     "banned-ips.json",
+    "eula.txt",
 ]
 
 
@@ -137,6 +138,7 @@ class UpdateManager:
         trigger: str = "manual",
         countdown_minutes: int = 10,
         version_info: Optional[Dict[str, Any]] = None,
+        skip_timer: bool = False,
     ) -> Tuple[bool, Dict[str, Any]]:
         """
         Führt ein komplettes Update durch (Phase 0-8).
@@ -145,6 +147,7 @@ class UpdateManager:
             trigger: Auslöser ("auto_12h", "auto_daily", "manual")
             countdown_minutes: Countdown-Dauer in Minuten
             version_info: Update-Info von check_for_update() (optional)
+            skip_timer: Timer überspringen (für Testing)
 
         Returns:
             (erfolg, ergebnis_dict)
@@ -189,14 +192,21 @@ class UpdateManager:
                 self._current_update_id = update_id
 
                 # === PHASE 2: Ankündigung ===
-                await self._set_phase(update_id, "countdown")
-                timer_result = await self._run_countdown(
-                    countdown_minutes, new_version
-                )
-                if timer_result == TimerResult.CANCELLED:
-                    await self._finalize_update_log(update_id, "cancelled")
-                    return False, {"error": "Update durch Benutzer abgebrochen"}
-                result["phases"]["countdown"] = "completed"
+                if skip_timer:
+                    logger.info(f"[{self.server_id}] Timer übersprungen (skip_timer=True)")
+                    # HAR trotzdem unterdrücken
+                    if self.har:
+                        self.har.suppress("mc", self.server_id, 900)
+                    result["phases"]["countdown"] = "skipped"
+                else:
+                    await self._set_phase(update_id, "countdown")
+                    timer_result = await self._run_countdown(
+                        countdown_minutes, new_version
+                    )
+                    if timer_result == TimerResult.CANCELLED:
+                        await self._finalize_update_log(update_id, "cancelled")
+                        return False, {"error": "Update durch Benutzer abgebrochen"}
+                    result["phases"]["countdown"] = "completed"
 
                 # === PHASE 3: Vorbereitung ===
                 await self._set_phase(update_id, "preparing")
@@ -208,7 +218,7 @@ class UpdateManager:
                 # HAR sollte bereits vor dem Countdown unterdrückt worden sein
                 # (passiert in _run_countdown), hier nochmal sicherstellen
                 if self.har:
-                    self.har.suppress(900)
+                    self.har.suppress("mc", self.server_id, 900)
 
                 # Server stoppen
                 if self.mc_server:
@@ -250,14 +260,16 @@ class UpdateManager:
                 extract_meta = await self.file_manager.extract_zip(zip_path, extract_dir)
                 result["phases"]["extract"] = extract_meta
 
-                # NeoForge-Version prüfen (Installation erst NACH Atomic Swap)
+                # NeoForge-Version erkennen (Installation IMMER nach Swap,
+                # da run.sh vom Installer generiert wird und nicht im ZIP ist)
                 neoforge_updated = False
-                needs_nf, old_nf, new_nf = False, None, None
+                old_nf, new_nf = None, None
                 if server_path:
                     self._neoforge_updater = NeoForgeUpdater(server_path)
-                    needs_nf, old_nf, new_nf = await self._neoforge_updater.needs_update(
+                    new_nf = await self._neoforge_updater.detect_version_from_pack(
                         extract_dir
                     )
+                    old_nf = await self._neoforge_updater.get_installed_version()
 
                 # Custom-Dateien in entpackten Ordner zurückschreiben
                 if custom_files and extract_dir.exists():
@@ -283,8 +295,9 @@ class UpdateManager:
                         keep_count=2,
                     )
 
-                    # NeoForge NACH dem Atomic Swap installieren (BUG-6)
-                    if needs_nf and new_nf:
+                    # NeoForge IMMER nach Swap installieren — run.sh wird
+                    # vom Installer generiert und ist NICHT im Server Pack ZIP
+                    if new_nf:
                         await self._set_phase(update_id, "neoforge_update")
                         self._neoforge_updater = NeoForgeUpdater(server_path)
                         nf_ok, nf_msg = await self._neoforge_updater.install(new_nf)
@@ -293,6 +306,24 @@ class UpdateManager:
                             "success": nf_ok, "message": nf_msg,
                         }
                         neoforge_updated = nf_ok
+                        if not nf_ok:
+                            raise FileManagerError(
+                                "neoforge_install",
+                                f"NeoForge-Installation fehlgeschlagen: {nf_msg}"
+                            )
+                    else:
+                        # Fallback: Version nicht erkannt, aber start.sh vorhanden?
+                        self._neoforge_updater = NeoForgeUpdater(server_path)
+                        nf_ok, nf_msg = await self._neoforge_updater.ensure_startup_script()
+                        result["phases"]["neoforge"] = {
+                            "old": old_nf, "new": "unbekannt",
+                            "success": nf_ok, "message": nf_msg,
+                        }
+                        if not nf_ok:
+                            logger.warning(
+                                f"[{self.server_id}] Startup-Script Erstellung "
+                                f"fehlgeschlagen: {nf_msg}"
+                            )
 
                 # === PHASE 7: Verifikation (3 Versuche) ===
                 await self._set_phase(update_id, "verifying")
@@ -509,7 +540,7 @@ class UpdateManager:
         # HAR VOR dem Countdown unterdrücken
         if self.har:
             suppress_time = (minutes * 60) + 900  # Countdown + 15 Min Buffer
-            self.har.suppress(suppress_time)
+            self.har.suppress("mc", self.server_id, suppress_time)
             logger.info(f"HAR unterdrückt für {suppress_time}s")
 
         self._active_timer = MCCountdownTimer(
@@ -624,8 +655,8 @@ class UpdateManager:
                 # Server stoppen falls er hängt
                 try:
                     await self.mc_server.stop()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
                 await asyncio.sleep(10)
 
         return False
@@ -648,8 +679,8 @@ class UpdateManager:
                     response = await self.mc_server.rcon_command("list")
                     if response:
                         return True
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
 
             logger.warning(
                 f"[{self.server_id}] RCON nach {RCON_WAIT_TIMEOUT}s nicht erreichbar"
@@ -751,7 +782,7 @@ class UpdateManager:
         """Aktualisiert die aktuelle Phase im Update-Log."""
         # RISK-5: HAR-Suppress bei jedem Phasenwechsel verlaengern
         if self.har:
-            self.har.suppress(900)
+            self.har.suppress("mc", self.server_id, 900)
 
         if self.db and update_id:
             try:

@@ -1,18 +1,18 @@
 """
 Notify Cog — F40: Spieler-Benachrichtigungssystem (Opt-in)
 
-Spieler koennen sich fuer Server-Events anmelden und erhalten
-DMs bei Statusaenderungen ihrer abonnierten Server.
+Spieler können sich für Server-Events anmelden und erhalten
+DMs bei Statusänderungen ihrer abonnierten Server.
 
 Command-Struktur (app_commands.Group):
-  /notify subscribe <server>   — Benachrichtigungen fuer einen Server abonnieren
+  /notify subscribe <server>   — Benachrichtigungen für einen Server abonnieren
   /notify unsubscribe <server> — Abonnement aufheben
   /notify list                 — Eigene Abonnements anzeigen
 
-Unterstuetzte Events:
+Unterstützte Events:
   server_online, server_offline, update_available, planned_restart
 
-Oeffentliche Methode:
+Öffentliche Methode:
   notify_subscribers(server_id, event_type, message)
     — Sendet DMs an alle Abonnenten eines Servers.
       Cooldown: Gleicher event_type+server_id wird max. alle 5 Minuten gesendet.
@@ -34,7 +34,7 @@ from utils.logger import get_logger
 
 logger = get_logger("cogs.notify")
 
-# SQL fuer Tabellenerstellung
+# SQL für Tabellenerstellung
 CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS notify_subscriptions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -45,25 +45,25 @@ CREATE TABLE IF NOT EXISTS notify_subscriptions (
 )
 """
 
-# Verfuegbare Server als Choices
+# Verfügbare Server als Choices
 _SERVER_CHOICES = [
     app_commands.Choice(name="Satisfactory", value="satisfactory"),
     app_commands.Choice(name="Minecraft BMC", value="mc_bmc"),
     app_commands.Choice(name="Minecraft Vanilla", value="mc_vanilla"),
 ]
 
-# Lesbare Server-Namen fuer Anzeige
+# Lesbare Server-Namen für Anzeige
 _SERVER_LABELS: dict[str, str] = {
     "satisfactory": "Satisfactory",
     "mc_bmc": "Minecraft BMC",
     "mc_vanilla": "Minecraft Vanilla",
 }
 
-# Lesbare Event-Typen fuer Anzeige
+# Lesbare Event-Typen für Anzeige
 _EVENT_LABELS: dict[str, str] = {
     "server_online": "Server Online",
     "server_offline": "Server Offline",
-    "update_available": "Update verfuegbar",
+    "update_available": "Update verfügbar",
     "planned_restart": "Geplanter Neustart",
 }
 
@@ -72,7 +72,7 @@ _COOLDOWN_SECONDS = 300
 
 
 class NotifyCog(commands.Cog):
-    """Spieler-Benachrichtigungssystem: Opt-in fuer Server-Events per DM"""
+    """Spieler-Benachrichtigungssystem: Opt-in für Server-Events per DM"""
 
     notify_grp = app_commands.Group(
         name="notify",
@@ -133,7 +133,7 @@ class NotifyCog(commands.Cog):
         ]
 
     async def _is_subscribed(self, user_id: str, server_id: str) -> bool:
-        """Prueft ob ein User bereits fuer einen Server abonniert ist"""
+        """Prüft ob ein User bereits für einen Server abonniert ist"""
         db = await get_db()
         cursor = await db.execute(
             "SELECT 1 FROM notify_subscriptions "
@@ -166,10 +166,10 @@ class NotifyCog(commands.Cog):
 
     @notify_grp.command(
         name="subscribe",
-        description="Benachrichtigungen fuer einen Server abonnieren (DM)",
+        description="Benachrichtigungen für einen Server abonnieren (DM)",
     )
     @app_commands.describe(
-        server="Server fuer den du Benachrichtigungen erhalten moechtest",
+        server="Server für den du Benachrichtigungen erhalten möchtest",
     )
     @app_commands.choices(server=_SERVER_CHOICES)
     async def notify_subscribe(
@@ -182,10 +182,10 @@ class NotifyCog(commands.Cog):
         user_id = str(interaction.user.id)
         server_id = server.value
 
-        # Pruefen ob bereits abonniert
+        # Prüfen ob bereits abonniert
         if await self._is_subscribed(user_id, server_id):
             await interaction.followup.send(
-                f"Du bist bereits fuer **{server.name}** angemeldet.",
+                f"Du bist bereits für **{server.name}** angemeldet.",
                 ephemeral=True,
             )
             return
@@ -201,7 +201,7 @@ class NotifyCog(commands.Cog):
             await db.commit()
         except Exception as e:
             logger.error(
-                f"Fehler beim Erstellen des Abonnements fuer {interaction.user}: {e}",
+                f"Fehler beim Erstellen des Abonnements für {interaction.user}: {e}",
                 exc_info=True,
             )
             await interaction.followup.send(
@@ -212,7 +212,7 @@ class NotifyCog(commands.Cog):
         embed = discord.Embed(
             title="Benachrichtigung abonniert",
             description=(
-                f"Du erhaeltst jetzt DMs bei Events fuer **{server.name}**.\n\n"
+                f"Du erhältst jetzt DMs bei Events für **{server.name}**.\n\n"
                 f"Events: Server Online/Offline, Updates, geplante Neustarts\n\n"
                 f"Abmelden mit: `/notify unsubscribe {server_id}`"
             ),
@@ -230,10 +230,10 @@ class NotifyCog(commands.Cog):
 
     @notify_grp.command(
         name="unsubscribe",
-        description="Benachrichtigungen fuer einen Server abbestellen",
+        description="Benachrichtigungen für einen Server abbestellen",
     )
     @app_commands.describe(
-        server="Server fuer den du keine Benachrichtigungen mehr erhalten moechtest",
+        server="Server für den du keine Benachrichtigungen mehr erhalten möchtest",
     )
     @app_commands.choices(server=_SERVER_CHOICES)
     async def notify_unsubscribe(
@@ -246,15 +246,15 @@ class NotifyCog(commands.Cog):
         user_id = str(interaction.user.id)
         server_id = server.value
 
-        # Pruefen ob Abonnement existiert
+        # Prüfen ob Abonnement existiert
         if not await self._is_subscribed(user_id, server_id):
             await interaction.followup.send(
-                f"Du bist nicht fuer **{server.name}** angemeldet.",
+                f"Du bist nicht für **{server.name}** angemeldet.",
                 ephemeral=True,
             )
             return
 
-        # Abonnement aus Datenbank loeschen
+        # Abonnement aus Datenbank löschen
         try:
             db = await get_db()
             await db.execute(
@@ -265,23 +265,23 @@ class NotifyCog(commands.Cog):
             await db.commit()
         except Exception as e:
             logger.error(
-                f"Fehler beim Loeschen des Abonnements fuer {interaction.user}: {e}",
+                f"Fehler beim Löschen des Abonnements für {interaction.user}: {e}",
                 exc_info=True,
             )
             await interaction.followup.send(
-                f"Fehler beim Loeschen: {e}", ephemeral=True
+                f"Fehler beim Löschen: {e}", ephemeral=True
             )
             return
 
         embed = discord.Embed(
             title="Benachrichtigung abbestellt",
-            description=f"Du erhaeltst keine DMs mehr fuer **{server.name}**.",
+            description=f"Du erhältst keine DMs mehr für **{server.name}**.",
             color=0xE74C3C,
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
 
         logger.info(
-            f"Notify-Abo geloescht: {interaction.user} -> {server_id}"
+            f"Notify-Abo gelöscht: {interaction.user} -> {server_id}"
         )
 
     # ==================================================================
@@ -349,9 +349,9 @@ class NotifyCog(commands.Cog):
         Args:
             server_id: Server-Kennung (z.B. 'satisfactory', 'mc_bmc')
             event_type: Event-Typ (z.B. 'server_online', 'server_offline')
-            message: Nachrichtentext fuer die DM
+            message: Nachrichtentext für die DM
         """
-        # Cooldown pruefen
+        # Cooldown prüfen
         cooldown_key = f"{event_type}:{server_id}"
         now = time.monotonic()
         last_sent = self._cooldowns.get(cooldown_key, 0.0)
@@ -359,8 +359,8 @@ class NotifyCog(commands.Cog):
         if now - last_sent < _COOLDOWN_SECONDS:
             remaining = int(_COOLDOWN_SECONDS - (now - last_sent))
             logger.debug(
-                f"Notify-Cooldown aktiv fuer {cooldown_key}: "
-                f"noch {remaining}s verbleibend, ueberspringe"
+                f"Notify-Cooldown aktiv für {cooldown_key}: "
+                f"noch {remaining}s verbleibend, überspringe"
             )
             return
 
@@ -372,20 +372,20 @@ class NotifyCog(commands.Cog):
             subscriber_ids = await self._get_subscribers(server_id)
         except Exception as e:
             logger.error(
-                f"Fehler beim Laden der Abonnenten fuer {server_id}: {e}",
+                f"Fehler beim Laden der Abonnenten für {server_id}: {e}",
                 exc_info=True,
             )
             return
 
         if not subscriber_ids:
-            logger.debug(f"Keine Abonnenten fuer {server_id}, ueberspringe")
+            logger.debug(f"Keine Abonnenten für {server_id}, überspringe")
             return
 
-        # Event-Label fuer Embed
+        # Event-Label für Embed
         server_label = _SERVER_LABELS.get(server_id, server_id)
         event_label = _EVENT_LABELS.get(event_type, event_type)
 
-        # Embed fuer die DM erstellen
+        # Embed für die DM erstellen
         embed = discord.Embed(
             title=f"{server_label} — {event_label}",
             description=message,
@@ -407,7 +407,7 @@ class NotifyCog(commands.Cog):
                         user = await self.bot.fetch_user(user_id)
                     except (discord.NotFound, discord.HTTPException):
                         logger.warning(
-                            f"Notify: User {user_id_str} nicht gefunden, ueberspringe"
+                            f"Notify: User {user_id_str} nicht gefunden, überspringe"
                         )
                         failed_count += 1
                         continue
@@ -418,7 +418,7 @@ class NotifyCog(commands.Cog):
             except discord.Forbidden:
                 # User hat DMs deaktiviert — graceful behandeln
                 logger.debug(
-                    f"Notify: DMs deaktiviert fuer User {user_id_str}, ueberspringe"
+                    f"Notify: DMs deaktiviert für User {user_id_str}, überspringe"
                 )
                 failed_count += 1
             except discord.HTTPException as e:
@@ -434,7 +434,7 @@ class NotifyCog(commands.Cog):
                 failed_count += 1
 
         logger.info(
-            f"Notify: {event_type} fuer {server_id} — "
+            f"Notify: {event_type} für {server_id} — "
             f"{sent_count} gesendet, {failed_count} fehlgeschlagen "
             f"(von {len(subscriber_ids)} Abonnenten)"
         )
@@ -445,9 +445,9 @@ class NotifyCog(commands.Cog):
 
     @staticmethod
     def _event_color(event_type: str) -> int:
-        """Farbe fuer das Embed je nach Event-Typ"""
+        """Farbe für das Embed je nach Event-Typ"""
         colors = {
-            "server_online": 0x2ECC71,    # Gruen
+            "server_online": 0x2ECC71,    # Grün
             "server_offline": 0xE74C3C,   # Rot
             "update_available": 0x3498DB,  # Blau
             "planned_restart": 0xF39C12,   # Orange
@@ -463,11 +463,11 @@ class NotifyCog(commands.Cog):
         interaction: discord.Interaction,
         error: app_commands.AppCommandError,
     ) -> None:
-        """Zentrale Fehlerbehandlung fuer alle Commands in dieser Cog"""
+        """Zentrale Fehlerbehandlung für alle Commands in dieser Cog"""
         if isinstance(error, app_commands.CheckFailure):
             if not interaction.response.is_done():
                 await interaction.response.send_message(
-                    "Keine Berechtigung fuer diesen Befehl.", ephemeral=True
+                    "Keine Berechtigung für diesen Befehl.", ephemeral=True
                 )
             return
 
@@ -479,8 +479,8 @@ class NotifyCog(commands.Cog):
                 await interaction.followup.send(msg, ephemeral=True)
             else:
                 await interaction.response.send_message(msg, ephemeral=True)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
 
 
 async def setup(bot: commands.Bot) -> None:

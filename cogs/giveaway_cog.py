@@ -1,6 +1,6 @@
 """
 Giveaway Cog — Phase 11h
-Cog fuer den Admin Bot: Verlosungen erstellen, verwalten und automatisch beenden.
+Cog für den Admin Bot: Verlosungen erstellen, verwalten und automatisch beenden.
 
 Commands:
   /giveaway create <preis> <dauer_minuten> [gewinner] [channel]  — Neues Giveaway
@@ -10,7 +10,7 @@ Commands:
   /giveaway list                                                 — Aktive Giveaways anzeigen
 
 Features:
-  - Persistent View mit "Teilnehmen"-Button (ueberlebt Bot-Neustarts)
+  - Persistent View mit "Teilnehmen"-Button (überlebt Bot-Neustarts)
   - Anforderungen: Mindest-Level, Rollen-Pflicht, Mindest-Mitgliedschaft
   - Automatisches Beenden durch Background-Task (alle 30s)
   - Gewinner-Benachrichtigung: Tag im Kanal + DM
@@ -31,7 +31,7 @@ from utils.permissions import admin_only
 
 logger = get_logger("cogs.giveaway")
 
-# Custom-ID-Prefix fuer den Teilnehmen-Button (persistent)
+# Custom-ID-Prefix für den Teilnehmen-Button (persistent)
 BUTTON_CUSTOM_ID_PREFIX = "giveaway_join:"
 
 # Farben
@@ -42,12 +42,12 @@ COLOR_NO_WINNER = 0xe74c3c  # Rot — Keine Gewinner (zu wenige Teilnehmer)
 
 
 # ==================================================================
-# Persistent View — ueberlebt Bot-Neustarts
+# Persistent View — überlebt Bot-Neustarts
 # ==================================================================
 
 class GiveawayView(discord.ui.View):
     """
-    Persistent View fuer den Giveaway-Teilnehmen-Button.
+    Persistent View für den Giveaway-Teilnehmen-Button.
 
     Verwendet eine feste custom_id mit Prefix, damit Discord die
     Interaktion auch nach einem Bot-Neustart zuordnen kann.
@@ -67,7 +67,7 @@ class GiveawayView(discord.ui.View):
         self, interaction: discord.Interaction, button: discord.ui.Button
     ) -> None:
         """
-        Teilnehmen/Austragen-Toggle fuer Giveaways.
+        Teilnehmen/Austragen-Toggle für Giveaways.
 
         Prueft Anforderungen (Rolle, Mitgliedschaftsdauer) und
         fuegt den User hinzu oder entfernt ihn.
@@ -97,12 +97,12 @@ class GiveawayView(discord.ui.View):
             )
             return
 
-        # Anforderungen pruefen
+        # Anforderungen prüfen
         requirements = giveaway.get("requirements", {})
         member = interaction.guild.get_member(user_id) if interaction.guild else None
 
         if member and not self.manager.is_participant(message_id, user_id):
-            # Nur beim Hinzufuegen pruefen, nicht beim Entfernen
+            # Nur beim Hinzufuegen prüfen, nicht beim Entfernen
 
             # Rollen-Anforderung
             required_role_id = requirements.get("role_id")
@@ -132,7 +132,7 @@ class GiveawayView(discord.ui.View):
                     return
 
             # Mindest-Level (wird nur geprueft wenn > 0)
-            # Level-System ist extern — wir pruefen via bot.level_manager
+            # Level-System ist extern — wir prüfen via bot.level_manager
             min_level = requirements.get("min_level", 0)
             if min_level > 0:
                 level_mgr = getattr(interaction.client, "level_manager", None)
@@ -218,7 +218,7 @@ class GiveawayView(discord.ui.View):
 
 class GiveawayCog(commands.Cog):
     """
-    Giveaway-System fuer den Admin Bot.
+    Giveaway-System für den Admin Bot.
 
     Verwaltet Verlosungen mit persistenten Buttons, automatischem
     Beenden, Gewinner-Benachrichtigung und Anforderungs-Pruefung.
@@ -232,7 +232,7 @@ class GiveawayCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
         self.manager = GiveawayManager()
-        # Manager auf dem Bot verfuegbar machen
+        # Manager auf dem Bot verfügbar machen
         bot.giveaway_manager = self.manager
 
         # Persistent View registrieren
@@ -371,7 +371,7 @@ class GiveawayCog(commands.Cog):
         participant_count: int,
     ) -> discord.Embed:
         """
-        Embed fuer beendetes Giveaway erstellen.
+        Embed für beendetes Giveaway erstellen.
 
         Args:
             prize: Beschreibung des Preises
@@ -480,7 +480,7 @@ class GiveawayCog(commands.Cog):
         channel: discord.TextChannel,
     ) -> None:
         """
-        Gewinner per DM ueber den Gewinn benachrichtigen.
+        Gewinner per DM über den Gewinn benachrichtigen.
 
         Args:
             user_id: Discord-ID des Gewinners
@@ -517,7 +517,7 @@ class GiveawayCog(commands.Cog):
         preis="Beschreibung des Preises",
         dauer_minuten="Laufzeit in Minuten",
         gewinner="Anzahl der Gewinner (Standard: 1)",
-        channel="Kanal fuer das Giveaway (Standard: aktueller Kanal)",
+        channel="Kanal für das Giveaway (Standard: aktueller Kanal)",
         min_level="Mindest-Level zum Teilnehmen (0 = keins)",
         benoetigte_rolle="Rolle die zum Teilnehmen benoetigt wird",
         min_tage="Mindest-Mitgliedschaftsdauer in Tagen (0 = keine)",
@@ -573,7 +573,7 @@ class GiveawayCog(commands.Cog):
         target_channel = channel or interaction.channel
         if not isinstance(target_channel, discord.TextChannel):
             await interaction.followup.send(
-                "Giveaways koennen nur in Textkanaelen erstellt werden.",
+                "Giveaways können nur in Textkanaelen erstellt werden.",
                 ephemeral=True,
             )
             return
@@ -704,7 +704,7 @@ class GiveawayCog(commands.Cog):
 
     @giveaway_grp.command(
         name="reroll",
-        description="Neue Gewinner fuer ein beendetes Giveaway ziehen (Admin)",
+        description="Neue Gewinner für ein beendetes Giveaway ziehen (Admin)",
     )
     @app_commands.describe(
         message_id="Message-ID des Giveaway-Embeds",
@@ -740,7 +740,7 @@ class GiveawayCog(commands.Cog):
             )
             return
 
-        # Reroll ausfuehren
+        # Reroll ausführen
         success, new_winners = self.manager.reroll(msg_id)
 
         if not success:
@@ -751,7 +751,7 @@ class GiveawayCog(commands.Cog):
 
         if not new_winners:
             await interaction.followup.send(
-                "Keine weiteren Teilnehmer fuer einen Reroll verfuegbar.",
+                "Keine weiteren Teilnehmer für einen Reroll verfügbar.",
                 ephemeral=True,
             )
             return
@@ -959,11 +959,11 @@ class GiveawayCog(commands.Cog):
         interaction: discord.Interaction,
         error: app_commands.AppCommandError,
     ) -> None:
-        """Zentrale Fehlerbehandlung fuer alle Commands in dieser Cog"""
+        """Zentrale Fehlerbehandlung für alle Commands in dieser Cog"""
         if isinstance(error, app_commands.CheckFailure):
             if not interaction.response.is_done():
                 await interaction.response.send_message(
-                    "Keine Berechtigung fuer diesen Befehl.", ephemeral=True
+                    "Keine Berechtigung für diesen Befehl.", ephemeral=True
                 )
             return
 
@@ -975,8 +975,8 @@ class GiveawayCog(commands.Cog):
                 await interaction.followup.send(msg, ephemeral=True)
             else:
                 await interaction.response.send_message(msg, ephemeral=True)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
 
 
 async def setup(bot: commands.Bot) -> None:

@@ -88,8 +88,8 @@ class MinecraftServer:
             try:
                 proc.kill()
                 await proc.wait()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
             return -1, "", "Timeout"
         except Exception as e:
             logger.error(f"[{self.server_id}] systemctl {action} Fehler: {e}")
@@ -113,8 +113,8 @@ class MinecraftServer:
                 try:
                     proc.kill()
                     await proc.wait()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
             return None
         except Exception:
             return None
@@ -199,7 +199,7 @@ class MinecraftServer:
     async def start(self) -> Tuple[bool, str]:
         """Server via systemd starten"""
         if await self.is_running():
-            return False, f"{self.display_name} laeuft bereits."
+            return False, f"{self.display_name} läuft bereits."
 
         code, _, stderr = await self._systemctl("start", timeout=60)
         if code != 0:
@@ -290,7 +290,7 @@ class MinecraftServer:
                     logger.debug(f"[{self.server_id}] RCON-Retry nach Fehler: {e}")
                     await asyncio.sleep(1)
                     continue
-        logger.error(f"[{self.server_id}] RCON-Befehl fehlgeschlagen ({command}): {last_error}")
+        logger.debug(f"[{self.server_id}] RCON-Befehl fehlgeschlagen ({command}): {last_error}")
         raise last_error
 
     async def run_command(self, command: str) -> str:
@@ -430,7 +430,7 @@ class MinecraftServer:
         return self.world_path
 
     async def get_world_size(self) -> int:
-        """World-Ordner-Groesse in Bytes (async via Executor)"""
+        """World-Ordner-Größe in Bytes (async via Executor)"""
         def _calc() -> int:
             if not self.world_path.exists():
                 return 0
@@ -440,7 +440,7 @@ class MinecraftServer:
                     if entry.is_file():
                         total += entry.stat().st_size
             except Exception as e:
-                logger.debug(f"[{self.server_id}] Fehler bei World-Groessenberechnung: {e}")
+                logger.debug(f"[{self.server_id}] Fehler bei World-Größenberechnung: {e}")
             return total
 
         loop = asyncio.get_running_loop()

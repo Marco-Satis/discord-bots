@@ -7,6 +7,7 @@ import asyncio
 import shutil
 import time
 import json
+import tracemalloc
 import psutil
 import discord
 from pathlib import Path
@@ -153,7 +154,7 @@ class MonitorCog(commands.Cog):
             await interaction.followup.send("✅ Dashboard aktualisiert!", ephemeral=True)
         else:
             await interaction.followup.send(
-                "⚠️ Dashboard-Update Funktion nicht verfuegbar.", ephemeral=True
+                "⚠️ Dashboard-Update Funktion nicht verfügbar.", ephemeral=True
             )
 
     # ------------------------------------------------------------------
@@ -168,7 +169,7 @@ class MonitorCog(commands.Cog):
         await interaction.response.defer()
 
         if not self.player_tracker:
-            await interaction.followup.send("❌ Player Tracker nicht verfuegbar.")
+            await interaction.followup.send("❌ Player Tracker nicht verfügbar.")
             return
 
         if spieler:
@@ -183,7 +184,7 @@ class MonitorCog(commands.Cog):
 
             if not stats:
                 await interaction.followup.send(
-                    f"❌ Keine Daten fuer Spieler **{spieler}** gefunden."
+                    f"❌ Keine Daten für Spieler **{spieler}** gefunden."
                 )
                 return
 
@@ -245,7 +246,7 @@ class MonitorCog(commands.Cog):
                 return
 
             embed = discord.Embed(
-                title="📊 Spieler-Uebersicht",
+                title="📊 Spieler-Übersicht",
                 description=f"{len(all_stats)} Spieler erfasst",
                 color=0x5865F2,
                 timestamp=datetime.now(),
@@ -317,7 +318,7 @@ class MonitorCog(commands.Cog):
         else:
             embed.add_field(
                 name="🟢 Uptime",
-                value="Stats Tracker nicht verfuegbar",
+                value="Stats Tracker nicht verfügbar",
                 inline=True,
             )
 
@@ -405,7 +406,7 @@ class MonitorCog(commands.Cog):
                     inline=True,
                 )
         else:
-            embed.add_field(name="Spieler", value="Tracker nicht verfuegbar", inline=True)
+            embed.add_field(name="Spieler", value="Tracker nicht verfügbar", inline=True)
 
         # --- Savegame-Wachstum ---
         if stats_tracker:
@@ -454,7 +455,7 @@ class MonitorCog(commands.Cog):
         extra_parts = []
         if self.update_checker:
             if self.update_checker.update_available:
-                extra_parts.append("⚠️ Update verfuegbar!")
+                extra_parts.append("⚠️ Update verfügbar!")
             elif self.update_checker.installed_buildid:
                 extra_parts.append(f"Build: {self.update_checker.installed_buildid}")
 
@@ -478,7 +479,7 @@ class MonitorCog(commands.Cog):
                 inline=True,
             )
 
-        embed.set_footer(text=f"Zeitraum: {days} Tage | /report [tage] fuer anderen Zeitraum")
+        embed.set_footer(text=f"Zeitraum: {days} Tage | /report [tage] für anderen Zeitraum")
         await interaction.followup.send(embed=embed)
 
     @staticmethod
@@ -733,7 +734,7 @@ class MonitorCog(commands.Cog):
     # /selftest command
     # ------------------------------------------------------------------
 
-    @app_commands.command(name="selftest", description="Alle Bot-Systeme pruefen")
+    @app_commands.command(name="selftest", description="Alle Bot-Systeme prüfen")
     @app_commands.check(is_admin)
     async def selftest_cmd(self, interaction: discord.Interaction):
         await interaction.response.defer()
@@ -962,16 +963,16 @@ class MonitorCog(commands.Cog):
                     try:
                         online, max_p = await srv.get_player_count()
                         lines.append(f"Spieler: {online}/{max_p}")
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
 
-                # World-Groesse
+                # World-Größe
                 try:
                     world_bytes = await srv.get_world_size()
                     if world_bytes > 0:
                         lines.append(f"Welt: {world_bytes / (1024 * 1024):.1f} MB")
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
 
                 # Stats-Tracker Daten
                 mc_st = getattr(self.bot, "mc_stats_trackers", {}).get(sid)
@@ -1153,7 +1154,7 @@ class MonitorCog(commands.Cog):
         cr = mc_crs.get(sid)
         if not cr:
             await interaction.followup.send(
-                f"❌ Kein Crash-Replay fuer Server **{sid}** verfuegbar.",
+                f"❌ Kein Crash-Replay für Server **{sid}** verfügbar.",
                 ephemeral=True,
             )
             return
@@ -1161,7 +1162,7 @@ class MonitorCog(commands.Cog):
         replays = cr.list_replays()
         if not replays:
             await interaction.followup.send(
-                f"✅ Keine Crash-Replays fuer **{sid}** vorhanden.",
+                f"✅ Keine Crash-Replays für **{sid}** vorhanden.",
                 ephemeral=True,
             )
             return
@@ -1175,7 +1176,7 @@ class MonitorCog(commands.Cog):
 
             if not target:
                 await interaction.followup.send(
-                    f"❌ Kein Replay fuer Crash #{nummer} gefunden.",
+                    f"❌ Kein Replay für Crash #{nummer} gefunden.",
                     ephemeral=True,
                 )
                 return
@@ -1322,7 +1323,7 @@ class MonitorCog(commands.Cog):
                 "🚨 Server Crash\n"
                 "❌ Auto-Restart fehlgeschlagen\n"
                 "⚠️ Performance-Warnung\n"
-                "📦 Update verfuegbar"
+                "📦 Update verfügbar"
             ),
             inline=False,
         )
@@ -1340,7 +1341,7 @@ class MonitorCog(commands.Cog):
     @backup_grp.command(name="stats", description="Backup-Statistiken aller Server")
     @app_commands.check(lambda i: True)  # Spieler-Berechtigung (alle)
     async def backup_stats(self, interaction: discord.Interaction):
-        """Zeigt Backup-Uebersicht fuer alle Server mit Speicherplatz-Info"""
+        """Zeigt Backup-Übersicht für alle Server mit Speicherplatz-Info"""
         await interaction.response.defer()
 
         loop = asyncio.get_running_loop()
@@ -1381,7 +1382,7 @@ class MonitorCog(commands.Cog):
                     name="Satisfactory",
                     value=(
                         f"**Anzahl:** {sat_count}\n"
-                        f"**Groesse:** {format_bytes(sat_total)}\n"
+                        f"**Größe:** {format_bytes(sat_total)}\n"
                         f"**Aeltestes:** {oldest}\n"
                         f"**Neuestes:** {newest}"
                     ),
@@ -1408,7 +1409,7 @@ class MonitorCog(commands.Cog):
                     name=f"MC {display_name}",
                     value=(
                         f"**Anzahl:** {mc_count}\n"
-                        f"**Groesse:** {format_bytes(mc_total)}\n"
+                        f"**Größe:** {format_bytes(mc_total)}\n"
                         f"**Aeltestes:** {oldest}\n"
                         f"**Neuestes:** {newest}"
                     ),
@@ -1419,7 +1420,7 @@ class MonitorCog(commands.Cog):
                     name=f"MC {display_name}", value=f"Fehler: {e}", inline=True
                 )
 
-        # Speicherplatz-Uebersicht
+        # Speicherplatz-Übersicht
         embed.add_field(
             name=f"Speicherplatz ({disk_status})",
             value=(
@@ -1473,7 +1474,7 @@ class MonitorCog(commands.Cog):
         )
         embed.add_field(
             name="rclone konfiguriert",
-            value="✅ Ja" if configured else "❌ Nein (rclone config ausfuehren)",
+            value="✅ Ja" if configured else "❌ Nein (rclone config ausführen)",
             inline=True,
         )
         embed.add_field(
@@ -1668,7 +1669,7 @@ class MonitorCog(commands.Cog):
 
         sg_prot = getattr(self.bot, 'savegame_protection', None)
         if not sg_prot:
-            await interaction.followup.send("❌ Savegame-Schutz nicht verfuegbar.", ephemeral=True)
+            await interaction.followup.send("❌ Savegame-Schutz nicht verfügbar.", ephemeral=True)
             return
 
         info = sg_prot.get_rollback_info()
@@ -1700,7 +1701,7 @@ class MonitorCog(commands.Cog):
         else:
             embed.add_field(
                 name="Letztes gutes Save",
-                value="Nicht verfuegbar",
+                value="Nicht verfügbar",
                 inline=False,
             )
 
@@ -1710,11 +1711,54 @@ class MonitorCog(commands.Cog):
             view = RollbackView(sg_prot, interaction.user.id)
             embed.add_field(
                 name="Aktion",
-                value="Crash-Loop kann zurueckgesetzt werden um Auto-Restart wieder zu aktivieren.",
+                value="Crash-Loop kann zurückgesetzt werden um Auto-Restart wieder zu aktivieren.",
                 inline=False,
             )
 
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
+    # ------------------------------------------------------------------
+    # /debug_memory -- tracemalloc Top-30 Allocators (Etappe 2.6)
+    # ------------------------------------------------------------------
+
+    @app_commands.command(
+        name="debug_memory",
+        description="Tracemalloc Top-30 Allocators (Admin-only, RSS-Diagnose)",
+    )
+    @app_commands.check(is_admin)
+    async def debug_memory_cmd(self, interaction: discord.Interaction):
+        """Memory-Diagnose via tracemalloc - zeigt die 30 groessten Allocators."""
+        await interaction.response.defer(ephemeral=True)
+
+        if not tracemalloc.is_tracing():
+            await interaction.followup.send(
+                "tracemalloc laeuft nicht. Setze `TRACEMALLOC_ENABLED=1` in .env "
+                "und restart den Bot.",
+                ephemeral=True,
+            )
+            return
+
+        try:
+            snapshot = tracemalloc.take_snapshot()
+            stats = snapshot.statistics("lineno")[:30]
+            total_kb = sum(s.size for s in stats) / 1024
+
+            lines = [f"**Top {len(stats)} Allocators** (Sum: {total_kb:,.0f} KB)\n"]
+            for i, stat in enumerate(stats, 1):
+                tb = stat.traceback[0] if stat.traceback else None
+                loc = f"{Path(tb.filename).name}:{tb.lineno}" if tb else "?"
+                lines.append(
+                    f"`{i:2d}.` `{loc}` -- {stat.size / 1024:,.1f} KB ({stat.count} blocks)"
+                )
+
+            text = "\n".join(lines)
+            if len(text) > 1900:
+                text = text[:1900] + "\n...(truncated)"
+
+            await interaction.followup.send(text, ephemeral=True)
+        except Exception as e:
+            logger.exception("debug_memory failed")
+            await interaction.followup.send(f"Fehler: {e}", ephemeral=True)
 
     # ------------------------------------------------------------------
     # Error handler
@@ -1747,12 +1791,12 @@ class RollbackView(discord.ui.View):
     @discord.ui.button(label="Crash-Loop Reset", style=discord.ButtonStyle.danger, emoji="🔄")
     async def reset_crash_loop(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.user_id:
-            await interaction.response.send_message("Nur der Befehlsgeber kann dies ausfuehren.", ephemeral=True)
+            await interaction.response.send_message("Nur der Befehlsgeber kann dies ausführen.", ephemeral=True)
             return
 
         self.sg_prot.reset_crash_loop()
         await interaction.response.edit_message(
-            content="✅ Crash-Loop zurueckgesetzt. Auto-Restart ist wieder aktiv.",
+            content="✅ Crash-Loop zurückgesetzt. Auto-Restart ist wieder aktiv.",
             embed=None,
             view=None,
         )

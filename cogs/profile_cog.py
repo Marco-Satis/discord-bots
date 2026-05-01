@@ -1,7 +1,7 @@
 """
 Profile Cog — Spieler-Statistiken und Leaderboard
 
-Stellt Slash-Commands fuer Spieler-Profile und Ranglisten bereit:
+Stellt Slash-Commands für Spieler-Profile und Ranglisten bereit:
   /profil [spieler]              — Detailliertes Spieler-Profil anzeigen
   /spieler_leaderboard [zeitraum] — Top 10 Spieler nach Spielzeit
 
@@ -49,7 +49,7 @@ def _format_playtime(minutes: int) -> str:
 
 
 def _format_datetime(dt_string: Optional[str]) -> str:
-    """Formatiert einen Datetime-String fuer die Anzeige.
+    """Formatiert einen Datetime-String für die Anzeige.
 
     Args:
         dt_string: ISO-Datetime-String oder None.
@@ -67,7 +67,7 @@ def _format_datetime(dt_string: Optional[str]) -> str:
 
 
 class ProfileCog(commands.Cog):
-    """Spieler-Statistiken und Leaderboard fuer Game-Server.
+    """Spieler-Statistiken und Leaderboard für Game-Server.
 
     Zeigt detaillierte Spieler-Profile mit Spielzeit, Sessions,
     Lieblingsserver und Rang im Leaderboard an.
@@ -85,7 +85,7 @@ class ProfileCog(commands.Cog):
         interaction: discord.Interaction,
         current: str,
     ) -> List[app_commands.Choice[str]]:
-        """Autocomplete fuer Spielernamen aus der Datenbank.
+        """Autocomplete für Spielernamen aus der Datenbank.
 
         Liefert bis zu 25 passende Spielernamen basierend auf der
         aktuellen Eingabe des Nutzers.
@@ -141,7 +141,7 @@ class ProfileCog(commands.Cog):
         return row[0] or 0 if row else 0
 
     async def _get_favorite_server(self, player_name: str) -> Optional[str]:
-        """Server mit der meisten Spielzeit fuer einen Spieler."""
+        """Server mit der meisten Spielzeit für einen Spieler."""
         db = await get_db()
         cursor = await db.execute(
             "SELECT server_id, SUM(duration_minutes) as total "
@@ -170,7 +170,7 @@ class ProfileCog(commands.Cog):
     async def _get_current_session(
         self, player_name: str
     ) -> Optional[tuple[str, str]]:
-        """Aktuelle Session (falls online). Gibt (server_id, join_time) zurueck."""
+        """Aktuelle Session (falls online). Gibt (server_id, join_time) zurück."""
         db = await get_db()
         cursor = await db.execute(
             "SELECT server_id, join_time FROM player_sessions "
@@ -244,7 +244,7 @@ class ProfileCog(commands.Cog):
         description="Zeigt das Profil eines Spielers mit Statistiken an",
     )
     @app_commands.describe(
-        spieler="Name des Spielers (Autocomplete verfuegbar)",
+        spieler="Name des Spielers (Autocomplete verfügbar)",
     )
     @app_commands.autocomplete(spieler=_player_name_autocomplete)
     async def profil_command(
@@ -325,7 +325,7 @@ class ProfileCog(commands.Cog):
                 value=str(sessions_30d),
                 inline=True,
             )
-            # Leerfeld fuer gleichmaessiges Layout
+            # Leerfeld für gleichmaessiges Layout
             embed.add_field(name="\u200b", value="\u200b", inline=True)
 
             # Erster und letzter Login
@@ -345,7 +345,7 @@ class ProfileCog(commands.Cog):
             await interaction.followup.send(embed=embed)
 
         except Exception as e:
-            logger.error(f"Fehler beim Laden des Profils fuer '{spieler}': {e}", exc_info=True)
+            logger.error(f"Fehler beim Laden des Profils für '{spieler}': {e}", exc_info=True)
             await interaction.followup.send(
                 "Fehler beim Laden der Spieler-Statistiken.",
                 ephemeral=True,
@@ -393,7 +393,7 @@ class ProfileCog(commands.Cog):
 
             if not top_players:
                 await interaction.followup.send(
-                    "Keine Spieler-Daten fuer diesen Zeitraum vorhanden.",
+                    "Keine Spieler-Daten für diesen Zeitraum vorhanden.",
                     ephemeral=True,
                 )
                 return
@@ -403,7 +403,7 @@ class ProfileCog(commands.Cog):
                 color=0xf1c40f,
             )
 
-            # Nummerierte Liste mit Medaillen fuer Top 3
+            # Nummerierte Liste mit Medaillen für Top 3
             lines: list[str] = []
             for i, (name, total_minutes) in enumerate(top_players, start=1):
                 playtime = _format_playtime(total_minutes)
@@ -440,11 +440,11 @@ class ProfileCog(commands.Cog):
         interaction: discord.Interaction,
         error: app_commands.AppCommandError,
     ) -> None:
-        """Zentrale Fehlerbehandlung fuer alle Commands in diesem Cog."""
+        """Zentrale Fehlerbehandlung für alle Commands in diesem Cog."""
         if isinstance(error, app_commands.CheckFailure):
             if not interaction.response.is_done():
                 await interaction.response.send_message(
-                    "Keine Berechtigung fuer diesen Befehl.", ephemeral=True
+                    "Keine Berechtigung für diesen Befehl.", ephemeral=True
                 )
             return
 
@@ -457,8 +457,8 @@ class ProfileCog(commands.Cog):
                 await interaction.followup.send(msg, ephemeral=True)
             else:
                 await interaction.response.send_message(msg, ephemeral=True)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
 
 
 async def setup(bot: commands.Bot) -> None:

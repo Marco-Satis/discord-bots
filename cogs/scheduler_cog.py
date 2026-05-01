@@ -429,7 +429,7 @@ class SchedulerCog(commands.Cog):
             # Use restart timer for in-game warnings before restart
             from modules.restart_timer import RestartTimer, TimerResult
 
-            # Admin-Channel fuer Restart-Warnungen
+            # Admin-Channel für Restart-Warnungen
             game_ch = None
             admin_ch_id = int(os.environ.get("ADMIN_LOG_CHANNEL_ID", 0))
             if admin_ch_id:
@@ -491,7 +491,7 @@ class SchedulerCog(commands.Cog):
                     auto_hint = ""
                     if self._auto_update_enabled:
                         auto_hint = (
-                            "\n\nAuto-Update ist aktiv und wird beim naechsten "
+                            "\n\nAuto-Update ist aktiv und wird beim nächsten "
                             "'Server leer'-Moment installiert."
                         )
                     await self.notifier.notify_update_available(
@@ -515,10 +515,10 @@ class SchedulerCog(commands.Cog):
     # ------------------------------------------------------------------
 
     async def _check_auto_update_install(self, now: datetime):
-        """Auto-Update sofort ausfuehren wenn Server leer oder offline.
+        """Auto-Update sofort ausführen wenn Server leer oder offline.
 
         Phase 10e (F20): Uhrzeitbedingung entfernt — Update wird bei
-        naechstem "Server leer"-Moment oder Offline-Zustand installiert.
+        nächstem "Server leer"-Moment oder Offline-Zustand installiert.
         Auto-Rollback bei fehlgeschlagenem Update (3 Min Health-Check).
         Spieler-Benachrichtigung nach erfolgreichem Update.
         """
@@ -527,7 +527,7 @@ class SchedulerCog(commands.Cog):
 
         running = await self.sat_server.is_running()
 
-        # Server laeuft + Spieler online → Update verschieben
+        # Server läuft + Spieler online → Update verschieben
         if running:
             if self.health_checker and self.health_checker.status.players_online > 0:
                 return  # Warten bis Server leer
@@ -539,13 +539,13 @@ class SchedulerCog(commands.Cog):
         logger.info("Auto-Update startet (Server leer oder offline)...")
         self._last_auto_update = now
 
-        # Alte Build-ID merken (fuer Spieler-Benachrichtigung)
+        # Alte Build-ID merken (für Spieler-Benachrichtigung)
         old_build = "?"
         try:
             _, info = await self.update_checker.check()
             old_build = info.get("installed_buildid", "?")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Pre-Update build-id-Check fehlgeschlagen (informational): {e}")
 
         pre_update_backup_path = None
 
@@ -553,7 +553,7 @@ class SchedulerCog(commands.Cog):
             if self.notifier:
                 await self.notifier.send_admin(
                     "Auto-Update gestartet",
-                    "Server wird fuer Update gestoppt...",
+                    "Server wird für Update gestoppt...",
                     level=NotifyLevel.WARNING if running else NotifyLevel.INFO,
                 )
 
@@ -577,10 +577,10 @@ class SchedulerCog(commands.Cog):
             if running:
                 try:
                     await self.sat_api.run_command(
-                        "ServerChat Server wird in 2 Minuten fuer ein Update neu gestartet!"
+                        "ServerChat Server wird in 2 Minuten für ein Update neu gestartet!"
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Sat-Chat 2-Min-Warnung nicht zugestellt: {e}")
                 await asyncio.sleep(120)  # 2 Min Warnung
 
                 # Health-Check unterdruecken waehrend Auto-Update
@@ -613,7 +613,7 @@ class SchedulerCog(commands.Cog):
                     if not start_ok:
                         logger.error(f"Server Start nach Update fehlgeschlagen: {start_msg}")
 
-                    # 5. Health-Check (3 Minuten warten, dann pruefen)
+                    # 5. Health-Check (3 Minuten warten, dann prüfen)
                     if start_ok:
                         rollback_needed = await self._health_check_after_update()
                         if rollback_needed and pre_update_backup_path:
@@ -627,8 +627,8 @@ class SchedulerCog(commands.Cog):
                 try:
                     _, new_info = await self.update_checker.check()
                     new_build = new_info.get("installed_buildid", "?")
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Post-Update build-id-Check fehlgeschlagen (informational): {e}")
 
                 server_state = "gestartet" if was_running else "war offline"
                 if self.notifier:
@@ -673,8 +673,10 @@ class SchedulerCog(commands.Cog):
             logger.error(f"Auto-Update Fehler: {e}", exc_info=True)
             try:
                 await self.sat_server.start()
-            except Exception:
-                pass
+            except Exception as start_err:
+                logger.error(
+                    f"Recovery-Start nach Auto-Update-Fehler fehlgeschlagen: {start_err}"
+                )
 
     async def _health_check_after_update(self) -> bool:
         """Prueft ob der Server nach einem Update innerhalb von 3 Minuten
@@ -685,7 +687,7 @@ class SchedulerCog(commands.Cog):
             False wenn Server OK
         """
         if not self.sat_server:
-            logger.error("Health-Check: sat_server nicht verfuegbar")
+            logger.error("Health-Check: sat_server nicht verfügbar")
             return True  # Rollback noetig
 
         logger.info("Post-Update Health-Check: Warte 3 Minuten...")
@@ -694,7 +696,7 @@ class SchedulerCog(commands.Cog):
             await asyncio.sleep(30)
             try:
                 if await self.sat_server.is_running():
-                    # API-Check fuer tiefere Pruefung
+                    # API-Check für tiefere Pruefung
                     if self.sat_api:
                         try:
                             await self.sat_api.query_server_state()
@@ -735,8 +737,8 @@ class SchedulerCog(commands.Cog):
             try:
                 await self.sat_server.stop()
                 await asyncio.sleep(5)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Sat-Server Stop vor Backup-Restore: {e} (vermutlich bereits gestoppt)")
 
             # Backup wiederherstellen
             restore_ok = False
@@ -783,7 +785,7 @@ class SchedulerCog(commands.Cog):
     # ------------------------------------------------------------------
 
     async def _check_mc_daily_restart(self, now: datetime, server_id: str):
-        """Taeglicher Restart fuer einen Minecraft-Server.
+        """Taeglicher Restart für einen Minecraft-Server.
 
         I2-Erweiterung: Bei 04:00 wird zuerst geprueft ob ein scheduled
         Modpack-Update in der DB vorliegt. Falls ja → UpdateManager.run_update()
@@ -808,7 +810,7 @@ class SchedulerCog(commands.Cog):
         if last and last.date() == now.date():
             return
 
-        # Server laeuft?
+        # Server läuft?
         running = await srv.is_running()
         if not running:
             self._mc_last_restart[server_id] = now
@@ -823,8 +825,10 @@ class SchedulerCog(commands.Cog):
                     f"{online} Spieler online"
                 )
                 return
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(
+                f"[{server_id}] Player-Count fehlgeschlagen, Restart trotzdem: {e}"
+            )
 
         # --- I2: Pruefen ob ein scheduled Modpack-Update vorliegt ---
         scheduled_update = await self._get_scheduled_modpack_update(server_id)
@@ -849,8 +853,8 @@ class SchedulerCog(commands.Cog):
                     try:
                         await srv.rcon_command("save-all")
                         await asyncio.sleep(5)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug(f"Pre-Backup save-all RCON fehlgeschlagen: {e}")
                     success, msg, _ = await mgr.create_backup(
                         name="pre-restart", created_by="scheduler"
                     )
@@ -897,7 +901,7 @@ class SchedulerCog(commands.Cog):
     # ------------------------------------------------------------------
 
     async def _check_mc_auto_backup(self, now: datetime, server_id: str):
-        """Auto-Backup fuer einen Minecraft-Server"""
+        """Auto-Backup für einen Minecraft-Server"""
         srv = self.mc_servers.get(server_id)
         mgr = self.mc_backup_mgrs.get(server_id)
         if not srv or not mgr:
@@ -908,7 +912,7 @@ class SchedulerCog(commands.Cog):
         if last and (now - last) < interval:
             return
 
-        # Nur wenn Server laeuft
+        # Nur wenn Server läuft
         running = await srv.is_running()
         if not running:
             return
@@ -954,7 +958,7 @@ class SchedulerCog(commands.Cog):
     # ------------------------------------------------------------------
 
     async def _check_mc_update(self, now: datetime, server_id: str):
-        """Periodischer Update-Check fuer einen Minecraft-Server"""
+        """Periodischer Update-Check für einen Minecraft-Server"""
         checker = self.mc_update_checkers.get(server_id)
         if not checker:
             return
@@ -975,7 +979,7 @@ class SchedulerCog(commands.Cog):
 
                 if self.notifier:
                     await self.notifier.send_admin(
-                        f"MC {label} — Paper-Update verfuegbar",
+                        f"MC {label} — Paper-Update verfügbar",
                         f"Aktueller Build: {info.get('current_build', '?')}\n"
                         f"Neuester Build: {info.get('latest_build', '?')}\n"
                         f"Update manuell auf dem Server installieren.",
@@ -1071,7 +1075,7 @@ class SchedulerCog(commands.Cog):
                     await self.notifier.send_admin(
                         f"MC {label} — Modpack-Update geplant",
                         f"**{current}** → **{new_version}**\n"
-                        f"Update wird beim naechsten Daily-Restart "
+                        f"Update wird beim nächsten Daily-Restart "
                         f"({self._mc_modpack_daily_restart_hour:02d}:00) ausgefuehrt.",
                         NotifyLevel.INFO,
                     )
@@ -1082,7 +1086,7 @@ class SchedulerCog(commands.Cog):
     async def _schedule_modpack_update_in_db(
         self, server_id: str, version_info: Dict[str, Any]
     ) -> None:
-        """Setzt einen scheduled-Eintrag in modpack_updates (fuer 04:00-Restart)."""
+        """Setzt einen scheduled-Eintrag in modpack_updates (für 04:00-Restart)."""
         try:
             db_conn = await get_db()
             now_iso = datetime.now().isoformat()
@@ -1115,7 +1119,7 @@ class SchedulerCog(commands.Cog):
             await db_conn.commit()
             logger.info(f"[{server_id}] Modpack-Update als 'scheduled' in DB eingetragen")
         except Exception as e:
-            logger.error(f"[{server_id}] DB-Eintrag fuer scheduled Update fehlgeschlagen: {e}")
+            logger.error(f"[{server_id}] DB-Eintrag für scheduled Update fehlgeschlagen: {e}")
 
     async def _get_scheduled_modpack_update(
         self, server_id: str
@@ -1134,7 +1138,7 @@ class SchedulerCog(commands.Cog):
                 return dict(row)
             return None
         except Exception as e:
-            logger.debug(f"[{server_id}] DB-Check fuer scheduled Update fehlgeschlagen: {e}")
+            logger.debug(f"[{server_id}] DB-Check für scheduled Update fehlgeschlagen: {e}")
             return None
 
     async def _run_scheduled_modpack_update(
@@ -1143,7 +1147,7 @@ class SchedulerCog(commands.Cog):
         """Fuehrt ein scheduled Modpack-Update aus (04:00 Daily-Restart)."""
         update_mgr = self.mc_update_managers.get(server_id)
         if not update_mgr:
-            logger.error(f"[{server_id}] Kein UpdateManager — scheduled Update uebersprungen")
+            logger.error(f"[{server_id}] Kein UpdateManager — scheduled Update übersprungen")
             return
 
         try:
@@ -1176,13 +1180,13 @@ class SchedulerCog(commands.Cog):
                 )
                 await db_conn.commit()
             except Exception as e:
-                logger.debug(f"[{server_id}] Scheduled-Eintrag loeschen fehlgeschlagen: {e}")
+                logger.debug(f"[{server_id}] Scheduled-Eintrag löschen fehlgeschlagen: {e}")
 
             # run_update mit 10-Min-Countdown
             success, result = await update_mgr.run_update(
                 trigger="auto_daily",
                 countdown_minutes=10,
-                version_info=None,  # Frisch pruefen — Version koennte sich geaendert haben
+                version_info=None,  # Frisch prüfen — Version koennte sich geändert haben
             )
 
             if not success:
@@ -1213,7 +1217,7 @@ class SchedulerCog(commands.Cog):
         """Prueft um 12:00 und 00:00 auf SAT-Updates (SteamCMD Build-ID).
 
         - 12:00: Bei neuem Build → sofort Auto-Update mit Countdown
-        - 00:00: Bei neuem Build → Flag setzen fuer naechsten Restart
+        - 00:00: Bei neuem Build → Flag setzen für nächsten Restart
         """
         if not self.update_checker or not self.sat_server:
             return
@@ -1225,7 +1229,7 @@ class SchedulerCog(commands.Cog):
         # Heute zu dieser Stunde schon geprueft?
         check_key = f"sat_{now.hour}"
         if self._last_sat_auto_check and self._last_sat_auto_check.date() == now.date():
-            # Gleicher Tag — pruefen ob gleiche Stunde
+            # Gleicher Tag — prüfen ob gleiche Stunde
             if self._last_sat_auto_check.hour == now.hour:
                 return
 
@@ -1257,13 +1261,13 @@ class SchedulerCog(commands.Cog):
                 # Bestehenden Auto-Update-Flow nutzen (Server-leer-Check intern)
                 logger.info("SAT 12:00-Check — Auto-Update-Flag gesetzt")
             else:
-                # 00:00: Flag setzen, Update beim naechsten Restart
+                # 00:00: Flag setzen, Update beim nächsten Restart
                 self._pending_update = True
                 if self.notifier:
                     await self.notifier.send_admin(
                         "SAT — SteamCMD-Update geplant",
                         f"Build **{installed}** → **{new_build}**\n"
-                        f"Update wird beim naechsten Server-Leer-Moment "
+                        f"Update wird beim nächsten Server-Leer-Moment "
                         f"oder Daily-Restart installiert.",
                         NotifyLevel.INFO,
                     )
@@ -1295,7 +1299,7 @@ class SchedulerCog(commands.Cog):
 
         total_cleaned = 0
 
-        # 1. Rollback-Rotation fuer MC-Server
+        # 1. Rollback-Rotation für MC-Server
         for mc_sid, update_mgr in self.mc_update_managers.items():
             try:
                 total_cleaned += await self._cleanup_mc_rollbacks(mc_sid, update_mgr)
@@ -1319,7 +1323,7 @@ class SchedulerCog(commands.Cog):
             logger.info(f"Retention-Cleanup abgeschlossen: {total_cleaned} Eintraege bereinigt")
 
     async def _cleanup_mc_rollbacks(self, server_id: str, update_mgr) -> int:
-        """Bereinigt Rollback-Ordner fuer einen MC-Server (2 Versionen behalten)."""
+        """Bereinigt Rollback-Ordner für einen MC-Server (2 Versionen behalten)."""
         cleaned = 0
         try:
             if hasattr(update_mgr, 'file_manager') and hasattr(update_mgr, 'mc_server'):
@@ -1332,7 +1336,7 @@ class SchedulerCog(commands.Cog):
                     )
                     if cleaned > 0:
                         logger.info(
-                            f"[{server_id}] Rollback-Cleanup: {cleaned} alte Ordner geloescht"
+                            f"[{server_id}] Rollback-Cleanup: {cleaned} alte Ordner gelöscht"
                         )
         except Exception as e:
             logger.debug(f"[{server_id}] Rollback-Cleanup Fehler: {e}")
@@ -1355,18 +1359,18 @@ class SchedulerCog(commands.Cog):
                     key=lambda d: d.stat().st_mtime,
                     reverse=True,
                 )
-                # Die neuesten 2 behalten, Rest loeschen
+                # Die neuesten 2 behalten, Rest löschen
                 for old_dir in update_dirs[self._retention_serverpack_keep:]:
                     try:
                         shutil.rmtree(old_dir, ignore_errors=True)
                         cleaned += 1
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug(f"Staging-Cleanup-Iter-Fehler ignoriert: {old_dir}: {e}")
                 return cleaned
 
             cleaned = await asyncio.to_thread(_do_cleanup)
             if cleaned > 0:
-                logger.info(f"Staging-Cleanup: {cleaned} alte Verzeichnisse geloescht")
+                logger.info(f"Staging-Cleanup: {cleaned} alte Verzeichnisse gelöscht")
         except Exception as e:
             logger.debug(f"Staging-Cleanup Fehler: {e}")
         return cleaned
@@ -1392,7 +1396,7 @@ class SchedulerCog(commands.Cog):
             failed_deleted = cursor.rowcount
             if failed_deleted > 0:
                 logger.info(
-                    f"DB-Cleanup: {failed_deleted} fehlgeschlagene Updates geloescht "
+                    f"DB-Cleanup: {failed_deleted} fehlgeschlagene Updates gelöscht "
                     f"(aelter als {self._retention_db_failed_days} Tage)"
                 )
             cleaned += failed_deleted
@@ -1408,7 +1412,7 @@ class SchedulerCog(commands.Cog):
             sched_deleted = cursor.rowcount
             if sched_deleted > 0:
                 logger.info(
-                    f"DB-Cleanup: {sched_deleted} scheduled-Eintraege geloescht "
+                    f"DB-Cleanup: {sched_deleted} scheduled-Eintraege gelöscht "
                     f"(aelter als {self._retention_db_scheduled_days} Tage)"
                 )
             cleaned += sched_deleted
@@ -1647,7 +1651,7 @@ class SchedulerCog(commands.Cog):
                     if self._last_update_check else "Noch nicht")
         update_avail = ""
         if self.update_checker and self.update_checker.update_available:
-            update_avail = "\n⚠️ **Update verfuegbar!**"
+            update_avail = "\n⚠️ **Update verfügbar!**"
         embed.add_field(
             name="Update-Check",
             value=(
@@ -1660,7 +1664,7 @@ class SchedulerCog(commands.Cog):
 
         # Auto-Update
         au_status = "✅ Aktiv" if self._auto_update_enabled else "❌ Deaktiviert"
-        pending = "⚠️ Update verfuegbar!" if self._pending_update else "Keins"
+        pending = "⚠️ Update verfügbar!" if self._pending_update else "Keins"
         last_au = (self._last_auto_update.strftime("%d.%m. %H:%M")
                     if self._last_auto_update else "Noch nicht")
         empty_req = "Ja" if self._auto_update_require_empty else "Nein"
@@ -1767,7 +1771,7 @@ class SchedulerCog(commands.Cog):
 
         if available:
             embed = discord.Embed(
-                title="📦 Update verfuegbar!",
+                title="📦 Update verfügbar!",
                 description=(
                     f"**Installiert:** Build {info.get('installed_buildid', '?')}\n"
                     f"**Verfuegbar:** Build {info.get('available_buildid', '?')}\n\n"
@@ -1808,7 +1812,7 @@ class SchedulerCog(commands.Cog):
 
             if available and self.notifier:
                 await self.notifier.send_admin(
-                    "BMC Modpack-Update verfuegbar!",
+                    "BMC Modpack-Update verfügbar!",
                     f"**Aktuell:** {info.get('current', '?')}\n"
                     f"**Neu:** {info.get('latest', '?')}\n"
                     f"**Name:** {info.get('name', '?')}\n"
@@ -1827,7 +1831,7 @@ class SchedulerCog(commands.Cog):
     # ------------------------------------------------------------------
 
     async def _load_scheduled_messages(self) -> None:
-        """Scheduled Messages aus JSON laden, vergangene einmalige loeschen"""
+        """Scheduled Messages aus JSON laden, vergangene einmalige löschen"""
         try:
             if SCHEDULED_MESSAGES_FILE.exists():
                 async with aiofiles.open(SCHEDULED_MESSAGES_FILE, "r", encoding="utf-8") as f:
@@ -1872,7 +1876,7 @@ class SchedulerCog(commands.Cog):
     def _parse_time(self, zeit: str) -> Optional[datetime]:
         """Parst relative ('2h', '30m') oder absolute ('20:00', '2026-02-21 18:00') Zeitangaben.
 
-        Gibt eine timezone-aware datetime (Europe/Berlin) zurueck.
+        Gibt eine timezone-aware datetime (Europe/Berlin) zurück.
         """
         now = datetime.now(BERLIN_TZ)
 
@@ -1984,7 +1988,7 @@ class SchedulerCog(commands.Cog):
                            wiederholung: str = "einmalig"):
         await interaction.response.defer(ephemeral=True)
 
-        # Rate-Limit pruefen
+        # Rate-Limit prüfen
         active_count = len(self._scheduled_messages)
         if active_count >= MAX_ACTIVE_SCHEDULES:
             await interaction.followup.send(
@@ -2093,7 +2097,7 @@ class SchedulerCog(commands.Cog):
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     @schedule_grp.command(
-        name="cancel", description="Geplante Nachricht loeschen"
+        name="cancel", description="Geplante Nachricht löschen"
     )
     @app_commands.check(is_admin)
     @app_commands.describe(id="Die ID der geplanten Nachricht")
@@ -2110,9 +2114,9 @@ class SchedulerCog(commands.Cog):
             if len(self._scheduled_messages) < before:
                 await self._save_scheduled_messages()
                 await interaction.followup.send(
-                    f"Schedule #{id} geloescht.", ephemeral=True
+                    f"Schedule #{id} gelöscht.", ephemeral=True
                 )
-                logger.info(f"Schedule #{id} geloescht von {interaction.user}")
+                logger.info(f"Schedule #{id} gelöscht von {interaction.user}")
             else:
                 await interaction.followup.send(
                     f"Schedule #{id} nicht gefunden.", ephemeral=True

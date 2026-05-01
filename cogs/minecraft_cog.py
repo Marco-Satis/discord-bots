@@ -9,7 +9,7 @@ Command-Struktur (Phase 14: Admin-Commands ins Dashboard migriert):
   /mc config settings|stats|modpack_check    (Server-Konfiguration, nur Lesen)
   /mc blacklist add|remove|list|history       (Blacklist - Admin/Spieler)
   /mc world stats [server]                   (Welt-Analyse - Alle)
-  /mc command <cmd> [server]                 (RCON ausfuehren - Owner)
+  /mc command <cmd> [server]                 (RCON ausführen - Owner)
   /mc say [banner] [repeat]                  (Ankuendigungs-Banner - Admin)
 
 Ins Dashboard migriert (F25):
@@ -37,7 +37,7 @@ from utils.permissions import admin_only, spieler_only, owner_only
 
 
 def _sanitize_rcon_input(text: str, max_length: int = 100) -> str:
-    """Sanitisiert User-Input fuer RCON-Befehle. Erlaubt nur ASCII-sichere Zeichen."""
+    """Sanitisiert User-Input für RCON-Befehle. Erlaubt nur ASCII-sichere Zeichen."""
     sanitized = _re.sub(r'[^a-zA-Z0-9_\s\-]', '', text)
     return sanitized[:max_length].strip()
 from modules.minecraft.server import MinecraftServer
@@ -71,7 +71,7 @@ class MinecraftCog(commands.Cog):
         name="config", parent=mc, description="Server-Konfiguration (nur Lesen)"
     )
     blacklist_grp = app_commands.Group(
-        name="blacklist", parent=mc, description="Serveruebergreifendes Ban-System"
+        name="blacklist", parent=mc, description="Serverübergreifendes Ban-System"
     )
     world_grp = app_commands.Group(
         name="world", parent=mc, description="Welt-Analyse & Statistiken"
@@ -92,7 +92,7 @@ class MinecraftCog(commands.Cog):
         # Blacklist-System (Phase 8e)
         self.blacklist = getattr(bot, 'mc_blacklist', None)
 
-        # IP-Tracker fuer UFW-Bans (Phase 10c: MC IP-Ban wie SAT)
+        # IP-Tracker für UFW-Bans (Phase 10c: MC IP-Ban wie SAT)
         self.ip_trackers: Dict[str, object] = getattr(bot, 'mc_ip_trackers', {})
 
         # Announcement-Tasks (Phase 10b)
@@ -149,7 +149,7 @@ class MinecraftCog(commands.Cog):
         return None
 
     def _resolve_backup_mgr(self, server_id: Optional[str]) -> Optional[MinecraftBackupManager]:
-        """Backup-Manager fuer Server ermitteln"""
+        """Backup-Manager für Server ermitteln"""
         if not self.backup_mgrs:
             return None
 
@@ -164,7 +164,7 @@ class MinecraftCog(commands.Cog):
     async def _require_server(
         self, interaction: discord.Interaction, server_id: Optional[str]
     ) -> Optional[MinecraftServer]:
-        """Server ermitteln oder Fehlermeldung senden. Gibt None zurueck bei Fehler."""
+        """Server ermitteln oder Fehlermeldung senden. Gibt None zurück bei Fehler."""
         server = self._resolve_server(server_id)
         if not server:
             if not self.servers:
@@ -177,7 +177,7 @@ class MinecraftCog(commands.Cog):
                     for sid, srv in self.servers.items()
                 )
                 await interaction.followup.send(
-                    f"Mehrere Server verfuegbar. Bitte Server angeben: {namen}",
+                    f"Mehrere Server verfügbar. Bitte Server angeben: {namen}",
                     ephemeral=True
                 )
             else:
@@ -189,10 +189,10 @@ class MinecraftCog(commands.Cog):
     async def _require_online_server(
         self, interaction: discord.Interaction, server_id: Optional[str]
     ) -> Optional[MinecraftServer]:
-        """Server ermitteln UND pruefen ob er laeuft.
+        """Server ermitteln UND prüfen ob er läuft.
 
         Kombiniert _require_server() + is_running()-Check in einer Methode.
-        Gibt None zurueck und sendet Fehlermeldung wenn Server nicht gefunden
+        Gibt None zurück und sendet Fehlermeldung wenn Server nicht gefunden
         oder offline ist. (Phase 8a: Server-Offline-Decorator Refactoring)
         """
         srv = await self._require_server(interaction, server_id)
@@ -228,7 +228,7 @@ class MinecraftCog(commands.Cog):
             logger.error(f"Autosave-Config speichern fehlgeschlagen: {e}")
 
     async def _autosave_loop(self, server_id: str, interval_minutes: int) -> None:
-        """Periodischer save-all Aufruf fuer einen Server"""
+        """Periodischer save-all Aufruf für einen Server"""
         try:
             while True:
                 await asyncio.sleep(interval_minutes * 60)
@@ -243,7 +243,7 @@ class MinecraftCog(commands.Cog):
             pass
 
     def _stop_autosave_task(self, server_id: str) -> None:
-        """Stoppt den Autosave-Task fuer einen Server"""
+        """Stoppt den Autosave-Task für einen Server"""
         task = self._autosave_tasks.pop(server_id, None)
         if task and not task.done():
             task.cancel()
@@ -295,7 +295,7 @@ class MinecraftCog(commands.Cog):
         if timer and timer.is_active:
             embed.add_field(
                 name="\u23f0 Geplant",
-                value=f"{timer.action_name} laeuft...",
+                value=f"{timer.action_name} läuft...",
                 inline=False,
             )
 
@@ -410,7 +410,7 @@ class MinecraftCog(commands.Cog):
                 )
                 ip_ok = ip_success
             else:
-                ip_msg = "IP-Tracker nicht verfuegbar"
+                ip_msg = "IP-Tracker nicht verfügbar"
 
             # 3. Automatisch Blacklist-Eintrag erstellen (Phase 8e)
             if self.blacklist:
@@ -482,7 +482,7 @@ class MinecraftCog(commands.Cog):
                     ip_msg = "Kein IP-Ban vorhanden"
                     ip_ok = True
             else:
-                ip_msg = "IP-Tracker nicht verfuegbar"
+                ip_msg = "IP-Tracker nicht verfügbar"
 
             embed = discord.Embed(
                 title="Spieler entbannt",
@@ -610,7 +610,7 @@ class MinecraftCog(commands.Cog):
         mgr = self._resolve_backup_mgr(srv.server_id)
         if not mgr:
             await interaction.followup.send(
-                "Kein Backup-Manager fuer diesen Server.", ephemeral=True
+                "Kein Backup-Manager für diesen Server.", ephemeral=True
             )
             return
 
@@ -652,14 +652,14 @@ class MinecraftCog(commands.Cog):
         mgr = self._resolve_backup_mgr(srv.server_id)
         if not mgr:
             await interaction.followup.send(
-                "Kein Backup-Manager fuer diesen Server.", ephemeral=True
+                "Kein Backup-Manager für diesen Server.", ephemeral=True
             )
             return
 
         backups = await mgr.list_backups(max_results=20)
 
         if not backups:
-            await interaction.followup.send("Keine Backups verfuegbar.")
+            await interaction.followup.send("Keine Backups verfügbar.")
             return
 
         embed = discord.Embed(
@@ -670,7 +670,7 @@ class MinecraftCog(commands.Cog):
         for backup in backups[:10]:
             embed.add_field(
                 name=backup["name"],
-                value=f"**Groesse:** {backup['size_mb']:.1f} MB\n"
+                value=f"**Größe:** {backup['size_mb']:.1f} MB\n"
                       f"**Erstellt:** {backup['created']}\n"
                       f"**Von:** {backup['created_by']}",
                 inline=False,
@@ -696,21 +696,21 @@ class MinecraftCog(commands.Cog):
         mgr = self._resolve_backup_mgr(srv.server_id)
         if not mgr:
             await interaction.followup.send(
-                "Kein Backup-Manager fuer diesen Server.", ephemeral=True
+                "Kein Backup-Manager für diesen Server.", ephemeral=True
             )
             return
 
         # Sicherheitsabfrage
         if await srv.is_running():
             await interaction.followup.send(
-                f"**Warnung:** {srv.display_name} laeuft noch! "
+                f"**Warnung:** {srv.display_name} läuft noch! "
                 "Bitte Server vorher stoppen.",
                 ephemeral=True
             )
             return
 
         await interaction.followup.send(
-            f"Stelle Backup **{name}** fuer {srv.display_name} wieder her..."
+            f"Stelle Backup **{name}** für {srv.display_name} wieder her..."
         )
 
         try:
@@ -741,7 +741,7 @@ class MinecraftCog(commands.Cog):
     @app_commands.describe(
         message="Nachricht an alle Spieler",
         banner="Title-Banner auf dem Bildschirm anzeigen (Standard: true)",
-        repeat="Nachricht X-mal wiederholen (alle 30s, fuer Restart-Warnungen)",
+        repeat="Nachricht X-mal wiederholen (alle 30s, für Restart-Warnungen)",
         server="Server-Auswahl"
     )
     @app_commands.autocomplete(server=_server_autocomplete)
@@ -754,7 +754,7 @@ class MinecraftCog(commands.Cog):
 
         Mit banner=True (Standard) wird ein grosser Title-Banner auf dem
         Bildschirm angezeigt. Mit repeat=X wird die Nachricht als Countdown
-        wiederholt (z.B. fuer Restart-Warnungen).
+        wiederholt (z.B. für Restart-Warnungen).
         """
         await interaction.response.defer()
 
@@ -997,7 +997,7 @@ class MinecraftCog(commands.Cog):
     @app_commands.autocomplete(server=_server_autocomplete)
     async def config_stats(self, interaction: discord.Interaction,
                            server: Optional[str] = None):
-        """Zeigt World-Groesse, Spielerzahl und Uptime"""
+        """Zeigt World-Größe, Spielerzahl und Uptime"""
         await interaction.response.defer()
 
         srv = await self._require_server(interaction, server)
@@ -1009,16 +1009,16 @@ class MinecraftCog(commands.Cog):
             color=0x0099ff,
         )
 
-        # World-Groesse
+        # World-Größe
         try:
             world_bytes = await srv.get_world_size()
             embed.add_field(
-                name="World-Groesse",
+                name="World-Größe",
                 value=format_bytes(world_bytes),
                 inline=True,
             )
         except Exception:
-            embed.add_field(name="World-Groesse", value="Nicht verfuegbar", inline=True)
+            embed.add_field(name="World-Größe", value="Nicht verfügbar", inline=True)
 
         # Server-Status
         status = await srv.get_status()
@@ -1055,7 +1055,7 @@ class MinecraftCog(commands.Cog):
 
     @config_grp.command(
         name="modpack_check",
-        description="Manuell auf Modpack-Updates pruefen"
+        description="Manuell auf Modpack-Updates prüfen"
     )
     @admin_only()
     async def config_modpack_check(self, interaction: discord.Interaction):
@@ -1082,7 +1082,7 @@ class MinecraftCog(commands.Cog):
                 )
             elif available:
                 embed = discord.Embed(
-                    title="Modpack-Update verfuegbar!",
+                    title="Modpack-Update verfügbar!",
                     color=0xf39c12,
                 )
                 embed.add_field(
@@ -1137,14 +1137,14 @@ class MinecraftCog(commands.Cog):
         mgr = self._resolve_backup_mgr(srv.server_id)
         if not mgr:
             await interaction.followup.send(
-                "Kein Backup-Manager fuer diesen Server.", ephemeral=True
+                "Kein Backup-Manager für diesen Server.", ephemeral=True
             )
             return
 
         # Backup ermitteln
         backups = await mgr.list_backups(max_results=20)
         if not backups:
-            await interaction.followup.send("Keine Backups verfuegbar.")
+            await interaction.followup.send("Keine Backups verfügbar.")
             return
 
         if name:
@@ -1157,7 +1157,7 @@ class MinecraftCog(commands.Cog):
         else:
             target = backups[0]  # Neuestes Backup
 
-        # Groesse pruefen
+        # Größe prüfen
         size_mb = target["size_mb"]
         if size_mb > 24:
             await interaction.followup.send(
@@ -1169,7 +1169,7 @@ class MinecraftCog(commands.Cog):
         backup_path = target["path"]
         if not backup_path or not Path(backup_path).exists():
             await interaction.followup.send(
-                "Backup-Pfad nicht verfuegbar.", ephemeral=True
+                "Backup-Pfad nicht verfügbar.", ephemeral=True
             )
             return
 
@@ -1199,7 +1199,7 @@ class MinecraftCog(commands.Cog):
             zip_path = await loop.run_in_executor(None, _create_zip)
 
             try:
-                # ZIP-Groesse pruefen
+                # ZIP-Größe prüfen
                 zip_size = zip_path.stat().st_size
                 if zip_size > 25 * 1024 * 1024:
                     await interaction.followup.send(
@@ -1227,7 +1227,7 @@ class MinecraftCog(commands.Cog):
     async def _backup_download_autocomplete(
         self, interaction: discord.Interaction, current: str
     ) -> list[app_commands.Choice[str]]:
-        """Autocomplete fuer Backup-Namen"""
+        """Autocomplete für Backup-Namen"""
         server_id = None
         if interaction.namespace and hasattr(interaction.namespace, 'server'):
             server_id = interaction.namespace.server
@@ -1250,7 +1250,7 @@ class MinecraftCog(commands.Cog):
     # ║  OWNER: RCON Raw Command                                       ║
     # ╚════════════════════════════════════════════════════════════════╝
 
-    @mc.command(name="command", description="RCON Befehl ausfuehren")
+    @mc.command(name="command", description="RCON Befehl ausführen")
     @owner_only()
     @app_commands.autocomplete(server=_server_autocomplete)
     async def mc_command(self, interaction: discord.Interaction,
@@ -1288,7 +1288,7 @@ class MinecraftCog(commands.Cog):
     # ╚════════════════════════════════════════════════════════════════╝
 
     @blacklist_grp.command(
-        name="add", description="Spieler auf die Blacklist setzen (serveruebergreifend)"
+        name="add", description="Spieler auf die Blacklist setzen (serverübergreifend)"
     )
     @admin_only()
     async def mc_blacklist_add(self, interaction: discord.Interaction,
@@ -1461,7 +1461,7 @@ class MinecraftCog(commands.Cog):
 
         if not history:
             await interaction.followup.send(
-                f"Keine Ban-Historie fuer **{discord.utils.escape_mentions(safe_player)}**.",
+                f"Keine Ban-Historie für **{discord.utils.escape_mentions(safe_player)}**.",
                 ephemeral=True,
             )
             return
@@ -1573,7 +1573,7 @@ class MinecraftCog(commands.Cog):
                     inline=False,
                 )
 
-        # Welt-Groesse
+        # Welt-Größe
         world_size = results.get("world_size", {})
         total = world_size.get("total", {})
         if total:
@@ -1594,7 +1594,7 @@ class MinecraftCog(commands.Cog):
                 f"**Erkundete Flaeche:** {total.get('total_explored_km2', 0)} km²"
             )
             embed.add_field(
-                name="Welt-Groesse",
+                name="Welt-Größe",
                 value="\n".join(size_lines),
                 inline=False,
             )
@@ -1665,11 +1665,11 @@ class MinecraftCog(commands.Cog):
         self, interaction: discord.Interaction,
         error: app_commands.AppCommandError
     ) -> None:
-        """Zentrale Fehlerbehandlung fuer alle Commands in dieser Cog"""
+        """Zentrale Fehlerbehandlung für alle Commands in dieser Cog"""
         if isinstance(error, app_commands.CheckFailure):
             if not interaction.response.is_done():
                 await interaction.response.send_message(
-                    "Keine Berechtigung fuer diesen Befehl.",
+                    "Keine Berechtigung für diesen Befehl.",
                     ephemeral=True
                 )
             return
@@ -1682,8 +1682,8 @@ class MinecraftCog(commands.Cog):
                 await interaction.followup.send(msg, ephemeral=True)
             else:
                 await interaction.response.send_message(msg, ephemeral=True)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
 
 
 async def setup(bot):

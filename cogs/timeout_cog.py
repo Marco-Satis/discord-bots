@@ -1,5 +1,5 @@
 """
-Timeout Cog — Serveruebergreifendes temporaeres Ban-System
+Timeout Cog — Serverübergreifendes temporaeres Ban-System
 
 Command-Struktur:
   /timeout <spieler> <dauer> [grund] [server]   (Timeout setzen - Admin)
@@ -8,13 +8,13 @@ Command-Struktur:
   /timeout list                                  (Alle aktiven Timeouts - Admin)
   /timeout history <spieler>                     (Timeout-Historie - Admin)
 
-Neues Verhalten gegenueber v3.1.0:
+Neues Verhalten gegenüber v3.1.0:
 - Multi-Server Ban: SAT + MC (BMC/Vanilla) gleichzeitig
 - IP-Ban via UFW + RCON-Ban (MC)
 - Persistenz in data/timeouts.json
 - Background-Task prueft alle 60s auf abgelaufene Timeouts
 - DM-Benachrichtigung an Spieler
-- Spieler koennen eigene Restzeit abfragen
+- Spieler können eigene Restzeit abfragen
 """
 
 import re as _re
@@ -30,14 +30,14 @@ from utils import get_logger, admin_only, DATA_DIR, is_admin
 
 
 def _sanitize_input(text: str, max_length: int = 100) -> str:
-    """Sanitisiert User-Input fuer Server-Befehle. Erlaubt nur sichere Zeichen."""
+    """Sanitisiert User-Input für Server-Befehle. Erlaubt nur sichere Zeichen."""
     sanitized = _re.sub(r'[^\w\s\-]', '', text, flags=_re.UNICODE)
     return sanitized[:max_length].strip()
 
 
 logger = get_logger("cogs.timeout")
 
-# Server-Optionen fuer den Autocomplete
+# Server-Optionen für den Autocomplete
 _SERVER_CHOICES = [
     app_commands.Choice(name="Alle Server", value="alle"),
     app_commands.Choice(name="Satisfactory", value="sat"),
@@ -47,7 +47,7 @@ _SERVER_CHOICES = [
 
 
 class TimeoutCog(commands.Cog):
-    """Serveruebergreifendes Timeout-System mit Multi-Server-Ban"""
+    """Serverübergreifendes Timeout-System mit Multi-Server-Ban"""
 
     timeout_grp = app_commands.Group(
         name="timeout",
@@ -125,7 +125,7 @@ class TimeoutCog(commands.Cog):
     @app_commands.describe(
         spieler="Name des Spielers (Game + Discord)",
         dauer_min="Timeout-Dauer in Minuten",
-        grund="Grund fuer den Timeout",
+        grund="Grund für den Timeout",
         server="Auf welchen Servern sperren (Standard: alle)",
     )
     @app_commands.choices(server=_SERVER_CHOICES)
@@ -176,7 +176,7 @@ class TimeoutCog(commands.Cog):
             await interaction.followup.send(message, ephemeral=True)
             return
 
-        # Aktionen ausfuehren auf den Servern (safe_grund fuer RCON)
+        # Aktionen ausführen auf den Servern (safe_grund für RCON)
         ban_results = await self._ban_on_servers(
             safe_spieler, target_servers, dauer_min, safe_grund
         )
@@ -196,7 +196,7 @@ class TimeoutCog(commands.Cog):
                 display_dur = f"{dauer_min} Minuten"
             await self._notify_player_dm(
                 discord_member.id,
-                f"Du wurdest fuer {display_dur} von allen Servern gesperrt",
+                f"Du wurdest für {display_dur} von allen Servern gesperrt",
                 f"**Grund:** {grund}\n\nDein Zugang wird automatisch wiederhergestellt.",
                 color=0xe74c3c,
             )
@@ -230,7 +230,7 @@ class TimeoutCog(commands.Cog):
     ) -> None:
         await interaction.response.defer(ephemeral=True)
 
-        # Admins koennen andere abfragen, normale User nur sich selbst
+        # Admins können andere abfragen, normale User nur sich selbst
         if spieler and spieler.id != interaction.user.id:
             if not is_admin(interaction):
                 await interaction.followup.send(
@@ -374,7 +374,7 @@ class TimeoutCog(commands.Cog):
         embed = discord.Embed(
             title="Timeout aufgehoben",
             description=(
-                f"Timeout fuer **{player_name}** wurde vorzeitig aufgehoben.\n"
+                f"Timeout für **{player_name}** wurde vorzeitig aufgehoben.\n"
                 f"Alle Server-Bans wurden entfernt."
             ),
             color=0x2ecc71,
@@ -465,7 +465,7 @@ class TimeoutCog(commands.Cog):
         if not history:
             name = spieler.display_name if spieler else "alle"
             await interaction.followup.send(
-                f"Keine Timeout-Historie fuer {name}.", ephemeral=True
+                f"Keine Timeout-Historie für {name}.", ephemeral=True
             )
             return
 
@@ -534,7 +534,7 @@ class TimeoutCog(commands.Cog):
     ) -> list[str]:
         """Server-Auswahl in Liste von Server-IDs aufloesen"""
         if not server_choice or server_choice.value == "alle":
-            # Alle verfuegbaren Server
+            # Alle verfügbaren Server
             servers = ["sat"]
             mc_servers = getattr(self.bot, "mc_servers", {})
             for sid in mc_servers:
@@ -549,7 +549,7 @@ class TimeoutCog(commands.Cog):
         dauer_min: int,
         grund: str,
     ) -> list[str]:
-        """Spieler auf allen angegebenen Servern bannen. Gibt Status-Zeilen zurueck."""
+        """Spieler auf allen angegebenen Servern bannen. Gibt Status-Zeilen zurück."""
         results: list[str] = []
 
         for srv in servers:
@@ -660,7 +660,7 @@ class TimeoutCog(commands.Cog):
         grund: str,
         admin: discord.Member,
     ) -> str:
-        """Discord-Timeout setzen. Gibt Status-String zurueck."""
+        """Discord-Timeout setzen. Gibt Status-String zurück."""
         if not member:
             return "Discord-Timeout: User nicht gefunden"
 
@@ -711,7 +711,7 @@ class TimeoutCog(commands.Cog):
         action_results: list[str],
         admin: discord.Member,
     ) -> discord.Embed:
-        """Response-Embed fuer /timeout setzen erstellen"""
+        """Response-Embed für /timeout setzen erstellen"""
         embed = discord.Embed(
             title="Timeout gesetzt",
             color=0xe67e22,
@@ -757,11 +757,11 @@ class TimeoutCog(commands.Cog):
         interaction: discord.Interaction,
         error: app_commands.AppCommandError,
     ) -> None:
-        """Zentrale Fehlerbehandlung fuer alle Commands in dieser Cog"""
+        """Zentrale Fehlerbehandlung für alle Commands in dieser Cog"""
         if isinstance(error, app_commands.CheckFailure):
             if not interaction.response.is_done():
                 await interaction.response.send_message(
-                    "Keine Berechtigung fuer diesen Befehl.", ephemeral=True
+                    "Keine Berechtigung für diesen Befehl.", ephemeral=True
                 )
             return
         cmd_name = interaction.command.name if interaction.command else "unknown"
@@ -772,8 +772,8 @@ class TimeoutCog(commands.Cog):
                 await interaction.followup.send(msg, ephemeral=True)
             else:
                 await interaction.response.send_message(msg, ephemeral=True)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
 
 
 async def setup(bot):

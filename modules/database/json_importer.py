@@ -571,8 +571,8 @@ async def _import_giveaways(db: aiosqlite.Connection) -> int:
                     "(giveaway_id, user_id) VALUES (?, ?)",
                     (giveaway_id, str(uid))
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
 
     return count
 
@@ -802,8 +802,8 @@ async def check_import_needed(db: aiosqlite.Connection) -> bool:
             row = await cursor.fetchone()
             if row and row[0] > 0:
                 return False  # Bereits Daten vorhanden
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
 
     # Pruefen ob JSON-Dateien existieren
     json_files = [

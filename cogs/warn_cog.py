@@ -1,5 +1,5 @@
 """
-Warn Cog — Phase 11c: Warn-System fuer den Admin Bot
+Warn Cog — Phase 11c: Warn-System für den Admin Bot
 
 Command-Struktur (app_commands.Group):
   /warn add <user> <grund> [punkte]   — User verwarnen (Admin)
@@ -86,7 +86,7 @@ class WarnCog(commands.Cog):
     )
     @app_commands.describe(
         user="Der zu verwarnende User",
-        grund="Grund fuer die Verwarnung",
+        grund="Grund für die Verwarnung",
         punkte="Punktzahl (Standard: 1, max. 10)",
     )
     @admin_only()
@@ -109,7 +109,7 @@ class WarnCog(commands.Cog):
         # Bot-Warn verhindern
         if user.bot:
             await interaction.followup.send(
-                "Bots koennen nicht verwarnt werden.", ephemeral=True
+                "Bots können nicht verwarnt werden.", ephemeral=True
             )
             return
 
@@ -155,11 +155,11 @@ class WarnCog(commands.Cog):
         if dm_sent:
             embed.add_field(name="DM", value="Gesendet", inline=True)
         else:
-            embed.add_field(name="DM", value="Nicht moeglich", inline=True)
+            embed.add_field(name="DM", value="Nicht möglich", inline=True)
 
         await interaction.followup.send(embed=embed)
 
-        # Auto-Aktion pruefen und ausfuehren
+        # Auto-Aktion prüfen und ausführen
         await self._execute_auto_action(interaction, user, total_points)
 
     # ==================================================================
@@ -187,7 +187,7 @@ class WarnCog(commands.Cog):
         resolved_id = self._resolve_warn_id(user.id, warn_id)
         if not resolved_id:
             await interaction.followup.send(
-                f"Warn-ID `{warn_id}` nicht gefunden fuer {user.display_name}.",
+                f"Warn-ID `{warn_id}` nicht gefunden für {user.display_name}.",
                 ephemeral=True,
             )
             return
@@ -213,7 +213,7 @@ class WarnCog(commands.Cog):
         else:
             await interaction.followup.send(
                 f"Warn konnte nicht entfernt werden. "
-                f"Existiert die ID `{warn_id}` fuer {user.display_name}?",
+                f"Existiert die ID `{warn_id}` für {user.display_name}?",
                 ephemeral=True,
             )
 
@@ -366,7 +366,7 @@ class WarnCog(commands.Cog):
         total_points: int,
     ) -> None:
         """
-        Automatische Aktion basierend auf Gesamtpunkten ausfuehren.
+        Automatische Aktion basierend auf Gesamtpunkten ausführen.
 
         Schwellenwerte (konfigurierbar im WarnManager):
           3+  -> Mute (Discord Timeout 1h)
@@ -386,7 +386,7 @@ class WarnCog(commands.Cog):
                 await self._auto_mute(interaction, user, total_points)
         except Exception as e:
             logger.error(
-                f"Auto-Aktion '{action}' fehlgeschlagen fuer {user}: {e}",
+                f"Auto-Aktion '{action}' fehlgeschlagen für {user}: {e}",
                 exc_info=True,
             )
             try:
@@ -394,8 +394,8 @@ class WarnCog(commands.Cog):
                     f"Auto-Aktion ({action}) konnte nicht ausgefuehrt werden: {e}",
                     ephemeral=True,
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
 
     async def _auto_mute(
         self,
@@ -403,7 +403,7 @@ class WarnCog(commands.Cog):
         user: discord.Member,
         total_points: int,
     ) -> None:
-        """Discord Timeout (Mute) fuer 1 Stunde setzen"""
+        """Discord Timeout (Mute) für 1 Stunde setzen"""
         duration = timedelta(hours=1)
         reason = f"Auto-Mute: {total_points} Warn-Punkte erreicht"
 
@@ -413,7 +413,7 @@ class WarnCog(commands.Cog):
             embed = discord.Embed(
                 title="Auto-Mute ausgefuehrt",
                 description=(
-                    f"{user.mention} wurde fuer **1 Stunde** stummgeschaltet.\n"
+                    f"{user.mention} wurde für **1 Stunde** stummgeschaltet.\n"
                     f"Grund: {total_points} Warn-Punkte "
                     f"(Schwelle: {self.warn_mgr.thresholds.get('mute', 3)})"
                 ),
@@ -424,7 +424,7 @@ class WarnCog(commands.Cog):
 
         except discord.Forbidden:
             await interaction.followup.send(
-                f"Auto-Mute fehlgeschlagen: Keine Berechtigung fuer {user.display_name}.",
+                f"Auto-Mute fehlgeschlagen: Keine Berechtigung für {user.display_name}.",
                 ephemeral=True,
             )
         except discord.HTTPException as e:
@@ -475,7 +475,7 @@ class WarnCog(commands.Cog):
 
         except discord.Forbidden:
             await interaction.followup.send(
-                f"Auto-Kick fehlgeschlagen: Keine Berechtigung fuer {user.display_name}.",
+                f"Auto-Kick fehlgeschlagen: Keine Berechtigung für {user.display_name}.",
                 ephemeral=True,
             )
         except discord.HTTPException as e:
@@ -513,7 +513,7 @@ class WarnCog(commands.Cog):
             await interaction.guild.ban(
                 user,
                 reason=reason,
-                delete_message_days=0,  # Nachrichten nicht loeschen
+                delete_message_days=0,  # Nachrichten nicht löschen
             )
 
             embed = discord.Embed(
@@ -530,7 +530,7 @@ class WarnCog(commands.Cog):
 
         except discord.Forbidden:
             await interaction.followup.send(
-                f"Auto-Ban fehlgeschlagen: Keine Berechtigung fuer {user.display_name}.",
+                f"Auto-Ban fehlgeschlagen: Keine Berechtigung für {user.display_name}.",
                 ephemeral=True,
             )
         except discord.HTTPException as e:
@@ -572,7 +572,7 @@ class WarnCog(commands.Cog):
         total_points: int,
     ) -> bool:
         """
-        User per DM ueber Verwarnung benachrichtigen.
+        User per DM über Verwarnung benachrichtigen.
 
         Args:
             user: Der verwarnte User
@@ -640,7 +640,7 @@ class WarnCog(commands.Cog):
 
     def _threshold_status(self, total_points: int) -> Optional[str]:
         """
-        Status-Text fuer Embed basierend auf Schwellenwerten.
+        Status-Text für Embed basierend auf Schwellenwerten.
 
         Returns:
             Status-String oder None
@@ -685,11 +685,11 @@ class WarnCog(commands.Cog):
         interaction: discord.Interaction,
         error: app_commands.AppCommandError,
     ) -> None:
-        """Zentrale Fehlerbehandlung fuer alle Commands in dieser Cog"""
+        """Zentrale Fehlerbehandlung für alle Commands in dieser Cog"""
         if isinstance(error, app_commands.CheckFailure):
             if not interaction.response.is_done():
                 await interaction.response.send_message(
-                    "Keine Berechtigung fuer diesen Befehl.", ephemeral=True
+                    "Keine Berechtigung für diesen Befehl.", ephemeral=True
                 )
             return
 
@@ -701,8 +701,8 @@ class WarnCog(commands.Cog):
                 await interaction.followup.send(msg, ephemeral=True)
             else:
                 await interaction.response.send_message(msg, ephemeral=True)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
 
 
 async def setup(bot: commands.Bot) -> None:

@@ -23,7 +23,7 @@ from utils.config import DATA_DIR
 
 logger = get_logger("cogs.general")
 
-# Persistenz-Datei fuer laufende Clear-Tasks
+# Persistenz-Datei für laufende Clear-Tasks
 CLEAR_STATE_FILE = DATA_DIR / "clear_tasks.json"
 
 
@@ -34,7 +34,7 @@ class GeneralCog(commands.Cog):
         self.bot = bot
         # Aktive Clear-Vorgaenge: {channel_id: task_info}
         self._active_clears: dict[int, dict] = {}
-        # Abbruch-Events fuer laufende Clear-Tasks: {channel_id: asyncio.Event}
+        # Abbruch-Events für laufende Clear-Tasks: {channel_id: asyncio.Event}
         self._clear_cancel_events: dict[int, asyncio.Event] = {}
 
     @commands.Cog.listener()
@@ -113,8 +113,8 @@ class GeneralCog(commands.Cog):
             if state.get("before"):
                 before = datetime.fromisoformat(state["before"])
 
-            # Wenn ein "last_deleted_at" gespeichert ist, loeschen wir ab dort weiter
-            # (nur Nachrichten die aelter sind als die letzte geloeschte)
+            # Wenn ein "last_deleted_at" gespeichert ist, löschen wir ab dort weiter
+            # (nur Nachrichten die aelter sind als die letzte gelöschte)
             if state.get("last_deleted_at"):
                 before_resume = datetime.fromisoformat(state["last_deleted_at"])
                 if after and before_resume <= after:
@@ -141,7 +141,7 @@ class GeneralCog(commands.Cog):
             )
 
     # ------------------------------------------------------------------
-    # Clear-Kern-Logik (wiederverwendbar fuer Command und Resume)
+    # Clear-Kern-Logik (wiederverwendbar für Command und Resume)
     # ------------------------------------------------------------------
 
     async def _execute_clear(
@@ -160,11 +160,11 @@ class GeneralCog(commands.Cog):
         """Kern-Loeschlogik — wird vom Command und vom Resume aufgerufen"""
         channel_id = channel.id
 
-        # Channel-Lock pruefen
+        # Channel-Lock prüfen
         if channel_id in self._active_clears:
             if interaction:
                 await interaction.edit_original_response(
-                    content="⚠️ In diesem Channel laeuft bereits ein Loeschvorgang. "
+                    content="⚠️ In diesem Channel läuft bereits ein Loeschvorgang. "
                     "Bitte warte bis er abgeschlossen ist."
                 )
             return
@@ -204,10 +204,10 @@ class GeneralCog(commands.Cog):
             if is_resume:
                 logger.info(
                     f"Clear fortgesetzt in #{channel.name}: "
-                    f"{len(messages)} verbleibend, {already_deleted} bereits geloescht"
+                    f"{len(messages)} verbleibend, {already_deleted} bereits gelöscht"
                 )
 
-            # State speichern (fuer Crash-Recovery)
+            # State speichern (für Crash-Recovery)
             self._save_clear_state(channel_id, {
                 "guild_id": guild.id,
                 "channel_id": channel_id,
@@ -231,7 +231,7 @@ class GeneralCog(commands.Cog):
             deleted_old = 0
             last_deleted_at = None
 
-            # Bulk-Delete fuer neuere Nachrichten (in 100er-Chunks)
+            # Bulk-Delete für neuere Nachrichten (in 100er-Chunks)
             cancelled = False
             if bulk_msgs:
                 for i in range(0, len(bulk_msgs), 100):
@@ -249,7 +249,7 @@ class GeneralCog(commands.Cog):
                         deleted_bulk += len(chunk)
                     except discord.HTTPException as e:
                         logger.warning(f"Bulk delete error: {e}")
-                        # Fallback: einzeln loeschen
+                        # Fallback: einzeln löschen
                         for msg in chunk:
                             if cancel_event.is_set():
                                 cancelled = True
@@ -257,10 +257,10 @@ class GeneralCog(commands.Cog):
                             try:
                                 await msg.delete()
                                 deleted_bulk += 1
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
 
-                    # Letzten Zeitpunkt merken fuer Recovery
+                    # Letzten Zeitpunkt merken für Recovery
                     if chunk:
                         last_deleted_at = chunk[-1].created_at
 
@@ -287,12 +287,12 @@ class GeneralCog(commands.Cog):
                                 content=f"Loesche Nachrichten... "
                                 f"{already_deleted + deleted_bulk + deleted_old}/{total}"
                             )
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
 
                     await asyncio.sleep(1)
 
-            # Alte Nachrichten einzeln loeschen
+            # Alte Nachrichten einzeln löschen
             if old_msgs and not cancelled:
                 for i, msg in enumerate(old_msgs):
                     # Abbruch-Pruefung
@@ -337,17 +337,17 @@ class GeneralCog(commands.Cog):
                                     content=f"Loesche alte Nachrichten... "
                                     f"{already_deleted + deleted_bulk + deleted_old}/{total}"
                                 )
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
 
             # --- Abschluss ---
             deleted_count = already_deleted + deleted_bulk + deleted_old
             failed_count = total - deleted_count
             if cancelled:
                 remaining = total - deleted_count
-                summary = f"⛔ Abgebrochen: {deleted_count} Nachrichten geloescht, {remaining} uebersprungen"
+                summary = f"⛔ Abgebrochen: {deleted_count} Nachrichten gelöscht, {remaining} übersprungen"
             else:
-                summary = f"{deleted_count} Nachrichten geloescht"
+                summary = f"{deleted_count} Nachrichten gelöscht"
 
             # Zeitraum-Info (nur bei manuellem Aufruf mit Parametern)
             if is_resume and not cancelled:
@@ -356,10 +356,10 @@ class GeneralCog(commands.Cog):
             if interaction:
                 try:
                     if failed_count > 0:
-                        summary += f"\n⚠️ {failed_count} konnten nicht geloescht werden"
+                        summary += f"\n⚠️ {failed_count} konnten nicht gelöscht werden"
                     await interaction.edit_original_response(content=summary)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
 
             logger.info(
                 f"Channel {channel.name} cleared: "
@@ -396,7 +396,7 @@ class GeneralCog(commands.Cog):
                         value=user_name,
                         inline=True,
                     )
-                    result_text = f"{deleted_count}/{total} geloescht"
+                    result_text = f"{deleted_count}/{total} gelöscht"
                     if failed_count > 0:
                         result_text += f", {failed_count} fehlgeschlagen"
                     embed.add_field(
@@ -405,8 +405,8 @@ class GeneralCog(commands.Cog):
                         inline=False,
                     )
                     await _log_ch.send(embed=embed)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
 
             # State aufraumen
             self._remove_clear_state(channel_id)
@@ -418,8 +418,8 @@ class GeneralCog(commands.Cog):
                     await interaction.edit_original_response(
                         content="Keine Berechtigung. Der Bot braucht 'Nachrichten verwalten'."
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
             self._remove_clear_state(channel_id)
 
         except Exception as e:
@@ -430,9 +430,9 @@ class GeneralCog(commands.Cog):
                     await interaction.edit_original_response(
                         content=f"Fehler beim Loeschen: {str(e)[:200]}"
                     )
-                except Exception:
-                    pass
-            # State NICHT entfernen bei unerwartetem Fehler — wird beim naechsten
+                except Exception as e:
+                    logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
+            # State NICHT entfernen bei unerwartetem Fehler — wird beim nächsten
             # Restart fortgesetzt
 
         finally:
@@ -461,15 +461,15 @@ class GeneralCog(commands.Cog):
                         name="User", value=user_name, inline=True
                     )
                     await _log_ch.send(embed=embed)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
             asyncio.create_task(_send())
 
     # ------------------------------------------------------------------
     # /help - Alle (rollenbasiert)
     # ------------------------------------------------------------------
 
-    # Berechtigungsstufen fuer Command-Filterung
+    # Berechtigungsstufen für Command-Filterung
     _LEVEL_ALL = 0
     _LEVEL_SPIELER = 1
     _LEVEL_ADMIN = 2
@@ -502,7 +502,7 @@ class GeneralCog(commands.Cog):
             ("/sat blueprints upload", "Blueprint hochladen", _LEVEL_SPIELER),
             ("/sat blueprints list", "Blueprints anzeigen", _LEVEL_SPIELER),
             ("/sat blueprints download", "Blueprint laden", _LEVEL_SPIELER),
-            ("/sat blueprints delete", "Blueprint loeschen", _LEVEL_SPIELER),
+            ("/sat blueprints delete", "Blueprint löschen", _LEVEL_SPIELER),
         ],
         "Satisfactory — Listen": [
             ("/sat whitelist add|remove|list", "Whitelist verwalten", _LEVEL_ADMIN),
@@ -527,7 +527,7 @@ class GeneralCog(commands.Cog):
         "Minecraft — Config": [
             ("/mc config settings [server]", "Einstellungen anzeigen", _LEVEL_ALL),
             ("/mc config stats [server]", "World-Statistiken", _LEVEL_ALL),
-            ("/mc config modpack_check", "Modpack-Updates pruefen", _LEVEL_ADMIN),
+            ("/mc config modpack_check", "Modpack-Updates prüfen", _LEVEL_ADMIN),
         ],
         "Minecraft — Listen": [
             ("/mc whitelist add|remove|list", "Whitelist verwalten", _LEVEL_ADMIN),
@@ -536,7 +536,7 @@ class GeneralCog(commands.Cog):
         ],
         "Minecraft — Admin": [
             ("/mc say <nachricht>", "Ankuendigung senden (Banner)", _LEVEL_ADMIN),
-            ("/mc command <cmd>", "RCON-Befehl ausfuehren", _LEVEL_OWNER),
+            ("/mc command <cmd>", "RCON-Befehl ausführen", _LEVEL_OWNER),
         ],
         "Moderation": [
             ("/timeout <spieler> <dauer> [grund]", "Multi-Server Temp-Ban", _LEVEL_ADMIN),
@@ -560,7 +560,7 @@ class GeneralCog(commands.Cog):
             ("/report [tage]", "Wochen-/Monatsbericht", _LEVEL_SPIELER),
             ("/dashboard", "Dashboard aktualisieren", _LEVEL_ADMIN),
             ("/scheduler", "Scheduler-Status", _LEVEL_ADMIN),
-            ("/selftest", "Alle Bot-Systeme pruefen", _LEVEL_ADMIN),
+            ("/selftest", "Alle Bot-Systeme prüfen", _LEVEL_ADMIN),
             ("/commandlog [anzahl]", "Letzte Bot-Commands", _LEVEL_ADMIN),
             ("/crashlog [nummer]", "SAT Crash-Replays", _LEVEL_ADMIN),
             ("/configbackup", "Config-Backup erstellen", _LEVEL_ADMIN),
@@ -575,13 +575,13 @@ class GeneralCog(commands.Cog):
             ("/schedule cancel <id>", "Geplante Nachricht abbrechen", _LEVEL_ADMIN),
         ],
         "Allgemein": [
-            ("/help", "Diese Uebersicht", _LEVEL_ALL),
-            ("/clear [anzahl] [stunden]", "Nachrichten loeschen", _LEVEL_ADMIN),
+            ("/help", "Diese Übersicht", _LEVEL_ALL),
+            ("/clear [anzahl] [stunden]", "Nachrichten löschen", _LEVEL_ADMIN),
             ("/reload <cog>", "Cog neuladen", _LEVEL_OWNER),
         ],
     }
 
-    # Beschriftungen fuer Berechtigungsstufen im Embed
+    # Beschriftungen für Berechtigungsstufen im Embed
     _LEVEL_LABELS = {
         _LEVEL_SPIELER: "(Spieler)",
         _LEVEL_ADMIN: "(Admin)",
@@ -600,10 +600,10 @@ class GeneralCog(commands.Cog):
 
     @app_commands.command(name="help", description="Verfuegbare Commands anzeigen")
     async def help_cmd(self, interaction: discord.Interaction):
-        """Zeigt nur Commands an, fuer die der User die Berechtigung hat."""
+        """Zeigt nur Commands an, für die der User die Berechtigung hat."""
         user_level = self._get_user_level(interaction)
 
-        # Rollenlabel fuer Titel
+        # Rollenlabel für Titel
         level_names = {
             self._LEVEL_ALL: "Alle",
             self._LEVEL_SPIELER: "Spieler",
@@ -613,8 +613,8 @@ class GeneralCog(commands.Cog):
         role_name = level_names.get(user_level, "Alle")
 
         embed = discord.Embed(
-            title=f"Befehls-Uebersicht — {role_name}",
-            description="Nur Commands die du ausfuehren darfst werden angezeigt.",
+            title=f"Befehls-Übersicht — {role_name}",
+            description="Nur Commands die du ausführen darfst werden angezeigt.",
             color=0x5865F2,
         )
 
@@ -626,11 +626,11 @@ class GeneralCog(commands.Cog):
             if category.startswith("Minecraft") and not has_mc:
                 continue
 
-            # Nur Commands filtern die der User ausfuehren darf
+            # Nur Commands filtern die der User ausführen darf
             visible = []
             for cmd_name, cmd_desc, cmd_level in commands_list:
                 if cmd_level <= user_level:
-                    # Berechtigungslabel nur fuer Admins/Owner sichtbar
+                    # Berechtigungslabel nur für Admins/Owner sichtbar
                     label = ""
                     if user_level >= self._LEVEL_ADMIN and cmd_level > self._LEVEL_ALL:
                         label = f" {self._LEVEL_LABELS.get(cmd_level, '')}"
@@ -651,12 +651,12 @@ class GeneralCog(commands.Cog):
     # /clear - Admin
     # ------------------------------------------------------------------
 
-    @app_commands.command(name="clear", description="Nachrichten im Channel loeschen")
+    @app_commands.command(name="clear", description="Nachrichten im Channel löschen")
     @app_commands.describe(
-        anzahl="Anzahl der zu loeschenden Nachrichten (Standard: 500, bei Datum: unbegrenzt)",
-        stunden="Nur Nachrichten der letzten X Stunden loeschen",
-        von="Nachrichten AB diesem Datum loeschen (Format: TT.MM.JJJJ oder TT.MM.JJJJ-HH:MM)",
-        bis="Nachrichten BIS zu diesem Datum loeschen (Format: TT.MM.JJJJ oder TT.MM.JJJJ-HH:MM)",
+        anzahl="Anzahl der zu löschenden Nachrichten (Standard: 500, bei Datum: unbegrenzt)",
+        stunden="Nur Nachrichten der letzten X Stunden löschen",
+        von="Nachrichten AB diesem Datum löschen (Format: TT.MM.JJJJ oder TT.MM.JJJJ-HH:MM)",
+        bis="Nachrichten BIS zu diesem Datum löschen (Format: TT.MM.JJJJ oder TT.MM.JJJJ-HH:MM)",
     )
     @admin_only()
     async def clear_cmd(
@@ -675,7 +675,7 @@ class GeneralCog(commands.Cog):
         """
         await interaction.response.defer(ephemeral=True)
 
-        # Pruefen ob schon ein Clear in diesem Channel laeuft
+        # Pruefen ob schon ein Clear in diesem Channel läuft
         if interaction.channel.id in self._active_clears:
             # Wenn ohne Parameter aufgerufen: Abbruch des laufenden Vorgangs
             if not anzahl and not stunden and not von and not bis:
@@ -687,7 +687,7 @@ class GeneralCog(commands.Cog):
                     )
                     return
             await interaction.edit_original_response(
-                content="⚠️ In diesem Channel laeuft bereits ein Loeschvorgang. "
+                content="⚠️ In diesem Channel läuft bereits ein Loeschvorgang. "
                 "Verwende `/clear` ohne Parameter um ihn abzubrechen."
             )
             return
@@ -708,7 +708,7 @@ class GeneralCog(commands.Cog):
             parsed = self._parse_date(von)
             if not parsed:
                 await interaction.edit_original_response(
-                    content="Ungueltiges Datum fuer `von`. Format: `TT.MM.JJJJ` oder `TT.MM.JJJJ-HH:MM`"
+                    content="Ungueltiges Datum für `von`. Format: `TT.MM.JJJJ` oder `TT.MM.JJJJ-HH:MM`"
                 )
                 return
             after = parsed
@@ -717,12 +717,12 @@ class GeneralCog(commands.Cog):
             parsed = self._parse_date(bis)
             if not parsed:
                 await interaction.edit_original_response(
-                    content="Ungueltiges Datum fuer `bis`. Format: `TT.MM.JJJJ` oder `TT.MM.JJJJ-HH:MM`"
+                    content="Ungueltiges Datum für `bis`. Format: `TT.MM.JJJJ` oder `TT.MM.JJJJ-HH:MM`"
                 )
                 return
             before = parsed
 
-        # stunden-Parameter (ueberschreibt von/bis nicht, ergaenzt)
+        # stunden-Parameter (überschreibt von/bis nicht, ergaenzt)
         if stunden and not after:
             after = datetime.now(timezone.utc) - timedelta(hours=stunden)
 
@@ -774,7 +774,7 @@ class GeneralCog(commands.Cog):
         if isinstance(error, app_commands.CheckFailure):
             if not interaction.response.is_done():
                 await interaction.response.send_message(
-                    "Keine Berechtigung fuer diesen Befehl.", ephemeral=True
+                    "Keine Berechtigung für diesen Befehl.", ephemeral=True
                 )
             return
         logger.error(f"Command error in {interaction.command.name if interaction.command else 'unknown'}: {error}", exc_info=True)
@@ -784,8 +784,8 @@ class GeneralCog(commands.Cog):
                 await interaction.followup.send(msg, ephemeral=True)
             else:
                 await interaction.response.send_message(msg, ephemeral=True)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
 
 
 async def setup(bot):

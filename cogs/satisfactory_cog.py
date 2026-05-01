@@ -124,7 +124,7 @@ class SatisfactoryCog(commands.Cog):
         if active_timer:
             embed.add_field(
                 name="\u23f0 Geplant",
-                value=f"{active_timer.action_name} laeuft...",
+                value=f"{active_timer.action_name} läuft...",
                 inline=False,
             )
 
@@ -157,12 +157,12 @@ class SatisfactoryCog(commands.Cog):
                     else:
                         embed.description = (
                             f"{state.num_players} Spieler online.\n"
-                            f"*(Detaillierte Spielerliste nicht verfuegbar)*"
+                            f"*(Detaillierte Spielerliste nicht verfügbar)*"
                         )
                 except Exception:
                     embed.description = (
                         f"{state.num_players} Spieler online.\n"
-                        f"*(Spielerliste ueber API nicht verfuegbar)*"
+                        f"*(Spielerliste über API nicht verfügbar)*"
                     )
 
             embed.add_field(
@@ -178,7 +178,7 @@ class SatisfactoryCog(commands.Cog):
             await interaction.followup.send(f"Fehler: {e}")
 
     @players_grp.command(name="ban", description="Spieler permanent bannen (IP-Block)")
-    @app_commands.describe(player="Name des Spielers", reason="Grund fuer den Ban")
+    @app_commands.describe(player="Name des Spielers", reason="Grund für den Ban")
     @admin_only()
     async def players_ban(
         self,
@@ -359,7 +359,7 @@ class SatisfactoryCog(commands.Cog):
 
             if latest["size_bytes"] > 25 * 1024 * 1024:
                 await interaction.followup.send(
-                    f"Savegame zu gross fuer Discord ({latest['size_human']}). "
+                    f"Savegame zu gross für Discord ({latest['size_human']}). "
                     f"Max. 25 MB.\nDatei: `{save_path.name}`"
                 )
                 return
@@ -371,7 +371,7 @@ class SatisfactoryCog(commands.Cog):
                 color=0x3498db,
             )
             embed.add_field(
-                name="Groesse", value=latest["size_human"], inline=True
+                name="Größe", value=latest["size_human"], inline=True
             )
             embed.add_field(
                 name="Letzte Aenderung",
@@ -429,8 +429,8 @@ class SatisfactoryCog(commands.Cog):
 
         if await self.server.is_running():
             await interaction.followup.send(
-                "Server muss offline sein fuer ein Restore!\n"
-                "Stoppe den Server zuerst ueber das Dashboard."
+                "Server muss offline sein für ein Restore!\n"
+                "Stoppe den Server zuerst über das Dashboard."
             )
             return
 
@@ -446,9 +446,9 @@ class SatisfactoryCog(commands.Cog):
             title="Restore bestaetigen",
             description=(
                 f"Backup **{backup_name}** wiederherstellen?\n\n"
-                f"Groesse: {bp.get('size_human', '?')}\n"
+                f"Größe: {bp.get('size_human', '?')}\n"
                 f"Erstellt: {bp.get('created_at', '?')[:16]}\n\n"
-                f"**ACHTUNG: Aktuelle Savegames werden ueberschrieben!**\n"
+                f"**ACHTUNG: Aktuelle Savegames werden überschrieben!**\n"
                 f"*(Ein Pre-Restore Backup wird automatisch erstellt)*"
             ),
             color=0xe74c3c,
@@ -615,7 +615,7 @@ class SatisfactoryCog(commands.Cog):
                 color=0x3498db,
             )
             embed.add_field(
-                name="Groesse", value=stats.get("size", "?"), inline=True
+                name="Größe", value=stats.get("size", "?"), inline=True
             )
             embed.add_field(
                 name="Letzte Aenderung",
@@ -680,12 +680,12 @@ class SatisfactoryCog(commands.Cog):
             )
             return
 
-        # Groessen-Check (max. 500 MB)
+        # Größen-Check (max. 500 MB)
         max_size = 500 * 1024 * 1024
         if datei.size > max_size:
             await interaction.followup.send(
                 f"Datei zu gross ({format_bytes(datei.size)})! "
-                f"Maximale Groesse: {format_bytes(max_size)}"
+                f"Maximale Größe: {format_bytes(max_size)}"
             )
             return
 
@@ -702,13 +702,13 @@ class SatisfactoryCog(commands.Cog):
                 self, interaction, datei, target_path, exists
             )
             desc = f"Savegame **{datei.filename}** hochladen?\n\n"
-            desc += f"Groesse: {format_bytes(datei.size)}\n"
+            desc += f"Größe: {format_bytes(datei.size)}\n"
             desc += f"Ziel: `{savegame_dir.name}/{datei.filename}`\n"
             if exists:
                 existing_size = target_path.stat().st_size
                 desc += (
                     f"\n**Datei existiert bereits** "
-                    f"({format_bytes(existing_size)}) — wird ueberschrieben!"
+                    f"({format_bytes(existing_size)}) — wird überschrieben!"
                 )
 
             embed = discord.Embed(
@@ -732,7 +732,7 @@ class SatisfactoryCog(commands.Cog):
         description="Blueprint(s) hochladen (.sbp+.sbpcfg oder .zip)",
     )
     @app_commands.describe(
-        kategorie="Kategorie fuer den Blueprint",
+        kategorie="Kategorie für den Blueprint",
         datei1="Blueprint-Datei (.sbp, .sbpcfg, oder .zip)",
         datei2="Zweite Datei (z.B. .sbpcfg wenn datei1 .sbp ist)",
     )
@@ -933,7 +933,7 @@ class SatisfactoryCog(commands.Cog):
                 title=f"Blueprint: {bp_name}", color=0x3498db
             )
             embed.add_field(
-                name="Groesse", value=format_bytes(size), inline=True
+                name="Größe", value=format_bytes(size), inline=True
             )
             embed.add_field(
                 name="Dateien",
@@ -969,7 +969,7 @@ class SatisfactoryCog(commands.Cog):
         return choices[:25]
 
     @blueprints_grp.command(
-        name="delete", description="Blueprints loeschen (Einzel, Mehrfach, Bereich)"
+        name="delete", description="Blueprints löschen (Einzel, Mehrfach, Bereich)"
     )
     @app_commands.describe(
         blueprint="Nummern: 3 | 1,3,5 | 1-5 | 1,3-7,12 | oder Name"
@@ -1031,7 +1031,7 @@ class SatisfactoryCog(commands.Cog):
             view = BlueprintDeleteConfirmView(
                 self, interaction, names_to_delete
             )
-            desc = f"**{len(names_to_delete)} Blueprints** loeschen?\n\n"
+            desc = f"**{len(names_to_delete)} Blueprints** löschen?\n\n"
             desc += "\n".join(
                 f"\u2022 {n}" for n in names_to_delete[:30]
             )
@@ -1045,15 +1045,15 @@ class SatisfactoryCog(commands.Cog):
             )
             await interaction.followup.send(embed=embed, view=view)
         else:
-            # Einzeln direkt loeschen (mit Rechte-Pruefung)
+            # Einzeln direkt löschen (mit Rechte-Pruefung)
             name = names_to_delete[0]
             success, msg = await self.bot.blueprint_mgr.delete(
                 name, interaction.user.id, is_admin(interaction)
             )
             if success:
                 embed = discord.Embed(
-                    title="Blueprint geloescht",
-                    description=f"**{name}** wurde geloescht (.sbp + .sbpcfg).",
+                    title="Blueprint gelöscht",
+                    description=f"**{name}** wurde gelöscht (.sbp + .sbpcfg).",
                     color=0xe74c3c,
                 )
                 embed.set_footer(text=f"von {interaction.user.display_name}")
@@ -1160,7 +1160,7 @@ class SatisfactoryCog(commands.Cog):
         description="Spieler bannen / zur Blacklist hinzufuegen",
     )
     @app_commands.describe(
-        player="Name des Spielers", reason="Grund fuer den Ban"
+        player="Name des Spielers", reason="Grund für den Ban"
     )
     @admin_only()
     async def blacklist_add(
@@ -1238,7 +1238,7 @@ class SatisfactoryCog(commands.Cog):
         if isinstance(error, app_commands.CheckFailure):
             if not interaction.response.is_done():
                 await interaction.response.send_message(
-                    "Keine Berechtigung fuer diesen Befehl.", ephemeral=True
+                    "Keine Berechtigung für diesen Befehl.", ephemeral=True
                 )
             return
         logger.error(f"Command error in {interaction.command.name if interaction.command else 'unknown'}: {error}", exc_info=True)
@@ -1248,8 +1248,8 @@ class SatisfactoryCog(commands.Cog):
                 await interaction.followup.send(msg, ephemeral=True)
             else:
                 await interaction.response.send_message(msg, ephemeral=True)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -1292,7 +1292,7 @@ class RestoreConfirmView(discord.ui.View):
                 description=msg,
                 color=0x2ecc71,
             )
-            embed.set_footer(text="Starte den Server ueber das Dashboard")
+            embed.set_footer(text="Starte den Server über das Dashboard")
             await interaction.edit_original_response(
                 content=None, embed=embed
             )
@@ -1403,14 +1403,14 @@ class BlueprintRestartView(discord.ui.View):
 
         if not is_admin(interaction):
             await interaction.response.send_message(
-                "Nur Admins koennen den Server neustarten.",
+                "Nur Admins können den Server neustarten.",
                 ephemeral=True,
             )
             return
 
         if self.cog.bot.timer_mgr.has_active:
             await interaction.response.send_message(
-                "Es laeuft bereits ein Timer.",
+                "Es läuft bereits ein Timer.",
                 ephemeral=True,
             )
             return
@@ -1437,7 +1437,7 @@ class BlueprintRestartView(discord.ui.View):
             if success:
                 embed = discord.Embed(
                     title="Server neugestartet",
-                    description="Blueprints sind jetzt verfuegbar!",
+                    description="Blueprints sind jetzt verfügbar!",
                     color=0x2ecc71,
                 )
                 await interaction.channel.send(embed=embed)
@@ -1460,7 +1460,7 @@ class BlueprintRestartView(discord.ui.View):
     ):
         await interaction.response.edit_message(view=None)
         await interaction.followup.send(
-            "Blueprints sind nach dem naechsten Server-Restart verfuegbar.",
+            "Blueprints sind nach dem nächsten Server-Restart verfügbar.",
             ephemeral=True,
         )
 
@@ -1515,7 +1515,7 @@ class UploadConfirmView(discord.ui.View):
                 title="Savegame hochgeladen",
                 description=(
                     f"**{self.attachment.filename}** wurde erfolgreich hochgeladen.\n\n"
-                    f"Groesse: {format_bytes(len(file_data))}\n"
+                    f"Größe: {format_bytes(len(file_data))}\n"
                     f"Ziel: `{self.target_path.parent.name}/{self.target_path.name}`"
                 ),
                 color=0x2ecc71,
@@ -1615,7 +1615,7 @@ class BlueprintListView(discord.ui.View):
 
 
 class BlueprintDeleteConfirmView(discord.ui.View):
-    """Bestaetigungs-View fuer Mehrfach-Blueprint-Loeschung"""
+    """Bestaetigungs-View für Mehrfach-Blueprint-Loeschung"""
 
     def __init__(self, cog, interaction: discord.Interaction, names: list[str]):
         super().__init__(timeout=60)
@@ -1623,7 +1623,7 @@ class BlueprintDeleteConfirmView(discord.ui.View):
         self.user_id = interaction.user.id
         self.names = names
 
-    @discord.ui.button(label="Ja, loeschen", style=discord.ButtonStyle.danger, emoji="\U0001f5d1")
+    @discord.ui.button(label="Ja, löschen", style=discord.ButtonStyle.danger, emoji="\U0001f5d1")
     async def confirm_btn(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ):
@@ -1649,7 +1649,7 @@ class BlueprintDeleteConfirmView(discord.ui.View):
         # Ergebnis-Embed
         desc = ""
         if deleted:
-            desc += f"**{len(deleted)} geloescht:**\n"
+            desc += f"**{len(deleted)} gelöscht:**\n"
             desc += "\n".join(f"\u2705 {n}" for n in deleted[:30])
             if len(deleted) > 30:
                 desc += f"\n... und {len(deleted) - 30} weitere"
@@ -1660,7 +1660,7 @@ class BlueprintDeleteConfirmView(discord.ui.View):
             desc += "\n".join(f"\u274c {f}" for f in failed[:10])
 
         embed = discord.Embed(
-            title="Blueprints geloescht",
+            title="Blueprints gelöscht",
             description=desc,
             color=0xe74c3c if not failed else 0xe67e22,
         )

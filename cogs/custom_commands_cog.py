@@ -1,13 +1,13 @@
 """
 Custom Commands Cog — Benutzerdefinierte Text-Antwort-Befehle
 
-Ermoeglicht Admins das Erstellen, Bearbeiten und Loeschen von
+Ermöglicht Admins das Erstellen, Bearbeiten und Loeschen von
 benutzerdefinierten Befehlen, die per !<name> im Chat ausgeloest werden.
 Unterstuetzt einfache Textantworten und Embed-Format.
 
 Command-Struktur (app_commands.Group):
   /customcmd add <name> <response>         — Neuen Befehl erstellen (Admin)
-  /customcmd remove <name>                 — Befehl loeschen (Admin)
+  /customcmd remove <name>                 — Befehl löschen (Admin)
   /customcmd edit <name> <new_response>    — Antwort bearbeiten (Admin)
   /customcmd list                          — Alle Befehle auflisten (Alle)
   /customcmd info <name>                   — Details eines Befehls anzeigen
@@ -41,7 +41,7 @@ from utils.permissions import admin_only
 
 logger = get_logger("cogs.custom_commands")
 
-# SQL fuer Tabellenerstellung
+# SQL für Tabellenerstellung
 CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS custom_commands (
     name TEXT PRIMARY KEY,
@@ -145,7 +145,7 @@ class CustomCommandsCog(commands.Cog):
         ]
 
     async def _increment_uses(self, name: str) -> None:
-        """Nutzungszaehler fuer einen Command erhoehen"""
+        """Nutzungszaehler für einen Command erhoehen"""
         try:
             db = await get_db()
             await db.execute(
@@ -154,7 +154,7 @@ class CustomCommandsCog(commands.Cog):
             )
             await db.commit()
         except Exception as e:
-            logger.warning(f"Fehler beim Erhoehen des Nutzungszaehlers fuer '{name}': {e}")
+            logger.warning(f"Fehler beim Erhoehen des Nutzungszaehlers für '{name}': {e}")
 
     # ------------------------------------------------------------------
     # Variablen-Ersetzung
@@ -280,7 +280,7 @@ class CustomCommandsCog(commands.Cog):
     )
     @app_commands.describe(
         name="Name des Commands (ohne !-Praefix)",
-        response="Antworttext (oder {embed}{...} fuer Embed-Format)",
+        response="Antworttext (oder {embed}{...} für Embed-Format)",
     )
     @admin_only()
     async def cc_add(
@@ -363,10 +363,10 @@ class CustomCommandsCog(commands.Cog):
 
     @cc_grp.command(
         name="remove",
-        description="Custom Command loeschen",
+        description="Custom Command löschen",
     )
     @app_commands.describe(
-        name="Name des zu loeschenden Commands",
+        name="Name des zu löschenden Commands",
     )
     @admin_only()
     async def cc_remove(
@@ -387,7 +387,7 @@ class CustomCommandsCog(commands.Cog):
             )
             return
 
-        # Aus Datenbank loeschen
+        # Aus Datenbank löschen
         try:
             db = await get_db()
             await db.execute(
@@ -403,7 +403,7 @@ class CustomCommandsCog(commands.Cog):
             return
 
         embed = discord.Embed(
-            title="Custom Command geloescht",
+            title="Custom Command gelöscht",
             description=f"Der Command `!{cmd_name}` wurde entfernt.",
             color=0xE74C3C,
         )
@@ -417,7 +417,7 @@ class CustomCommandsCog(commands.Cog):
         await interaction.followup.send(embed=embed, ephemeral=True)
 
         logger.info(
-            f"Custom Command geloescht: '!{cmd_name}' von {interaction.user} "
+            f"Custom Command gelöscht: '!{cmd_name}' von {interaction.user} "
             f"(hatte {existing['uses']} Nutzungen)"
         )
 
@@ -431,7 +431,7 @@ class CustomCommandsCog(commands.Cog):
     )
     @app_commands.describe(
         name="Name des zu bearbeitenden Commands",
-        new_response="Neue Antwort fuer den Command",
+        new_response="Neue Antwort für den Command",
     )
     @admin_only()
     async def cc_edit(
@@ -504,7 +504,7 @@ class CustomCommandsCog(commands.Cog):
         if not commands_list:
             await interaction.followup.send(
                 "Keine Custom Commands vorhanden.\n"
-                "Admins koennen welche mit `/customcmd add` erstellen.",
+                "Admins können welche mit `/customcmd add` erstellen.",
                 ephemeral=True,
             )
             return
@@ -600,7 +600,7 @@ class CustomCommandsCog(commands.Cog):
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     # ==================================================================
-    # Listener: on_message — Custom Commands per !<name> ausfuehren
+    # Listener: on_message — Custom Commands per !<name> ausführen
     # ==================================================================
 
     @commands.Cog.listener()
@@ -658,7 +658,7 @@ class CustomCommandsCog(commands.Cog):
         except discord.Forbidden:
             logger.warning(
                 f"Keine Berechtigung zum Senden in #{message.channel.name} "
-                f"fuer Command '!{cmd_name}'"
+                f"für Command '!{cmd_name}'"
             )
         except discord.HTTPException as e:
             logger.error(
@@ -666,14 +666,14 @@ class CustomCommandsCog(commands.Cog):
             )
 
     # ==================================================================
-    # Autocomplete fuer Command-Namen
+    # Autocomplete für Command-Namen
     # ==================================================================
 
     async def _name_autocomplete(
         self, interaction: discord.Interaction, current: str
     ) -> list[app_commands.Choice[str]]:
         """
-        Autocomplete fuer den 'name'-Parameter.
+        Autocomplete für den 'name'-Parameter.
 
         Schlaegt vorhandene Command-Namen vor basierend auf der Eingabe.
 
@@ -707,11 +707,11 @@ class CustomCommandsCog(commands.Cog):
         interaction: discord.Interaction,
         error: app_commands.AppCommandError,
     ) -> None:
-        """Zentrale Fehlerbehandlung fuer alle Commands in dieser Cog"""
+        """Zentrale Fehlerbehandlung für alle Commands in dieser Cog"""
         if isinstance(error, app_commands.CheckFailure):
             if not interaction.response.is_done():
                 await interaction.response.send_message(
-                    "Keine Berechtigung fuer diesen Befehl.", ephemeral=True
+                    "Keine Berechtigung für diesen Befehl.", ephemeral=True
                 )
             return
 
@@ -723,8 +723,8 @@ class CustomCommandsCog(commands.Cog):
                 await interaction.followup.send(msg, ephemeral=True)
             else:
                 await interaction.response.send_message(msg, ephemeral=True)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
 
 
 async def setup(bot: commands.Bot) -> None:

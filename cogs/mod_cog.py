@@ -20,16 +20,16 @@ logger = get_logger("cogs.mod")
 
 
 class ModCog(commands.Cog):
-    """Mod-Informationen anzeigen (Verwaltung ueber Dashboard)"""
+    """Mod-Informationen anzeigen (Verwaltung über Dashboard)"""
 
     mod = app_commands.Group(name="mod", description="Mod-Informationen")
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.mod_managers = {}  # Cache fuer ModManager-Instanzen
+        self.mod_managers = {}  # Cache für ModManager-Instanzen
 
     def _get_mod_manager(self, game: str) -> ModManager:
-        """ModManager-Instanz fuer ein Spiel holen oder erstellen"""
+        """ModManager-Instanz für ein Spiel holen oder erstellen"""
         game_lower = game.lower()
         if game_lower not in self.mod_managers:
             if game_lower == "satisfactory":
@@ -47,7 +47,7 @@ class ModCog(commands.Cog):
 
     @mod.command(name="list", description="Installierte Mods auflisten")
     async def mod_list(self, interaction: discord.Interaction, game: Optional[str] = None):
-        """Alle installierten Mods fuer ein Spiel anzeigen"""
+        """Alle installierten Mods für ein Spiel anzeigen"""
         await interaction.response.defer()
 
         try:
@@ -174,11 +174,11 @@ class ModCog(commands.Cog):
 
     async def cog_app_command_error(self, interaction: discord.Interaction,
                                      error: app_commands.AppCommandError) -> None:
-        """Fehlerbehandlung fuer alle Commands in diesem Cog."""
+        """Fehlerbehandlung für alle Commands in diesem Cog."""
         if isinstance(error, app_commands.CheckFailure):
             if not interaction.response.is_done():
                 await interaction.response.send_message(
-                    "Keine Berechtigung fuer diesen Befehl.", ephemeral=True
+                    "Keine Berechtigung für diesen Befehl.", ephemeral=True
                 )
             return
         logger.error(f"Command-Fehler in {interaction.command.name if interaction.command else 'unknown'}: {error}", exc_info=True)
@@ -188,8 +188,8 @@ class ModCog(commands.Cog):
                 await interaction.followup.send(msg, ephemeral=True)
             else:
                 await interaction.response.send_message(msg, ephemeral=True)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
 
 
 async def setup(bot):

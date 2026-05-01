@@ -1,12 +1,12 @@
 """
 Temp Voice Cog — Phase 12a (F17)
-Cog fuer den Admin Bot: Temporaere Voice-Channels mit Join-to-Create.
+Cog für den Admin Bot: Temporaere Voice-Channels mit Join-to-Create.
 
 Wenn ein Mitglied den konfigurierten "Join-to-Create" Voice-Channel
 betritt, wird automatisch ein persoenlicher Voice-Channel erstellt.
-Der Ersteller (Owner) kann den Channel ueber interaktive Buttons
+Der Ersteller (Owner) kann den Channel über interaktive Buttons
 steuern (umbenennen, Limit, sperren, Ownership transferieren).
-Leere Channels werden nach einer kurzen Verzoegerung automatisch geloescht.
+Leere Channels werden nach einer kurzen Verzoegerung automatisch gelöscht.
 
 Commands:
   /tempvoice setup <join_channel> [kategorie]  — Join-to-Create konfigurieren (Admin)
@@ -14,7 +14,7 @@ Commands:
 
 Features:
   - Join-to-Create: Voice-Channel betreten -> Temp-Channel wird erstellt
-  - Persistente Control-View mit Buttons (ueberlebt Bot-Neustarts)
+  - Persistente Control-View mit Buttons (überlebt Bot-Neustarts)
   - Automatisches Loeschen leerer Channels
   - Ownership-Transfer bei Verlassen des Owners
   - Cleanup beim Bot-Start: Verwaiste leere Channels entfernen
@@ -38,7 +38,7 @@ from utils.permissions import admin_only
 
 logger = get_logger("cogs.temp_voice")
 
-# Verzoegerung in Sekunden bevor ein leerer Temp-Channel geloescht wird
+# Verzoegerung in Sekunden bevor ein leerer Temp-Channel gelöscht wird
 EMPTY_CHANNEL_DELETE_DELAY = 3
 
 
@@ -57,12 +57,12 @@ class TempVoiceCog(commands.Cog):
             data_file=ADMIN_DATA_DIR / "temp_voice.json",
             config_file=ADMIN_DATA_DIR / "temp_voice_config.json",
         )
-        # Set zum Tracken von Channels die gerade geloescht werden
+        # Set zum Tracken von Channels die gerade gelöscht werden
         # (verhindert Race Conditions bei mehreren Leave-Events)
         self._deleting: set[int] = set()
 
     async def cog_load(self) -> None:
-        """Persistente Views beim Laden registrieren und Cleanup ausfuehren."""
+        """Persistente Views beim Laden registrieren und Cleanup ausführen."""
         # Persistente Control-View registrieren
         self.bot.add_view(TempVoiceControlView())
         logger.info("Temp-Voice-Cog geladen, persistente Views registriert")
@@ -122,14 +122,14 @@ class TempVoiceCog(commands.Cog):
             # Pruefen ob der Channel leer ist (keine User, nur Bots zaehlen nicht)
             human_members = [m for m in channel.members if not m.bot]
             if not human_members:
-                # Leerer Channel — loeschen
+                # Leerer Channel — löschen
                 try:
                     await channel.delete(
                         reason="Temp-Voice Startup-Cleanup: leerer Channel"
                     )
                 except (discord.Forbidden, discord.HTTPException) as e:
                     logger.warning(
-                        f"Startup-Cleanup: Channel {channel_id} loeschen fehlgeschlagen: {e}"
+                        f"Startup-Cleanup: Channel {channel_id} löschen fehlgeschlagen: {e}"
                     )
                 self.manager.delete_channel(channel_id)
                 removed += 1
@@ -155,8 +155,8 @@ class TempVoiceCog(commands.Cog):
         """
         Reagiert auf Voice-State-Aenderungen:
         1. Join-to-Create: User betritt den konfigurierten Channel
-        2. Channel leer: Temp-Channel nach Verzoegerung loeschen
-        3. Owner verlassen: Ownership an naechstes Mitglied uebertragen
+        2. Channel leer: Temp-Channel nach Verzoegerung löschen
+        3. Owner verlassen: Ownership an nächstes Mitglied übertragen
         """
         # Bots ignorieren
         if member.bot:
@@ -240,10 +240,10 @@ class TempVoiceCog(commands.Cog):
         embed.add_field(
             name="Steuerung",
             value=(
-                "**Umbenennen** — Kanalname aendern\n"
+                "**Umbenennen** — Kanalname ändern\n"
                 "**Limit setzen** — Maximale Nutzeranzahl festlegen\n"
-                "**Sperren/Entsperren** — Beitritt fuer andere ein/ausschalten\n"
-                "**Owner uebertragen** — Ownership an jemand anderen geben"
+                "**Sperren/Entsperren** — Beitritt für andere ein/ausschalten\n"
+                "**Owner übertragen** — Ownership an jemand anderen geben"
             ),
             inline=False,
         )
@@ -266,7 +266,7 @@ class TempVoiceCog(commands.Cog):
 
         Prueft ob es ein Temp-Channel ist und ob er jetzt leer ist.
         Falls der Owner gegangen ist und noch andere da sind, wird
-        die Ownership uebertragen.
+        die Ownership übertragen.
 
         Args:
             member: Das Mitglied das den Channel verlassen hat
@@ -282,14 +282,14 @@ class TempVoiceCog(commands.Cog):
         human_members = [m for m in channel.members if not m.bot]
 
         if not human_members:
-            # Channel ist leer — nach Verzoegerung loeschen
+            # Channel ist leer — nach Verzoegerung löschen
             await self._schedule_channel_delete(channel)
             return
 
         # Pruefen ob der Owner den Channel verlassen hat
         owner_id = self.manager.get_owner(channel.id)
         if owner_id == member.id:
-            # Owner ist gegangen — Ownership an naechstes Mitglied uebertragen
+            # Owner ist gegangen — Ownership an nächstes Mitglied übertragen
             new_owner = human_members[0]  # Erstes verbleibendes Mitglied
             self.manager.transfer_ownership(channel.id, new_owner.id)
 
@@ -340,7 +340,7 @@ class TempVoiceCog(commands.Cog):
         Loeschen eines leeren Temp-Channels nach kurzer Verzoegerung einplanen.
 
         Die Verzoegerung gibt Usern die Moeglichkeit, schnell
-        zurueckzukommen (z.B. bei einem Disconnect).
+        zurückzukommen (z.B. bei einem Disconnect).
 
         Args:
             channel: Der leere Voice-Channel
@@ -355,8 +355,8 @@ class TempVoiceCog(commands.Cog):
         try:
             await asyncio.sleep(EMPTY_CHANNEL_DELETE_DELAY)
 
-            # Nochmal pruefen ob der Channel noch existiert und leer ist
-            # (User koennten in der Zwischenzeit zurueckgekommen sein)
+            # Nochmal prüfen ob der Channel noch existiert und leer ist
+            # (User koennten in der Zwischenzeit zurückgekommen sein)
             updated_channel = self.bot.get_channel(channel_id)
             if updated_channel is None:
                 # Channel existiert nicht mehr
@@ -367,22 +367,22 @@ class TempVoiceCog(commands.Cog):
                 self.manager.delete_channel(channel_id)
                 return
 
-            # Nochmal pruefen ob leer
+            # Nochmal prüfen ob leer
             human_members = [m for m in updated_channel.members if not m.bot]
             if human_members:
                 # Nicht mehr leer — Loeschen abbrechen
                 return
 
-            # Channel loeschen
+            # Channel löschen
             try:
                 await updated_channel.delete(
-                    reason="Temp-Voice-Channel leer — automatisch geloescht"
+                    reason="Temp-Voice-Channel leer — automatisch gelöscht"
                 )
             except (discord.Forbidden, discord.HTTPException) as e:
-                logger.warning(f"Temp-Channel {channel_id} loeschen fehlgeschlagen: {e}")
+                logger.warning(f"Temp-Channel {channel_id} löschen fehlgeschlagen: {e}")
 
             self.manager.delete_channel(channel_id)
-            logger.info(f"Temp-Voice-Channel geloescht (leer): {channel_id}")
+            logger.info(f"Temp-Voice-Channel gelöscht (leer): {channel_id}")
 
         finally:
             self._deleting.discard(channel_id)
@@ -571,11 +571,11 @@ class TempVoiceCog(commands.Cog):
         interaction: discord.Interaction,
         error: app_commands.AppCommandError,
     ) -> None:
-        """Zentrale Fehlerbehandlung fuer alle Commands in dieser Cog."""
+        """Zentrale Fehlerbehandlung für alle Commands in dieser Cog."""
         if isinstance(error, app_commands.CheckFailure):
             if not interaction.response.is_done():
                 await interaction.response.send_message(
-                    "Keine Berechtigung fuer diesen Befehl.", ephemeral=True
+                    "Keine Berechtigung für diesen Befehl.", ephemeral=True
                 )
             return
 
@@ -588,8 +588,8 @@ class TempVoiceCog(commands.Cog):
                 await interaction.followup.send(msg, ephemeral=True)
             else:
                 await interaction.response.send_message(msg, ephemeral=True)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
 
 
 async def setup(bot: commands.Bot) -> None:

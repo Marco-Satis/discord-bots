@@ -2,7 +2,7 @@
 StatusWriter — Schreibt periodisch Server- und Bot-Status als JSON-Dateien.
 
 Wird als Hintergrund-Task im Monitor Bot gestartet und erzeugt die
-Status-Dateien, die das Web-Dashboard zum Anzeigen der Uebersicht liest.
+Status-Dateien, die das Web-Dashboard zum Anzeigen der Übersicht liest.
 
 Erzeugte Dateien (JSON-Bridge fuer Dashboard):
   - data/monitor/satisfactory_status.json
@@ -75,7 +75,7 @@ class StatusWriter:
     def __init__(self, bot: Any, interval: int = 30) -> None:
         """
         Args:
-            bot: Der Monitor Bot mit angehaengten Services
+            bot: Der Monitor Bot mit angehängten Services
             interval: Schreib-Intervall in Sekunden (Standard: 30)
         """
         self.bot = bot
@@ -85,7 +85,7 @@ class StatusWriter:
         self._events: list[dict] = []
         self._bot_start_time: Optional[float] = None
         # Index bis zu dem self._events bereits nach SQLite geflusht wurden.
-        # Neue Events (ab diesem Index) werden im naechsten write_once()-Zyklus
+        # Neue Events (ab diesem Index) werden im nächsten write_once()-Zyklus
         # in die Datenbank geschrieben.
         self._events_flushed_up_to: int = 0
         # Wird True sobald _load_events_from_db() erfolgreich lief
@@ -100,9 +100,9 @@ class StatusWriter:
 
     async def _load_events_from_db(self) -> None:
         """
-        Laedt Events aus SQLite. Wird beim ersten write_once()-Zyklus aufgerufen.
+        Lädt Events aus SQLite. Wird beim ersten write_once()-Zyklus aufgerufen.
 
-        Laedt die letzten MAX_EVENTS Events aus der SQLite events-Tabelle.
+        Lädt die letzten MAX_EVENTS Events aus der SQLite events-Tabelle.
         """
         try:
             db = await get_db()
@@ -114,7 +114,7 @@ class StatusWriter:
             rows = await cursor.fetchall()
 
             db_events = []
-            for row in reversed(rows):  # Aelteste zuerst
+            for row in reversed(rows):  # Älteste zuerst
                 db_events.append({
                     "timestamp": str(row["timestamp"]) if row["timestamp"] else "",
                     "type": row["event_type"] or "",
@@ -126,7 +126,7 @@ class StatusWriter:
             self._events = db_events
             self._events_flushed_up_to = len(self._events)
             self._db_ready = True
-            logger.info(f"Events aus SQLite geladen: {len(db_events)} Eintraege")
+            logger.info(f"Events aus SQLite geladen: {len(db_events)} Einträge")
 
         except Exception as e:
             logger.error(f"Fehler beim Laden der Events aus SQLite: {e}", exc_info=True)
@@ -142,10 +142,10 @@ class StatusWriter:
         details: Optional[str] = None,
     ) -> None:
         """
-        Fuegt ein neues Event zum In-Memory-Ringbuffer hinzu.
+        Fügt ein neues Event zum In-Memory-Ringbuffer hinzu.
 
-        Die tatsaechliche Persistierung nach SQLite erfolgt asynchron
-        im naechsten write_once()-Zyklus.
+        Die tatsächliche Persistierung nach SQLite erfolgt asynchron
+        im nächsten write_once()-Zyklus.
 
         Args:
             event_type: Typ des Events (info, warning, error, success)
@@ -258,7 +258,7 @@ class StatusWriter:
             elif is_running is False:
                 status_str = "offline"
 
-            # Offline-Counter fuer Info-Anzeige
+            # Offline-Counter für Info-Anzeige
             offline_count = mc_consecutive_offline.get(sid, 0)
 
             # Versions-Info aus dem MC Update-Checker (Paper-basierte Server)
@@ -283,7 +283,7 @@ class StatusWriter:
                     mp_id = getattr(modpack_updater, "modpack_id", "")
                     if mp_version:
                         mc_version = f"Modpack {mp_version}"
-                    # Verfuegbare Version falls geprueft
+                    # Verfügbare Version falls geprüft
                     mp_latest = getattr(modpack_updater, "latest_version", None)
                     if mp_latest and mp_latest != mp_version:
                         mc_latest_build = f"Modpack {mp_latest}"
@@ -296,7 +296,7 @@ class StatusWriter:
             # Port aus Server-Konfiguration
             mc_port = getattr(srv, "rcon_port", 25565)
             # Game-Port ist typischerweise rcon_port - 10 oder aus ENV
-            # Standardmaessig: 25565 fuer Vanilla, 25566 fuer BMC
+            # Standardmäßig: 25565 für Vanilla, 25566 für BMC
             if sid.upper() == "BMC":
                 mc_port = 25566
             else:
@@ -352,8 +352,8 @@ class StatusWriter:
                 version = data.get("id") or data.get("name")
                 if version:
                     return version
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
 
         # Methode 2: version_history.json
         vh_path = Path(server_path) / "version_history.json"
@@ -365,8 +365,8 @@ class StatusWriter:
                 match = _re.search(r"MC:\s*([\d.]+)", current)
                 if match:
                     return match.group(1)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
 
         return "N/A"
 
@@ -413,18 +413,18 @@ class StatusWriter:
         _write_json_safe(MONITOR_DATA_DIR / "bot_status.json", monitor_data)
 
         # GameServer + Admin Bot: Nur schreiben wenn der Bot nicht selbst schreibt
-        # (d.h. die Datei ist aelter als 60s oder existiert nicht)
+        # (d.h. die Datei ist älter als 60s oder existiert nicht)
         for svc_name, data_dir, display in [
             ("gameserver-bot.service", GAMESERVER_DATA_DIR, "GameServer"),
             ("admin-bot.service", ADMIN_DATA_DIR, "Admin"),
         ]:
             status_file = data_dir / "bot_status.json"
-            # Pruefen ob der Bot selbst kuerzlich geschrieben hat
+            # Prüfen ob der Bot selbst kürzlich geschrieben hat
             try:
                 if status_file.exists():
                     age = time.time() - status_file.stat().st_mtime
                     if age < 60:
-                        # Bot schreibt selbst — nicht ueberschreiben
+                        # Bot schreibt selbst — nicht überschreiben
                         continue
             except OSError:
                 pass
@@ -441,7 +441,7 @@ class StatusWriter:
             _write_json_safe(status_file, svc_data)
 
     async def _check_service_active(self, service_name: str) -> bool:
-        """Prueft ob ein systemd-Service aktiv ist."""
+        """Prüft ob ein systemd-Service aktiv ist."""
         try:
             proc = await asyncio.create_subprocess_exec(
                 "systemctl", "is-active", "--quiet", service_name,
@@ -455,7 +455,7 @@ class StatusWriter:
             return False
 
     async def _get_service_uptime(self, service_name: str) -> str:
-        """Ermittelt die Uptime eines systemd-Service ueber dessen PID."""
+        """Ermittelt die Uptime eines systemd-Service über dessen PID."""
         try:
             # MainPID des Service holen
             proc = await asyncio.create_subprocess_exec(
@@ -588,11 +588,11 @@ class StatusWriter:
             ]
         except Exception as e:
             logger.error(f"Fehler beim Lesen der Events aus SQLite: {e}", exc_info=True)
-            # Fallback: In-Memory-Events zurueckgeben (neueste zuerst)
+            # Fallback: In-Memory-Events zurückgeben (neueste zuerst)
             return list(reversed(self._events[-limit:]))
 
     async def write_once(self) -> None:
-        """Fuehrt eine einzelne Schreibrunde durch. Jede Schreibung ist unabhaengig."""
+        """Führt eine einzelne Schreibrunde durch. Jede Schreibung ist unabhängig."""
         # Satisfactory Status
         try:
             await asyncio.to_thread(self._write_satisfactory_status)
@@ -686,12 +686,12 @@ class StatusWriter:
                 await self._task
             except asyncio.CancelledError:
                 pass
-        # Abschliessend nochmal schreiben
+        # Abschließend nochmal schreiben
         await self.write_once()
         logger.info("StatusWriter gestoppt")
 
     async def _write_loop(self) -> None:
-        """Interne Schreibschleife — laeuft bis stop() aufgerufen wird."""
+        """Interne Schreibschleife — läuft bis stop() aufgerufen wird."""
         logger.info("Status-Schreibschleife gestartet")
         while self._running:
             try:

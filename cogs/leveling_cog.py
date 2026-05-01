@@ -1,5 +1,5 @@
 """
-Leveling Cog — XP- und Level-System fuer den Admin Bot
+Leveling Cog — XP- und Level-System für den Admin Bot
 
 Features:
   - XP durch Nachrichten (mit Cooldown und Zufallsrange)
@@ -38,7 +38,7 @@ logger = get_logger("cogs.leveling")
 class LevelingCog(commands.Cog):
     """XP- und Level-System mit Nachrichten- und Voice-Tracking"""
 
-    # Slash-Command-Gruppe fuer Admin-XP-Befehle
+    # Slash-Command-Gruppe für Admin-XP-Befehle
     xp_grp = app_commands.Group(
         name="xp",
         description="XP-System verwalten (Admin)",
@@ -50,7 +50,7 @@ class LevelingCog(commands.Cog):
             data_file=ADMIN_DATA_DIR / "leveling.json",
             config_file=ADMIN_DATA_DIR / "leveling_config.json",
         )
-        # Speichert User-IDs die gerade im Voice sind (fuer XP-Berechnung)
+        # Speichert User-IDs die gerade im Voice sind (für XP-Berechnung)
         # Format: {user_id: anzahl_5min_zyklen_im_voice}
         self._voice_tracking: dict[int, int] = {}
 
@@ -76,7 +76,7 @@ class LevelingCog(commands.Cog):
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message) -> None:
         """
-        XP fuer Nachrichten vergeben.
+        XP für Nachrichten vergeben.
 
         Ueberspringt:
         - Bot-Nachrichten
@@ -113,7 +113,7 @@ class LevelingCog(commands.Cog):
             color=0xf1c40f,
         )
 
-        # Fortschrittsbalken fuer naechstes Level
+        # Fortschrittsbalken für nächstes Level
         xp_needed = self.leveling.xp_for_level(new_level)
         current_xp = user_data["xp"]
         # XP die bereits im aktuellen Level gesammelt wurden
@@ -149,9 +149,9 @@ class LevelingCog(commands.Cog):
     @tasks.loop(minutes=5)
     async def voice_xp_task(self) -> None:
         """
-        Alle 5 Minuten Voice-Channels pruefen und XP vergeben.
+        Alle 5 Minuten Voice-Channels prüfen und XP vergeben.
 
-        Bedingungen fuer XP:
+        Bedingungen für XP:
         - User darf nicht gemutet sein (self_mute oder mute)
         - Mindestens 2 User im Channel (kein Solo-Farming)
         - Nicht im AFK-Channel
@@ -160,7 +160,7 @@ class LevelingCog(commands.Cog):
             afk_channel = guild.afk_channel
 
             for vc in guild.voice_channels:
-                # AFK-Channel ueberspringen
+                # AFK-Channel überspringen
                 if afk_channel and vc.id == afk_channel.id:
                     continue
 
@@ -195,10 +195,10 @@ class LevelingCog(commands.Cog):
         guild: discord.Guild,
     ) -> None:
         """
-        Level-Up Nachricht fuer Voice-XP senden.
+        Level-Up Nachricht für Voice-XP senden.
 
         Versucht den System-Channel des Guilds zu verwenden.
-        Falls nicht vorhanden, wird die Nachricht uebersprungen.
+        Falls nicht vorhanden, wird die Nachricht übersprungen.
         """
         user_data = self.leveling.get_user(member.id)
         new_level = user_data["level"]
@@ -244,7 +244,7 @@ class LevelingCog(commands.Cog):
         guild: discord.Guild,
     ) -> None:
         """
-        Rollen-Belohnung fuer ein Level vergeben (falls konfiguriert).
+        Rollen-Belohnung für ein Level vergeben (falls konfiguriert).
 
         Prueft auch alle vorherigen Level, damit nachtraeglich
         konfigurierte Belohnungen vergeben werden.
@@ -254,7 +254,7 @@ class LevelingCog(commands.Cog):
             level: Das erreichte Level
             guild: Discord-Guild
         """
-        # Alle Level bis zum aktuellen pruefen
+        # Alle Level bis zum aktuellen prüfen
         for lvl in range(1, level + 1):
             role_id = self.leveling.get_role_reward(lvl)
             if role_id is None:
@@ -263,7 +263,7 @@ class LevelingCog(commands.Cog):
             role = guild.get_role(role_id)
             if not role:
                 logger.warning(
-                    f"Belohnungs-Rolle {role_id} fuer Level {lvl} nicht gefunden"
+                    f"Belohnungs-Rolle {role_id} für Level {lvl} nicht gefunden"
                 )
                 continue
 
@@ -288,7 +288,7 @@ class LevelingCog(commands.Cog):
         rank: int,
     ) -> discord.Embed:
         """
-        Rang-Embed fuer einen User erstellen.
+        Rang-Embed für einen User erstellen.
 
         Args:
             member: Discord-Member
@@ -410,7 +410,7 @@ class LevelingCog(commands.Cog):
             level = entry["level"]
             xp = entry["xp"]
 
-            # Medaillen fuer Top 3
+            # Medaillen für Top 3
             if i == 1:
                 medal = "\U0001f947"
             elif i == 2:
@@ -476,7 +476,7 @@ class LevelingCog(commands.Cog):
         user_data = self.leveling.get_user(user.id)
 
         await interaction.followup.send(
-            f"XP fuer **{user.display_name}** auf **{amount:,}** gesetzt "
+            f"XP für **{user.display_name}** auf **{amount:,}** gesetzt "
             f"(Level {user_data['level']}).",
             ephemeral=True,
         )
@@ -492,10 +492,10 @@ class LevelingCog(commands.Cog):
 
     @xp_grp.command(
         name="multiplier",
-        description="XP-Multiplikator fuer einen Channel setzen",
+        description="XP-Multiplikator für einen Channel setzen",
     )
     @app_commands.describe(
-        channel="Der Channel fuer den der Multiplikator gilt",
+        channel="Der Channel für den der Multiplikator gilt",
         factor="Multiplikator (z.B. 1.5 = 50% mehr XP, 0.5 = halbe XP, 1.0 = Standard)",
     )
     @admin_only()
@@ -505,7 +505,7 @@ class LevelingCog(commands.Cog):
         channel: discord.TextChannel,
         factor: float,
     ) -> None:
-        """XP-Multiplikator fuer einen bestimmten Channel setzen."""
+        """XP-Multiplikator für einen bestimmten Channel setzen."""
         await interaction.response.defer(ephemeral=True)
 
         if factor < 0:
@@ -524,12 +524,12 @@ class LevelingCog(commands.Cog):
 
         if factor == 1.0:
             await interaction.followup.send(
-                f"Multiplikator fuer {channel.mention} zurueckgesetzt (Standard: 1.0x).",
+                f"Multiplikator für {channel.mention} zurückgesetzt (Standard: 1.0x).",
                 ephemeral=True,
             )
         else:
             await interaction.followup.send(
-                f"Multiplikator fuer {channel.mention} auf **{factor}x** gesetzt.",
+                f"Multiplikator für {channel.mention} auf **{factor}x** gesetzt.",
                 ephemeral=True,
             )
 
@@ -539,7 +539,7 @@ class LevelingCog(commands.Cog):
 
     @xp_grp.command(
         name="reward",
-        description="Rollen-Belohnung fuer ein Level setzen",
+        description="Rollen-Belohnung für ein Level setzen",
     )
     @app_commands.describe(
         level="Das Level bei dem die Rolle vergeben wird",
@@ -552,7 +552,7 @@ class LevelingCog(commands.Cog):
         level: int,
         rolle: discord.Role,
     ) -> None:
-        """Automatische Rollen-Belohnung fuer ein bestimmtes Level konfigurieren."""
+        """Automatische Rollen-Belohnung für ein bestimmtes Level konfigurieren."""
         await interaction.response.defer(ephemeral=True)
 
         if level < 1:
@@ -584,11 +584,11 @@ class LevelingCog(commands.Cog):
         interaction: discord.Interaction,
         error: app_commands.AppCommandError,
     ) -> None:
-        """Zentrale Fehlerbehandlung fuer alle Commands in dieser Cog."""
+        """Zentrale Fehlerbehandlung für alle Commands in dieser Cog."""
         if isinstance(error, app_commands.CheckFailure):
             if not interaction.response.is_done():
                 await interaction.response.send_message(
-                    "Keine Berechtigung fuer diesen Befehl.", ephemeral=True
+                    "Keine Berechtigung für diesen Befehl.", ephemeral=True
                 )
             return
 
@@ -601,8 +601,8 @@ class LevelingCog(commands.Cog):
                 await interaction.followup.send(msg, ephemeral=True)
             else:
                 await interaction.response.send_message(msg, ephemeral=True)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
 
 
 async def setup(bot: commands.Bot) -> None:

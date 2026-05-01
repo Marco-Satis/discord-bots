@@ -1,13 +1,13 @@
 """
 TeamSpeak ServerQuery Client — Wrapper um die ts3-Bibliothek.
 
-Stellt alle gaengigen ServerQuery-Operationen bereit und nutzt
-asyncio.to_thread() fuer nicht-blockierende Ausfuehrung.
+Stellt alle gängigen ServerQuery-Operationen bereit und nutzt
+asyncio.to_thread() für nicht-blockierende Ausführung.
 Automatische Reconnect-Logik bei Verbindungsverlust.
 
 Voraussetzung: Das Paket ``ts3`` (pip install ts3) muss installiert sein.
 Falls nicht vorhanden, wird TS3_AVAILABLE auf False gesetzt und
-alle Methoden geben sinnvolle Fehlermeldungen zurueck.
+alle Methoden geben sinnvolle Fehlermeldungen zurück.
 """
 
 import asyncio
@@ -28,9 +28,9 @@ except ImportError:
 
 
 class TSClient:
-    """Wrapper fuer die ts3 ServerQuery-Verbindung.
+    """Wrapper für die ts3 ServerQuery-Verbindung.
 
-    Alle oeffentlichen Methoden sind async-kompatibel (via asyncio.to_thread).
+    Alle öffentlichen Methoden sind async-kompatibel (via asyncio.to_thread).
     Bei Verbindungsverlust wird automatisch ein Reconnect versucht.
     """
 
@@ -68,7 +68,7 @@ class TSClient:
             True bei Erfolg, False bei Fehler.
         """
         if not TS3_AVAILABLE:
-            logger.error("ts3-Paket nicht verfuegbar — Verbindung nicht moeglich.")
+            logger.error("ts3-Paket nicht verfügbar — Verbindung nicht möglich.")
             return False
 
         try:
@@ -85,7 +85,7 @@ class TSClient:
             return False
 
     def _sync_connect(self):
-        """Synchrone Verbindungsherstellung (wird in Thread ausgefuehrt)."""
+        """Synchrone Verbindungsherstellung (wird in Thread ausgeführt)."""
         conn = ts3.query.TS3ServerConnection(f"{self.host}:{self.port}")
         conn.login(
             client_login_name=self.user,
@@ -107,15 +107,15 @@ class TSClient:
                 logger.info("TeamSpeak-Verbindung getrennt.")
 
     def _sync_disconnect(self):
-        """Synchrones Trennen (wird in Thread ausgefuehrt)."""
+        """Synchrones Trennen (wird in Thread ausgeführt)."""
         if self._connection is not None:
             try:
                 self._connection.quit()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
 
     def is_connected(self) -> bool:
-        """Prueft ob eine aktive Verbindung besteht."""
+        """Prüft ob eine aktive Verbindung besteht."""
         return self._connected and self._connection is not None
 
     async def _ensure_connection(self) -> bool:
@@ -145,7 +145,7 @@ class TSClient:
             if attempt < self.MAX_RECONNECT_ATTEMPTS:
                 await asyncio.sleep(self.RECONNECT_DELAY)
 
-        logger.error("TeamSpeak Reconnect endgueltig fehlgeschlagen.")
+        logger.error("TeamSpeak Reconnect endgültig fehlgeschlagen.")
         return False
 
     def _sync_whoami(self):
@@ -153,21 +153,21 @@ class TSClient:
         self._connection.whoami()
 
     # ------------------------------------------------------------------
-    # Hilfsmethode fuer geschuetzte Ausfuehrung
+    # Hilfsmethode für geschützte Ausführung
     # ------------------------------------------------------------------
 
     async def _execute(self, func, *args, **kwargs):
-        """Fuehrt eine synchrone TS3-Funktion thread-safe aus.
+        """Führt eine synchrone TS3-Funktion thread-safe aus.
 
         Stellt vorher sicher, dass die Verbindung steht.
         Bei Fehler wird ein Reconnect versucht und der Befehl wiederholt.
 
         Args:
-            func: Synchrone Funktion, die ausgefuehrt werden soll.
-            *args, **kwargs: Argumente fuer die Funktion.
+            func: Synchrone Funktion, die ausgeführt werden soll.
+            *args, **kwargs: Argumente für die Funktion.
 
         Returns:
-            Rueckgabewert der Funktion oder None bei Fehler.
+            Rückgabewert der Funktion oder None bei Fehler.
         """
         async with self._lock:
             if not await self._ensure_connection():
@@ -373,7 +373,7 @@ class TSClient:
                 })
             return bans
         except Exception as e:
-            # Kein Ban vorhanden gibt oft einen Fehler zurueck
+            # Kein Ban vorhanden gibt oft einen Fehler zurück
             if "empty result" in str(e).lower() or "1281" in str(e):
                 return []
             raise
@@ -483,7 +483,7 @@ class TSClient:
         return 0
 
     async def delete_channel(self, channel_id: int, force: bool = True) -> bool:
-        """Loescht einen Channel.
+        """Löscht einen Channel.
 
         Args:
             channel_id: Die Channel-ID.
@@ -494,22 +494,22 @@ class TSClient:
         """
         result = await self._execute(self._sync_delete_channel, channel_id, force)
         if result:
-            logger.info(f"Channel {channel_id} geloescht.")
+            logger.info(f"Channel {channel_id} gelöscht.")
         return result is not None
 
     def _sync_delete_channel(self, channel_id: int, force: bool):
-        """Synchrones Channel-Loeschen."""
+        """Synchrones Channel-Löschen."""
         self._connection.channeldelete(cid=channel_id, force=1 if force else 0)
         return True
 
     # ------------------------------------------------------------------
-    # Event-Handling (fuer Chat-Bridge)
+    # Event-Handling (für Chat-Bridge)
     # ------------------------------------------------------------------
 
     async def register_notifications(self, ts_channel_id: int = 0) -> None:
-        """Registriert TS-Server-Notifications fuer Chat-Events.
+        """Registriert TS-Server-Notifications für Chat-Events.
 
-        Muss ueber _execute laufen, damit _lock korrekt gehalten wird.
+        Muss über _execute laufen, damit _lock korrekt gehalten wird.
 
         Args:
             ts_channel_id: Channel-ID fuer textchannel-Events (0 = nur Server)
@@ -529,7 +529,7 @@ class TSClient:
         return True
 
     async def fetch_events(self) -> list:
-        """Holt wartende Events vom TS-Server (thread-safe ueber _execute).
+        """Holt wartende Events vom TS-Server (thread-safe über _execute).
 
         Returns:
             Liste von Event-Dicts oder leere Liste.
@@ -550,6 +550,6 @@ class TSClient:
                             events.append(dict(entry))
                 except Exception:
                     break
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
         return events

@@ -1,5 +1,5 @@
 """
-TeamSpeak Cog fuer den Admin Bot (Phase 12b-12d, Feature F16).
+TeamSpeak Cog für den Admin Bot (Phase 12b-12d, Feature F16).
 
 Stellt alle /ts Commands bereit:
   /ts status        — Server-Info + Online-Spieler
@@ -89,9 +89,9 @@ def _format_uptime(seconds: int) -> str:
 
 
 class TeamSpeakCog(commands.Cog):
-    """TeamSpeak-Integration fuer den Admin Bot.
+    """TeamSpeak-Integration für den Admin Bot.
 
-    Ermoeglicht Server-Verwaltung und Chat-Bridge ueber Discord-Commands.
+    Ermöglicht Server-Verwaltung und Chat-Bridge über Discord-Commands.
     Alle Commands sind admin-only. Falls TeamSpeak nicht konfiguriert ist,
     wird eine entsprechende Fehlermeldung angezeigt.
     """
@@ -188,13 +188,13 @@ class TeamSpeakCog(commands.Cog):
     # ------------------------------------------------------------------
 
     async def _check_ts(self, interaction: discord.Interaction) -> bool:
-        """Prueft ob TeamSpeak verfuegbar ist. Sendet Fehlermeldung wenn nicht.
+        """Prueft ob TeamSpeak verfügbar ist. Sendet Fehlermeldung wenn nicht.
 
         Args:
             interaction: Die Discord-Interaction.
 
         Returns:
-            True wenn TS verfuegbar, False wenn nicht.
+            True wenn TS verfügbar, False wenn nicht.
         """
         if not TS_CONFIGURED:
             await interaction.response.send_message(
@@ -204,7 +204,7 @@ class TeamSpeakCog(commands.Cog):
 
         if not self._ts_available or not self.ts_client:
             await interaction.response.send_message(
-                "TeamSpeak-Client nicht verfuegbar. "
+                "TeamSpeak-Client nicht verfügbar. "
                 "Ist das `ts3`-Paket installiert?",
                 ephemeral=True,
             )
@@ -213,13 +213,13 @@ class TeamSpeakCog(commands.Cog):
         return True
 
     async def _check_ts_deferred(self, interaction: discord.Interaction) -> bool:
-        """Prueft ob TeamSpeak verfuegbar ist (fuer bereits deferred Interactions).
+        """Prueft ob TeamSpeak verfügbar ist (für bereits deferred Interactions).
 
         Args:
             interaction: Die Discord-Interaction (bereits deferred).
 
         Returns:
-            True wenn TS verfuegbar, False wenn nicht.
+            True wenn TS verfügbar, False wenn nicht.
         """
         if not TS_CONFIGURED:
             await interaction.followup.send(TS_NOT_CONFIGURED_MSG, ephemeral=True)
@@ -227,7 +227,7 @@ class TeamSpeakCog(commands.Cog):
 
         if not self._ts_available or not self.ts_client:
             await interaction.followup.send(
-                "TeamSpeak-Client nicht verfuegbar. "
+                "TeamSpeak-Client nicht verfügbar. "
                 "Ist das `ts3`-Paket installiert?",
                 ephemeral=True,
             )
@@ -386,7 +386,7 @@ class TeamSpeakCog(commands.Cog):
     @ts.command(name="kick", description="Client vom TeamSpeak kicken")
     @app_commands.describe(
         client_id="Client-ID des Spielers",
-        reason="Grund fuer den Kick",
+        reason="Grund für den Kick",
     )
     @admin_only()
     async def ts_kick(
@@ -421,7 +421,7 @@ class TeamSpeakCog(commands.Cog):
         else:
             await interaction.followup.send(
                 f"Kick fehlgeschlagen. Client-ID `{client_id}` existiert "
-                f"moeglicherweise nicht.",
+                f"möglicherweise nicht.",
                 ephemeral=True,
             )
 
@@ -433,7 +433,7 @@ class TeamSpeakCog(commands.Cog):
     @app_commands.describe(
         client_id="Client-ID des Spielers",
         dauer_sekunden="Ban-Dauer in Sekunden (0 = permanent)",
-        reason="Grund fuer den Ban",
+        reason="Grund für den Ban",
     )
     @admin_only()
     async def ts_ban(
@@ -477,7 +477,7 @@ class TeamSpeakCog(commands.Cog):
         else:
             await interaction.followup.send(
                 f"Ban fehlgeschlagen. Client-ID `{client_id}` existiert "
-                f"moeglicherweise nicht.",
+                f"möglicherweise nicht.",
                 ephemeral=True,
             )
 
@@ -509,7 +509,7 @@ class TeamSpeakCog(commands.Cog):
         else:
             await interaction.followup.send(
                 f"Unban fehlgeschlagen. Ban-ID `{ban_id}` existiert "
-                f"moeglicherweise nicht.",
+                f"möglicherweise nicht.",
                 ephemeral=True,
             )
 
@@ -599,7 +599,7 @@ class TeamSpeakCog(commands.Cog):
         else:
             await interaction.followup.send(
                 f"Poke fehlgeschlagen. Client-ID `{client_id}` existiert "
-                f"moeglicherweise nicht.",
+                f"möglicherweise nicht.",
                 ephemeral=True,
             )
 
@@ -665,10 +665,10 @@ class TeamSpeakCog(commands.Cog):
 
         await interaction.response.defer()
 
-        # Pruefen ob Bridge bereits laeuft
+        # Pruefen ob Bridge bereits läuft
         if self.chat_bridge and self.chat_bridge.is_running:
             await interaction.followup.send(
-                "Chat-Bridge laeuft bereits. Stoppe sie zuerst mit `/ts bridge stop`.",
+                "Chat-Bridge läuft bereits. Stoppe sie zuerst mit `/ts bridge stop`.",
                 ephemeral=True,
             )
             return
@@ -729,7 +729,7 @@ class TeamSpeakCog(commands.Cog):
 
         if not self.chat_bridge or not self.chat_bridge.is_running:
             await interaction.response.send_message(
-                "Chat-Bridge laeuft nicht.", ephemeral=True
+                "Chat-Bridge läuft nicht.", ephemeral=True
             )
             return
 
@@ -785,7 +785,7 @@ class TeamSpeakCog(commands.Cog):
         await interaction.response.send_message(embed=embed)
 
     # ------------------------------------------------------------------
-    # Discord-Listener fuer Chat-Bridge (Discord -> TS)
+    # Discord-Listener für Chat-Bridge (Discord -> TS)
     # ------------------------------------------------------------------
 
     @commands.Cog.listener()
@@ -834,11 +834,11 @@ class TeamSpeakCog(commands.Cog):
         interaction: discord.Interaction,
         error: app_commands.AppCommandError,
     ) -> None:
-        """Behandelt Fehler fuer alle Commands in diesem Cog."""
+        """Behandelt Fehler für alle Commands in diesem Cog."""
         if isinstance(error, app_commands.CheckFailure):
             if not interaction.response.is_done():
                 await interaction.response.send_message(
-                    "Keine Berechtigung fuer diesen Befehl.", ephemeral=True
+                    "Keine Berechtigung für diesen Befehl.", ephemeral=True
                 )
             return
 
@@ -851,8 +851,8 @@ class TeamSpeakCog(commands.Cog):
                 await interaction.followup.send(msg, ephemeral=True)
             else:
                 await interaction.response.send_message(msg, ephemeral=True)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
 
 
 async def setup(bot):

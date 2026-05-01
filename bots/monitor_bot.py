@@ -21,6 +21,8 @@ import sys
 import json
 import re
 import asyncio
+import os
+import tracemalloc
 import discord
 from discord.ext import commands, tasks
 from pathlib import Path
@@ -821,8 +823,8 @@ async def _on_service_failed(name, error):
                     timestamp=datetime.now(),
                 )
                 await channel.send(embed=embed)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Discord-Channel-Send / Stat-Sample swallowed (B110-refactor 3.1): {e}")
 
 
 async def _on_service_recovered(name):
@@ -836,8 +838,8 @@ async def _on_service_recovered(name):
                     timestamp=datetime.now(),
                 )
                 await channel.send(embed=embed)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Discord-Channel-Send / Stat-Sample swallowed (B110-refactor 3.1): {e}")
 
 
 degradation.on_service_failed = _on_service_failed
@@ -1179,8 +1181,8 @@ async def _on_unknown_login(alert):
                 )
                 content = f"<@&{NOTIFY_ROLE_ID}>" if NOTIFY_ROLE_ID else None
                 await channel.send(content=content, embed=embed)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Discord-Channel-Send / Stat-Sample swallowed (B110-refactor 3.1): {e}")
 
     await email_notifier.send_security_alert(
         f"SSH-Login von unbekannter IP: {alert['user']}@{alert['ip']}"
@@ -1203,8 +1205,8 @@ async def _on_failed_login_burst(alert):
                     timestamp=datetime.now(),
                 )
                 await channel.send(embed=embed)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Discord-Channel-Send / Stat-Sample swallowed (B110-refactor 3.1): {e}")
 
 
 login_audit.on_unknown_login = _on_unknown_login
@@ -1480,8 +1482,8 @@ async def mc_health_check_task():
                     logger.debug(f"[{sid}] Spieler: {online}/{max_p}")
                     if mc_st:
                         mc_st.record_player_count(online)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Health-Check-Loop iteration swallowed (B110-refactor 3.1): {e}")
 
                 # World-Groesse periodisch loggen (alle 5 Checks = ~10 Min)
                 if mc_health_check_task.current_loop % 5 == 0:
@@ -1489,16 +1491,16 @@ async def mc_health_check_task():
                         world_bytes = await srv.get_world_size()
                         if world_bytes > 0 and mc_st:
                             mc_st.record_world_size(world_bytes / (1024 * 1024))
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug(f"Sub-task swallowed (B110-refactor 3.1): {e}")
 
                 # Crash-Replay Buffer aktualisieren
                 mc_cr = mc_crash_replays.get(sid)
                 if mc_cr:
                     try:
                         await mc_cr.update_buffer()
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug(f"Sub-task swallowed (B110-refactor 3.1): {e}")
 
         except Exception as e:
             logger.debug(f"[{sid}] MC Health-Check Fehler: {e}")
@@ -1574,8 +1576,8 @@ async def ssl_check_task():
                     )
                     try:
                         await channel.send(embed=embed)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug(f"Sub-task swallowed (B110-refactor 3.1): {e}")
 
         # SSL-Status als JSON fuer Dashboard schreiben
         import json as _json
@@ -1587,8 +1589,8 @@ async def ssl_check_task():
             with open(_ssl_tmp, "w") as f:
                 _json.dump(result, f)
             _ssl_tmp.replace(_ssl_target)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Status-Write/API-Query swallowed (B110-refactor 3.1): {e}")
     except Exception as e:
         logger.debug(f"SSL check task error: {e}")
 
@@ -1668,8 +1670,8 @@ async def health_check_task():
                 if save_path.exists():
                     total_size = sum(f.stat().st_size for f in save_path.rglob("*.sav") if f.is_file())
                     stats_tracker.record_savegame_size(total_size / (1024 * 1024))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Discord-Channel-Send / Stat-Sample swallowed (B110-refactor 3.1): {e}")
 
         # Sanity check: log polling runs in player_log_task (10s)
         # Here we only do the API cross-check every 2 min
@@ -1745,8 +1747,8 @@ async def _update_status_embed_impl():
     if running:
         try:
             api_state = await sat_api.query_server_state()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Status-Write/API-Query swallowed (B110-refactor 3.1): {e}")
 
     # Get savegame stats (cached, non-blocking)
     world_stats = None
@@ -1843,8 +1845,8 @@ async def _update_status_embed_impl():
                 hours_left = int(delta.total_seconds() // 3600)
                 mins_left = int((delta.total_seconds() % 3600) // 60)
                 lines.append(f"\n🔄 Nächster Restart: {hours_left}h {mins_left}m")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Status-Write/API-Query swallowed (B110-refactor 3.1): {e}")
 
     else:
         lines.append(f"{dot} {state_text}")
@@ -1903,8 +1905,8 @@ async def _update_status_embed_impl():
                         if world_bytes > 0:
                             world_mb = world_bytes / (1024 * 1024)
                             lines.append(f"  🌍 Welt: {world_mb:.1f} MB")
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug(f"Sub-task swallowed (B110-refactor 3.1): {e}")
 
                     # Update verfuegbar?
                     mc_uc = mc_update_checkers.get(mc_sid)
@@ -2039,8 +2041,8 @@ async def update_voice_stats():
                     sat_players = api_state.num_players
                 if api_state.player_limit > 0:
                     sat_limit = api_state.player_limit
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Status-Write/API-Query swallowed (B110-refactor 3.1): {e}")
 
     # SAT Voice-Channel
     sat_vc = await _get_or_create_voice_channel(
@@ -2261,12 +2263,19 @@ _first_ready = True  # Track first on_ready vs reconnects
 @bot.event
 async def setup_hook():
     """Called once before the bot connects. Load cogs and sync commands here."""
+    # Etappe 2.6 -- tracemalloc-Diagnose (RSS-Wachstum-Analyse)
+    # Deaktivieren via TRACEMALLOC_ENABLED=0 in .env nach Diagnose
+    if os.getenv("TRACEMALLOC_ENABLED", "1") == "1":
+        tracemalloc.start()
+        logger.info("tracemalloc gestartet (Diagnose-Modus)")
+
     # Load cogs (runs exactly once)
     cog_list = [
         "cogs.monitor_cog",
         "cogs.scheduler_cog",
         "cogs.maintenance_mode_cog",  # F43: Wartungsmodus-Toggle
         "cogs.shutdown_cog",          # F54: Geplanter Shutdown
+        "cogs.update_cog",            # /modpack + /update Commands (braucht UpdateManager)
     ]
     for cog in cog_list:
         try:
@@ -2524,8 +2533,8 @@ async def on_message(message: discord.Message):
                     content = message.clean_content
                     if content:
                         await bridge.send_to_minecraft(srv, author_name, content)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Discord-Channel-Send / Stat-Sample swallowed (B110-refactor 3.1): {e}")
 
     # Commands immer verarbeiten (auch fuer nicht-MC Channels)
     await bot.process_commands(message)

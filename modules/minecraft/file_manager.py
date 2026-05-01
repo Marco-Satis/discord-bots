@@ -119,7 +119,7 @@ class FileManager:
         """Räumt ein Staging-Verzeichnis auf."""
         try:
             if staging_path.exists() and staging_path.is_dir():
-                shutil.rmtree(staging_path, ignore_errors=True)
+                await asyncio.to_thread(shutil.rmtree, staging_path, True)
                 logger.debug(f"Staging aufgeräumt: {staging_path}")
         except Exception as e:
             logger.warning(f"Staging-Cleanup fehlgeschlagen: {e}")
@@ -168,7 +168,7 @@ class FileManager:
                     if expected_sha1 and metadata["sha1"].lower() != expected_sha1.lower():
                         logger.warning(
                             f"SHA1-Mismatch: erwartet={expected_sha1}, "
-                            f"tatsaechlich={metadata['sha1']}"
+                            f"tatsächlich={metadata['sha1']}"
                         )
                         hash_ok = False
                     elif expected_md5 and metadata["md5"].lower() != expected_md5.lower():
@@ -263,8 +263,8 @@ class FileManager:
                                 dl_mb = downloaded / (1024 * 1024)
                                 try:
                                     await progress_callback(pct, dl_mb, total_mb)
-                                except Exception:
-                                    pass
+                                except Exception as e:
+                                    logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
 
         actual_size = dest_path.stat().st_size
         elapsed = (datetime.now() - start_time).total_seconds()
@@ -371,6 +371,9 @@ class FileManager:
         """
         logger.info(f"ZIP-Extraktion: {zip_path.name} → {dest_dir}")
 
+        # Zielverzeichnis via sudo erstellen (ProtectHome=read-only)
+        dest_dir.mkdir(parents=True, exist_ok=True)
+
         loop = asyncio.get_running_loop()
         start_time = datetime.now()
 
@@ -386,7 +389,7 @@ class FileManager:
 
                 entries = zf.infolist()
                 total = len(entries)
-                dest_dir.mkdir(parents=True, exist_ok=True)
+                # dest_dir wurde bereits vor _extract_sync erstellt
 
                 for i, entry in enumerate(entries, 1):
                     zf.extract(entry, dest_dir)
@@ -450,7 +453,7 @@ class FileManager:
             # Schritt 1: Alten Ordner als Rollback sichern
             rollback_dir.parent.mkdir(parents=True, exist_ok=True)
             if rollback_dir.exists():
-                shutil.rmtree(rollback_dir)
+                await asyncio.to_thread(shutil.rmtree, rollback_dir)
 
             # Für Operationen innerhalb des minecraft-Verzeichnisses: sudo verwenden
             proc = await asyncio.create_subprocess_exec(
@@ -634,7 +637,7 @@ class FileManager:
         deleted = 0
         for old_dir in rollbacks[keep_count:]:
             try:
-                shutil.rmtree(old_dir, ignore_errors=True)
+                await asyncio.to_thread(shutil.rmtree, old_dir, True)
                 deleted += 1
                 logger.info(f"Alter Rollback gelöscht: {old_dir.name}")
             except Exception as e:

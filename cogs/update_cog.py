@@ -1,7 +1,7 @@
 """
-Update-Cog - Discord-Commands fuer MC-Modpack und SAT-Updates
+Update-Cog - Discord-Commands für MC-Modpack und SAT-Updates
 
-Aufgaben I7 + I8: Stellt Slash-Commands bereit fuer:
+Aufgaben I7 + I8: Stellt Slash-Commands bereit für:
   /mc modpack status|update|cancel|rollback|history|check
   /sat update start|cancel
 
@@ -22,12 +22,12 @@ from modules.database.db_manager import get_db
 
 logger = get_logger("cogs.update")
 
-# Standard-Countdown fuer manuelle Updates (Minuten)
+# Standard-Countdown für manuelle Updates (Minuten)
 DEFAULT_COUNTDOWN_MINUTES = 10
 
 
 class UpdateCog(commands.Cog):
-    """Discord-Commands fuer MC-Modpack-Updates und SAT-Updates."""
+    """Discord-Commands für MC-Modpack-Updates und SAT-Updates."""
 
     # ==================================================================
     # Subgruppen-Definitionen (werden in cog_load an /mc und /sat gehaengt)
@@ -44,7 +44,7 @@ class UpdateCog(commands.Cog):
         self.bot = bot
 
     # ------------------------------------------------------------------
-    # Properties fuer Bot-Level-Services (graceful wenn nicht vorhanden)
+    # Properties für Bot-Level-Services (graceful wenn nicht vorhanden)
     # ------------------------------------------------------------------
 
     @property
@@ -72,7 +72,7 @@ class UpdateCog(commands.Cog):
     # ------------------------------------------------------------------
 
     def _get_server_choices(self) -> list[str]:
-        """Gibt verfuegbare MC-Server-IDs zurueck."""
+        """Gibt verfügbare MC-Server-IDs zurück."""
         return list(self.mc_update_managers.keys()) or list(self.mc_modpack_updaters.keys())
 
     def _resolve_server_id(self, server_id: Optional[str]) -> str:
@@ -82,69 +82,31 @@ class UpdateCog(commands.Cog):
         return "BMC"
 
     async def _get_update_manager(self, server_id: str):
-        """Holt den UpdateManager fuer einen Server (oder None)."""
+        """Holt den UpdateManager für einen Server (oder None)."""
         return self.mc_update_managers.get(server_id)
 
     async def _get_modpack_updater(self, server_id: str):
-        """Holt den ModpackUpdater fuer einen Server (oder None)."""
+        """Holt den ModpackUpdater für einen Server (oder None)."""
         return self.mc_modpack_updaters.get(server_id)
 
     # ------------------------------------------------------------------
-    # Cog-Lifecycle: Subgruppen dynamisch in bestehende Gruppen einhaengen
+    # Cog-Lifecycle
     # ------------------------------------------------------------------
 
     async def cog_load(self) -> None:
-        """Haengt modpack_grp unter /mc und sat_update_grp unter /sat ein."""
-        # MC: modpack-Subgruppe in /mc einhaengen
-        mc_group = self._find_group_in_tree("mc")
-        if mc_group is not None:
-            try:
-                mc_group.add_command(self.modpack_grp)
-                logger.info("/mc modpack Subgruppe registriert")
-            except Exception as e:
-                logger.warning(f"/mc modpack Registrierung fehlgeschlagen: {e}")
-        else:
-            logger.warning(
-                "/mc Gruppe nicht im Tree gefunden — "
-                "/mc modpack Commands nicht verfuegbar"
-            )
-
-        # SAT: update-Subgruppe in /sat einhaengen
-        sat_group = self._find_group_in_tree("sat")
-        if sat_group is not None:
-            try:
-                sat_group.add_command(self.sat_update_grp)
-                logger.info("/sat update Subgruppe registriert")
-            except Exception as e:
-                logger.warning(f"/sat update Registrierung fehlgeschlagen: {e}")
-        else:
-            logger.warning(
-                "/sat Gruppe nicht im Tree gefunden — "
-                "/sat update Commands nicht verfuegbar"
-            )
+        """Gruppen werden als Top-Level registriert (/modpack, /update)."""
+        logger.info("UpdateCog geladen")
 
     async def cog_unload(self) -> None:
-        """Entfernt die Subgruppen beim Entladen."""
-        mc_group = self._find_group_in_tree("mc")
-        if mc_group is not None:
-            try:
-                mc_group.remove_command("modpack")
-            except Exception:
-                pass
-
-        sat_group = self._find_group_in_tree("sat")
-        if sat_group is not None:
-            try:
-                sat_group.remove_command("update")
-            except Exception:
-                pass
-
-    def _find_group_in_tree(self, name: str) -> Optional[app_commands.Group]:
-        """Sucht eine Top-Level app_commands.Group im Bot-Tree."""
-        for cmd in self.bot.tree.get_commands():
-            if isinstance(cmd, app_commands.Group) and cmd.name == name:
-                return cmd
-        return None
+        """Entfernt die Top-Level-Gruppen beim Entladen."""
+        try:
+            self.bot.tree.remove_command("modpack")
+        except Exception as e:
+            logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
+        try:
+            self.bot.tree.remove_command("update")
+        except Exception as e:
+            logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
 
     # ╔════════════════════════════════════════════════════════════════╗
     # ║  MC MODPACK: /mc modpack status                              ║
@@ -166,7 +128,7 @@ class UpdateCog(commands.Cog):
 
         if not update_mgr and not updater:
             await interaction.followup.send(
-                f"Kein Update-System fuer Server `{server_id}` konfiguriert.",
+                f"Kein Update-System für Server `{server_id}` konfiguriert.",
                 ephemeral=True,
             )
             return
@@ -184,9 +146,9 @@ class UpdateCog(commands.Cog):
             timer_active = status.get("timer_active", False)
 
             if in_progress:
-                phase_text = "\U0001f504 Update laeuft..."
+                phase_text = "\U0001f504 Update läuft..."
                 if timer_active:
-                    phase_text = "\u23f3 Countdown laeuft..."
+                    phase_text = "\u23f3 Countdown läuft..."
                 embed.color = 0xf39c12
             else:
                 phase_text = "\u2705 Kein Update aktiv"
@@ -259,16 +221,18 @@ class UpdateCog(commands.Cog):
 
         if not update_mgr:
             await interaction.followup.send(
-                f"Kein UpdateManager fuer Server `{server_id}` konfiguriert.",
+                f"⚠️ UpdateManager für `{server_id}` nicht verfügbar.\n"
+                f"Updates werden über den Monitor-Bot gesteuert.\n"
+                f"Nutze `/mc modpack status` um den aktuellen Status zu prüfen.",
                 ephemeral=True,
             )
             return
 
-        # Pruefen ob bereits ein Update laeuft
+        # Pruefen ob bereits ein Update läuft
         status = update_mgr.get_status()
         if status.get("update_in_progress"):
             await interaction.followup.send(
-                f"\u26a0\ufe0f Auf `{server_id}` laeuft bereits ein Update. "
+                f"\u26a0\ufe0f Auf `{server_id}` läuft bereits ein Update. "
                 f"Nutze `/mc modpack cancel` zum Abbrechen.",
                 ephemeral=True,
             )
@@ -286,7 +250,7 @@ class UpdateCog(commands.Cog):
                 else:
                     await interaction.followup.send(
                         f"\u2705 `{server_id}` ist bereits auf der neuesten Version. "
-                        f"Kein Update noetig.",
+                        f"Kein Update nötig.",
                     )
                     return
             except Exception as e:
@@ -298,7 +262,7 @@ class UpdateCog(commands.Cog):
                 return
         else:
             await interaction.followup.send(
-                f"Kein ModpackUpdater fuer `{server_id}` konfiguriert.",
+                f"Kein ModpackUpdater für `{server_id}` konfiguriert.",
                 ephemeral=True,
             )
             return
@@ -348,6 +312,109 @@ class UpdateCog(commands.Cog):
             )
 
     # ╔════════════════════════════════════════════════════════════════╗
+    # ║  MC MODPACK: /modpack force-update (Timer überspringen)      ║
+    # ╚════════════════════════════════════════════════════════════════╝
+
+    @modpack_grp.command(
+        name="force-update", description="Sofortiges Update OHNE Countdown (Testing)"
+    )
+    @app_commands.describe(server="Server-ID (z.B. BMC, VANILLA)")
+    @admin_only()
+    async def mc_modpack_force_update(
+        self, interaction: discord.Interaction, server: Optional[str] = None
+    ):
+        """Startet ein Update sofort ohne Timer (für Testing/Notfälle)."""
+        await interaction.response.defer()
+
+        server_id = self._resolve_server_id(server)
+        update_mgr = await self._get_update_manager(server_id)
+
+        if not update_mgr:
+            await interaction.followup.send(
+                f"⚠️ UpdateManager für `{server_id}` nicht verfügbar.",
+                ephemeral=True,
+            )
+            return
+
+        status = update_mgr.get_status()
+        if status.get("update_in_progress"):
+            await interaction.followup.send(
+                f"⚠️ Auf `{server_id}` läuft bereits ein Update.",
+                ephemeral=True,
+            )
+            return
+
+        # Prüfen ob Update verfügbar
+        updater = await self._get_modpack_updater(server_id)
+        version_info = None
+        if updater:
+            try:
+                available, info = await updater.check()
+                if available:
+                    version_info = info
+                    new_ver = info.get("latest_version", "?")
+                else:
+                    await interaction.followup.send(
+                        f"✅ `{server_id}` ist bereits auf der neuesten Version.",
+                    )
+                    return
+            except Exception as e:
+                await interaction.followup.send(
+                    f"❌ CurseForge-Check fehlgeschlagen: {e}",
+                    ephemeral=True,
+                )
+                return
+        else:
+            await interaction.followup.send(
+                f"Kein ModpackUpdater für `{server_id}` konfiguriert.",
+                ephemeral=True,
+            )
+            return
+
+        # Sofort starten ohne Timer
+        embed = discord.Embed(
+            title=f"⚡ Force-Update gestartet: {server_id}",
+            description=(
+                f"**Neue Version:** {new_ver}\n"
+                f"**Countdown:** ÜBERSPRUNGEN\n"
+                f"**Gestartet von:** {interaction.user.mention}\n\n"
+                f"⚠️ Server wird SOFORT gestoppt!"
+            ),
+            color=0xe74c3c,
+            timestamp=datetime.now(),
+        )
+        await interaction.followup.send(embed=embed)
+
+        try:
+            success, result = await update_mgr.run_update(
+                trigger="manual_force",
+                countdown_minutes=0,
+                version_info=version_info,
+                skip_timer=True,
+            )
+
+            if success:
+                result_embed = discord.Embed(
+                    title=f"✅ Force-Update erfolgreich: {server_id}",
+                    description=f"Version: {new_ver}",
+                    color=0x2ecc71,
+                )
+            else:
+                error = result.get("error", "Unbekannter Fehler") if isinstance(result, dict) else str(result)
+                result_embed = discord.Embed(
+                    title=f"❌ Force-Update fehlgeschlagen: {server_id}",
+                    description=f"Fehler: {error}",
+                    color=0xe74c3c,
+                )
+
+            await interaction.channel.send(embed=result_embed)
+        except Exception as e:
+            logger.error(f"[{server_id}] Force-Update Fehler: {e}")
+            await interaction.channel.send(
+                f"❌ Force-Update-Fehler auf `{server_id}`: {e}"
+            )
+
+    # ╔════════════════════════════════════════════════════════════════╗
     # ║  MC MODPACK: /mc modpack cancel                              ║
     # ╚════════════════════════════════════════════════════════════════╝
 
@@ -367,7 +434,7 @@ class UpdateCog(commands.Cog):
 
         if not update_mgr:
             await interaction.followup.send(
-                f"Kein UpdateManager fuer Server `{server_id}` konfiguriert.",
+                f"Kein UpdateManager für Server `{server_id}` konfiguriert.",
             )
             return
 
@@ -391,7 +458,7 @@ class UpdateCog(commands.Cog):
             await interaction.channel.send(embed=embed)
         else:
             await interaction.followup.send(
-                f"Abbruch auf `{server_id}` nicht moeglich "
+                f"Abbruch auf `{server_id}` nicht möglich "
                 f"(Update befindet sich in einer nicht-abbrechbaren Phase).",
             )
 
@@ -407,7 +474,7 @@ class UpdateCog(commands.Cog):
     async def mc_modpack_rollback(
         self, interaction: discord.Interaction, server: Optional[str] = None
     ):
-        """Manueller Rollback — nur wenn kein Update laeuft. Nur fuer Owner."""
+        """Manueller Rollback — nur wenn kein Update läuft. Nur für Owner."""
         await interaction.response.defer()
 
         server_id = self._resolve_server_id(server)
@@ -415,22 +482,22 @@ class UpdateCog(commands.Cog):
 
         if not update_mgr:
             await interaction.followup.send(
-                f"Kein UpdateManager fuer Server `{server_id}` konfiguriert.",
+                f"Kein UpdateManager für Server `{server_id}` konfiguriert.",
                 ephemeral=True,
             )
             return
 
-        # Pruefen ob ein Update laeuft
+        # Pruefen ob ein Update läuft
         status = update_mgr.get_status()
         if status.get("update_in_progress"):
             await interaction.followup.send(
-                f"\u26a0\ufe0f Auf `{server_id}` laeuft ein Update. "
+                f"\u26a0\ufe0f Auf `{server_id}` läuft ein Update. "
                 f"Erst abbrechen mit `/mc modpack cancel`.",
                 ephemeral=True,
             )
             return
 
-        # Letztes erfolgreiches Update aus DB holen (fuer Rollback-Pfad)
+        # Letztes erfolgreiches Update aus DB holen (für Rollback-Pfad)
         try:
             db_conn = await get_db()
             cursor = await db_conn.execute(
@@ -444,8 +511,8 @@ class UpdateCog(commands.Cog):
 
             if not row:
                 await interaction.followup.send(
-                    f"Kein erfolgreiches Update fuer `{server_id}` in der Historie "
-                    f"gefunden — Rollback nicht moeglich.",
+                    f"Kein erfolgreiches Update für `{server_id}` in der Historie "
+                    f"gefunden — Rollback nicht möglich.",
                     ephemeral=True,
                 )
                 return
@@ -461,13 +528,13 @@ class UpdateCog(commands.Cog):
                 new_ver = row[2]
 
         except Exception as e:
-            logger.error(f"[{server_id}] DB-Abfrage fuer Rollback fehlgeschlagen: {e}")
+            logger.error(f"[{server_id}] DB-Abfrage für Rollback fehlgeschlagen: {e}")
             await interaction.followup.send(
                 f"\u274c DB-Fehler: {e}", ephemeral=True
             )
             return
 
-        # Rollback-Verzeichnis pruefen (UpdateManager._perform_rollback erwartet Pfade)
+        # Rollback-Verzeichnis prüfen (UpdateManager._perform_rollback erwartet Pfade)
         # Der UpdateManager hat _perform_rollback als private Methode.
         # Wir delegieren an die Crash-Recovery-Logik, die den gleichen Pfad nutzt.
         from pathlib import Path
@@ -478,8 +545,8 @@ class UpdateCog(commands.Cog):
 
         if not server_path:
             await interaction.followup.send(
-                f"Server-Pfad fuer `{server_id}` nicht ermittelt — "
-                f"Rollback nicht moeglich.",
+                f"Server-Pfad für `{server_id}` nicht ermittelt — "
+                f"Rollback nicht möglich.",
                 ephemeral=True,
             )
             return
@@ -493,7 +560,7 @@ class UpdateCog(commands.Cog):
             )
             return
 
-        # Bestaetigung und Rollback ausfuehren
+        # Bestaetigung und Rollback ausführen
         embed = discord.Embed(
             title=f"\u21a9\ufe0f Rollback gestartet: {server_id}",
             description=(
@@ -584,7 +651,7 @@ class UpdateCog(commands.Cog):
 
         if not rows:
             await interaction.followup.send(
-                f"Keine Update-Historie fuer `{server_id}` vorhanden."
+                f"Keine Update-Historie für `{server_id}` vorhanden."
             )
             return
 
@@ -664,7 +731,7 @@ class UpdateCog(commands.Cog):
 
         if not updater:
             await interaction.followup.send(
-                f"Kein ModpackUpdater fuer Server `{server_id}` konfiguriert.",
+                f"Kein ModpackUpdater für Server `{server_id}` konfiguriert.",
                 ephemeral=True,
             )
             return
@@ -686,7 +753,7 @@ class UpdateCog(commands.Cog):
             sp_url = server_pack.get("url", "")
 
             embed = discord.Embed(
-                title=f"\U0001f195 Neue Version verfuegbar: {server_id}",
+                title=f"\U0001f195 Neue Version verfügbar: {server_id}",
                 description=(
                     f"**Aktuell:** {current}\n"
                     f"**Neu:** {latest}\n"
@@ -741,11 +808,11 @@ class UpdateCog(commands.Cog):
 
         if not self.sat_server:
             await interaction.followup.send(
-                "SAT Server-Instanz ist nicht verfuegbar.", ephemeral=True
+                "SAT Server-Instanz ist nicht verfügbar.", ephemeral=True
             )
             return
 
-        # Aktuellen Status pruefen
+        # Aktuellen Status prüfen
         try:
             available, info = await self.update_checker.check()
         except Exception as e:
@@ -761,7 +828,7 @@ class UpdateCog(commands.Cog):
         if not available:
             await interaction.followup.send(
                 f"\u2705 SAT Server ist aktuell (Build: {installed}). "
-                f"Kein Update noetig.",
+                f"Kein Update nötig.",
             )
             return
 
@@ -797,10 +864,10 @@ class UpdateCog(commands.Cog):
                 if sat_api:
                     try:
                         await sat_api.run_command(
-                            "ServerChat Server wird fuer ein Update heruntergefahren!"
+                            "ServerChat Server wird für ein Update heruntergefahren!"
                         )
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
 
                 # Server stoppen
                 stop_ok, stop_msg = await self.sat_server.stop()
@@ -816,13 +883,13 @@ class UpdateCog(commands.Cog):
             )
 
             if update_ok:
-                # Neue Build-ID pruefen
+                # Neue Build-ID prüfen
                 new_info_build = "?"
                 try:
                     _, new_info = await self.update_checker.check()
                     new_info_build = new_info.get("installed_buildid", "?")
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
 
                 result_embed = discord.Embed(
                     title="\u2705 SAT-Update erfolgreich",
@@ -855,7 +922,7 @@ class UpdateCog(commands.Cog):
     )
     @admin_only()
     async def sat_update_cancel(self, interaction: discord.Interaction):
-        """Bricht ein laufendes SAT-Update ab (sofern moeglich)."""
+        """Bricht ein laufendes SAT-Update ab (sofern möglich)."""
         await interaction.response.defer(ephemeral=True)
 
         if not self.update_checker:
@@ -865,8 +932,8 @@ class UpdateCog(commands.Cog):
             return
 
         # SAT hat keinen Timer-basierten Countdown wie MC,
-        # daher ist Abbruch nur moeglich, solange SteamCMD noch nicht gestartet hat.
-        # Wir setzen update_available zurueck und informieren.
+        # daher ist Abbruch nur möglich, solange SteamCMD noch nicht gestartet hat.
+        # Wir setzen update_available zurück und informieren.
         self.update_checker.update_available = False
 
         # HAR wieder aktivieren
@@ -874,14 +941,14 @@ class UpdateCog(commands.Cog):
         if har:
             try:
                 har.unsuppress("sat", "main")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
 
         embed = discord.Embed(
             title="\u23f9\ufe0f SAT-Update abgebrochen",
             description=(
                 f"Abgebrochen von {interaction.user.mention}\n\n"
-                f"Update-Flag zurueckgesetzt. Falls SteamCMD bereits laeuft, "
+                f"Update-Flag zurückgesetzt. Falls SteamCMD bereits läuft, "
                 f"muss der Prozess manuell gestoppt werden."
             ),
             color=0xe67e22,
@@ -896,7 +963,7 @@ class UpdateCog(commands.Cog):
 # ======================================================================
 
 def _format_date(iso_string: Optional[str]) -> str:
-    """Formatiert einen ISO-Datetime-String fuer die Anzeige."""
+    """Formatiert einen ISO-Datetime-String für die Anzeige."""
     if not iso_string:
         return "?"
     try:
@@ -907,5 +974,7 @@ def _format_date(iso_string: Optional[str]) -> str:
 
 
 async def setup(bot: commands.Bot) -> None:
-    """Cog laden."""
-    await bot.add_cog(UpdateCog(bot))
+    """Cog laden. Subgruppen werden als Top-Level registriert (/modpack, /update)."""
+    cog = UpdateCog(bot)
+    await bot.add_cog(cog)
+    logger.info("UpdateCog geladen — /modpack und /update Commands registriert")

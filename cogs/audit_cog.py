@@ -1,7 +1,7 @@
 """
 Audit Cog — Phase 11g
-Cog fuer den Admin Bot: Leitet Discord-Events an den AuditLogger weiter
-und bietet Konfigurations-Commands fuer die Audit-Kanaele.
+Cog für den Admin Bot: Leitet Discord-Events an den AuditLogger weiter
+und bietet Konfigurations-Commands für die Audit-Kanaele.
 
 Event-Listener:
   - on_member_join / on_member_remove
@@ -10,7 +10,7 @@ Event-Listener:
   - on_guild_role_create / on_guild_role_delete
 
 Commands:
-  /audit setup <kategorie> <channel>  — Admin: Kanal fuer Log-Kategorie setzen
+  /audit setup <kategorie> <channel>  — Admin: Kanal für Log-Kategorie setzen
   /audit status                       — Admin: Aktuelle Audit-Konfiguration anzeigen
 """
 
@@ -26,7 +26,7 @@ from utils.permissions import admin_only
 
 logger = get_logger("cogs.audit")
 
-# Auswahl-Optionen fuer Log-Kategorien
+# Auswahl-Optionen für Log-Kategorien
 _CATEGORY_CHOICES = [
     app_commands.Choice(name="Moderation", value="mod"),
     app_commands.Choice(name="Joins / Leaves", value="join"),
@@ -35,7 +35,7 @@ _CATEGORY_CHOICES = [
     app_commands.Choice(name="Server (Channels/Rollen)", value="server"),
 ]
 
-# Lesbare Namen fuer die Status-Anzeige
+# Lesbare Namen für die Status-Anzeige
 _CATEGORY_LABELS = {
     "mod_log_channel": "Moderation",
     "join_log_channel": "Joins / Leaves",
@@ -47,7 +47,7 @@ _CATEGORY_LABELS = {
 
 class AuditCog(commands.Cog):
     """
-    Audit-Logging-Cog fuer den Admin Bot.
+    Audit-Logging-Cog für den Admin Bot.
 
     Faengt relevante Discord-Events ab und leitet sie an den
     AuditLogger weiter, der die Embeds in die konfigurierten
@@ -62,7 +62,7 @@ class AuditCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
         self.audit = AuditLogger()
-        # AuditLogger auf dem Bot verfuegbar machen (fuer andere Cogs, z.B. Mod-Cog)
+        # AuditLogger auf dem Bot verfügbar machen (für andere Cogs, z.B. Mod-Cog)
         bot.audit_logger = self.audit
         logger.info("AuditCog initialisiert")
 
@@ -93,8 +93,8 @@ class AuditCog(commands.Cog):
         """
         Member-Update: Nick-Aenderungen, Avatar-Aenderungen, Rollen-Aenderungen.
 
-        Discord feuert on_member_update fuer alle Aenderungen am Member-Objekt.
-        Wir pruefen hier welche Aenderung vorliegt und loggen entsprechend.
+        Discord feuert on_member_update für alle Aenderungen am Member-Objekt.
+        Wir prüfen hier welche Aenderung vorliegt und loggen entsprechend.
         """
         try:
             # Nick- und Avatar-Aenderungen
@@ -123,9 +123,9 @@ class AuditCog(commands.Cog):
     async def on_guild_channel_delete(
         self, channel: discord.abc.GuildChannel
     ) -> None:
-        """Kanal geloescht"""
+        """Kanal gelöscht"""
         try:
-            await self.audit.log_channel_change(self.bot, "geloescht", channel)
+            await self.audit.log_channel_change(self.bot, "gelöscht", channel)
         except Exception as e:
             logger.error(f"Fehler beim Loggen von channel_delete: {e}", exc_info=True)
 
@@ -139,7 +139,7 @@ class AuditCog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_guild_role_delete(self, role: discord.Role) -> None:
-        """Rolle geloescht"""
+        """Rolle gelöscht"""
         try:
             await self.audit.log_role_delete(self.bot, role)
         except Exception as e:
@@ -151,11 +151,11 @@ class AuditCog(commands.Cog):
 
     @audit_grp.command(
         name="setup",
-        description="Log-Kanal fuer eine Audit-Kategorie festlegen (Admin)",
+        description="Log-Kanal für eine Audit-Kategorie festlegen (Admin)",
     )
     @app_commands.describe(
         kategorie="Welche Log-Kategorie konfiguriert werden soll",
-        channel="Der Ziel-Kanal fuer diese Kategorie",
+        channel="Der Ziel-Kanal für diese Kategorie",
     )
     @app_commands.choices(kategorie=_CATEGORY_CHOICES)
     @admin_only()
@@ -165,7 +165,7 @@ class AuditCog(commands.Cog):
         kategorie: app_commands.Choice[str],
         channel: discord.TextChannel,
     ) -> None:
-        """Kanal fuer eine Audit-Kategorie setzen"""
+        """Kanal für eine Audit-Kategorie setzen"""
         await interaction.response.defer(ephemeral=True)
 
         success = self.audit.set_channel(kategorie.value, channel.id)
@@ -204,7 +204,7 @@ class AuditCog(commands.Cog):
 
         embed = discord.Embed(
             title="Audit-Log Konfiguration",
-            description="Uebersicht der konfigurierten Log-Kanaele:",
+            description="Übersicht der konfigurierten Log-Kanaele:",
             color=0x3498db,
         )
 
@@ -236,11 +236,11 @@ class AuditCog(commands.Cog):
         interaction: discord.Interaction,
         error: app_commands.AppCommandError,
     ) -> None:
-        """Zentrale Fehlerbehandlung fuer alle Commands in dieser Cog"""
+        """Zentrale Fehlerbehandlung für alle Commands in dieser Cog"""
         if isinstance(error, app_commands.CheckFailure):
             if not interaction.response.is_done():
                 await interaction.response.send_message(
-                    "Keine Berechtigung fuer diesen Befehl.", ephemeral=True
+                    "Keine Berechtigung für diesen Befehl.", ephemeral=True
                 )
             return
 
@@ -252,8 +252,8 @@ class AuditCog(commands.Cog):
                 await interaction.followup.send(msg, ephemeral=True)
             else:
                 await interaction.response.send_message(msg, ephemeral=True)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
 
 
 async def setup(bot: commands.Bot) -> None:

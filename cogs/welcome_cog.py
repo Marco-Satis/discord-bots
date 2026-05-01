@@ -1,5 +1,5 @@
 """
-Welcome Cog — F41: Willkommenssystem fuer neue Discord-Mitglieder
+Welcome Cog — F41: Willkommenssystem für neue Discord-Mitglieder
 
 Begruesst neue Mitglieder mit einem konfigurierbaren Embed im
 festgelegten Kanal, weist optional eine Auto-Rolle zu und sendet
@@ -36,7 +36,7 @@ from utils.logger import get_logger
 
 logger = get_logger("cogs.welcome")
 
-# SQL fuer Tabellenerstellung
+# SQL für Tabellenerstellung
 CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS welcome_config (
     guild_id TEXT PRIMARY KEY,
@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS welcome_config (
 
 
 class WelcomeCog(commands.Cog):
-    """Willkommenssystem: Begruessung, Auto-Rolle und DM fuer neue Mitglieder"""
+    """Willkommenssystem: Begruessung, Auto-Rolle und DM für neue Mitglieder"""
 
     welcome_grp = app_commands.Group(
         name="welcome",
@@ -88,7 +88,7 @@ class WelcomeCog(commands.Cog):
 
     async def _get_config(self, guild_id: str) -> Optional[dict]:
         """
-        Willkommens-Konfiguration fuer eine Guild laden.
+        Willkommens-Konfiguration für eine Guild laden.
 
         Args:
             guild_id: Discord Guild ID als String
@@ -118,7 +118,7 @@ class WelcomeCog(commands.Cog):
         """
         Konfiguration laden oder mit Standardwerten erstellen.
 
-        Stellt sicher, dass ein Eintrag fuer die Guild existiert.
+        Stellt sicher, dass ein Eintrag für die Guild existiert.
 
         Args:
             guild_id: Discord Guild ID als String
@@ -198,7 +198,7 @@ class WelcomeCog(commands.Cog):
         message_text: str,
     ) -> discord.Embed:
         """
-        Willkommens-Embed fuer ein neues Mitglied erstellen.
+        Willkommens-Embed für ein neues Mitglied erstellen.
 
         Args:
             member: Das neue Mitglied
@@ -238,7 +238,7 @@ class WelcomeCog(commands.Cog):
             config = await self._get_config(guild_id)
         except Exception as e:
             logger.error(
-                f"Fehler beim Laden der Welcome-Config fuer Guild {guild_id}: {e}",
+                f"Fehler beim Laden der Welcome-Config für Guild {guild_id}: {e}",
                 exc_info=True,
             )
             return
@@ -260,7 +260,7 @@ class WelcomeCog(commands.Cog):
                     embed = self._build_welcome_embed(member, msg_text)
                     await channel.send(embed=embed)
                     logger.info(
-                        f"Welcome: Embed gesendet fuer {member} in #{channel.name}"
+                        f"Welcome: Embed gesendet für {member} in #{channel.name}"
                     )
                 except discord.Forbidden:
                     logger.warning(
@@ -315,7 +315,7 @@ class WelcomeCog(commands.Cog):
             except discord.Forbidden:
                 # User hat DMs deaktiviert — kein Fehler
                 logger.debug(
-                    f"Welcome: DMs deaktiviert fuer {member}, ueberspringe"
+                    f"Welcome: DMs deaktiviert für {member}, überspringe"
                 )
             except discord.HTTPException as e:
                 logger.warning(
@@ -375,7 +375,7 @@ class WelcomeCog(commands.Cog):
 
     @welcome_grp.command(
         name="role",
-        description="Auto-Rolle fuer neue Mitglieder festlegen (Admin)",
+        description="Auto-Rolle für neue Mitglieder festlegen (Admin)",
     )
     @app_commands.describe(
         role="Rolle die neuen Mitgliedern automatisch zugewiesen wird",
@@ -565,7 +565,7 @@ class WelcomeCog(commands.Cog):
             )
             return
 
-        # Status-Uebersicht anzeigen
+        # Status-Übersicht anzeigen
         status_lines: list[str] = []
         status_lines.append(
             f"**Status:** {'Aktiviert' if config.get('enabled') else 'Deaktiviert'}"
@@ -646,11 +646,11 @@ class WelcomeCog(commands.Cog):
         interaction: discord.Interaction,
         error: app_commands.AppCommandError,
     ) -> None:
-        """Zentrale Fehlerbehandlung fuer alle Commands in dieser Cog"""
+        """Zentrale Fehlerbehandlung für alle Commands in dieser Cog"""
         if isinstance(error, app_commands.MissingPermissions):
             if not interaction.response.is_done():
                 await interaction.response.send_message(
-                    "Du benoetigst Administrator-Rechte fuer diesen Befehl.",
+                    "Du benoetigst Administrator-Rechte für diesen Befehl.",
                     ephemeral=True,
                 )
             return
@@ -658,7 +658,7 @@ class WelcomeCog(commands.Cog):
         if isinstance(error, app_commands.CheckFailure):
             if not interaction.response.is_done():
                 await interaction.response.send_message(
-                    "Keine Berechtigung fuer diesen Befehl.", ephemeral=True
+                    "Keine Berechtigung für diesen Befehl.", ephemeral=True
                 )
             return
 
@@ -670,8 +670,8 @@ class WelcomeCog(commands.Cog):
                 await interaction.followup.send(msg, ephemeral=True)
             else:
                 await interaction.response.send_message(msg, ephemeral=True)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
 
 
 async def setup(bot: commands.Bot) -> None:

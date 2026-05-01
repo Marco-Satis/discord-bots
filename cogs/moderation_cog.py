@@ -1,5 +1,5 @@
 """
-Moderation Cog — Wortfilter + Anti-Spam fuer Discord (Admin Bot)
+Moderation Cog — Wortfilter + Anti-Spam für Discord (Admin Bot)
 
 Command-Struktur:
   /filter add <wort>      — Wort zur Filterliste hinzufuegen (Admin)
@@ -10,10 +10,10 @@ Command-Struktur:
 on_message Listener:
   - Prueft jede Nachricht gegen Wortfilter + Anti-Spam
   - Loescht gefilterte/Spam-Nachrichten
-  - Warnung per ephemeraler Antwort (wo moeglich)
+  - Warnung per ephemeraler Antwort (wo möglich)
   - Auto-Mute bei Spam-Erkennung
 
-NICHT fuer RCON/In-Game — der bestehende modules/word_filter.py
+NICHT für RCON/In-Game — der bestehende modules/word_filter.py
 und modules/anti_spam.py bleiben unveraendert.
 """
 
@@ -43,7 +43,7 @@ def _sanitize_input(text: str, max_length: int = 200) -> str:
 
 
 class ModerationCog(commands.Cog):
-    """Wortfilter + Anti-Spam fuer Discord-Nachrichten"""
+    """Wortfilter + Anti-Spam für Discord-Nachrichten"""
 
     # Slash-Command-Gruppe: /filter
     filter_grp = app_commands.Group(
@@ -102,10 +102,10 @@ class ModerationCog(commands.Cog):
         Prueft jede Nachricht gegen Wortfilter und Anti-Spam.
 
         Ablauf:
-        1. Bot-Nachrichten und DMs ueberspringen
-        2. Admins/Owner von Anti-Spam ausnehmen (Wortfilter gilt fuer alle)
-        3. Wortfilter pruefen -> Nachricht loeschen + Warnung
-        4. Anti-Spam pruefen -> Nachricht loeschen + Auto-Mute
+        1. Bot-Nachrichten und DMs überspringen
+        2. Admins/Owner von Anti-Spam ausnehmen (Wortfilter gilt für alle)
+        3. Wortfilter prüfen -> Nachricht löschen + Warnung
+        4. Anti-Spam prüfen -> Nachricht löschen + Auto-Mute
         """
         # Bot-Nachrichten ignorieren
         if message.author.bot:
@@ -115,7 +115,7 @@ class ModerationCog(commands.Cog):
         if not message.guild:
             return
 
-        # --- Wortfilter pruefen (gilt fuer alle User) ---
+        # --- Wortfilter prüfen (gilt für alle User) ---
         is_filtered, matched_word = self.word_filter.check_message(
             message.content
         )
@@ -127,7 +127,7 @@ class ModerationCog(commands.Cog):
         if self._is_privileged(message):
             return
 
-        # --- Anti-Spam pruefen ---
+        # --- Anti-Spam prüfen ---
         # Mention-Anzahl: User-Mentions + Role-Mentions
         mention_count = len(message.mentions) + len(message.role_mentions)
 
@@ -148,13 +148,13 @@ class ModerationCog(commands.Cog):
         message: discord.Message,
         matched_word: str | None,
     ) -> None:
-        """Gefilterte Nachricht loeschen und User warnen"""
-        # Nachricht loeschen
+        """Gefilterte Nachricht löschen und User warnen"""
+        # Nachricht löschen
         try:
             await message.delete()
         except (discord.Forbidden, discord.NotFound, discord.HTTPException) as e:
             logger.warning(
-                f"Gefilterte Nachricht konnte nicht geloescht werden: {e}"
+                f"Gefilterte Nachricht konnte nicht gelöscht werden: {e}"
             )
 
         # Warnung senden (verschwindet nach 10 Sekunden)
@@ -170,7 +170,7 @@ class ModerationCog(commands.Cog):
 
         logger.info(
             f"Wortfilter: Nachricht von {message.author} "
-            f"(ID: {message.author.id}) in #{message.channel.name} geloescht. "
+            f"(ID: {message.author.id}) in #{message.channel.name} gelöscht. "
             f"Match: '{matched_word}'"
         )
 
@@ -183,13 +183,13 @@ class ModerationCog(commands.Cog):
         message: discord.Message,
         reason: str | None,
     ) -> None:
-        """Spam-Nachricht loeschen und User temporaer muten"""
-        # Nachricht loeschen
+        """Spam-Nachricht löschen und User temporaer muten"""
+        # Nachricht löschen
         try:
             await message.delete()
         except (discord.Forbidden, discord.NotFound, discord.HTTPException) as e:
             logger.warning(
-                f"Spam-Nachricht konnte nicht geloescht werden: {e}"
+                f"Spam-Nachricht konnte nicht gelöscht werden: {e}"
             )
 
         # Auto-Mute via Discord Timeout
@@ -202,7 +202,7 @@ class ModerationCog(commands.Cog):
                 )
         except (discord.Forbidden, discord.HTTPException) as e:
             logger.warning(
-                f"Auto-Mute fehlgeschlagen fuer {message.author}: {e}"
+                f"Auto-Mute fehlgeschlagen für {message.author}: {e}"
             )
 
         # Warnung senden
@@ -218,7 +218,7 @@ class ModerationCog(commands.Cog):
 
         logger.info(
             f"Anti-Spam: Nachricht von {message.author} "
-            f"(ID: {message.author.id}) in #{message.channel.name} geloescht. "
+            f"(ID: {message.author.id}) in #{message.channel.name} gelöscht. "
             f"Grund: {reason}"
         )
 
@@ -232,11 +232,11 @@ class ModerationCog(commands.Cog):
         if not message.guild or not isinstance(message.author, discord.Member):
             return False
 
-        # Guild-Permissions pruefen (Administrator-Berechtigung)
+        # Guild-Permissions prüfen (Administrator-Berechtigung)
         if message.author.guild_permissions.administrator:
             return True
 
-        # ADMIN_ROLE_ID aus Umgebungsvariable pruefen
+        # ADMIN_ROLE_ID aus Umgebungsvariable prüfen
         import os
         admin_role_id = int(os.getenv("ADMIN_ROLE_ID", "0"))
         if admin_role_id:
@@ -377,7 +377,7 @@ class ModerationCog(commands.Cog):
                 current_chunk: list[str] = []
                 current_len = 0
                 for w in normal_words:
-                    addition = len(w) + 2  # +2 fuer ", "
+                    addition = len(w) + 2  # +2 für ", "
                     if current_len + addition > 1000:
                         chunks.append(", ".join(current_chunk))
                         current_chunk = [w]
@@ -452,11 +452,11 @@ class ModerationCog(commands.Cog):
         interaction: discord.Interaction,
         error: app_commands.AppCommandError,
     ) -> None:
-        """Zentrale Fehlerbehandlung fuer alle Commands in dieser Cog"""
+        """Zentrale Fehlerbehandlung für alle Commands in dieser Cog"""
         if isinstance(error, app_commands.CheckFailure):
             if not interaction.response.is_done():
                 await interaction.response.send_message(
-                    "Keine Berechtigung fuer diesen Befehl.",
+                    "Keine Berechtigung für diesen Befehl.",
                     ephemeral=True,
                 )
             return
@@ -469,8 +469,8 @@ class ModerationCog(commands.Cog):
                 await interaction.followup.send(msg, ephemeral=True)
             else:
                 await interaction.response.send_message(msg, ephemeral=True)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
 
 
 async def setup(bot: commands.Bot) -> None:

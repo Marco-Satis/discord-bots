@@ -93,8 +93,8 @@ class WebStatusGenerator:
             if context["sat_online"] and self.health_checker:
                 try:
                     context["sat_players"] = self.health_checker.status.players_online
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
 
         # Minecraft Server Status
         mc_list: List[Dict[str, Any]] = []
@@ -109,8 +109,8 @@ class WebStatusGenerator:
                 if mc_info["online"]:
                     count, _ = await srv.get_player_count()
                     mc_info["players"] = count
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
             mc_list.append(mc_info)
         context["mc_servers"] = mc_list
 
@@ -121,7 +121,7 @@ class WebStatusGenerator:
                 context["cpu_percent"] = round(current.get("cpu", 0), 1)
                 context["ram_percent"] = round(current.get("ram", 0), 1)
                 context["disk_percent"] = round(current.get("disk", 0), 1)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
 
         return context

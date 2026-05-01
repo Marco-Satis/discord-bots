@@ -1,9 +1,9 @@
 """
 Server Backup Cog — Phase 12e (F19)
-Cog fuer den Admin Bot: Discord-Server-Struktur sichern und wiederherstellen.
+Cog für den Admin Bot: Discord-Server-Struktur sichern und wiederherstellen.
 
 Erstellt vollstaendige Snapshots der Server-Struktur (Channels, Rollen,
-Einstellungen, Emojis) und ermoeglicht Vergleich und Wiederherstellung.
+Einstellungen, Emojis) und ermöglicht Vergleich und Wiederherstellung.
 
 Command-Struktur (app_commands.Group):
   /server backup create                        — Owner: Backup erstellen
@@ -11,7 +11,7 @@ Command-Struktur (app_commands.Group):
   /server backup info <backup_id>              — Admin: Backup-Details
   /server backup compare <backup_id>           — Admin: Mit aktuellem Server vergleichen
   /server backup restore <backup_id> [modus]   — Owner: Wiederherstellen (Bestaetigung!)
-  /server backup delete <backup_id>            — Owner: Backup loeschen
+  /server backup delete <backup_id>            — Owner: Backup löschen
   /server backup auto [intervall_tage]         — Owner: Auto-Backup konfigurieren
 
 Interaktive Elemente:
@@ -35,10 +35,10 @@ from utils.permissions import admin_only, owner_only
 
 logger = get_logger("cogs.server_backup")
 
-# Konfigurationsdatei fuer Auto-Backup
+# Konfigurationsdatei für Auto-Backup
 AUTO_BACKUP_CONFIG = ADMIN_DATA_DIR / "server_backup_auto.json"
 
-# Modus-Auswahl fuer Restore-Command
+# Modus-Auswahl für Restore-Command
 _RESTORE_MODE_CHOICES = [
     app_commands.Choice(name="Vollstaendig (gefaehrlich!)", value="full"),
     app_commands.Choice(name="Nur Rollen", value="roles_only"),
@@ -46,7 +46,7 @@ _RESTORE_MODE_CHOICES = [
     app_commands.Choice(name="Nur Fehlendes hinzufuegen", value="add_missing"),
 ]
 
-# Modus-Beschreibungen fuer die Info-Anzeige
+# Modus-Beschreibungen für die Info-Anzeige
 _MODE_DESCRIPTIONS = {
     "full": "Alles wiederherstellen (loescht nicht-vorhandene Elemente!)",
     "roles_only": "Nur Rollen erstellen/aktualisieren",
@@ -56,12 +56,12 @@ _MODE_DESCRIPTIONS = {
 
 
 # ======================================================================
-# Bestaetigung-Views fuer gefaehrliche Aktionen
+# Bestaetigung-Views für gefaehrliche Aktionen
 # ======================================================================
 
 class RestoreConfirmView(discord.ui.View):
     """
-    Bestaetigung-View fuer die Backup-Wiederherstellung.
+    Bestaetigung-View für die Backup-Wiederherstellung.
 
     Zeigt Bestaetigen/Abbrechen-Buttons an. Der Timeout betraegt 60 Sekunden.
     """
@@ -101,7 +101,7 @@ class RestoreConfirmView(discord.ui.View):
         interaction: discord.Interaction,
         button: discord.ui.Button,
     ) -> None:
-        """Wiederherstellung bestaetigt — ausfuehren"""
+        """Wiederherstellung bestaetigt — ausführen"""
         self.confirmed = True
 
         # Buttons deaktivieren
@@ -171,9 +171,9 @@ class RestoreConfirmView(discord.ui.View):
 
 class ServerBackupCog(commands.Cog):
     """
-    Server-Backup-System fuer den Admin Bot.
+    Server-Backup-System für den Admin Bot.
 
-    Ermoeglicht vollstaendige Snapshots der Discord-Server-Struktur
+    Ermöglicht vollstaendige Snapshots der Discord-Server-Struktur
     (Channels, Rollen, Einstellungen) und deren Wiederherstellung.
     """
 
@@ -239,7 +239,7 @@ class ServerBackupCog(commands.Cog):
         self.auto_backup_task.change_interval(hours=interval_days * 24)
         self.auto_backup_task.start()
 
-    @tasks.loop(hours=168)  # Standard: 7 Tage (wird dynamisch geaendert)
+    @tasks.loop(hours=168)  # Standard: 7 Tage (wird dynamisch geändert)
     async def auto_backup_task(self) -> None:
         """Background-Task: Automatisches Backup erstellen"""
         guild_id = self._auto_config.get("guild_id", 0)
@@ -259,7 +259,7 @@ class ServerBackupCog(commands.Cog):
             )
             logger.info(
                 f"Auto-Backup erstellt: {backup['backup_id']} "
-                f"fuer '{guild.name}'"
+                f"für '{guild.name}'"
             )
         except Exception as e:
             logger.error(f"Auto-Backup fehlgeschlagen: {e}", exc_info=True)
@@ -270,7 +270,7 @@ class ServerBackupCog(commands.Cog):
         await self.bot.wait_until_ready()
 
     # ------------------------------------------------------------------
-    # Hilfs-Methoden fuer Embeds
+    # Hilfs-Methoden für Embeds
     # ------------------------------------------------------------------
 
     @staticmethod
@@ -421,7 +421,7 @@ class ServerBackupCog(commands.Cog):
     )
     @admin_only()
     async def backup_list(self, interaction: discord.Interaction) -> None:
-        """Alle Backups fuer diesen Server auflisten"""
+        """Alle Backups für diesen Server auflisten"""
         await interaction.response.defer(ephemeral=True)
 
         if not interaction.guild:
@@ -435,7 +435,7 @@ class ServerBackupCog(commands.Cog):
 
         if not backups:
             await interaction.followup.send(
-                "Keine Backups fuer diesen Server vorhanden.",
+                "Keine Backups für diesen Server vorhanden.",
                 ephemeral=True,
             )
             return
@@ -626,7 +626,7 @@ class ServerBackupCog(commands.Cog):
             )
             return
 
-        # Guild-ID pruefen bevor Vergleich
+        # Guild-ID prüfen bevor Vergleich
         backup = await self.backup_mgr.get_backup(backup_id)
         if not backup or backup.get("guild_id") != interaction.guild.id:
             await interaction.followup.send(
@@ -769,7 +769,7 @@ class ServerBackupCog(commands.Cog):
             )
             return
 
-        # Backup pruefen
+        # Backup prüfen
         backup = await self.backup_mgr.get_backup(backup_id)
         if not backup:
             await interaction.followup.send(
@@ -778,7 +778,7 @@ class ServerBackupCog(commands.Cog):
             )
             return
 
-        # Guild-ID pruefen
+        # Guild-ID prüfen
         if backup.get("guild_id") != interaction.guild.id:
             await interaction.followup.send(
                 "Dieses Backup gehoert zu einem anderen Server.",
@@ -813,7 +813,7 @@ class ServerBackupCog(commands.Cog):
                 name="WARNUNG",
                 value=(
                     "Der Modus **full** ist destruktiv!\n"
-                    "Channels und Rollen die nicht im Backup sind werden **geloescht**.\n"
+                    "Channels und Rollen die nicht im Backup sind werden **gelöscht**.\n"
                     "Diese Aktion kann nicht rueckgaengig gemacht werden!"
                 ),
                 inline=False,
@@ -840,7 +840,7 @@ class ServerBackupCog(commands.Cog):
 
     @backup_grp.command(
         name="delete",
-        description="Ein Server-Backup loeschen (Owner)",
+        description="Ein Server-Backup löschen (Owner)",
     )
     @app_commands.describe(backup_id="Die eindeutige Backup-ID")
     @owner_only()
@@ -849,10 +849,10 @@ class ServerBackupCog(commands.Cog):
         interaction: discord.Interaction,
         backup_id: str,
     ) -> None:
-        """Backup-Datei endgueltig loeschen"""
+        """Backup-Datei endgueltig löschen"""
         await interaction.response.defer(ephemeral=True)
 
-        # Guild-ID pruefen: Nur Backups des eigenen Servers loeschen
+        # Guild-ID prüfen: Nur Backups des eigenen Servers löschen
         backup = await self.backup_mgr.get_backup(backup_id)
         if not backup or backup.get("guild_id") != interaction.guild.id:
             await interaction.followup.send(
@@ -865,13 +865,13 @@ class ServerBackupCog(commands.Cog):
 
         if deleted:
             embed = discord.Embed(
-                title="Backup geloescht",
-                description=f"Backup `{backup_id}` wurde endgueltig geloescht.",
+                title="Backup gelöscht",
+                description=f"Backup `{backup_id}` wurde endgueltig gelöscht.",
                 color=0x2ecc71,
                 timestamp=datetime.now(timezone.utc),
             )
             logger.info(
-                f"Backup {backup_id} geloescht von {interaction.user.display_name}"
+                f"Backup {backup_id} gelöscht von {interaction.user.display_name}"
             )
         else:
             embed = discord.Embed(
@@ -931,7 +931,7 @@ class ServerBackupCog(commands.Cog):
                 inline=True,
             )
             embed.add_field(
-                name="Task laeuft",
+                name="Task läuft",
                 value="Ja" if running else "Nein",
                 inline=True,
             )
@@ -968,7 +968,7 @@ class ServerBackupCog(commands.Cog):
             )
             return
 
-        # Aktivieren / Intervall aendern
+        # Aktivieren / Intervall ändern
         if intervall_tage > 365:
             await interaction.followup.send(
                 "Maximales Intervall: 365 Tage.",
@@ -1000,13 +1000,13 @@ class ServerBackupCog(commands.Cog):
         )
 
     # ==================================================================
-    # Autocomplete fuer backup_id
+    # Autocomplete für backup_id
     # ==================================================================
 
     async def _backup_id_autocomplete(
         self, interaction: discord.Interaction, current: str
     ) -> list[app_commands.Choice[str]]:
-        """Autocomplete fuer Backup-IDs — zeigt verfuegbare Backups"""
+        """Autocomplete für Backup-IDs — zeigt verfügbare Backups"""
         if not interaction.guild:
             return []
 
@@ -1031,7 +1031,7 @@ class ServerBackupCog(commands.Cog):
 
         return choices[:25]
 
-    # Autocomplete registrieren fuer alle Commands mit backup_id Parameter
+    # Autocomplete registrieren für alle Commands mit backup_id Parameter
     backup_info = app_commands.autocomplete(backup_id=_backup_id_autocomplete)(backup_info)
     backup_compare = app_commands.autocomplete(backup_id=_backup_id_autocomplete)(backup_compare)
     backup_restore = app_commands.autocomplete(backup_id=_backup_id_autocomplete)(backup_restore)
@@ -1046,11 +1046,11 @@ class ServerBackupCog(commands.Cog):
         interaction: discord.Interaction,
         error: app_commands.AppCommandError,
     ) -> None:
-        """Zentrale Fehlerbehandlung fuer alle Commands in dieser Cog"""
+        """Zentrale Fehlerbehandlung für alle Commands in dieser Cog"""
         if isinstance(error, app_commands.CheckFailure):
             if not interaction.response.is_done():
                 await interaction.response.send_message(
-                    "Keine Berechtigung fuer diesen Befehl.", ephemeral=True
+                    "Keine Berechtigung für diesen Befehl.", ephemeral=True
                 )
             return
 
@@ -1063,8 +1063,8 @@ class ServerBackupCog(commands.Cog):
                 await interaction.followup.send(msg, ephemeral=True)
             else:
                 await interaction.response.send_message(msg, ephemeral=True)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
 
 
 async def setup(bot: commands.Bot) -> None:

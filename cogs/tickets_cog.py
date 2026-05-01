@@ -1,12 +1,12 @@
 """
-Ticket Cog — Support-Ticket-System fuer den Admin Bot
+Ticket Cog — Support-Ticket-System für den Admin Bot
 
 Features:
   - Support-Embed mit interaktivem "Ticket erstellen" Button
   - Private Ticket-Channels mit individuellen Berechtigungen
   - Automatisches Transcript-Logging aller Nachrichten
   - Ticket schliessen mit Transcript-Export in Log-Channel
-  - Persistente Views (ueberleben Bot-Neustarts)
+  - Persistente Views (überleben Bot-Neustarts)
 
 Command-Struktur:
   /ticket setup <channel>    — Support-Embed posten (Admin)
@@ -39,7 +39,7 @@ MAX_OPEN_TICKETS_PER_USER = 3
 
 
 # ======================================================================
-# Persistente Views — ueberleben Bot-Neustarts
+# Persistente Views — überleben Bot-Neustarts
 # ======================================================================
 
 class TicketCreateView(discord.ui.View):
@@ -52,7 +52,7 @@ class TicketCreateView(discord.ui.View):
     """
 
     def __init__(self) -> None:
-        # timeout=None fuer persistente Views (kein Ablauf)
+        # timeout=None für persistente Views (kein Ablauf)
         super().__init__(timeout=None)
 
     @discord.ui.button(
@@ -67,14 +67,14 @@ class TicketCreateView(discord.ui.View):
         button: discord.ui.Button,
     ) -> None:
         """Button-Handler: Neues Ticket erstellen."""
-        # Modal fuer Ticket-Betreff anzeigen
+        # Modal für Ticket-Betreff anzeigen
         modal = TicketCreateModal()
         await interaction.response.send_modal(modal)
 
 
 class TicketCreateModal(discord.ui.Modal, title="Neues Support-Ticket"):
     """
-    Modal-Dialog fuer die Ticket-Erstellung.
+    Modal-Dialog für die Ticket-Erstellung.
 
     Fragt den Betreff / die Beschreibung des Problems ab.
     """
@@ -97,11 +97,11 @@ class TicketCreateModal(discord.ui.Modal, title="Neues Support-Ticket"):
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         """Modal abgeschickt — Ticket wird erstellt."""
-        # Cog-Referenz ueber den Bot holen
+        # Cog-Referenz über den Bot holen
         cog: TicketsCog | None = interaction.client.get_cog("TicketsCog")
         if not cog:
             await interaction.response.send_message(
-                "Ticket-System ist nicht verfuegbar.", ephemeral=True
+                "Ticket-System ist nicht verfügbar.", ephemeral=True
             )
             return
 
@@ -137,7 +137,7 @@ class TicketCloseView(discord.ui.View):
         cog: TicketsCog | None = interaction.client.get_cog("TicketsCog")
         if not cog:
             await interaction.response.send_message(
-                "Ticket-System ist nicht verfuegbar.", ephemeral=True
+                "Ticket-System ist nicht verfügbar.", ephemeral=True
             )
             return
 
@@ -242,14 +242,14 @@ class TicketsCog(commands.Cog):
         guild = interaction.guild
         if not guild:
             await interaction.followup.send(
-                "Tickets koennen nur auf einem Server erstellt werden.",
+                "Tickets können nur auf einem Server erstellt werden.",
                 ephemeral=True,
             )
             return
 
         user = interaction.user
 
-        # Spam-Schutz: Maximale Anzahl offener Tickets pruefen
+        # Spam-Schutz: Maximale Anzahl offener Tickets prüfen
         open_count = self.ticket_mgr.get_user_ticket_count(user.id)
         if open_count >= MAX_OPEN_TICKETS_PER_USER:
             await interaction.followup.send(
@@ -266,7 +266,7 @@ class TicketsCog(commands.Cog):
         )
         ticket_id = ticket["ticket_id"]
 
-        # Kategorie fuer Ticket-Channels ermitteln
+        # Kategorie für Ticket-Channels ermitteln
         category = None
         cat_id = self.ticket_mgr.ticket_category_id
         if cat_id:
@@ -335,7 +335,7 @@ class TicketsCog(commands.Cog):
                 f"**Betreff:** {subject}\n\n"
                 f"Willkommen in deinem Support-Ticket, {user.mention}!\n"
                 f"Ein Teammitglied wird sich in Kuerze um dein Anliegen kuemmern.\n\n"
-                f"Beschreibe dein Problem so detailliert wie moeglich."
+                f"Beschreibe dein Problem so detailliert wie möglich."
             ),
             color=0x5865F2,
             timestamp=datetime.now(),
@@ -378,7 +378,7 @@ class TicketsCog(commands.Cog):
                     f"Neues Ticket von {user.mention} — "
                     + " ".join(support_mentions)
                 )
-                # Ping-Nachricht nach kurzer Zeit loeschen (optisch sauberer)
+                # Ping-Nachricht nach kurzer Zeit löschen (optisch sauberer)
                 await asyncio.sleep(2)
                 try:
                     await ping_msg.delete()
@@ -408,11 +408,11 @@ class TicketsCog(commands.Cog):
         reason: str | None = None,
     ) -> None:
         """
-        Ticket schliessen: Transcript sichern, Log senden, Channel loeschen.
+        Ticket schliessen: Transcript sichern, Log senden, Channel löschen.
 
         Args:
             interaction: Discord-Interaction
-            reason: Optionaler Grund fuer das Schliessen
+            reason: Optionaler Grund für das Schliessen
         """
         await interaction.response.defer(ephemeral=True)
 
@@ -473,7 +473,7 @@ class TicketsCog(commands.Cog):
             description=(
                 f"Dieses Ticket wurde von {closed_by.mention} geschlossen."
                 + (f"\n**Grund:** {reason}" if reason else "")
-                + "\n\nDer Channel wird in 5 Sekunden geloescht."
+                + "\n\nDer Channel wird in 5 Sekunden gelöscht."
             ),
             color=0xe74c3c,
             timestamp=datetime.now(),
@@ -488,7 +488,7 @@ class TicketsCog(commands.Cog):
             "Ticket wird geschlossen...", ephemeral=True
         )
 
-        # Channel nach Verzoegerung loeschen
+        # Channel nach Verzoegerung löschen
         await asyncio.sleep(5)
         try:
             await interaction.channel.delete(
@@ -496,7 +496,7 @@ class TicketsCog(commands.Cog):
             )
         except (discord.Forbidden, discord.HTTPException) as e:
             logger.error(
-                f"Ticket-Channel loeschen fehlgeschlagen (#{ticket_id}): {e}"
+                f"Ticket-Channel löschen fehlgeschlagen (#{ticket_id}): {e}"
             )
 
         logger.info(
@@ -589,8 +589,8 @@ class TicketsCog(commands.Cog):
     )
     @app_commands.describe(
         channel="Channel in dem das Support-Embed gepostet wird",
-        kategorie="Kategorie fuer neue Ticket-Channels (optional)",
-        log_channel="Channel fuer Transcript-Logs (optional)",
+        kategorie="Kategorie für neue Ticket-Channels (optional)",
+        log_channel="Channel für Transcript-Logs (optional)",
         support_rolle="Support-Rolle die Tickets sehen kann (optional)",
     )
     @admin_only()
@@ -635,8 +635,8 @@ class TicketsCog(commands.Cog):
             description=(
                 "Brauchst du Hilfe oder hast ein Anliegen?\n\n"
                 "Klicke auf den Button unten um ein Support-Ticket zu erstellen.\n"
-                "Ein Teammitglied wird sich so schnell wie moeglich um dich kuemmern.\n\n"
-                "**Bitte erstelle fuer jedes Anliegen ein eigenes Ticket.**"
+                "Ein Teammitglied wird sich so schnell wie möglich um dich kuemmern.\n\n"
+                "**Bitte erstelle für jedes Anliegen ein eigenes Ticket.**"
             ),
             color=0x5865F2,
         )
@@ -681,7 +681,7 @@ class TicketsCog(commands.Cog):
         description="Aktuelles Ticket schliessen (nur in Ticket-Channels)",
     )
     @app_commands.describe(
-        grund="Optionaler Grund fuer das Schliessen"
+        grund="Optionaler Grund für das Schliessen"
     )
     async def ticket_close(
         self,
@@ -766,11 +766,11 @@ class TicketsCog(commands.Cog):
         interaction: discord.Interaction,
         error: app_commands.AppCommandError,
     ) -> None:
-        """Zentrale Fehlerbehandlung fuer alle Commands in dieser Cog."""
+        """Zentrale Fehlerbehandlung für alle Commands in dieser Cog."""
         if isinstance(error, app_commands.CheckFailure):
             if not interaction.response.is_done():
                 await interaction.response.send_message(
-                    "Keine Berechtigung fuer diesen Befehl.", ephemeral=True
+                    "Keine Berechtigung für diesen Befehl.", ephemeral=True
                 )
             return
 
@@ -783,8 +783,8 @@ class TicketsCog(commands.Cog):
                 await interaction.followup.send(msg, ephemeral=True)
             else:
                 await interaction.response.send_message(msg, ephemeral=True)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
 
 
 async def setup(bot: commands.Bot) -> None:

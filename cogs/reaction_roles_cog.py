@@ -1,9 +1,9 @@
 """
-Reaction Roles Cog — Reaction-Roles fuer den Admin Bot
+Reaction Roles Cog — Reaction-Roles für den Admin Bot
 
-Ermoeglicht das Zuweisen von Rollen per Emoji-Reaktion auf Nachrichten.
+Ermöglicht das Zuweisen von Rollen per Emoji-Reaktion auf Nachrichten.
 Admins erstellen ein Embed, fuegen Emoji-Rollen-Paare hinzu, und User
-koennen sich Rollen durch Reagieren selbst zuweisen/entfernen.
+können sich Rollen durch Reagieren selbst zuweisen/entfernen.
 
 Command-Struktur (app_commands.Group):
   /reactionrole create <channel> <titel> <beschreibung>  — Embed erstellen
@@ -115,7 +115,7 @@ class ReactionRolesCog(commands.Cog):
             logger.error(f"Reaction-Roles SQLite-Delete fehlgeschlagen: {e}")
 
     async def _db_remove_message(self, message_id: str) -> None:
-        """Alle Eintraege fuer eine Nachricht aus SQLite entfernen"""
+        """Alle Eintraege für eine Nachricht aus SQLite entfernen"""
         try:
             db = await get_db()
             await db.execute(
@@ -135,7 +135,7 @@ class ReactionRolesCog(commands.Cog):
         Bestehende Reaction-Role-Nachrichten re-registrieren.
 
         Fuegt die Bot-Reaktionen erneut hinzu, falls sie fehlen.
-        Entfernt Eintraege fuer Nachrichten/Channels die nicht mehr existieren.
+        Entfernt Eintraege für Nachrichten/Channels die nicht mehr existieren.
         """
         await self.bot.wait_until_ready()
 
@@ -160,7 +160,7 @@ class ReactionRolesCog(commands.Cog):
                 except (discord.NotFound, discord.Forbidden, discord.HTTPException):
                     logger.warning(
                         f"Reaction-Roles: Channel {channel_id} nicht gefunden, "
-                        f"entferne Eintrag fuer Nachricht {msg_id_str}"
+                        f"entferne Eintrag für Nachricht {msg_id_str}"
                     )
                     to_remove.append(msg_id_str)
                     continue
@@ -214,7 +214,7 @@ class ReactionRolesCog(commands.Cog):
     @app_commands.describe(
         channel="Channel in dem das Embed erstellt wird",
         titel="Titel des Embeds",
-        beschreibung="Beschreibung des Embeds (Anleitung fuer User)",
+        beschreibung="Beschreibung des Embeds (Anleitung für User)",
     )
     @admin_only()
     async def rr_create(
@@ -226,7 +226,7 @@ class ReactionRolesCog(commands.Cog):
     ) -> None:
         await interaction.response.defer(ephemeral=True)
 
-        # Berechtigungspruefung fuer den Ziel-Channel
+        # Berechtigungspruefung für den Ziel-Channel
         bot_member = interaction.guild.me
         perms = channel.permissions_for(bot_member)
         if not perms.send_messages or not perms.add_reactions:
@@ -431,7 +431,7 @@ class ReactionRolesCog(commands.Cog):
         # Pruefen ob Emoji registriert ist
         if emoji_str not in roles_map:
             await interaction.followup.send(
-                f"Emoji {emoji_str} ist nicht fuer Nachricht `{msg_id_str}` registriert.",
+                f"Emoji {emoji_str} ist nicht für Nachricht `{msg_id_str}` registriert.",
                 ephemeral=True,
             )
             return
@@ -742,11 +742,11 @@ class ReactionRolesCog(commands.Cog):
         interaction: discord.Interaction,
         error: app_commands.AppCommandError,
     ) -> None:
-        """Zentrale Fehlerbehandlung fuer alle Commands in dieser Cog"""
+        """Zentrale Fehlerbehandlung für alle Commands in dieser Cog"""
         if isinstance(error, app_commands.CheckFailure):
             if not interaction.response.is_done():
                 await interaction.response.send_message(
-                    "Keine Berechtigung fuer diesen Befehl.", ephemeral=True
+                    "Keine Berechtigung für diesen Befehl.", ephemeral=True
                 )
             return
 
@@ -758,8 +758,8 @@ class ReactionRolesCog(commands.Cog):
                 await interaction.followup.send(msg, ephemeral=True)
             else:
                 await interaction.response.send_message(msg, ephemeral=True)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
 
 
 async def setup(bot: commands.Bot) -> None:
