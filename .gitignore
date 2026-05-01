@@ -10,7 +10,7 @@ dist/
 build/
 
 # Environment & Secrets
-config/.env
+config/.env*
 .env
 *.pem
 *.key
