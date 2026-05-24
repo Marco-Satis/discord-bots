@@ -264,8 +264,28 @@ class SatisfactoryServer:
 
         return False, "Stop-Befehl gesendet, Server reagiert nicht."
 
-    async def restart(self) -> Tuple[bool, str]:
-        """Restart server via systemd"""
+    async def restart(self, api: Optional[Any] = None,
+                      save_wait: float = 4.0) -> Tuple[bool, str]:
+        """Restart server via systemd.
+
+        Wenn api uebergeben: triggert vor dem Restart ein SaveGame via
+        Server-API und wartet save_wait Sekunden auf den Flush, damit das
+        Save garantiert auf Platte ist bevor der Prozess neu startet.
+        """
+        # Pre-Restart-Save (verhindert Datenverlust)
+        if api is not None and await self.is_running():
+            try:
+                saved = await api.save_game("pre_restart")
+                if saved:
+                    logger.info(
+                        f"Pre-Restart-Save erfolgreich, warte {save_wait}s auf Flush"
+                    )
+                    await asyncio.sleep(save_wait)
+                else:
+                    logger.warning("Pre-Restart-Save fehlgeschlagen — Restart trotzdem")
+            except Exception as e:
+                logger.warning(f"Pre-Restart-Save Fehler: {e} — Restart trotzdem")
+
         code, _, stderr = await self._systemctl("restart", timeout=120)
         if code != 0:
             return False, f"Restart fehlgeschlagen: {stderr}"

@@ -888,10 +888,11 @@ class SatisfactoryCog(commands.Cog):
         await interaction.followup.send(embed=embed, view=view)
 
     @blueprints_grp.command(
-        name="download", description="Blueprint herunterladen (Nummer oder Name)"
+        name="download",
+        description="Blueprint(s) herunterladen — Einzel, Mehrfach (1,3,5), Bereich (1-5) oder Name",
     )
     @app_commands.describe(
-        blueprint="Nummer aus der Liste oder Name des Blueprints"
+        blueprint="Nummern: 3 | 1,3,5 | 1-5 | 1,3-7 | oder Name (lädt automatisch .sbp + .sbpcfg)"
     )
     @spieler_only()
     async def blueprints_download(
@@ -899,53 +900,123 @@ class SatisfactoryCog(commands.Cog):
     ):
         await interaction.response.defer()
 
-        # Nummer oder Name aufloesen
-        bp_name = blueprint.strip()
-        if bp_name.isdigit():
-            idx = int(bp_name) - 1
-            all_bps = self.bot.blueprint_mgr.list_from_filesystem()
-            if 0 <= idx < len(all_bps):
-                bp_name = all_bps[idx]["name"]
-            else:
-                await interaction.followup.send(
-                    f"Nummer {blueprint} ungueltig. "
-                    f"Es gibt {len(all_bps)} Blueprints."
-                )
-                return
+        all_bps = self.bot.blueprint_mgr.list_from_filesystem()
+        input_str = blueprint.strip()
 
-        sbp_path, cfg_path = self.bot.blueprint_mgr.get_files(bp_name)
-        if not sbp_path:
+        # Auswahl aufloesen (gleiche Logik wie delete): Nummern/Bereiche/Name
+        names_to_get: list[str] = []
+        has_numbers = any(c.isdigit() for c in input_str) and not input_str.endswith(".sbp")
+
+        if has_numbers and (
+            "," in input_str or "-" in input_str or input_str.isdigit()
+        ):
+            indices: set[int] = set()
+            for part in input_str.split(","):
+                part = part.strip()
+                if "-" in part:
+                    try:
+                        start, end = part.split("-", 1)
+                        for n in range(int(start), int(end) + 1):
+                            indices.add(n)
+                    except ValueError:
+                        pass
+                elif part.isdigit():
+                    indices.add(int(part))
+
+            invalid = []
+            for idx in sorted(indices):
+                if 1 <= idx <= len(all_bps):
+                    names_to_get.append(all_bps[idx - 1]["name"])
+                else:
+                    invalid.append(str(idx))
+
+            if invalid:
+                await interaction.followup.send(
+                    f"Ungueltige Nummern: {', '.join(invalid)} "
+                    f"(es gibt {len(all_bps)} Blueprints)."
+                )
+                if not names_to_get:
+                    return
+        else:
+            # Komma-getrennte Namen oder einzelner Name
+            for part in input_str.split(","):
+                part = part.strip()
+                if part:
+                    names_to_get.append(part)
+
+        if not names_to_get:
+            await interaction.followup.send("Keine Blueprints zum Download angegeben.")
+            return
+
+        # Dateien sammeln (jeweils .sbp + .sbpcfg)
+        collected: list[tuple[str, Path, Path]] = []  # (name, sbp, cfg)
+        not_found: list[str] = []
+        for name in names_to_get:
+            sbp_path, cfg_path = self.bot.blueprint_mgr.get_files(name)
+            if not sbp_path:
+                not_found.append(name)
+                continue
+            collected.append((name, sbp_path, cfg_path))
+
+        if not collected:
             await interaction.followup.send(
-                f"Blueprint '{bp_name}' nicht gefunden!"
+                f"Keine Blueprints gefunden: {', '.join(not_found)}"
             )
             return
 
+        # Discord-Limit: max 10 Dateien pro Nachricht. Jeder Blueprint = 2 Dateien
+        # → max 5 Blueprints pro Nachricht. Bei mehr: in Batches senden.
+        BP_PER_MSG = 5
+        total_size = 0
+        sent_names: list[str] = []
+
         try:
-            files = [discord.File(sbp_path, filename=sbp_path.name)]
-            if cfg_path and cfg_path.exists():
-                files.append(discord.File(cfg_path, filename=cfg_path.name))
+            for batch_start in range(0, len(collected), BP_PER_MSG):
+                batch = collected[batch_start:batch_start + BP_PER_MSG]
+                files = []
+                batch_names = []
+                batch_size = 0
+                for name, sbp_path, cfg_path in batch:
+                    files.append(discord.File(sbp_path, filename=sbp_path.name))
+                    batch_size += sbp_path.stat().st_size
+                    if cfg_path and cfg_path.exists():
+                        files.append(discord.File(cfg_path, filename=cfg_path.name))
+                        batch_size += cfg_path.stat().st_size
+                    batch_names.append(name)
 
-            size = sbp_path.stat().st_size
-            if cfg_path and cfg_path.exists():
-                size += cfg_path.stat().st_size
+                total_size += batch_size
+                sent_names.extend(batch_names)
 
-            embed = discord.Embed(
-                title=f"Blueprint: {bp_name}", color=0x3498db
-            )
-            embed.add_field(
-                name="Größe", value=format_bytes(size), inline=True
-            )
-            embed.add_field(
-                name="Dateien",
-                value=f"{len(files)} ({', '.join(f.filename for f in files)})",
-                inline=True,
-            )
-            embed.set_footer(
-                text="Beide Dateien (.sbp + .sbpcfg) in den Blueprint-Ordner kopieren"
-            )
-            await interaction.followup.send(embed=embed, files=files)
+                title = (
+                    f"Blueprint: {batch_names[0]}"
+                    if len(batch_names) == 1
+                    else f"{len(batch_names)} Blueprints"
+                )
+                embed = discord.Embed(title=title, color=0x3498db)
+                embed.add_field(
+                    name="Enthalten",
+                    value="\n".join(f"• {n}" for n in batch_names)[:1024],
+                    inline=False,
+                )
+                embed.add_field(
+                    name="Größe", value=format_bytes(batch_size), inline=True
+                )
+                embed.add_field(
+                    name="Dateien", value=str(len(files)), inline=True
+                )
+                embed.set_footer(
+                    text="Je .sbp + .sbpcfg in den Blueprint-Ordner kopieren"
+                )
+                await interaction.followup.send(embed=embed, files=files)
+
+            if not_found:
+                await interaction.followup.send(
+                    f"Nicht gefunden: {', '.join(not_found)}", ephemeral=True
+                )
+
             logger.info(
-                f"Blueprint downloaded: {bp_name} by {interaction.user}"
+                f"Blueprints downloaded: {', '.join(sent_names)} "
+                f"({format_bytes(total_size)}) by {interaction.user}"
             )
         except Exception as e:
             await interaction.followup.send(f"Download fehlgeschlagen: {e}")
@@ -956,14 +1027,23 @@ class SatisfactoryCog(commands.Cog):
     ):
         bps = self.bot.blueprint_mgr.list_from_filesystem()
         choices = []
+        # Letztes Komma-Segment fuer Filter nutzen (Multi-Select-Tippen)
+        prefix = ""
+        filter_term = current
+        if "," in current:
+            prefix = current.rsplit(",", 1)[0] + ","
+            filter_term = current.rsplit(",", 1)[1].strip()
+
         for i, bp in enumerate(bps, 1):
-            label = f"{i}. {bp['name']}"
-            if current and current.lower() not in label.lower() and current != str(i):
+            name = bp["name"]
+            if filter_term and filter_term.lower() not in name.lower() and filter_term != str(i):
                 continue
+            # Nur Name anzeigen; Value behaelt bestehende Auswahl + neue Nummer
+            value = f"{prefix}{i}" if prefix else str(i)
             choices.append(
                 app_commands.Choice(
-                    name=label[:100],
-                    value=str(i),
+                    name=name[:100],
+                    value=value[:100],
                 )
             )
         return choices[:25]
@@ -1079,6 +1159,158 @@ class SatisfactoryCog(commands.Cog):
                     name=label[:100],
                     value=str(i),
                 )
+            )
+        return choices[:25]
+
+    @blueprints_grp.command(
+        name="migrate",
+        description="[Owner] Alle Blueprints von einer Welt in eine andere migrieren + Server-Neustart",
+    )
+    @app_commands.describe(
+        von="Quell-Welt (alte Welt)",
+        nach="Ziel-Welt (neue Welt)",
+    )
+    @owner_only()
+    async def blueprints_migrate(
+        self,
+        interaction: discord.Interaction,
+        von: str,
+        nach: str,
+    ):
+        await interaction.response.defer()
+
+        von = von.strip()
+        nach = nach.strip()
+
+        if von == nach:
+            await interaction.followup.send("Quell- und Ziel-Welt sind identisch.")
+            return
+
+        # Kategorisierung: new / identical (Hash gleich) / conflict (Hash anders)
+        cat = self.bot.blueprint_mgr.categorize_migration(von, nach)
+        if cat.get("error"):
+            await interaction.followup.send(f"Migration nicht möglich: {cat['error']}")
+            return
+
+        new_bps = cat["new"]
+        identical = cat["identical"]
+        conflict = cat["conflict"]
+
+        if not new_bps and not identical and not conflict:
+            await interaction.followup.send(
+                f"Keine Blueprints von '{von}' nach '{nach}' gefunden "
+                f"(Quelle leer)."
+            )
+            return
+
+        # NEUE Blueprints sofort kopieren
+        copied: list[str] = []
+        copy_errors: list[str] = []
+        if new_bps:
+            copied, _, copy_errors = self.bot.blueprint_mgr.migrate_world(
+                von, nach, overwrite=False, only_names=new_bps
+            )
+
+        embed = discord.Embed(
+            title="Blueprint-Migration",
+            description=f"**{von}** → **{nach}**",
+            color=0x2ecc71 if not (conflict or copy_errors) else 0xf39c12,
+        )
+        if copied:
+            embed.add_field(
+                name=f"Neu kopiert ({len(copied)})",
+                value="\n".join(f"• {n}" for n in copied[:20])[:1024]
+                + ("\n…" if len(copied) > 20 else ""),
+                inline=False,
+            )
+        if identical:
+            embed.add_field(
+                name=f"Identisch — übersprungen ({len(identical)})",
+                value="\n".join(f"• {n}" for n in identical[:20])[:1024]
+                + ("\n…" if len(identical) > 20 else ""),
+                inline=False,
+            )
+        if conflict:
+            embed.add_field(
+                name=f"⚠ Konflikt — gleicher Name, anderer Inhalt ({len(conflict)})",
+                value="\n".join(f"• {n}" for n in conflict[:20])[:1024]
+                + ("\n…" if len(conflict) > 20 else ""),
+                inline=False,
+            )
+        if copy_errors:
+            embed.add_field(
+                name=f"Fehler ({len(copy_errors)})",
+                value="\n".join(copy_errors[:5])[:1024],
+                inline=False,
+            )
+
+        logger.info(
+            f"Blueprint-Migration durch {interaction.user}: {von} -> {nach} "
+            f"({len(copied)} neu, {len(identical)} identisch, "
+            f"{len(conflict)} Konflikt, {len(copy_errors)} Fehler)"
+        )
+
+        # Bei Konflikten: Button-Entscheidung (Überschreiben / Löschen / Behalten)
+        if conflict:
+            embed.set_footer(
+                text="Konflikte: gleicher Name, anderer Inhalt. "
+                "Überschreiben, aus Ziel löschen, oder behalten?"
+            )
+            view = MigrateConflictView(self, interaction, von, nach, conflict)
+            await interaction.followup.send(embed=embed, view=view)
+            return
+
+        # Keine Konflikte → direkt Restart (Save-vor-Restart)
+        embed.set_footer(text="Server wird jetzt direkt neugestartet …")
+        await interaction.followup.send(embed=embed)
+        await self._sat_save_restart(
+            interaction.channel,
+            f"Migrierte Blueprints aus '{nach}' sind jetzt verfügbar!",
+        )
+
+    async def _sat_save_restart(self, channel, success_desc: str) -> None:
+        """Save-vor-Restart + Discord-Feedback. Shared von migrate + View."""
+        har = getattr(self.bot, "health_auto_restart", None)
+        if har:
+            har.suppress("sat", "main", duration_seconds=300)
+        success, msg = await self.server.restart(api=self.api)
+        if channel is None:
+            return
+        if success:
+            await channel.send(
+                embed=discord.Embed(
+                    title="Server neugestartet",
+                    description=success_desc,
+                    color=0x2ecc71,
+                )
+            )
+        else:
+            await channel.send(f"Restart fehlgeschlagen: {msg}")
+
+    @blueprints_migrate.autocomplete("von")
+    async def bp_migrate_von_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ):
+        return self._world_choices(current)
+
+    @blueprints_migrate.autocomplete("nach")
+    async def bp_migrate_nach_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ):
+        return self._world_choices(current)
+
+    def _world_choices(self, current: str) -> list:
+        """Autocomplete-Choices fuer Welt-Ordner (mit Blueprint-Count)."""
+        worlds = self.bot.blueprint_mgr.get_worlds()
+        choices = []
+        for w in worlds:
+            label = f"{w['name']} ({w['blueprint_count']} BP)"
+            if w.get("is_active"):
+                label += " — aktiv"
+            if current and current.lower() not in w["name"].lower():
+                continue
+            choices.append(
+                app_commands.Choice(name=label[:100], value=w["name"][:100])
             )
         return choices[:25]
 
@@ -1433,7 +1665,8 @@ class BlueprintRestartView(discord.ui.View):
             har = getattr(self.cog.bot, "health_auto_restart", None)
             if har:
                 har.suppress("sat", "main", duration_seconds=300)
-            success, msg = await self.cog.server.restart()
+            # Save-vor-Restart: api durchreichen → SaveGame + Flush vor Restart
+            success, msg = await self.cog.server.restart(api=self.cog.api)
             if success:
                 embed = discord.Embed(
                     title="Server neugestartet",
@@ -1462,6 +1695,118 @@ class BlueprintRestartView(discord.ui.View):
         await interaction.followup.send(
             "Blueprints sind nach dem nächsten Server-Restart verfügbar.",
             ephemeral=True,
+        )
+
+
+class MigrateConflictView(discord.ui.View):
+    """Entscheidung bei Migrations-Konflikten (gleicher Name, anderer Inhalt).
+    Drei Wege: Überschreiben (Quelle gewinnt), Löschen (aus Ziel entfernen),
+    Behalten (Ziel bleibt). Alle lösen anschliessend Save-vor-Restart aus."""
+
+    def __init__(self, cog, interaction, von: str, nach: str, conflict: list):
+        super().__init__(timeout=180)
+        self.cog = cog
+        self.original_user = interaction.user.id
+        self.von = von
+        self.nach = nach
+        self.conflict = conflict
+
+    async def _guard(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.original_user:
+            await interaction.response.send_message(
+                "Nur der Auslöser kann entscheiden.", ephemeral=True
+            )
+            return False
+        return True
+
+    @discord.ui.button(
+        label="Überschreiben + Restart",
+        style=discord.ButtonStyle.danger,
+        emoji="♻️",
+    )
+    async def overwrite(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        if not await self._guard(interaction):
+            return
+        await interaction.response.edit_message(view=None)
+
+        copied, _, errors = self.cog.bot.blueprint_mgr.migrate_world(
+            self.von, self.nach, overwrite=True, only_names=self.conflict
+        )
+        desc = f"**{len(copied)}** Konflikte mit Quell-Version überschrieben."
+        if errors:
+            desc += f"\n{len(errors)} Fehler: " + "; ".join(errors[:3])
+        await interaction.followup.send(
+            embed=discord.Embed(
+                title="Überschrieben", description=desc, color=0xf39c12
+            )
+        )
+        logger.info(
+            f"Migration OVERWRITE durch {interaction.user}: "
+            f"{self.von} -> {self.nach} ({len(copied)} überschrieben)"
+        )
+        await self.cog._sat_save_restart(
+            interaction.channel,
+            f"Überschriebene Blueprints aus '{self.nach}' sind jetzt verfügbar!",
+        )
+
+    @discord.ui.button(
+        label="Aus Ziel löschen + Restart",
+        style=discord.ButtonStyle.danger,
+        emoji="🗑",
+    )
+    async def delete(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        if not await self._guard(interaction):
+            return
+        await interaction.response.edit_message(view=None)
+
+        deleted, errors = self.cog.bot.blueprint_mgr.delete_from_world(
+            self.nach, self.conflict
+        )
+        desc = f"**{deleted}** Konflikt-Blueprints aus '{self.nach}' gelöscht."
+        if errors:
+            desc += f"\n{len(errors)} Fehler: " + "; ".join(errors[:3])
+        await interaction.followup.send(
+            embed=discord.Embed(
+                title="Gelöscht", description=desc, color=0xe74c3c
+            )
+        )
+        logger.info(
+            f"Migration DELETE durch {interaction.user}: "
+            f"{deleted} aus '{self.nach}' gelöscht"
+        )
+        await self.cog._sat_save_restart(
+            interaction.channel,
+            f"Konflikte aus '{self.nach}' entfernt — Server neugestartet.",
+        )
+
+    @discord.ui.button(
+        label="Behalten + Restart",
+        style=discord.ButtonStyle.secondary,
+        emoji="\U0001f512",
+    )
+    async def keep(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        if not await self._guard(interaction):
+            return
+        await interaction.response.edit_message(view=None)
+        await interaction.followup.send(
+            embed=discord.Embed(
+                title="Behalten",
+                description="Ziel-Versionen bleiben unverändert.",
+                color=0x2ecc71,
+            )
+        )
+        logger.info(
+            f"Migration KEEP durch {interaction.user}: {self.von} -> {self.nach}"
+        )
+        await self.cog._sat_save_restart(
+            interaction.channel,
+            f"Blueprints in '{self.nach}' sind jetzt verfügbar!",
         )
 
 

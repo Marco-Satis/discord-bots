@@ -189,6 +189,172 @@ class BlueprintManager:
 
         return result
 
+    @staticmethod
+    def _file_hash(path: Path) -> str:
+        """SHA256 einer Datei (chunked). Leerer String wenn nicht lesbar."""
+        import hashlib
+        try:
+            h = hashlib.sha256()
+            with path.open("rb") as f:
+                for chunk in iter(lambda: f.read(65536), b""):
+                    h.update(chunk)
+            return h.hexdigest()
+        except Exception as e:
+            logger.warning(f"Hash fehlgeschlagen fuer {path}: {e}")
+            return ""
+
+    def categorize_migration(
+        self, source: str, target: str
+    ) -> Dict[str, Any]:
+        """Kategorisiert Blueprints fuer Migration source -> target.
+
+        Returns dict:
+            {"new": [names], "identical": [names], "conflict": [names],
+             "error": "..." (optional)}
+
+        - new       : im Ziel nicht vorhanden
+        - identical : im Ziel vorhanden, .sbp-Hash gleich (echtes Duplikat)
+        - conflict  : im Ziel vorhanden, .sbp-Hash unterschiedlich
+        """
+        result: Dict[str, Any] = {"new": [], "identical": [], "conflict": []}
+
+        if Path(source).name != source or Path(target).name != target:
+            result["error"] = "Ungueltiger Welt-Name (Pfad-Traversal)."
+            return result
+        if source == target:
+            result["error"] = "Quell- und Ziel-Welt sind identisch."
+            return result
+
+        src_path = self.base_path / source
+        dst_path = self.base_path / target
+        if not src_path.is_dir():
+            result["error"] = f"Quell-Welt '{source}' existiert nicht."
+            return result
+
+        for sbp_file in sorted(src_path.glob("*.sbp")):
+            name = sbp_file.stem
+            dst_sbp = dst_path / f"{name}.sbp"
+            if not dst_sbp.exists():
+                result["new"].append(name)
+                continue
+            # Hash-Vergleich der .sbp-Datei
+            if self._file_hash(sbp_file) == self._file_hash(dst_sbp):
+                result["identical"].append(name)
+            else:
+                result["conflict"].append(name)
+
+        return result
+
+    def delete_from_world(
+        self, world: str, names: List[str]
+    ) -> Tuple[int, List[str]]:
+        """Loescht Blueprints (.sbp + .sbpcfg) gezielt aus EINEM Welt-Ordner.
+
+        Returns (deleted_count, errors).
+        """
+        errors: List[str] = []
+        deleted = 0
+
+        if Path(world).name != world:
+            return 0, ["Ungueltiger Welt-Name (Pfad-Traversal)."]
+
+        world_path = self.base_path / world
+        if not world_path.is_dir():
+            return 0, [f"Welt '{world}' existiert nicht."]
+
+        for name in names:
+            safe = Path(name).name
+            if safe != name:
+                errors.append(f"{name}: ungueltiger Name")
+                continue
+            removed = False
+            for suffix in (".sbp", ".sbpcfg"):
+                f = world_path / f"{safe}{suffix}"
+                if f.exists():
+                    try:
+                        f.unlink()
+                        removed = True
+                    except Exception as e:
+                        errors.append(f"{f.name}: {e}")
+            if removed:
+                deleted += 1
+
+        logger.info(
+            f"Blueprint delete_from_world '{world}': {deleted} geloescht, "
+            f"{len(errors)} Fehler"
+        )
+        return deleted, errors
+
+    def migrate_world(
+        self, source: str, target: str, overwrite: bool = False,
+        only_names: Optional[List[str]] = None,
+    ) -> Tuple[List[str], List[str], List[str]]:
+        """Migriert Blueprints (.sbp + .sbpcfg) von Quell- in Ziel-Welt.
+
+        Args:
+            source: Name des Quell-Welt-Ordners
+            target: Name des Ziel-Welt-Ordners
+            overwrite: bei False werden existierende Blueprints uebersprungen
+                       (Default), bei True ueberschrieben
+            only_names: wenn gesetzt, nur diese Blueprint-Namen migrieren
+                        (fuer gezieltes Ueberschreiben nach Button-Entscheidung)
+
+        Returns:
+            (copied_names, skipped_names, errors) — kopierte Blueprint-Namen,
+            uebersprungene Namen (existieren im Ziel), Fehler-Liste.
+            Namen sind Blueprint-Basisnamen (ohne Endung), dedupliziert.
+        """
+        copied: set = set()
+        skipped: set = set()
+        errors: List[str] = []
+
+        # Pfad-Traversal-Schutz: nur Ordner-Namen erlauben
+        if Path(source).name != source or Path(target).name != target:
+            return [], [], ["Ungueltiger Welt-Name (Pfad-Traversal)."]
+
+        src_path = self.base_path / source
+        dst_path = self.base_path / target
+
+        if not src_path.is_dir():
+            return [], [], [f"Quell-Welt '{source}' existiert nicht."]
+        if source == target:
+            return [], [], ["Quell- und Ziel-Welt sind identisch."]
+
+        dst_path.mkdir(parents=True, exist_ok=True)
+
+        name_filter = set(only_names) if only_names is not None else None
+
+        for src_file in src_path.iterdir():
+            if not src_file.is_file():
+                continue
+            if src_file.suffix not in (".sbp", ".sbpcfg"):
+                continue
+
+            bp_name = src_file.stem  # Basisname ohne Endung
+            if name_filter is not None and bp_name not in name_filter:
+                continue
+
+            dest_file = dst_path / src_file.name
+            if dest_file.exists() and not overwrite:
+                skipped.add(bp_name)
+                continue
+
+            try:
+                shutil.copy2(src_file, dest_file)
+                copied.add(bp_name)
+            except Exception as e:
+                errors.append(f"{src_file.name}: {e}")
+                logger.warning(f"Migrate fehlgeschlagen fuer {src_file.name}: {e}")
+
+        # Namen die kopiert wurden nicht zusaetzlich als skipped melden
+        skipped -= copied
+
+        logger.info(
+            f"Blueprint-Migration: {len(copied)} kopiert, {len(skipped)} uebersprungen, "
+            f"{len(errors)} Fehler ('{source}' -> '{target}', overwrite={overwrite})"
+        )
+        return sorted(copied), sorted(skipped), errors
+
     async def load(self) -> None:
         """Load blueprint database und erkennt aktive Welt."""
         try:

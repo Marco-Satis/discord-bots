@@ -65,23 +65,23 @@
 
     .btn-period {
         padding: 0.5rem 1.2rem;
-        border: 1px solid var(--border-color, #2a2a4e);
+        border: 1px solid var(--border-color);
         border-radius: var(--radius-sm, 4px);
-        background: var(--bg-card, #0f3460);
-        color: var(--text-primary, #e0e0e0);
+        background: var(--bg-card);
+        color: var(--text-primary);
         cursor: pointer;
         font-size: 0.9rem;
         transition: all 0.2s ease;
     }
 
     .btn-period:hover {
-        background: var(--bg-hover, #1e2a4a);
-        border-color: var(--accent, #533483);
+        background: var(--bg-hover);
+        border-color: var(--accent);
     }
 
     .btn-period.active {
-        background: var(--accent, #533483);
-        border-color: var(--accent-light, #6c44a0);
+        background: var(--accent);
+        border-color: var(--accent-light);
         color: #ffffff;
     }
 
@@ -89,7 +89,7 @@
         display: flex;
         gap: 1.5rem;
         font-size: 0.85rem;
-        color: var(--text-secondary, #a0a0b8);
+        color: var(--text-secondary);
     }
 
     .analytics-summary .stat-item {
@@ -101,7 +101,7 @@
     .analytics-summary .stat-value {
         font-size: 1.2rem;
         font-weight: 600;
-        color: var(--text-primary, #e0e0e0);
+        color: var(--text-primary);
     }
 
     .analytics-summary .stat-label {
@@ -117,17 +117,17 @@
     }
 
     .chart-card {
-        background: var(--bg-card, #0f3460);
+        background: var(--bg-card);
         border-radius: var(--radius, 8px);
         padding: 1.2rem;
-        box-shadow: var(--shadow, 0 2px 8px rgba(0, 0, 0, 0.3));
+        box-shadow: var(--shadow);
         position: relative;
     }
 
     .chart-card h4 {
         margin: 0 0 1rem 0;
         font-size: 1rem;
-        color: var(--text-primary, #e0e0e0);
+        color: var(--text-primary);
         font-weight: 500;
     }
 
@@ -137,7 +137,7 @@
 
     .chart-empty {
         text-align: center;
-        color: var(--text-muted, #6c6c80);
+        color: var(--text-muted);
         padding: 3rem 1rem;
         font-style: italic;
     }
@@ -164,21 +164,23 @@
 (function() {
     'use strict';
 
-    // --- Farbkonfiguration (passend zum Dashboard-Theme) ---
+    // --- Farbkonfiguration (style.css v5.0-aligned, Discord-native) ---
+    // Canvas-Context kann CSS-Custom-Properties nicht lesen, deshalb Hex-Werte intentional.
+    // Werte korrespondieren zu var(--danger)/--accent/--info/--success/--warning/--pink.
     const COLORS = {
-        cpu:      { border: '#e94560', bg: 'rgba(233, 69, 96, 0.15)' },
-        ram:      { border: '#533483', bg: 'rgba(83, 52, 131, 0.15)' },
-        disk:     { border: '#3498db', bg: 'rgba(52, 152, 219, 0.15)' },
-        players:  { border: '#2ecc71', bg: 'rgba(46, 204, 113, 0.15)' },
-        total:    { border: '#f39c12', bg: 'rgba(243, 156, 18, 0.15)' },
-        uptime:   { border: '#2ecc71', bg: 'rgba(46, 204, 113, 0.3)' },
-        downtime: { border: '#e74c3c', bg: 'rgba(231, 76, 60, 0.3)' },
+        cpu:      { border: '#f23f43', bg: 'rgba(242, 63, 67, 0.15)' },   // var(--danger)
+        ram:      { border: '#5865f2', bg: 'rgba(88, 101, 242, 0.15)' },  // var(--accent)
+        disk:     { border: '#00a8fc', bg: 'rgba(0, 168, 252, 0.15)' },   // var(--info)
+        players:  { border: '#23a55a', bg: 'rgba(35, 165, 90, 0.15)' },   // var(--success)
+        total:    { border: '#f0b232', bg: 'rgba(240, 178, 50, 0.15)' },  // var(--warning)
+        uptime:   { border: '#23a55a', bg: 'rgba(35, 165, 90, 0.3)' },
+        downtime: { border: '#f23f43', bg: 'rgba(242, 63, 67, 0.3)' },
         // Zusaetzliche Farben fuer mehrere Server
         extra: [
-            { border: '#1abc9c', bg: 'rgba(26, 188, 156, 0.15)' },
-            { border: '#9b59b6', bg: 'rgba(155, 89, 182, 0.15)' },
-            { border: '#e67e22', bg: 'rgba(230, 126, 34, 0.15)' },
-            { border: '#3498db', bg: 'rgba(52, 152, 219, 0.15)' },
+            { border: '#eb459e', bg: 'rgba(235, 69, 158, 0.15)' },        // var(--pink)
+            { border: '#7983f5', bg: 'rgba(121, 131, 245, 0.15)' },       // var(--accent-light)
+            { border: '#f0b232', bg: 'rgba(240, 178, 50, 0.15)' },        // var(--warning)
+            { border: '#00a8fc', bg: 'rgba(0, 168, 252, 0.15)' },         // var(--info)
         ],
     };
 
@@ -193,17 +195,17 @@
         plugins: {
             legend: {
                 labels: {
-                    color: '#a0a0b8',
+                    color: '#b5bac1',  // var(--text-secondary)
                     font: { size: 12 },
                     boxWidth: 12,
                     padding: 15,
                 },
             },
             tooltip: {
-                backgroundColor: 'rgba(15, 52, 96, 0.95)',
-                titleColor: '#e0e0e0',
-                bodyColor: '#a0a0b8',
-                borderColor: '#2a2a4e',
+                backgroundColor: 'rgba(53, 57, 69, 0.95)',  // var(--bg-card)
+                titleColor: '#f2f3f5',                       // var(--text-primary)
+                bodyColor: '#b5bac1',                        // var(--text-secondary)
+                borderColor: 'rgba(255, 255, 255, 0.14)',    // var(--border-color)
                 borderWidth: 1,
                 cornerRadius: 6,
                 padding: 10,
@@ -212,19 +214,19 @@
         scales: {
             x: {
                 ticks: {
-                    color: '#6c6c80',
+                    color: '#80848e',  // var(--text-muted)
                     font: { size: 10 },
                     maxTicksLimit: 12,
                     maxRotation: 45,
                 },
-                grid: { color: 'rgba(42, 42, 78, 0.5)' },
+                grid: { color: 'rgba(255, 255, 255, 0.06)' },  // var(--border-subtle)
             },
             y: {
                 ticks: {
-                    color: '#6c6c80',
+                    color: '#80848e',
                     font: { size: 11 },
                 },
-                grid: { color: 'rgba(42, 42, 78, 0.5)' },
+                grid: { color: 'rgba(255, 255, 255, 0.06)' },
                 beginAtZero: true,
             },
         },

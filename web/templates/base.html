@@ -5,10 +5,29 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ request.state.csrf_token|default('') }}">
     <title>{% block title %}Dashboard{% endblock %} — Bot Dashboard</title>
+    <!-- M-02 Fix: Inline-SVG-Favicon (data: URI, CSP-compliant via img-src 'data:') -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='%235865F2'/><stop offset='1' stop-color='%23EB459E'/></linearGradient></defs><rect width='32' height='32' rx='7' fill='url(%23g)'/><text x='16' y='22' font-family='-apple-system,BlinkMacSystemFont,sans-serif' font-size='18' font-weight='700' text-anchor='middle' fill='white'>B</text></svg>">
+    <!-- DSGVO: Inter-Font lokal gehostet (siehe /static/fonts/inter/inter.css).
+         Migration 2026-05-16 entfernt Google-Fonts-CDN (User-IP zu Google). -->
+    <link rel="stylesheet" href="/static/fonts/inter/inter.css">
     <link rel="stylesheet" href="/static/style.css">
     <link rel="stylesheet" href="/static/themes.css">
-    <script src="https://unpkg.com/htmx.org@1.9.10/dist/htmx.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <!-- UI-Enhancements v1.0 (Animation-Tokens, Toast, Skeleton, A11y, Status-Pulse) -->
+    <link rel="stylesheet" href="/static/ui_enhancements.css">
+    <!-- HTMX 2.0.4 (Major-Upgrade 2026-05-16 von 1.9.10). Breaking changes:
+         hx-on-Attribute syntax (Marco-Templates pruefen wenn 'hx-on' verwendet wird). -->
+    <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"
+            integrity="sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+" crossorigin="anonymous"></script>
+    <!-- Chart.js 4.5.0 (Patch-Update 2026-05-16). Kandidat fuer Migration zu uPlot. -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.min.js"></script>
+    <!-- uPlot 1.6.30: high-performance Charts fuer Live-Streaming. Migration-Pilot in einem analytics-Template. -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.30/dist/uPlot.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/uplot@1.6.30/dist/uPlot.iife.min.js"></script>
+    <!-- Lucide-Icons v0.x (1300+ SVG-Icons, ESM-Bundle). Aktivierung via lucide.createIcons() -->
+    <script src="https://unpkg.com/lucide@0.428.0/dist/umd/lucide.min.js"></script>
+    <!-- UI-Enhancements JS (Toast, HTMX-Listener, Lucide-Render-Hook) — am Ende des Headers
+         damit DOMContentLoaded korrekt feuert -->
+    <script src="/static/ui_enhancements.js" defer></script>
     <script>
         // F64: CSRF-Token fuer alle HTMX-Requests
         document.addEventListener('DOMContentLoaded', function() {
@@ -25,11 +44,14 @@
             var WARNING_BEFORE = 300;   // 5 Minuten vorher warnen
             var _lastActivity = Date.now();
 
-            // Aktivitaet tracken
+            // Aktivitaet tracken (inkl. HTMX-Requests fuer SSE-only-Use-Case)
             ['click', 'keypress', 'scroll', 'mousemove'].forEach(function(evt) {
                 document.addEventListener(evt, function() {
                     _lastActivity = Date.now();
                 }, {passive: true});
+            });
+            document.body.addEventListener('htmx:beforeRequest', function() {
+                _lastActivity = Date.now();
             });
 
             setInterval(function() {
@@ -113,126 +135,179 @@
                         method: 'POST',
                         credentials: 'same-origin',
                         headers: headers
-                    }).catch(function() {
-                        // Fehler bei Server-Sync ignorieren — localStorage reicht
+                    }).then(function(r) {
+                        if (!r.ok) console.warn('Theme-Sync zum Server fehlgeschlagen: HTTP ' + r.status);
+                    }).catch(function(err) {
+                        // Network-Fehler — localStorage reicht, aber loggen
+                        console.warn('Theme-Sync zum Server fehlgeschlagen:', err);
                     });
                 });
             });
         })();
     </script>
     <style>
-        /* F55: Sidebar-Suchfeld */
+        /* Sidebar-Suchfeld (Mockup-Stil mit style.css-Tokens) */
         .sidebar-search {
-            padding: 0 0.75rem 0.5rem;
+            padding: var(--s-3) var(--s-5);
+            border-bottom: 1px solid var(--border-color);
         }
         .sidebar-search-input {
             width: 100%;
-            padding: 0.4rem 0.6rem;
-            background: var(--bg-primary);
+            padding: var(--s-2) var(--s-3);
+            background: var(--bg-input);
             border: 1px solid var(--border-color);
             border-radius: var(--radius-sm);
             color: var(--text-primary);
-            font-size: 0.8rem;
+            font-size: 13px;
             box-sizing: border-box;
+            font-family: inherit;
         }
         .sidebar-search-input:focus {
             outline: none;
             border-color: var(--accent);
-            box-shadow: 0 0 0 2px rgba(88, 101, 242, 0.2);
+            box-shadow: 0 0 0 3px var(--accent-glow);
         }
         .sidebar-search-input::placeholder {
-            color: var(--text-secondary);
+            color: var(--text-muted);
         }
+        /* Theme-Toggle als nav-item-Variante */
+        .theme-toggle {
+            display: flex;
+            align-items: center;
+            gap: var(--s-3);
+            width: 100%;
+            padding: var(--s-2) var(--s-5);
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 14px;
+            font-family: inherit;
+            font-weight: 500;
+            cursor: pointer;
+            min-height: 36px;
+            text-align: left;
+        }
+        .theme-toggle:hover { background: var(--bg-card-hover); color: var(--text-primary); }
+        /* User-Avatar mit Online-Status-Dot (Mockup-Pattern) */
+        .sidebar-user .user-avatar,
+        .sidebar-user .user-avatar-placeholder { position: relative; }
+        .sidebar-user .user-avatar::after,
+        .sidebar-user .user-avatar-placeholder::after {
+            content: '';
+            position: absolute;
+            bottom: -1px;
+            right: -1px;
+            width: 12px;
+            height: 12px;
+            background: var(--success);
+            border: 2px solid var(--bg-sidebar);
+            border-radius: var(--radius-full);
+        }
+        .user-info { display: flex; flex-direction: column; min-width: 0; }
+        .user-info .user-name { font-size: 14px; font-weight: 500; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .user-info .user-tag { font-size: 12px; color: var(--text-muted); }
+        /* nav-logout am Bottom mit Top-Border (style.css definiert, hier verstaerken) */
+        .nav-logout { margin-top: auto; border-top: 1px solid var(--border-color); }
     </style>
 </head>
 <body>
-    <!-- Sidebar-Navigation -->
+    <!-- Sidebar-Navigation (Mockup v1 — Discord-native + Linear-Clean) -->
     <aside class="sidebar" id="sidebar">
         <div class="sidebar-header">
-            <h2 class="sidebar-logo">Bot Dashboard</h2>
+            <span class="sidebar-logo">Bot Dashboard</span>
         </div>
 
-        <!-- Benutzer-Info -->
         {% if user %}
         <div class="sidebar-user">
             {% if user.avatar %}
             <img src="{{ user.avatar }}" alt="Avatar" class="user-avatar">
             {% else %}
-            <div class="user-avatar user-avatar-placeholder">
-                {{ user.username[:1]|upper }}
-            </div>
+            <div class="user-avatar user-avatar-placeholder">{{ user.username[:1]|upper }}</div>
             {% endif %}
-            <span class="user-name">{{ user.username }}</span>
+            <div class="user-info">
+                <span class="user-name">{{ user.username }}</span>
+                <span class="user-tag">@{{ user.username|lower }}</span>
+            </div>
         </div>
         {% endif %}
 
-        <!-- F55: Suchfeld in Sidebar -->
-        <form method="get" action="/search" class="sidebar-search">
-            <input type="text" name="q" placeholder="Suche..." class="sidebar-search-input" autocomplete="off">
+        <form method="get" action="/search" class="sidebar-search" role="search">
+            <input type="text" name="q" placeholder="Suche..." class="sidebar-search-input" autocomplete="off" aria-label="Suche">
         </form>
 
-        <nav class="sidebar-nav">
-            <a href="/" class="nav-item {% block nav_dashboard %}{% endblock %}">
-                <span class="nav-icon">&#9632;</span>
-                <span class="nav-label">Uebersicht</span>
-            </a>
-            <a href="/errors" class="nav-item {% block nav_errors %}{% endblock %}">
-                <span class="nav-icon">&#9888;</span>
-                <span class="nav-label">Fehler</span>
-            </a>
-            <a href="/admin-bot" class="nav-item {% block nav_admin_bot %}{% endblock %}">
-                <span class="nav-icon">&#9881;</span>
-                <span class="nav-label">Admin Bot</span>
-            </a>
-            <a href="/config" class="nav-item {% block nav_config %}{% endblock %}">
-                <span class="nav-icon">&#9998;</span>
-                <span class="nav-label">Konfiguration</span>
-            </a>
-            <a href="/system" class="nav-item {% block nav_system %}{% endblock %}">
-                <span class="nav-icon">&#9783;</span>
-                <span class="nav-label">System</span>
-            </a>
-            <a href="/security" class="nav-item {% block nav_security %}{% endblock %}">
-                <span class="nav-icon">&#9888;</span>
-                <span class="nav-label">Sicherheit</span>
-            </a>
+        <nav class="sidebar-nav" aria-label="Hauptnavigation">
+            <div class="nav-group">
+                <div class="nav-group-label">Uebersicht</div>
+                <a href="/" class="nav-item {% block nav_dashboard %}{% endblock %}">
+                    <span class="nav-icon" aria-hidden="true">&#9632;</span>
+                    <span class="nav-label">Dashboard</span>
+                </a>
+                <a href="/errors" class="nav-item {% block nav_errors %}{% endblock %}">
+                    <span class="nav-icon" aria-hidden="true">&#9888;</span>
+                    <span class="nav-label">Fehler</span>
+                </a>
+                <a href="/system" class="nav-item {% block nav_system %}{% endblock %}">
+                    <span class="nav-icon" aria-hidden="true">&#9783;</span>
+                    <span class="nav-label">System</span>
+                </a>
+                <a href="/security" class="nav-item {% block nav_security %}{% endblock %}">
+                    <span class="nav-icon" aria-hidden="true">&#128274;</span>
+                    <span class="nav-label">Sicherheit</span>
+                </a>
+            </div>
 
-            <div class="nav-separator">Server</div>
-            <a href="/server/satisfactory" class="nav-item nav-sub {% block nav_sat %}{% endblock %}">
-                <span class="nav-icon">&#9654;</span>
-                <span class="nav-label">Satisfactory</span>
-            </a>
-            <a href="/server/mc_bmc" class="nav-item nav-sub {% block nav_mc_bmc %}{% endblock %}">
-                <span class="nav-icon">&#9654;</span>
-                <span class="nav-label">MC Better MC</span>
-            </a>
-            <a href="/server/mc_vanilla" class="nav-item nav-sub {% block nav_mc_vanilla %}{% endblock %}">
-                <span class="nav-icon">&#9654;</span>
-                <span class="nav-label">MC Vanilla</span>
-            </a>
-            <a href="/search" class="nav-item {% block nav_search %}{% endblock %}">
-                <span class="nav-icon">&#128269;</span>
-                <span class="nav-label">Suche</span>
-            </a>
+            <div class="nav-group">
+                <div class="nav-group-label">Bot-Verwaltung</div>
+                <a href="/admin-bot" class="nav-item {% block nav_admin_bot %}{% endblock %}">
+                    <span class="nav-icon" aria-hidden="true">&#9881;</span>
+                    <span class="nav-label">Admin Bot</span>
+                </a>
+                <a href="/config" class="nav-item {% block nav_config %}{% endblock %}">
+                    <span class="nav-icon" aria-hidden="true">&#9998;</span>
+                    <span class="nav-label">Konfiguration</span>
+                </a>
+            </div>
 
-            <div class="nav-separator">Info</div>
-            <a href="/changelog" class="nav-item {% block nav_changelog %}{% endblock %}">
-                <span class="nav-icon">&#9776;</span>
-                <span class="nav-label">Changelog</span>
-            </a>
+            <div class="nav-group">
+                <div class="nav-group-label">Game-Server</div>
+                <a href="/server/satisfactory" class="nav-item {% block nav_sat %}{% endblock %}">
+                    <span class="nav-icon" aria-hidden="true">&#127981;</span>
+                    <span class="nav-label">Satisfactory</span>
+                </a>
+                <a href="/server/mc_bmc" class="nav-item {% block nav_mc_bmc %}{% endblock %}">
+                    <span class="nav-icon" aria-hidden="true">&#9935;</span>
+                    <span class="nav-label">MC Better MC</span>
+                </a>
+                <a href="/server/mc_vanilla" class="nav-item {% block nav_mc_vanilla %}{% endblock %}">
+                    <span class="nav-icon" aria-hidden="true">&#9968;</span>
+                    <span class="nav-label">MC Vanilla</span>
+                </a>
+            </div>
+
+            <div class="nav-group">
+                <div class="nav-group-label">Info</div>
+                <a href="/search" class="nav-item {% block nav_search %}{% endblock %}">
+                    <span class="nav-icon" aria-hidden="true">&#128269;</span>
+                    <span class="nav-label">Suche</span>
+                </a>
+                <a href="/changelog" class="nav-item {% block nav_changelog %}{% endblock %}">
+                    <span class="nav-icon" aria-hidden="true">&#9776;</span>
+                    <span class="nav-label">Changelog</span>
+                </a>
+            </div>
 
             <a href="/auth/logout" class="nav-item nav-logout">
-                <span class="nav-icon">&#10140;</span>
+                <span class="nav-icon" aria-hidden="true">&#10140;</span>
                 <span class="nav-label">Abmelden</span>
             </a>
         </nav>
 
         <div class="sidebar-footer">
             <button class="theme-toggle" id="themeToggle" type="button" title="Theme wechseln">
-                <span class="nav-icon" id="themeIcon">&#9790;</span>
+                <span class="nav-icon" id="themeIcon" aria-hidden="true">&#9790;</span>
                 <span class="nav-label" id="themeLabel">Light Mode</span>
             </button>
-            <small>Dashboard &middot; v4.0.0</small>
+            <small>Dashboard &middot; v4.2.0</small>
         </div>
     </aside>
 

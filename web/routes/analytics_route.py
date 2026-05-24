@@ -14,7 +14,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 
-from modules.database.db_manager import get_db
+from modules.database.db_manager import get_db, get_read_db
 from utils.logger import get_logger
 from web.auth import require_auth_api
 
@@ -262,13 +262,16 @@ async def analytics_players(
     entries = await _load_stats_from_db(period)
     entries = _downsample(entries)
 
+    # Nicht-Gameserver-IDs aus der Auswertung ausschliessen (ssl-Check, bot-Status etc.)
+    EXCLUDE_IDS = {"ssl", "bot", "bot_status"}
+
     labels = []
     # Alle Server-IDs sammeln die in den Eintraegen vorkommen
     server_ids: set[str] = set()
     for entry in entries:
         for srv in entry.get("servers", []):
             sid = srv.get("id", "")
-            if sid:
+            if sid and sid not in EXCLUDE_IDS:
                 server_ids.add(sid)
 
     # Daten pro Server sammeln
@@ -527,11 +530,24 @@ async def analytics_peaks(request: Request):
         JSON mit 'peaks' — Liste der 10 Zeitpunkte mit hoechster Spielerzahl,
         jeweils mit Timestamp, Gesamt-Spielerzahl und Server-Aufschluesselung
     """
+    # F57-Fix (audit 2026-05-17, perf.md F3): Window + LIMIT statt Full-Table-Scan.
+    # 24k+ Zeilen wachsen ~525k/Jahr — ohne Bounds wird /peaks linear langsamer.
+    # Top-10 aus letzten 90 Tagen + Hard-Cap 5000 Zeilen reicht praktisch fuer alle
+    # Spitzenwert-Reports; aeltere Peaks sind operativ irrelevant.
+    PEAKS_WINDOW_DAYS = 90
+    PEAKS_HARD_CAP = 5000
+    window_start = (datetime.now() - timedelta(days=PEAKS_WINDOW_DAYS)).isoformat()
+
     try:
-        db = await get_db()
+        # Read-Pool nutzen (audit-fix 2026-05-17, perf.md F2):
+        # SELECT-only Pfad — vermeidet Serialisierung der Write-Connection.
+        db = await get_read_db()
         cursor = await db.execute(
             "SELECT timestamp, server_data FROM stats_history "
-            "ORDER BY timestamp DESC"
+            "WHERE timestamp >= ? "
+            "ORDER BY timestamp DESC "
+            "LIMIT ?",
+            (window_start, PEAKS_HARD_CAP),
         )
         rows = await cursor.fetchall()
     except Exception as e:

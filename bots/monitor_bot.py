@@ -35,6 +35,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from utils.config import load_env, get_env, get_config
 from utils.logger import get_logger
 from utils.formatting import format_uptime, format_bytes, status_emoji, progress_bar
+from utils.async_tasks import track_task
 
 from modules.satisfactory.server import SatisfactoryServer
 from modules.satisfactory.api_client import SatisfactoryAPI
@@ -2474,7 +2475,7 @@ async def on_ready():
             except Exception as e:
                 logger.warning(f"Initialer Update-Check fehlgeschlagen: {e}")
 
-        asyncio.create_task(_initial_update_check())
+        track_task(_initial_update_check(), name="monitor_bot.initial_update_check")
 
         # Initialen MC-Version-Check starten (Paper-basierte Server)
         async def _initial_mc_version_check():
@@ -2492,7 +2493,7 @@ async def on_ready():
                 logger.debug(f"Initialer MC-Version-Check fehlgeschlagen: {e}")
 
         if mc_update_checkers:
-            asyncio.create_task(_initial_mc_version_check())
+            track_task(_initial_mc_version_check(), name="monitor_bot.initial_mc_version_check")
 
         # Send startup notification only on first connect
         await notifier.send_admin(

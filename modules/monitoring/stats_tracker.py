@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Any
 
 from utils.logger import get_logger
+from utils.async_tasks import schedule_from_sync
 from modules.database.db_manager import get_db
 
 logger = get_logger("stats_tracker")
@@ -124,16 +125,16 @@ class StatsTracker:
     def _fire_and_forget_insert(self, metric_type: str,
                                  value_int: Optional[int] = None,
                                  value_real: Optional[float] = None) -> None:
-        """Schedule an async DB insert from synchronous code."""
+        """Schedule an async DB insert from synchronous code.
+
+        Uses utils.async_tasks.schedule_from_sync mit Reference-Tracking gegen
+        GC-Verlust (audit 2026-05-17, async.md H2).
+        """
         ts = datetime.now().isoformat()
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                loop.create_task(self._db_insert(metric_type, ts, value_int, value_real))
-            else:
-                logger.debug("Event loop not running, skipping DB write for stats_tracker")
-        except RuntimeError:
-            logger.debug("No event loop available, skipping DB write for stats_tracker")
+        schedule_from_sync(
+            self._db_insert(metric_type, ts, value_int, value_real),
+            name=f"stats_tracker.insert[{self.server_type}/{metric_type}]",
+        )
 
     async def _db_insert(self, metric_type: str, timestamp: str,
                           value_int: Optional[int], value_real: Optional[float]) -> None:
@@ -176,13 +177,11 @@ class StatsTracker:
                     r for r in self._data[key]
                     if r.get("ts", "") >= cutoff
                 ]
-        # Also schedule DB cleanup
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                loop.create_task(self._db_cleanup_old(days))
-        except RuntimeError:
-            pass
+        # Also schedule DB cleanup — mit Reference-Tracking (audit-fix 2026-05-17)
+        schedule_from_sync(
+            self._db_cleanup_old(days),
+            name=f"stats_tracker.cleanup[{self.server_type}]",
+        )
 
     # ------------------------------------------------------------------
     # Recording

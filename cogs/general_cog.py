@@ -9,6 +9,7 @@ import asyncio
 import json
 
 import discord
+from utils.async_tasks import track_task
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
@@ -124,8 +125,8 @@ class GeneralCog(commands.Cog):
                 if before is None or before_resume < before:
                     before = before_resume
 
-            # Task im Hintergrund starten
-            asyncio.create_task(
+            # Task im Hintergrund starten — mit Reference-Tracking (audit-fix)
+            track_task(
                 self._execute_clear(
                     channel=channel,
                     guild=guild,
@@ -463,7 +464,7 @@ class GeneralCog(commands.Cog):
                     await _log_ch.send(embed=embed)
                 except Exception as e:
                     logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
-            asyncio.create_task(_send())
+            track_task(_send(), name="general_cog.send_audit_log")
 
     # ------------------------------------------------------------------
     # /help - Alle (rollenbasiert)

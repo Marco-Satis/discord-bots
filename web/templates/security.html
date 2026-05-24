@@ -55,13 +55,13 @@
                     <td><code>{{ entry.ip }}</code></td>
                     <td>
                         {% if entry.source == "iptables" %}
-                        <span class="status-badge" style="background: var(--danger); color: #fff; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.8rem;">iptables</span>
+                        <span class="status-badge status-offline">iptables</span>
                         {% elif entry.source == "fail2ban" %}
-                        <span class="status-badge" style="background: var(--warning); color: #fff; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.8rem;">Fail2Ban</span>
+                        <span class="status-badge" style="background: var(--warning-dim); color: var(--warning); border-color: var(--warning-dim);">Fail2Ban</span>
                         {% elif entry.source == "blacklist" %}
-                        <span class="status-badge" style="background: #6c757d; color: #fff; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.8rem;">Blacklist</span>
+                        <span class="status-badge status-unknown">Blacklist</span>
                         {% elif entry.source == "ban" %}
-                        <span class="status-badge" style="background: #e74c3c; color: #fff; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.8rem;">Ban</span>
+                        <span class="status-badge status-offline">Ban</span>
                         {% endif %}
                     </td>
                     <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"

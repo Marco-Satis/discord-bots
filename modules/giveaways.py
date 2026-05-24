@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from utils.logger import get_logger
+from utils.async_tasks import schedule_from_sync
 from modules.database.db_manager import get_db
 
 logger = get_logger("modules.giveaways")
@@ -138,15 +139,12 @@ class GiveawayManager:
     # ------------------------------------------------------------------
 
     def _fire_and_forget(self, coro) -> None:
-        """Schedule an async DB write from synchronous code."""
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                loop.create_task(coro)
-            else:
-                logger.debug("Event loop not running, skipping DB write")
-        except RuntimeError:
-            logger.debug("No event loop available, skipping DB write")
+        """Schedule an async DB write from synchronous code.
+
+        Uses utils.async_tasks.schedule_from_sync mit Reference-Tracking gegen
+        GC-Verlust (audit-fix 2026-05-17, async.md H2).
+        """
+        schedule_from_sync(coro, name="giveaways.fire_and_forget")
 
     # ------------------------------------------------------------------
     # Giveaway erstellen

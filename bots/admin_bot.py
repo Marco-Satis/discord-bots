@@ -86,6 +86,7 @@ INITIAL_COGS: list[str] = [
     "cogs.notify_cog",         # F40: Spieler-Benachrichtigungen
     "cogs.welcome_cog",        # F41: Willkommens-System
     "cogs.command_stats_cog",  # F59: Command-Nutzungsstatistik
+    "cogs.pipeline_approval_cog",  # Phase E: n8n-Pipeline Approve/Dismiss-Buttons
 ]
 
 

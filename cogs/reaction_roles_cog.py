@@ -28,6 +28,7 @@ from discord.ext import commands
 
 from utils.logger import get_logger
 from utils.permissions import admin_only
+from utils.async_tasks import track_task
 from modules.database.db_manager import get_db
 
 logger = get_logger("cogs.reaction_roles")
@@ -49,7 +50,9 @@ class ReactionRolesCog(commands.Cog):
     async def cog_load(self) -> None:
         """Beim Laden des Cogs Daten aus SQLite laden und re-registrieren"""
         await self._load_from_db()
-        self.bot.loop.create_task(self._re_register_reactions())
+        # Reference-Tracking gegen GC-Verlust (audit-fix 2026-05-17)
+        track_task(self._re_register_reactions(),
+                   name="reaction_roles.re_register")
         logger.info("Reaction-Roles-Cog geladen")
 
     async def cog_unload(self) -> None:

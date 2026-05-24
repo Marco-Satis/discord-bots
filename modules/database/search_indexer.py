@@ -235,7 +235,9 @@ class SearchIndexer:
         try:
             sql = (
                 "SELECT source, source_id, "
-                "snippet(search_index, 2, '<mark>', '</mark>', '...', 40) AS snippet, "
+                # Marker statt raw HTML-Tags: erlaubt sicheres Server-side-Escape
+                # in search_route bevor Template `|safe` rendert (XSS-Schutz CWE-79).
+                "snippet(search_index, 2, '§HL§', '§/HL§', '...', 40) AS snippet, "
                 "timestamp, rank "
                 "FROM search_index "
                 "WHERE search_index MATCH ? "

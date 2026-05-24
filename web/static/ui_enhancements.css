@@ -1,0 +1,439 @@
+/* ============================================================
+ *  UI-Enhancements v1.0 — additive Layer auf KAMINO-Theme
+ *  Erstellt: 2026-05-16
+ *
+ *  Diese Datei ERWEITERT style.css + themes.css — sie ersetzt nichts.
+ *  Bei Nicht-Gefallen: <link>-Tag in base.html entfernen, alles
+ *  funktioniert weiter wie vorher.
+ *
+ *  Was hier dazukommt:
+ *    1. Animation-Tokens (Easing + Duration)
+ *    2. HTMX-Indikator (Loading-Spinner waehrend Requests)
+ *    3. Toast/Snackbar-System
+ *    4. Skeleton-Loading-States
+ *    5. A11y-Defaults (focus-visible, sr-only)
+ *    6. Status-Badge Pulse-Animation
+ *    7. Lucide-Icon-Helpers (SVG-Icon-Sizing)
+ * ============================================================ */
+
+/* ============================================================
+ *  1. Animation-Tokens
+ * ============================================================ */
+
+:root {
+    /* Duration-Skala */
+    --duration-instant: 0ms;
+    --duration-fast: 120ms;
+    --duration-normal: 200ms;
+    --duration-slow: 320ms;
+    --duration-slower: 500ms;
+
+    /* Easing-Funktionen */
+    --ease-linear: linear;
+    --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+    --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+    --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+    /* Spacing-Skala (additiv zu Marcos Custom-Werten) */
+    --space-1: 0.25rem;
+    --space-2: 0.5rem;
+    --space-3: 0.75rem;
+    --space-4: 1rem;
+    --space-5: 1.25rem;
+    --space-6: 1.5rem;
+    --space-8: 2rem;
+    --space-12: 3rem;
+}
+
+/* ============================================================
+ *  2. HTMX-Indikator (Loading-Spinner waehrend Requests)
+ *
+ *  Nutzung im Template:
+ *    <button hx-post="..." hx-indicator="#spinner-1">
+ *      Start
+ *      <span id="spinner-1" class="htmx-indicator">
+ *        <span class="spinner-ring"></span>
+ *      </span>
+ *    </button>
+ * ============================================================ */
+
+.htmx-indicator {
+    opacity: 0;
+    transition: opacity var(--duration-normal) var(--ease-out);
+    display: inline-flex;
+    align-items: center;
+    margin-left: 0.5rem;
+}
+
+.htmx-request .htmx-indicator,
+.htmx-request.htmx-indicator {
+    opacity: 1;
+}
+
+.htmx-request[data-loading-disable] {
+    pointer-events: none;
+    opacity: 0.7;
+}
+
+.spinner-ring {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--accent-glow);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spinner-rotate 0.75s linear infinite;
+}
+
+@keyframes spinner-rotate {
+    to { transform: rotate(360deg); }
+}
+
+/* Btn-internal-Spinner (ersetzt Text-Inhalt bei Loading) */
+.btn.htmx-request {
+    position: relative;
+    color: transparent !important;
+}
+
+.btn.htmx-request::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 14px;
+    height: 14px;
+    margin: -7px 0 0 -7px;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: spinner-rotate 0.75s linear infinite;
+    color: var(--accent);
+}
+
+/* ============================================================
+ *  3. Toast/Snackbar-System
+ *
+ *  Nutzung:
+ *    <div id="toast-container" class="toast-container"></div>
+ *    JS: window.toast({type:'success', message:'Server gestartet'})
+ * ============================================================ */
+
+.toast-container {
+    position: fixed;
+    top: 1rem;
+    right: 1rem;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    pointer-events: none;
+    max-width: min(400px, calc(100vw - 2rem));
+}
+
+.toast {
+    background: var(--bg-card);
+    border: 1px solid var(--border-card);
+    border-left-width: 3px;
+    border-radius: var(--radius-md);
+    padding: 0.75rem 1rem;
+    box-shadow: var(--shadow-lg);
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    pointer-events: auto;
+    animation: toast-in var(--duration-normal) var(--ease-bounce);
+    transition: opacity var(--duration-normal) var(--ease-out),
+                transform var(--duration-normal) var(--ease-out);
+}
+
+.toast--success { border-left-color: var(--success); }
+.toast--warning { border-left-color: var(--warning); }
+.toast--danger  { border-left-color: var(--danger); }
+.toast--info    { border-left-color: var(--info); }
+
+.toast--leaving {
+    opacity: 0;
+    transform: translateX(20px);
+}
+
+@keyframes toast-in {
+    from { opacity: 0; transform: translateX(20px); }
+    to   { opacity: 1; transform: translateX(0); }
+}
+
+.toast__icon {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.toast__msg {
+    flex: 1;
+}
+
+.toast__close {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0.25rem;
+    border-radius: var(--radius-xs);
+    transition: all var(--duration-fast) var(--ease-out);
+}
+
+.toast__close:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+/* ============================================================
+ *  4. Skeleton-Loading-States
+ *
+ *  Nutzung in Templates:
+ *    <div class="skeleton skeleton--text"></div>
+ *    <div class="skeleton skeleton--card"></div>
+ * ============================================================ */
+
+.skeleton {
+    background: linear-gradient(
+        90deg,
+        var(--bg-card) 0%,
+        var(--bg-card-hover) 50%,
+        var(--bg-card) 100%
+    );
+    background-size: 200% 100%;
+    animation: skeleton-shimmer 1.5s infinite var(--ease-in-out);
+    border-radius: var(--radius-sm);
+    color: transparent;
+    user-select: none;
+}
+
+.skeleton--text {
+    height: 0.85rem;
+    width: 70%;
+    margin-bottom: 0.5rem;
+}
+
+.skeleton--text-sm { height: 0.7rem; width: 50%; }
+.skeleton--text-lg { height: 1.2rem; width: 80%; }
+
+.skeleton--card {
+    height: 120px;
+    width: 100%;
+    border-radius: var(--radius);
+}
+
+.skeleton--circle {
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+}
+
+@keyframes skeleton-shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .skeleton {
+        animation: none;
+        opacity: 0.5;
+    }
+}
+
+/* ============================================================
+ *  5. A11y-Defaults
+ * ============================================================ */
+
+/* Screen-Reader-Only Text (fuer Icons ohne Label etc.) */
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* Focus-Visible: nur bei Tastatur-Navigation sichtbar (nicht bei Click) */
+:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+}
+
+/* Buttons: bessere Default-Focus-States */
+.btn:focus-visible,
+.nav-item:focus-visible,
+.theme-toggle:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+/* prefers-reduced-motion: alle Animationen deaktivieren */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+}
+
+/* ============================================================
+ *  6. Status-Badge Pulse-Animation
+ *
+ *  Erweitert Marcos bestehende .status-online Klasse um Live-Pulse.
+ * ============================================================ */
+
+.status-badge {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+/* "Online"-Dot mit Pulse-Animation */
+.status-online::before {
+    content: '';
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--success);
+    box-shadow: 0 0 0 0 var(--success);
+    animation: status-pulse 2s infinite;
+    flex-shrink: 0;
+}
+
+@keyframes status-pulse {
+    0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.5); }
+    70% { box-shadow: 0 0 0 8px rgba(34, 197, 94, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+}
+
+.status-offline::before {
+    content: '';
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--danger);
+    flex-shrink: 0;
+}
+
+.status-unknown::before {
+    content: '';
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    flex-shrink: 0;
+}
+
+/* ============================================================
+ *  7. Lucide-Icon-Helpers (SVG-Icons via data-lucide)
+ *
+ *  Nutzung im Template:
+ *    <i data-lucide="server" class="icon"></i>
+ *    <i data-lucide="users" class="icon icon-lg"></i>
+ *
+ *  Aktiviert via <script>lucide.createIcons()</script> in base.html
+ * ============================================================ */
+
+.icon {
+    display: inline-block;
+    width: 1em;
+    height: 1em;
+    stroke-width: 2;
+    flex-shrink: 0;
+    vertical-align: -0.125em;
+}
+
+.icon-sm { width: 0.85em; height: 0.85em; }
+.icon-lg { width: 1.25em; height: 1.25em; }
+.icon-xl { width: 1.5em; height: 1.5em; }
+
+/* Lucide-Icons im Nav-Item ersetzen die Text-Icons */
+.nav-item .icon,
+.theme-toggle .icon {
+    width: 16px;
+    height: 16px;
+    opacity: 0.7;
+}
+
+.nav-item:hover .icon,
+.nav-item.active .icon {
+    opacity: 1;
+}
+
+/* ============================================================
+ *  8. Empty-State-Block
+ *
+ *  Nutzung wenn keine Daten vorhanden:
+ *    <div class="empty-state">
+ *      <i data-lucide="inbox" class="empty-state__icon"></i>
+ *      <h3 class="empty-state__title">Keine Server</h3>
+ *      <p class="empty-state__msg">Keine Game-Server konfiguriert.</p>
+ *    </div>
+ * ============================================================ */
+
+.empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: 3rem 1rem;
+    color: var(--text-muted);
+}
+
+.empty-state__icon {
+    width: 48px;
+    height: 48px;
+    margin-bottom: 1rem;
+    opacity: 0.4;
+    color: var(--text-muted);
+}
+
+.empty-state__title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 0.5rem;
+}
+
+.empty-state__msg {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    max-width: 360px;
+}
+
+/* ============================================================
+ *  9. Card-Hover-Lift-Effect (optional, fuer .tile)
+ *
+ *  Wenn aktiviert: Cards heben sich beim Hover (subtile Z-Achse).
+ * ============================================================ */
+
+.tile {
+    transition: transform var(--duration-normal) var(--ease-out),
+                box-shadow var(--duration-normal) var(--ease-out),
+                border-color var(--duration-normal) var(--ease-out);
+}
+
+.tile:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .tile:hover { transform: none; }
+}

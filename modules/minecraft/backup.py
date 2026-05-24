@@ -5,6 +5,7 @@ Unterstuetzt Multi-Server-Betrieb (eine Instanz pro Server).
 """
 
 import asyncio
+import os
 import shutil
 from pathlib import Path
 from datetime import datetime
@@ -72,9 +73,19 @@ class MinecraftBackupManager:
         name = "".join(c if c.isalnum() or c in "._-" else "_" for c in name)
 
         backup_dest = self.backup_path / name
+        # Atomic-Write-Pattern (audit-fix 2026-05-17, minecraft.md):
+        # Erst nach .tmp kopieren, danach os.rename → finaler Pfad ist atomar.
+        # Halbe Backups bei Crash mid-copy gelten nicht als gueltig.
+        backup_dest_tmp = self.backup_path / f"{name}.tmp"
 
         if backup_dest.exists():
             return False, f"Backup existiert bereits: {name}", None
+        if backup_dest_tmp.exists():
+            # Rest von abgebrochenem vorherigem Run — sicher entfernen
+            logger.warning(
+                f"[{self.server_id}] Verwaister .tmp-Backup entfernt: {backup_dest_tmp.name}"
+            )
+            shutil.rmtree(backup_dest_tmp, ignore_errors=True)
 
         loop = asyncio.get_running_loop()
 
@@ -90,7 +101,7 @@ class MinecraftBackupManager:
                     errors_list.append((src, str(exc_info[1])))
 
                 shutil.copytree(
-                    self.world_path, backup_dest,
+                    self.world_path, backup_dest_tmp,
                     ignore=shutil.ignore_patterns('*.lock', 'session.lock'),
                     copy_function=_safe_copy2,
                 )
@@ -125,10 +136,17 @@ class MinecraftBackupManager:
             )
 
             def _write_metadata():
-                metadata_path = backup_dest / ".backup_metadata"
+                metadata_path = backup_dest_tmp / ".backup_metadata"
                 metadata_path.write_text(metadata_content, encoding='utf-8')
 
             await loop.run_in_executor(None, _write_metadata)
+
+            # Atomic-Rename: erst jetzt zaehlt das Backup als gueltig.
+            # os.rename ist auf Linux atomar wenn Quelle + Ziel auf gleichem Filesystem.
+            def _atomic_rename():
+                os.rename(backup_dest_tmp, backup_dest)
+
+            await loop.run_in_executor(None, _atomic_rename)
 
             size_mb = await self._get_path_size_mb_async(backup_dest)
             if copy_errors:
@@ -148,12 +166,16 @@ class MinecraftBackupManager:
 
         except Exception as e:
             logger.error(f"[{self.server_id}] Backup fehlgeschlagen: {e}")
-            # Teilweises Backup aufraeumen (async)
-            if backup_dest.exists():
-                try:
-                    await loop.run_in_executor(None, shutil.rmtree, backup_dest)
-                except OSError as cleanup_err:
-                    logger.debug(f"[{self.server_id}] Cleanup fehlgeschlagen: {cleanup_err}")
+            # Teilweises Backup aufraeumen: erst .tmp, dann ggf. fertiges
+            # (das sollte bei Exception nicht entstanden sein, aber safety-net)
+            for path in (backup_dest_tmp, backup_dest):
+                if path.exists():
+                    try:
+                        await loop.run_in_executor(None, shutil.rmtree, path)
+                    except OSError as cleanup_err:
+                        logger.debug(
+                            f"[{self.server_id}] Cleanup fehlgeschlagen ({path.name}): {cleanup_err}"
+                        )
             return False, f"Backup fehlgeschlagen: {e}", None
 
     # ------------------------------------------------------------------
@@ -181,6 +203,10 @@ class MinecraftBackupManager:
                     reverse=True
                 ):
                     if not backup_dir.is_dir():
+                        continue
+                    # Halbe Backups (.tmp) sind kein gueltiger Restore-Punkt
+                    # (audit-fix 2026-05-17, Atomic-Write-Pattern)
+                    if backup_dir.name.endswith(".tmp"):
                         continue
 
                     try:
@@ -342,8 +368,12 @@ class MinecraftBackupManager:
 
         def _cleanup():
             try:
+                # .tmp-Dirs aus der Cleanup-Liste ausschliessen damit halbe
+                # Backups nicht als "alt" zaehlen und ein vollstaendiges Backup
+                # verdraengen (audit-fix 2026-05-17, Atomic-Write-Pattern)
                 backup_dirs = sorted(
-                    [d for d in self.backup_path.iterdir() if d.is_dir()],
+                    [d for d in self.backup_path.iterdir()
+                     if d.is_dir() and not d.name.endswith(".tmp")],
                     key=lambda p: p.stat().st_mtime,
                     reverse=True
                 )

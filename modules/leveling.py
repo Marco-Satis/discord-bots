@@ -32,6 +32,7 @@ from typing import Any
 
 from utils.logger import get_logger
 from utils.config import ADMIN_DATA_DIR
+from utils.async_tasks import schedule_from_sync
 from modules.database.db_manager import get_db
 
 logger = get_logger("leveling_manager")
@@ -140,17 +141,13 @@ class LevelingManager:
 
     def _fire_and_forget(self, coro) -> None:
         """
-        Plant eine async Coroutine als fire-and-forget Task.
+        Plant eine async Coroutine als getrackten Background-Task.
         Wird aus synchronem Code aufgerufen (add_message_xp, etc.).
+
+        Reference-Tracking via utils.async_tasks gegen GC-Verlust
+        (audit-fix 2026-05-17, async.md H2).
         """
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                loop.create_task(coro)
-            else:
-                logger.debug("Event-Loop nicht aktiv, ueberspringe DB-Write")
-        except RuntimeError:
-            logger.debug("Kein Event-Loop verfuegbar, ueberspringe DB-Write")
+        schedule_from_sync(coro, name="leveling.fire_and_forget")
 
     async def _db_upsert_user(self, user_id: int, user_data: dict[str, Any]) -> None:
         """

@@ -5,6 +5,7 @@ Konvertiert Markdown zu HTML mit einfachem Regex-Konverter
 (keine externe Markdown-Bibliothek erforderlich).
 """
 
+import html
 import re
 from pathlib import Path
 
@@ -92,7 +93,13 @@ def _markdown_to_html(md_text: str) -> str:
 
 
 def _inline_formatting(text: str) -> str:
-    """Wendet Inline-Formatierung an: Fettschrift und Code."""
+    """Wendet Inline-Formatierung an: Fettschrift und Code.
+
+    Defense-in-Depth: escape() zuerst — verhindert XSS falls CHANGELOG.md
+    jemals fremden Input enthaelt (z.B. via Merged-PR aus User-Forks).
+    """
+    # html.escape entfernt < > & " ' — Markdown-Marker (* `) bleiben unveraendert
+    text = html.escape(text)
     # Fettschrift: **text** -> <strong>text</strong>
     text = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text)
     # Inline-Code: `code` -> <code>code</code>

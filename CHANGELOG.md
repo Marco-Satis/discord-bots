@@ -4,6 +4,46 @@ Alle relevanten Aenderungen am Discord Bot System werden hier dokumentiert.
 
 ---
 
+## [4.2.0] — 2026-05-17
+
+### Audit-Fixes (Full-System-Review Master-Report)
+
+- **Fix-1 CRASH:** `web/routes/errors_route.py:14` — `RedirectResponse` Import ergaenzt (Worktree + Server). Vorher latenter `NameError` beim Aufruf von `/api/errors/clear`.
+- **Fix-2 HIGH (DSGVO):** Fire-and-Forget Tasks gegen GC-Verlust gesichert in 9 Modulen. Neue Utility `utils/async_tasks.py` mit `track_task()` + `schedule_from_sync()` + `BackgroundTaskMixin`. Betroffen: `player_ip_tracker`, `stats_tracker`, `player_tracker`, `giveaways`, `leveling`, `monitor_bot`, `general_cog`, `reaction_roles_cog`.
+- **Fix-3 HIGH CROSS:** SSE-Hot-Path entkernt — `web/routes/sse_route.py` von 2026-05-16 sse-starlette-Refactor in Worktree gepullt (`interval=None`, `asyncio.to_thread` fuer alle 3 Collector, `EventSourceResponse` statt manuellem text/event-stream).
+- **Fix-5 HIGH:** `modules/database/db_manager.py` Read-Pool (2 Read-Connections, Round-Robin via `get_read_db()`) + `web/routes/analytics_route.py` `analytics_peaks` mit WHERE-Window (90d) + LIMIT 5000 statt Full-Table-Scan.
+- **Fix-7 HIGH:** `modules/minecraft/backup.py` World-Backups jetzt atomar — Copy in `.tmp`-Verzeichnis, danach `os.rename` zum finalen Pfad. `list_backups` + `_cleanup_old_backups` filtern `.tmp` aus. Verhindert halbe Backups durch Crash mid-copy.
+- **Fix-9 MEDIUM (partial):** `utils/channel.py` Helper-Modul (`get_text_channel`, `get_voice_channel`, `get_messageable_channel`) mit `isinstance`-Guards + Diagnose-Logging fuer typsichere Channel-Lookups. Migration der 62 Call-Sites in 15 Files steht als Backlog.
+
+### Vorbereitet, manuelle Aktion noetig
+
+- **Fix-4 HIGH:** `satisfactory-limits.conf` Drop-In hochgeladen nach `/tmp/satisfactory-limits.conf`. Manuell installieren: `sudo mkdir -p /etc/systemd/system/satisfactory.service.d && sudo cp /tmp/satisfactory-limits.conf /etc/systemd/system/satisfactory.service.d/limits.conf && sudo systemctl daemon-reload && sudo systemctl restart satisfactory`.
+
+### Audit-Befunde aus Full-System-Review (2026-05-17)
+
+- 10 Sub-Agent-Reports unter `~/.claude/audit/FULL_REVIEW_2026-05-17/` (security, async, deps, perf, infra, quality, docs, minecraft, satisfactory, web_research) + MASTER_REPORT.md mit Top-10-Action-Plan
+- 0 CRITICAL, 9 HIGH, 18 MEDIUM Findings ueber 8 Achsen (Discord-Bots, FastAPI, Modules, Server, DB, Deps, Hygiene, Gameserver)
+- 0 Bandit HIGH/MEDIUM, 0 Secrets im Repo (detect-secrets clean), 0 pip-audit-CVEs in 38 Python-Paketen
+- Cross-Report-Konfirmationen: SSE-Block (async+perf), satisfactory-Limits (infra+sat)
+
+### Backlog (im Master-Report dokumentiert)
+
+- Fix-6 BMC Mod-Hash-Lockfile (288 Mods ohne Supply-Chain-Verify)
+- Fix-8 Worktree-vs-Server Drift Reconcile (3 verbleibende Files: base.html, app.py, monitor_bot.py — requirements.txt + sse_route.py + errors_route.py bereits konvergiert)
+- Fix-9 get_channel-Migration der 62 Call-Sites
+- Fix-10 Starlette+FastAPI Upgrade (Starlette CVE-2025-62727 / -54121, transitiv)
+- Cleanup: DB chmod 640, nginx Rate-Limit + TLS-Hardening, vanilla `management-server-secret` rotieren, `docs/production/` 10 Guides ergaenzen, 4 fehlende `.claude/rules/`-Files commit
+
+---
+
+## [4.1.0] — 2026-03-15
+
+Auto-Update I1-I9 fuer Minecraft- und Satisfactory-Server (Iteration-Cycles), CurseForge-Manifest-Verifikation, Staging-Workflow, Discord-Notifications, Versions-Tracking.
+
+(Detaillierte Feature-Liste in `docs/FEATURE_PLAN_AUTO_UPDATE.md`)
+
+---
+
 ## [4.0.0] — 2026-02-22
 
 ### Hinzugefuegt

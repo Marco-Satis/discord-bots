@@ -5,7 +5,18 @@ Stellt GET /search (Template), GET /api/search (JSON-API) und
 POST /api/search/reindex (Admin: Index neu aufbauen) bereit.
 """
 
+import html
 from pathlib import Path
+
+
+def _sanitize_snippet(snippet: str) -> str:
+    """Escape HTML + Marker zu <mark>-Tags wandeln (XSS-Schutz CWE-79).
+
+    SearchIndexer liefert FTS5-snippet mit Markern §HL§/§/HL§ statt raw <mark>.
+    Hier wird der gesamte snippet escaped, dann die Marker durch sichere Tags ersetzt.
+    """
+    safe = html.escape(snippet or "")
+    return safe.replace("§HL§", "<mark>").replace("§/HL§", "</mark>")
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -46,6 +57,10 @@ async def search_page(request: Request, q: str = "", current_user: dict = Depend
     if q.strip():
         results = await _indexer.search(q, limit=50)
         total = len(results)
+
+        # Snippets sanitisieren: html-escape + Marker zu <mark> (XSS-Schutz)
+        for r in results:
+            r["snippet"] = _sanitize_snippet(r.get("snippet", ""))
 
         # Ergebnisse nach Quelle gruppieren
         for r in results:
@@ -91,6 +106,11 @@ async def api_search(
 
     source_filter = source if source else None
     results = await _indexer.search(q, limit=limit, source_filter=source_filter)
+
+    # Snippets sanitisieren auch in der JSON-API: Konsumenten muessen sich nicht
+    # darauf verlassen escape() selbst aufzurufen.
+    for r in results:
+        r["snippet"] = _sanitize_snippet(r.get("snippet", ""))
 
     return JSONResponse(content={
         "results": results,

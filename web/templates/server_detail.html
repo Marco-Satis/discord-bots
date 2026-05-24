@@ -1,430 +1,428 @@
 {% extends "base.html" %}
 
-{% block title %}{{ server.name }} — Detail{% endblock %}
+{% block title %}{{ server.name }} &mdash; Detail{% endblock %}
 
 {% block content %}
-<!-- Zurueck-Button und Header -->
-<div class="page-header" style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
-    <a href="/" class="btn btn-secondary btn-sm" style="flex-shrink: 0;">&larr; Zurueck</a>
-    <div style="flex: 1;">
-        <h1 style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
-            <!-- Status-Indikator (gruener/roter Punkt) -->
-            <span style="
-                display: inline-block;
-                width: 14px;
-                height: 14px;
-                border-radius: 50%;
-                flex-shrink: 0;
-                {% if server.status == 'online' %}
-                background: var(--success);
-                box-shadow: 0 0 8px var(--success);
-                {% elif server.status == 'offline' %}
-                background: var(--danger);
-                {% else %}
-                background: var(--text-muted);
-                {% endif %}
-            "></span>
-            {{ server.name }}
-            <!-- Typ-Badge -->
-            <span class="status-badge" style="font-size: 0.7rem; background: rgba(83, 52, 131, 0.3); color: var(--accent-light);">
-                {{ server.type|upper }}
-            </span>
-            <!-- Status-Badge -->
-            <span class="status-badge {% if server.status == 'online' %}status-online{% elif server.status == 'offline' %}status-offline{% else %}status-unknown{% endif %}">
-                {{ server.status|capitalize if server.status else 'Unbekannt' }}
-            </span>
-        </h1>
-        <p class="page-subtitle">
-            Spieler: {{ server.players_online }}/{{ server.max_players }}
-            &middot; Uptime: {{ server.uptime }}
-            {% if server.address != 'N/A' %}&middot; {{ server.address }}{% if server.port != 'N/A' %}:{{ server.port }}{% endif %}{% endif %}
-        </p>
-    </div>
-</div>
-
-<!-- Schnellaktionen -->
-<section class="section">
-    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
-        <button class="btn btn-primary btn-sm"
-                hx-post="/api/server/{{ server.server_id }}/action"
-                hx-vals='{"action": "start"}'
-                hx-target="#action-result"
-                hx-swap="innerHTML"
-                hx-confirm="Server {{ server.name }} starten?">
-            &#9654; Start
-        </button>
-        <button class="btn btn-danger btn-sm"
-                hx-post="/api/server/{{ server.server_id }}/action"
-                hx-vals='{"action": "stop"}'
-                hx-target="#action-result"
-                hx-swap="innerHTML"
-                hx-confirm="Server {{ server.name }} stoppen? Alle Spieler werden getrennt.">
-            &#9632; Stop
-        </button>
-        <button class="btn btn-warning btn-sm"
-                hx-post="/api/server/{{ server.server_id }}/action"
-                hx-vals='{"action": "restart"}'
-                hx-target="#action-result"
-                hx-swap="innerHTML"
-                hx-confirm="Server {{ server.name }} neustarten?">
-            &#8635; Restart
-        </button>
-        <button class="btn btn-secondary btn-sm"
-                hx-post="/api/server/{{ server.server_id }}/action"
-                hx-vals='{"action": "maintenance"}'
-                hx-target="#action-result"
-                hx-swap="innerHTML"
-                hx-confirm="Wartungsmodus fuer {{ server.name }} aktivieren?">
-            &#9874; Wartung
-        </button>
-    </div>
-    <div id="action-result" style="margin-top: 0.75rem;"></div>
-</section>
-
-<!-- Tab-Navigation -->
-<section class="section">
-    <div class="detail-tabs">
-        <button class="detail-tab active" onclick="switchTab(this, 'tab-overview')">Uebersicht</button>
-        <button class="detail-tab" onclick="switchTab(this, 'tab-players')">Spieler</button>
-        {% if server.has_rcon %}
-        <button class="detail-tab" onclick="switchTab(this, 'tab-rcon')">RCON Console</button>
-        {% endif %}
-        <button class="detail-tab" onclick="switchTab(this, 'tab-backups')">Backups</button>
-        <button class="detail-tab" onclick="switchTab(this, 'tab-world')">World/Savegame</button>
-        <button class="detail-tab" onclick="switchTab(this, 'tab-config')">Server Config</button>
-        <button class="detail-tab" onclick="switchTab(this, 'tab-mods')">Mods</button>
-        <button class="detail-tab" onclick="switchTab(this, 'tab-updates')">Update Status</button>
-    </div>
-
-    <!-- Tab: Uebersicht (Standard) -->
-    <div id="tab-overview" class="tab-content" style="display: block;">
-        <div class="stats-grid" style="margin-bottom: 1.5rem;">
-            <div class="stat-card">
-                <div class="stat-label">Status</div>
-                <div style="display: flex; align-items: center; gap: 0.75rem; margin-top: 0.5rem;">
-                    <span class="bot-indicator {% if server.status == 'online' %}indicator-online{% elif server.status == 'offline' %}indicator-offline{% else %}indicator-unknown{% endif %}"></span>
-                    <span class="stat-value" style="font-size: 1.2rem;">{{ server.status|capitalize if server.status else 'Unbekannt' }}</span>
-                </div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label">Spieler Online</div>
-                <div class="stat-value" style="font-size: 1.5rem; margin-top: 0.5rem;">{{ server.players_online }} / {{ server.max_players }}</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label">Uptime</div>
-                <div class="stat-value" style="font-size: 1.2rem; margin-top: 0.5rem;">{{ server.uptime }}</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label">Typ</div>
-                <div class="stat-value" style="font-size: 1.2rem; margin-top: 0.5rem;">{{ server.type|capitalize }}</div>
-            </div>
-        </div>
-
-        {% if server.type == 'satisfactory' and server.world_info %}
-        <div class="stats-grid">
-            {% if server.world_info.get('Session-Name', 'N/A') != 'N/A' %}
-            <div class="stat-card">
-                <div class="stat-label">Session</div>
-                <div class="stat-value" style="font-size: 1rem; margin-top: 0.5rem;">{{ server.world_info['Session-Name'] }}</div>
-            </div>
-            {% endif %}
-            {% if server.world_info.get('Tick-Rate', 'N/A') != 'N/A' %}
-            <div class="stat-card">
-                <div class="stat-label">Tick-Rate</div>
-                <div class="stat-value" style="font-size: 1.2rem; margin-top: 0.5rem;">{{ server.world_info['Tick-Rate'] }}</div>
-            </div>
-            {% endif %}
-            {% if server.world_info.get('CPU-Auslastung', 'N/A') != 'N/A' %}
-            <div class="stat-card">
-                <div class="stat-label">CPU</div>
-                <div class="progress-bar" style="margin: 0.5rem 0;">
-                    <div class="progress-fill {% if server.world_info['CPU-Auslastung']|replace('%','')|float > 80 %}progress-danger{% elif server.world_info['CPU-Auslastung']|replace('%','')|float > 60 %}progress-warning{% else %}progress-ok{% endif %}"
-                         style="width: {{ server.world_info['CPU-Auslastung'] }}"></div>
-                </div>
-                <div class="stat-value">{{ server.world_info['CPU-Auslastung'] }}</div>
-            </div>
-            {% endif %}
-            {% if server.world_info.get('RAM-Verbrauch', 'N/A') != 'N/A' %}
-            <div class="stat-card">
-                <div class="stat-label">RAM</div>
-                <div class="stat-value" style="font-size: 1.2rem; margin-top: 0.5rem;">{{ server.world_info['RAM-Verbrauch'] }}</div>
-            </div>
-            {% endif %}
-        </div>
-        {% endif %}
-
-        <!-- Adresse -->
-        {% if server.address != 'N/A' %}
-        <div class="config-section" style="margin-top: 1.5rem;">
-            <h3 class="subsection-title">Verbindungsinformationen</h3>
-            <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
-                <div>
-                    <span style="color: var(--text-secondary); font-size: 0.85rem;">Adresse:</span>
-                    <code style="background: var(--bg-primary); padding: 0.3rem 0.6rem; border-radius: 4px; font-size: 0.95rem; margin-left: 0.5rem;">
-                        {{ server.address }}{% if server.port != 'N/A' %}:{{ server.port }}{% endif %}
-                    </code>
-                </div>
-            </div>
-        </div>
-        {% endif %}
-    </div>
-
-    <!-- Tab: Spieler -->
-    <div id="tab-players" class="tab-content" style="display: none;">
-        <div hx-get="/api/server/{{ server.server_id }}/players"
-             hx-trigger="load, every 10s"
-             hx-swap="innerHTML">
-            <p style="color: var(--text-muted); padding: 1rem;">Spielerliste wird geladen...</p>
-        </div>
-    </div>
-
-    <!-- Tab: RCON Console (nur Minecraft) -->
-    {% if server.has_rcon %}
-    <div id="tab-rcon" class="tab-content" style="display: none;">
-        <div class="config-section">
-            <h3 class="subsection-title">RCON Console &mdash; {{ server.name }}</h3>
-            <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 1rem;">
-                Sende Minecraft-Server-Befehle ueber RCON. Beispiele: <code style="background: var(--bg-primary); padding: 0.15rem 0.4rem; border-radius: 3px;">list</code>,
-                <code style="background: var(--bg-primary); padding: 0.15rem 0.4rem; border-radius: 3px;">say Hallo</code>,
-                <code style="background: var(--bg-primary); padding: 0.15rem 0.4rem; border-radius: 3px;">whitelist list</code>
-            </p>
-
-            <!-- RCON-Ausgabe -->
-            <div id="rcon-output" style="
-                background: #0d0d1a;
-                border: 1px solid var(--border-color);
-                border-radius: var(--radius);
-                padding: 1rem;
-                min-height: 200px;
-                max-height: 400px;
-                overflow-y: auto;
-                font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-                font-size: 0.85rem;
-                line-height: 1.6;
-                margin-bottom: 1rem;
-            ">
-                <div class="rcon-line" style="color: var(--text-muted);">
-                    [Console] Bereit. Befehle werden hier angezeigt.
-                </div>
-            </div>
-
-            <!-- RCON-Eingabe -->
-            <form hx-post="/api/server/{{ server.server_id }}/rcon"
-                  hx-target="#rcon-output"
-                  hx-swap="beforeend scroll:#rcon-output:bottom"
-                  style="display: flex; gap: 0.5rem;"
-                  onsubmit="setTimeout(function(){ document.getElementById('rcon-input').value = ''; }, 50);">
-                <input type="text"
-                       id="rcon-input"
-                       name="command"
-                       placeholder="Befehl eingeben..."
-                       autocomplete="off"
-                       style="
-                           flex: 1;
-                           padding: 0.55rem 0.75rem;
-                           background: var(--bg-input);
-                           border: 1px solid var(--border-color);
-                           border-radius: var(--radius-sm);
-                           color: var(--text-primary);
-                           font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-                           font-size: 0.9rem;
-                       ">
-                <button type="submit" class="btn btn-primary">Senden</button>
-            </form>
-        </div>
-    </div>
-    {% endif %}
-
-    <!-- Tab: Backups -->
-    <div id="tab-backups" class="tab-content" style="display: none;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-            <h3 class="subsection-title" style="margin: 0;">Backups</h3>
-            <button class="btn btn-primary btn-sm"
-                    hx-post="/api/server/{{ server.server_id }}/action"
-                    hx-vals='{"action": "backup"}'
-                    hx-target="#action-result"
-                    hx-swap="innerHTML"
-                    hx-confirm="Backup fuer {{ server.name }} erstellen?">
-                + Backup erstellen
-            </button>
-        </div>
-        <div hx-get="/api/server/{{ server.server_id }}/backups"
-             hx-trigger="load"
-             hx-swap="innerHTML">
-            <p style="color: var(--text-muted); padding: 1rem;">Backup-Liste wird geladen...</p>
-        </div>
-    </div>
-
-    <!-- Tab: World/Savegame Info -->
-    <div id="tab-world" class="tab-content" style="display: none;">
-        <div class="config-section">
-            <h3 class="subsection-title">
-                {% if server.type == 'minecraft' %}Welt-Informationen{% elif server.type == 'satisfactory' %}Session-Informationen{% else %}Server-Informationen{% endif %}
-            </h3>
-            {% if server.world_info %}
-            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 0.75rem;">
-                {% for key, value in server.world_info.items() %}
-                <div style="
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    padding: 0.6rem 0;
-                    border-bottom: 1px solid var(--border-color);
-                ">
-                    <span style="color: var(--text-secondary); font-size: 0.85rem;">{{ key }}</span>
-                    <span style="font-weight: 600; font-size: 0.9rem;">{{ value }}</span>
-                </div>
-                {% endfor %}
-            </div>
-            {% else %}
-            <p style="color: var(--text-muted); padding: 1rem;">Keine Welt-/Savegame-Daten verfuegbar.</p>
-            {% endif %}
-        </div>
-    </div>
-
-    <!-- Tab: Server Config -->
-    <div id="tab-config" class="tab-content" style="display: none;">
-        <div class="config-section">
-            <h3 class="subsection-title">Server-Konfiguration (nur Lesen)</h3>
-            {% if server.server_config %}
-            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0.75rem;">
-                {% for key, value in server.server_config.items() %}
-                <div style="
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    padding: 0.6rem 0;
-                    border-bottom: 1px solid var(--border-color);
-                ">
-                    <span style="color: var(--text-secondary); font-size: 0.85rem;">{{ key }}</span>
-                    <span style="font-weight: 600; font-size: 0.9rem;">
-                        {% if value is sameas true %}
-                            <span style="color: var(--success);">Aktiviert</span>
-                        {% elif value is sameas false %}
-                            <span style="color: var(--danger);">Deaktiviert</span>
-                        {% else %}
-                            {{ value }}
-                        {% endif %}
-                    </span>
-                </div>
-                {% endfor %}
-            </div>
-            {% else %}
-            <p style="color: var(--text-muted); padding: 1rem;">Keine Konfigurationsdaten verfuegbar.</p>
-            {% endif %}
-        </div>
-    </div>
-
-    <!-- Tab: Mods -->
-    <div id="tab-mods" class="tab-content" style="display: none;">
-        <div hx-get="/api/server/{{ server.server_id }}/mods"
-             hx-trigger="load"
-             hx-swap="innerHTML">
-            <p style="color: var(--text-muted); padding: 1rem;">Mod-Liste wird geladen...</p>
-        </div>
-    </div>
-
-    <!-- Tab: Update Status -->
-    <div id="tab-updates" class="tab-content" style="display: none;">
-        <div class="config-section">
-            <h3 class="subsection-title">Update-Status</h3>
-            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem;">
-                <!-- Aktuelle Version -->
-                <div class="stat-card">
-                    <h4>Aktuelle Version</h4>
-                    <span style="font-size: 1.2rem; font-weight: 700; color: var(--text-primary);">
-                        {{ server.update_info.current_version }}
-                    </span>
-                </div>
-                <!-- Verfuegbare Version -->
-                <div class="stat-card">
-                    <h4>Verfuegbare Version</h4>
-                    <span style="font-size: 1.2rem; font-weight: 700;
-                        {% if server.update_info.update_available %}color: var(--warning);{% else %}color: var(--text-primary);{% endif %}
-                    ">
-                        {{ server.update_info.available_version }}
-                    </span>
-                </div>
-                <!-- Update-Status -->
-                <div class="stat-card">
-                    <h4>Status</h4>
-                    {% if server.update_info.update_available %}
-                    <span style="
-                        display: inline-block;
-                        padding: 0.3rem 0.8rem;
-                        background: rgba(243, 156, 18, 0.2);
-                        color: var(--warning);
-                        border-radius: 12px;
-                        font-size: 0.85rem;
-                        font-weight: 600;
-                    ">Update verfuegbar</span>
-                    {% else %}
-                    <span style="
-                        display: inline-block;
-                        padding: 0.3rem 0.8rem;
-                        background: rgba(46, 204, 113, 0.2);
-                        color: var(--success);
-                        border-radius: 12px;
-                        font-size: 0.85rem;
-                        font-weight: 600;
-                    ">Aktuell</span>
-                    {% endif %}
-                </div>
-            </div>
-        </div>
-    </div>
-</section>
-
-<!-- Tab-Umschaltung JavaScript -->
+{# Refactor 2026-05-17: .sd-*-Prefix entfernt, style.css v5.0-Klassen direkt.
+   8 Tabs mit HTMX-Lazy-Load, Chart.js fuer Analyse-Tab. #}
 <style>
-    .rcon-line {
-        padding: 0.2rem 0;
-        color: var(--text-primary);
-    }
-    .rcon-timestamp {
-        color: var(--text-muted);
-        margin-right: 0.5rem;
-    }
-    .rcon-input {
-        color: var(--accent-light);
-    }
-    .rcon-output {
-        color: var(--success);
-    }
-    .rcon-error {
-        color: var(--danger);
-    }
-    code {
-        font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-    }
+/* Ad-hoc Komponenten ohne style.css-Pendant */
+.detail-breadcrumb { display: flex; align-items: center; gap: var(--s-2); font-size: 13px; color: var(--text-muted); margin-bottom: var(--s-5); }
+.detail-breadcrumb a { color: var(--accent-light); text-decoration: none; }
+.detail-breadcrumb a:hover { text-decoration: underline; }
+.detail-server-icon { width: 56px; height: 56px; border-radius: var(--radius); display: flex; align-items: center; justify-content: center; font-size: 28px; flex-shrink: 0; }
+.detail-server-icon.minecraft   { background: var(--success-dim); color: var(--success); }
+.detail-server-icon.satisfactory { background: var(--warning-dim); color: var(--warning); }
+.detail-server-icon.unknown      { background: var(--bg-card-hover); color: var(--text-muted); }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+.rcon-console { background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: var(--radius); padding: var(--s-4); font-family: 'JetBrains Mono', monospace; font-size: 13px; }
+.rcon-output { max-height: 300px; min-height: 200px; overflow-y: auto; margin-bottom: var(--s-3); }
+.rcon-line { padding: 2px 0; }
+.rcon-line .rcon-time { color: var(--text-dim); }
+.rcon-line .rcon-cmd  { color: var(--accent-light); }
+.rcon-line .rcon-resp { color: var(--success); }
+.rcon-line .rcon-err  { color: var(--danger); }
+.rcon-form { display: flex; gap: var(--s-2); }
+.rcon-form input { flex: 1; }
+.config-pairs { display: grid; grid-template-columns: 200px 1fr; gap: var(--s-2) var(--s-4); }
+@media (max-width: 600px) { .config-pairs { grid-template-columns: 1fr; gap: var(--s-1) 0; } }
+.config-pairs .key { font-size: 13px; color: var(--text-muted); padding: var(--s-2) 0; }
+.config-pairs .val { font-size: 13px; color: var(--text-primary); padding: var(--s-2) 0; font-family: 'JetBrains Mono', monospace; word-break: break-all; }
+.chart-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-4); margin-bottom: var(--s-4); }
+@media (max-width: 900px) { .chart-row { grid-template-columns: 1fr; } }
+.chart-host { position: relative; height: 250px; margin-bottom: var(--s-3); }
+.inline-stats { display: flex; gap: var(--s-6); margin-bottom: var(--s-3); flex-wrap: wrap; }
+.inline-stat-val { font-size: 24px; font-weight: 700; }
 </style>
 
+{% set server_icon_emoji = '⛏' if server.type == 'minecraft' else ('🏭' if server.type == 'satisfactory' else '🖥') %}
+{% set server_icon_class = server.type if server.type in ['minecraft', 'satisfactory'] else 'unknown' %}
+{% set status_class = 'status-online' if server.status == 'online' else ('status-offline' if server.status == 'offline' else 'status-unknown') %}
+{% set dot_class = 'status-dot--online' if server.status == 'online' else ('status-dot--offline' if server.status == 'offline' else 'status-dot--warning') %}
+
+<!-- Breadcrumb -->
+<div class="detail-breadcrumb">
+  <a href="/">Uebersicht</a>
+  <span>&rsaquo;</span>
+  <span>{{ server.name }}</span>
+</div>
+
+<!-- Page-Header mit Server-Icon + Status + Actions -->
+<div class="page-header">
+  <div style="display:flex; align-items:center; gap: var(--s-4);">
+    <div class="detail-server-icon {{ server_icon_class }}">{{ server_icon_emoji }}</div>
+    <div>
+      <h1>{{ server.name }}</h1>
+      <p class="page-subtitle">
+        <span class="status-badge {{ status_class }}">{{ server.status|capitalize if server.status else 'Unbekannt' }}</span>
+        &ensp;{{ server.type|capitalize }} &middot;
+        Uptime {{ server.uptime }} &middot;
+        {{ server.players_online }}/{{ server.max_players }} Spieler
+        {% if server.address != 'N/A' %} &middot; {{ server.address }}{% if server.port != 'N/A' %}:{{ server.port }}{% endif %}{% endif %}
+      </p>
+    </div>
+  </div>
+  <div class="page-actions">
+    {% if server.status == 'offline' %}
+    <button class="btn btn-success"
+            hx-post="/api/server/{{ server.server_id }}/action"
+            hx-vals='{"action": "start"}'
+            hx-target="#action-result"
+            hx-swap="innerHTML"
+            hx-confirm="Server {{ server.name }} starten?">&#9654; Start</button>
+    {% else %}
+    <button class="btn"
+            hx-post="/api/server/{{ server.server_id }}/action"
+            hx-vals='{"action": "restart"}'
+            hx-target="#action-result"
+            hx-swap="innerHTML"
+            hx-confirm="Server {{ server.name }} neustarten?">&#8635; Restart</button>
+    <button class="btn btn-danger"
+            hx-post="/api/server/{{ server.server_id }}/action"
+            hx-vals='{"action": "stop"}'
+            hx-target="#action-result"
+            hx-swap="innerHTML"
+            hx-confirm="Server {{ server.name }} stoppen? Alle Spieler werden getrennt.">&#9632; Stop</button>
+    {% endif %}
+    <button class="btn"
+            hx-post="/api/server/{{ server.server_id }}/action"
+            hx-vals='{"action": "maintenance"}'
+            hx-target="#action-result"
+            hx-swap="innerHTML"
+            hx-confirm="Wartungsmodus fuer {{ server.name }} aktivieren?">&#9874; Wartung</button>
+  </div>
+</div>
+
+<div id="action-result" style="margin-bottom: var(--s-4);"></div>
+
+<!-- Hero Stats -->
+<div class="hero-stats">
+  <div class="hero-stat">
+    <div class="stat-icon stat-icon--green">&#9673;</div>
+    <div class="stat-label">Spieler Online</div>
+    <div class="stat-value">{{ server.players_online }}<span class="metric-sub" style="display:inline; margin-left:4px;">/{{ server.max_players }}</span></div>
+  </div>
+  <div class="hero-stat">
+    <div class="stat-icon">&#8987;</div>
+    <div class="stat-label">Uptime</div>
+    <div class="stat-value">{{ server.uptime }}</div>
+  </div>
+  <div class="hero-stat">
+    <div class="stat-icon stat-icon--yellow">&#9881;</div>
+    <div class="stat-label">CPU</div>
+    <div class="stat-value">{%- if server.world_info and server.world_info.get('CPU-Auslastung') and server.world_info['CPU-Auslastung'] != 'N/A' -%}{{ server.world_info['CPU-Auslastung'] }}{%- else -%}&mdash;{%- endif -%}</div>
+  </div>
+  <div class="hero-stat">
+    <div class="stat-icon stat-icon--pink">&#9783;</div>
+    <div class="stat-label">RAM</div>
+    <div class="stat-value">{%- if server.world_info and server.world_info.get('RAM-Verbrauch') and server.world_info['RAM-Verbrauch'] != 'N/A' -%}{{ server.world_info['RAM-Verbrauch'] }}{%- else -%}&mdash;{%- endif -%}</div>
+  </div>
+  <div class="hero-stat">
+    <div class="stat-icon">&#9203;</div>
+    <div class="stat-label">{% if server.type == 'minecraft' %}TPS{% else %}Tick-Rate{% endif %}</div>
+    <div class="stat-value">{%- if server.world_info and server.world_info.get('Tick-Rate') and server.world_info['Tick-Rate'] != 'N/A' -%}{{ server.world_info['Tick-Rate'] }}{%- else -%}&mdash;{%- endif -%}</div>
+  </div>
+</div>
+
+<!-- Tabs -->
+<div class="tabs">
+  <button class="tab active" data-tab="players">Spieler</button>
+  {% if server.has_rcon %}<button class="tab" data-tab="rcon">RCON-Konsole</button>{% endif %}
+  <button class="tab" data-tab="backups">Backups</button>
+  <button class="tab" data-tab="world">Welt-Info</button>
+  <button class="tab" data-tab="config">Server-Config</button>
+  <button class="tab" data-tab="updates">Updates</button>
+  <button class="tab" data-tab="blacklist">Blacklist</button>
+  <button class="tab" data-tab="analyse">Analyse</button>
+</div>
+
+<!-- TAB: Spieler -->
+<div class="tab-panel active" id="tab-players">
+  <div class="tile">
+    <h3 class="subsection-title">Aktuelle Spieler ({{ server.players_online }}/{{ server.max_players }})</h3>
+    <div hx-get="/api/server/{{ server.server_id }}/players"
+         hx-trigger="load, every 10s[document.visibilityState==='visible']"
+         hx-swap="innerHTML">
+      <p class="empty-text">Spielerliste wird geladen...</p>
+    </div>
+  </div>
+</div>
+
+<!-- TAB: RCON -->
+{% if server.has_rcon %}
+<div class="tab-panel" id="tab-rcon">
+  <div class="tile">
+    <h3 class="subsection-title">RCON-Konsole &mdash; {{ server.name }}</h3>
+    <div class="rcon-console">
+      <div class="rcon-output" id="rcon-output">
+        <div class="rcon-line"><span class="rcon-resp">[Console] Bereit. Befehle werden hier angezeigt.</span></div>
+      </div>
+      <form hx-post="/api/server/{{ server.server_id }}/rcon"
+            hx-target="#rcon-output"
+            hx-swap="beforeend scroll:#rcon-output:bottom"
+            class="rcon-form"
+            onsubmit="setTimeout(function(){ document.getElementById('rcon-cmd').value = ''; }, 50);">
+        <input type="text" id="rcon-cmd" name="command" placeholder="RCON-Befehl eingeben..." autocomplete="off">
+        <button type="submit" class="btn btn-primary">Senden</button>
+      </form>
+    </div>
+    <p class="text-muted text-sm mt-2">&#9888; Eingabe wird durch RCON-Sanitizer gefiltert (Whitelist). Gefaehrliche Befehle werden blockiert.</p>
+  </div>
+</div>
+{% endif %}
+
+<!-- TAB: Backups -->
+<div class="tab-panel" id="tab-backups">
+  <div class="section-header">
+    <h3 class="section-title">Backups &mdash; {{ server.name }}</h3>
+    <button class="btn btn-primary btn-sm"
+            hx-post="/api/server/{{ server.server_id }}/action"
+            hx-vals='{"action": "backup"}'
+            hx-target="#action-result"
+            hx-swap="innerHTML"
+            hx-confirm="Backup fuer {{ server.name }} erstellen?">+ Backup jetzt erstellen</button>
+  </div>
+  <div class="tile">
+    <div hx-get="/api/server/{{ server.server_id }}/backups"
+         hx-trigger="load"
+         hx-swap="innerHTML">
+      <p class="empty-text">Backup-Liste wird geladen...</p>
+    </div>
+  </div>
+</div>
+
+<!-- TAB: Welt-Info -->
+<div class="tab-panel" id="tab-world">
+  {% if server.world_info %}
+  <div class="tile">
+    <h3 class="subsection-title">{% if server.type == 'minecraft' %}Welt-Informationen{% elif server.type == 'satisfactory' %}Session-Informationen{% else %}Server-Informationen{% endif %}</h3>
+    <div class="config-pairs">
+      {% for key, value in server.world_info.items() %}
+      <div class="key">{{ key }}</div>
+      <div class="val">{{ value }}</div>
+      {% endfor %}
+    </div>
+  </div>
+  {% else %}
+  <div class="tile"><p class="empty-text">Keine Welt-/Savegame-Daten verfuegbar.</p></div>
+  {% endif %}
+</div>
+
+<!-- TAB: Server-Config -->
+<div class="tab-panel" id="tab-config">
+  {% if server.server_config %}
+  <div class="tile">
+    <h3 class="subsection-title">server.properties (Auszug)</h3>
+    <div class="config-pairs">
+      {% for key, value in server.server_config.items() %}
+      <div class="key">{{ key }}</div>
+      <div class="val">
+        {% if value is sameas true %}<span class="text-success">true</span>
+        {% elif value is sameas false %}<span class="text-danger">false</span>
+        {% else %}{{ value }}{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% else %}
+  <div class="tile"><p class="empty-text">Keine Konfigurationsdaten verfuegbar.</p></div>
+  {% endif %}
+</div>
+
+<!-- TAB: Updates -->
+<div class="tab-panel" id="tab-updates">
+  <div class="stats-grid">
+    <div class="stat-card">
+      <h4>Server-Version</h4>
+      <div class="config-pairs">
+        <div class="key">Aktuell</div>
+        <div class="val">{{ server.update_info.current_version if server.update_info else '—' }}</div>
+        <div class="key">Verfuegbar</div>
+        <div class="val {% if server.update_info and server.update_info.update_available %}text-warning{% else %}text-success{% endif %}">
+          {% if server.update_info %}
+            {{ server.update_info.available_version }}
+            {% if server.update_info.update_available %} &uarr; Update verfuegbar{% else %} &check; Aktuell{% endif %}
+          {% else %}&mdash;{% endif %}
+        </div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <h4>{% if server.type == 'minecraft' %}Modpack-Version{% else %}Game-Status{% endif %}</h4>
+      <div hx-get="/api/server/{{ server.server_id }}/mods"
+           hx-trigger="load"
+           hx-swap="innerHTML">
+        <p class="empty-text">Mod-/Update-Info wird geladen...</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- TAB: Blacklist -->
+<div class="tab-panel" id="tab-blacklist">
+  <div class="section-header">
+    <h3 class="section-title">Blacklist &mdash; {{ server.name }}</h3>
+    <button class="btn btn-danger btn-sm" disabled title="Backend-Anbindung folgt">+ Spieler sperren</button>
+  </div>
+  <div class="tile">
+    <p class="empty-text">Blacklist-Backend wird in einer kuenftigen Etappe angebunden.<br><span class="text-sm">Mockup-Vorschau: Spalten = Spieler, Gesperrt am, Gesperrt von, Grund, Server, Aktionen.</span></p>
+  </div>
+</div>
+
+<!-- TAB: Analyse -->
+<div class="tab-panel" id="tab-analyse">
+  <div class="chart-controls">
+    <button class="btn btn-sm time-btn" onclick="sdSetTimeRange(this)">24h</button>
+    <button class="btn btn-sm btn-primary time-btn active" onclick="sdSetTimeRange(this)">7 Tage</button>
+    <button class="btn btn-sm time-btn" onclick="sdSetTimeRange(this)">30 Tage</button>
+  </div>
+
+  <div class="chart-row">
+    <div class="chart-card">
+      <h4>Uptime-Verlauf</h4>
+      <div class="inline-stats">
+        <div><span class="inline-stat-val text-success">{{ analytics.uptime_pct if analytics else '—' }}</span><br><span class="text-muted text-sm">Verfuegbarkeit</span></div>
+        <div><span class="inline-stat-val text-primary">{{ analytics.outages if analytics else '—' }}</span><br><span class="text-muted text-sm">Ausfaelle</span></div>
+      </div>
+      <div class="chart-host"><canvas id="sd-chart-uptime"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <h4>CPU / RAM</h4>
+      <div class="chart-host"><canvas id="sd-chart-perf"></canvas></div>
+    </div>
+  </div>
+
+  <div class="chart-row">
+    <div class="chart-card">
+      <h4>Spieler-Aktivitaet</h4>
+      <div class="inline-stats">
+        <div><span class="inline-stat-val text-accent">{{ analytics.players_peak if analytics else '—' }}</span><br><span class="text-muted text-sm">Peak (7 Tage)</span></div>
+        <div><span class="inline-stat-val text-primary">{{ analytics.players_avg if analytics else '—' }}</span><br><span class="text-muted text-sm">&Oslash; Online</span></div>
+      </div>
+      <div class="chart-host"><canvas id="sd-chart-players"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <h4>{% if server.type == 'minecraft' %}TPS-Verlauf{% else %}Performance-Verlauf{% endif %}</h4>
+      <div class="chart-host"><canvas id="sd-chart-tps"></canvas></div>
+    </div>
+  </div>
+
+  <div class="tile">
+    <h3 class="subsection-title">Ausfall-Log (letzte 7 Tage)</h3>
+    {% if analytics and analytics.outage_log %}
+    <table>
+      <thead>
+        <tr><th>Zeitpunkt</th><th>Dauer</th><th>Grund</th><th>Wiederherstellung</th></tr>
+      </thead>
+      <tbody>
+        {% for entry in analytics.outage_log %}
+        <tr>
+          <td>{{ entry.timestamp }}</td>
+          <td><span class="status-badge status-offline">{{ entry.duration }}</span></td>
+          <td>{{ entry.reason }}</td>
+          <td>{{ entry.recovery }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="empty-text">Keine Ausfaelle im gewaehlten Zeitraum (oder Analytics-Backend noch nicht angebunden).</p>
+    {% endif %}
+  </div>
+</div>
+
 <script>
-function switchTab(btn, tabId) {
-    // Alle Tabs ausblenden
-    document.querySelectorAll('.tab-content').forEach(function(tab) {
-        tab.style.display = 'none';
-    });
-    // Alle Tab-Buttons deaktivieren
-    document.querySelectorAll('.detail-tab').forEach(function(t) {
-        t.classList.remove('active');
-    });
-    // Gewaehlten Tab anzeigen
-    document.getElementById(tabId).style.display = 'block';
-    btn.classList.add('active');
+// Tab-Switching via Event-Delegation (greift auch fuer HTMX-nachgeladene Tabs)
+document.addEventListener('click', function(e) {
+  var tab = e.target.closest('.tabs .tab');
+  if (!tab) return;
+  document.querySelectorAll('.tabs .tab').forEach(function(t) { t.classList.remove('active'); });
+  document.querySelectorAll('.tab-panel').forEach(function(c) { c.classList.remove('active'); });
+  tab.classList.add('active');
+  var target = document.getElementById('tab-' + tab.dataset.tab);
+  if (target) target.classList.add('active');
+  if (tab.dataset.tab === 'analyse') sdInitCharts();
+});
+
+// Time-Range Toggle
+function sdSetTimeRange(btn) {
+  document.querySelectorAll('.time-btn').forEach(function(b) { b.classList.remove('btn-primary','active'); });
+  btn.classList.add('btn-primary','active');
 }
 
-// RCON-Eingabe: Enter-Taste zum Absenden
+// RCON-Enter + DOM-Trim (verhindert unbounded RCON-Output-Growth)
 document.addEventListener('DOMContentLoaded', function() {
-    var rconInput = document.getElementById('rcon-input');
-    if (rconInput) {
-        rconInput.addEventListener('keydown', function(e) {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                rconInput.closest('form').dispatchEvent(new Event('submit', { bubbles: true }));
-            }
-        });
-    }
+  var rconInput = document.getElementById('rcon-cmd');
+  if (rconInput) {
+    rconInput.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        rconInput.closest('form').dispatchEvent(new Event('submit', { bubbles: true }));
+      }
+    });
+  }
+  // RCON-Output auf max 200 Eintraege begrenzen (Trim alteste 50 wenn ueberschritten)
+  var rconOut = document.getElementById('rcon-output');
+  if (rconOut) {
+    document.body.addEventListener('htmx:afterSwap', function(ev) {
+      if (ev.detail && ev.detail.target && ev.detail.target.id === 'rcon-output') {
+        while (rconOut.children.length > 200) {
+          rconOut.removeChild(rconOut.firstChild);
+        }
+      }
+    });
+  }
 });
+
+// Charts (Chart.js bereits aus base.html geladen, Placeholder-Daten)
+var sdChartsInit = false;
+function sdInitCharts() {
+  if (sdChartsInit) return;
+  if (typeof Chart === 'undefined') return;
+  sdChartsInit = true;
+
+  var fontColor = getComputedStyle(document.body).getPropertyValue('--text-muted').trim() || '#80848e';
+  var gridColor = 'rgba(255,255,255,0.06)';
+  var defaults = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: { legend: { labels: { color: fontColor, font: { size: 11 } } } },
+    scales: {
+      x: { ticks: { color: fontColor, font: { size: 10 } }, grid: { color: gridColor } },
+      y: { ticks: { color: fontColor, font: { size: 10 } }, grid: { color: gridColor } }
+    }
+  };
+  var days = ['T-7', 'T-6', 'T-5', 'T-4', 'T-3', 'T-2', 'T-1', 'Heute'];
+
+  new Chart(document.getElementById('sd-chart-uptime'), {
+    type: 'bar',
+    data: { labels: days, datasets: [{ label: 'Online (h)', data: [24,24,24,24,22.6,24,24,17], backgroundColor: 'rgba(35,165,90,.5)', borderColor: '#23a55a', borderWidth: 1, borderRadius: 3 }] },
+    options: Object.assign({}, defaults, { scales: Object.assign({}, defaults.scales, { y: Object.assign({}, defaults.scales.y, { max: 24 }) }) })
+  });
+  new Chart(document.getElementById('sd-chart-perf'), {
+    type: 'line',
+    data: { labels: days, datasets: [
+      { label: 'CPU %', data: [8,15,22,18,12,14,20,12], borderColor: '#5865f2', backgroundColor: 'rgba(88,101,242,.1)', fill: true, tension: .3 },
+      { label: 'RAM GB', data: [3.8,4.1,4.5,4.3,3.9,4.0,4.4,4.2], borderColor: '#eb459e', backgroundColor: 'rgba(235,69,158,.1)', fill: true, tension: .3, yAxisID: 'y1' }
+    ]},
+    options: Object.assign({}, defaults, { scales: Object.assign({}, defaults.scales, {
+      y: Object.assign({}, defaults.scales.y, { title: { display: true, text: 'CPU %', color: fontColor } }),
+      y1: { position: 'right', ticks: { color: fontColor, font: { size: 10 } }, grid: { display: false }, title: { display: true, text: 'RAM (GB)', color: fontColor } }
+    })})
+  });
+  new Chart(document.getElementById('sd-chart-players'), {
+    type: 'line',
+    data: { labels: days, datasets: [
+      { label: 'Peak', data: [3,5,6,4,2,3,5,4], borderColor: '#5865f2', backgroundColor: 'rgba(88,101,242,.15)', fill: true, tension: .3, pointRadius: 4 },
+      { label: 'O Online', data: [1.5,2.8,3.2,2.1,1.0,1.8,2.9,2.4], borderColor: fontColor, borderDash: [5,5], tension: .3, pointRadius: 0 }
+    ]},
+    options: defaults
+  });
+  new Chart(document.getElementById('sd-chart-tps'), {
+    type: 'line',
+    data: { labels: days, datasets: [{ label: 'TPS', data: [20,19.9,19.4,19.7,20,19.8,19.5,19.8], borderColor: '#23a55a', backgroundColor: 'rgba(35,165,90,.1)', fill: true, tension: .3, pointRadius: 4 }] },
+    options: Object.assign({}, defaults, { scales: Object.assign({}, defaults.scales, { y: Object.assign({}, defaults.scales.y, { min: 18, max: 20.5 }) }) })
+  });
+}
 </script>
 {% endblock %}

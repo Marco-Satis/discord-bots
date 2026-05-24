@@ -1,48 +1,97 @@
 /* ============================================================
- *  Theme Toggle — Light-Theme Overrides
+ *  Theme Toggle — Light-Theme Overrides (v5.0)
  *
- *  Das Dark-Theme ist Standard (in style.css definiert).
- *  Diese Datei ueberschreibt nur die CSS-Variablen fuer das
- *  Light-Theme, wenn die Klasse 'light-theme' auf <html> gesetzt ist.
+ *  Dark-Theme (Discord-native Blurple) ist Standard in style.css.
+ *  Diese Datei ueberschreibt nur die CSS-Variablen fuer Light-Theme,
+ *  wenn die Klasse 'light-theme' auf <html> gesetzt ist.
  *
- *  Akzentfarbe (lila) bleibt in beiden Themes gleich.
+ *  Refactored 2026-05-17 fuer v5.0 Token-Set.
+ *  Legacy: themes.css.legacy.1778975588
  * ============================================================ */
 
 html.light-theme {
-    --bg-primary: #f0f2f5;
-    --bg-sidebar: #ffffff;
-    --bg-card: #ffffff;
-    --bg-input: #f8f9fa;
-    --bg-hover: #e9ecef;
-    --accent: #533483;
-    --accent-light: #6c44a0;
-    --text-primary: #1a1a2e;
-    --text-secondary: #495057;
-    --text-muted: #868e96;
-    --border-color: #dee2e6;
-    --shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    /* Surfaces: heller Hintergrund, sauber abgestuft */
+    --bg-primary:    #f7f8fa;
+    --bg-sidebar:    #ffffff;
+    --bg-card:       #ffffff;
+    --bg-card-hover: #f1f3f5;
+    --bg-input:      #f7f8fa;
+    --bg-hover:      #ebedef;
+
+    /* Borders: subtile dunkle Linien auf hellem Background */
+    --border-color:    rgba(15, 16, 20, 0.08);
+    --border-subtle:   rgba(15, 16, 20, 0.04);
+    --border-card:     rgba(15, 16, 20, 0.10);
+    --border-strong:   rgba(15, 16, 20, 0.16);
+
+    /* Text */
+    --text-primary:   #0f1014;
+    --text-secondary: #4e5058;
+    --text-muted:     #6d6f78;
+    --text-dim:       #b5bac1;
+
+    /* Accents — etwas dunkler fuer besseren Kontrast auf hellem BG */
+    --accent:        #4752c4;
+    --accent-light:  #5865f2;
+    --accent-hover:  #3641a8;
+    --accent-bg:     rgba(71, 82, 196, 0.10);
+    --accent-glow:   rgba(71, 82, 196, 0.18);
+    --accent-border: rgba(71, 82, 196, 0.25);
+
+    --pink:    #c2185b;
+    --pink-bg: rgba(194, 24, 91, 0.10);
+    --discord-blurple: #4752c4;
+
+    /* Semantic Status — gleichwertige Kontrast-Versionen */
+    --success:     #1f7a3f;
+    --success-dim: rgba(31, 122, 63, 0.12);
+    --warning:     #b87a0f;
+    --warning-dim: rgba(184, 122, 15, 0.14);
+    --danger:      #c4302b;
+    --danger-dim:  rgba(196, 48, 43, 0.12);
+    --info:        #0072b8;
+    --info-dim:    rgba(0, 114, 184, 0.12);
+
+    /* Shadows etwas weicher im Light-Mode */
+    --shadow-sm:   0 1px 2px rgba(15, 16, 20, 0.05);
+    --shadow:      0 4px 12px rgba(15, 16, 20, 0.08);
+    --shadow-lg:   0 12px 32px rgba(15, 16, 20, 0.12);
 }
 
-/* Sidebar-Logo im Light-Theme besser lesbar */
+/* Sidebar bekommt im Light-Theme einen subtilen Schatten zur Trennung */
 html.light-theme .sidebar {
-    box-shadow: 2px 0 8px rgba(0, 0, 0, 0.06);
+    box-shadow: 1px 0 4px rgba(15, 16, 20, 0.04);
 }
 
-/* Toggle-Button Styling */
+/* Cards heben sich subtiler ab — der Light-Mode-Hover-Lift wirkt sonst zu krass */
+html.light-theme .hero-stat:hover,
+html.light-theme .tile:hover {
+    box-shadow: 0 4px 12px rgba(15, 16, 20, 0.08);
+}
+
+/* Status-Pulse-Animation: Light-Mode-Variante */
+html.light-theme @keyframes status-pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(31, 122, 63, 0.4); }
+    70%  { box-shadow: 0 0 0 8px rgba(31, 122, 63, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(31, 122, 63, 0); }
+}
+
+/* Toggle-Button (Sidebar-Footer) */
 .theme-toggle {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
-    padding: 0.7rem 1.25rem;
-    color: var(--text-secondary);
-    font-size: 0.9rem;
+    gap: var(--s-3);
+    padding: var(--s-2) var(--s-5);
+    color: var(--text-muted);
+    font-size: 14px;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: all var(--duration-fast) var(--ease-out);
     border: none;
     background: none;
     width: 100%;
     text-align: left;
-    border-left: 3px solid transparent;
+    border-left: 2px solid transparent;
+    min-height: 40px;
 }
 
 .theme-toggle:hover {
@@ -51,7 +100,10 @@ html.light-theme .sidebar {
 }
 
 .theme-toggle .nav-icon {
-    font-size: 1.1rem;
-    width: 24px;
+    font-size: 16px;
+    width: 20px;
     text-align: center;
+    opacity: 0.85;
 }
+
+.theme-toggle:hover .nav-icon { opacity: 1; }

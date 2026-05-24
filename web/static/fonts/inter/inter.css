@@ -1,0 +1,64 @@
+/*
+ * Inter-Font lokal gehostet (DSGVO-konform, kein Google-Fonts-CDN).
+ * Migration 2026-05-16 (CODE-FIND-003).
+ *
+ * Weights matching former Google-Fonts-Request:
+ *   400 (Regular), 450, 500 (Medium), 550, 600 (SemiBold), 700 (Bold)
+ *
+ * Source: https://rsms.me/inter/ (rsms/inter Github Release v4.x) oder
+ *         https://fontsource.org/fonts/inter
+ *
+ * Marco-Action (einmalig):
+ *   .\web\static\fonts\inter\download_inter.ps1
+ *
+ * Verifikation: Browser DevTools -> Network -> filter "fonts.googleapis"
+ * sollte 0 Requests zeigen.
+ */
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('Inter-Regular.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 450;
+  font-display: swap;
+  src: url('Inter-Regular.woff2') format('woff2');  /* 450 in 400 mappen, falls keine 450-WOFF2 vorhanden */
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('Inter-Medium.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 550;
+  font-display: swap;
+  src: url('Inter-Medium.woff2') format('woff2');  /* 550 in 500 mappen */
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('Inter-SemiBold.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('Inter-Bold.woff2') format('woff2');
+}

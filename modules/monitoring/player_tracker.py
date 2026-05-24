@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import Optional, Callable, Awaitable, Dict, List, Set, Any
 
 from utils.logger import get_logger
+from utils.async_tasks import schedule_from_sync
 from modules.database.db_manager import get_db
 
 logger = get_logger("player_tracker")
@@ -508,21 +509,16 @@ class PlayerTracker:
             self._save()  # no-op, kept for API compatibility
             logger.info(f"{closed} Stale-Sessions geschlossen")
 
-            # Fire-and-forget: persist closed sessions to SQLite
+            # Persist closed sessions to SQLite mit Reference-Tracking
+            # (audit-fix 2026-05-17, async.md H2 — Fire-and-Forget verlor Tasks an GC)
             if sessions_to_persist:
-                try:
-                    loop = asyncio.get_event_loop()
-                    if loop.is_running():
-                        loop.create_task(self._persist_closed_sessions(sessions_to_persist))
-                    else:
-                        # If no running loop, try to run synchronously (best effort)
-                        logger.warning(
-                            "Kein laufender Event-Loop — SQLite-Persist fuer "
-                            f"{len(sessions_to_persist)} Sessions uebersprungen"
-                        )
-                except RuntimeError:
+                task = schedule_from_sync(
+                    self._persist_closed_sessions(sessions_to_persist),
+                    name=f"player_tracker.persist[{len(sessions_to_persist)}]",
+                )
+                if task is None:
                     logger.warning(
-                        "Event-Loop nicht verfuegbar — SQLite-Persist fuer "
+                        f"Event-Loop nicht verfuegbar — SQLite-Persist fuer "
                         f"{len(sessions_to_persist)} Sessions uebersprungen"
                     )
 

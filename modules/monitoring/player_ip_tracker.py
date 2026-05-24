@@ -11,6 +11,7 @@ from datetime import datetime
 from typing import Optional, Dict, List, Tuple, Any
 
 from utils.logger import get_logger
+from utils.async_tasks import schedule_from_sync
 from modules.database.db_manager import get_db
 
 logger = get_logger("player_ip_tracker")
@@ -295,16 +296,16 @@ class PlayerIPTracker:
         self._fire_and_forget_db_write(name, ip, now)
 
     def _fire_and_forget_db_write(self, name: str, ip: str, now: str) -> None:
-        """Schedule an async DB write from synchronous code."""
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                loop.create_task(self._db_update_mapping(name, ip, now))
-            else:
-                # Fallback: should not happen in bot context, but be safe
-                logger.debug("Event loop not running, skipping DB write for IP mapping")
-        except RuntimeError:
-            logger.debug("No event loop available, skipping DB write for IP mapping")
+        """Schedule an async DB write from synchronous code.
+
+        Uses utils.async_tasks.schedule_from_sync to hold a strong reference
+        to the task — sonst kann der GC den Task verschlucken bevor der
+        DSGVO-relevante IP-Write committed ist (audit 2026-05-17, async.md H2).
+        """
+        schedule_from_sync(
+            self._db_update_mapping(name, ip, now),
+            name=f"player_ip_tracker.db_update[{name}]",
+        )
 
     async def _db_update_mapping(self, name: str, ip: str, now: str) -> None:
         """Write IP mapping to SQLite (player_ips + players tables)."""

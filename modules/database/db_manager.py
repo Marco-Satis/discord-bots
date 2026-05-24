@@ -1,12 +1,20 @@
 """
 F28: Database Manager — Zentrale SQLite-Verwaltung
 
-Stellt eine Shared Connection fuer alle Module bereit.
-WAL-Modus ermoeglicht gleichzeitiges Lesen und Schreiben
-von mehreren Prozessen (3 Bots + Dashboard).
+Stellt eine Shared Write-Connection plus einen Read-Pool fuer alle Module bereit.
+WAL-Modus ermoeglicht gleichzeitiges Lesen und Schreiben von mehreren Prozessen
+(3 Bots + Dashboard); der Read-Pool sorgt dafuer dass lange Analytics-Queries
+nicht alle anderen DB-Reader im selben Prozess serialisieren.
+
+Architektur (audit-fix 2026-05-17, perf.md F2):
+  - Eine Write-Connection (`_connection`) fuer INSERT/UPDATE/DELETE.
+  - Read-Pool von READ_POOL_SIZE Connections fuer SELECT-only (Round-Robin).
+  - `get_db()` gibt weiter die Write-Connection (backwards-compatible).
+  - `get_read_db()` neu fuer reine SELECT-Pfade in Analytics / Dashboard.
 """
 
 import asyncio
+import itertools
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, Union
 
@@ -20,9 +28,16 @@ logger = get_logger("database.manager")
 # Pfad zur Haupt-Datenbank
 DB_PATH = DATA_DIR / "botdata.db"
 
-# Globale Connection (eine pro Prozess)
+# Globale Write-Connection (eine pro Prozess)
 _connection: Optional[aiosqlite.Connection] = None
 _lock = asyncio.Lock()
+
+# Read-Pool: separate Connections fuer SELECT-only, vermeidet Serialisierung
+# der Write-Connection bei langen Analytics-Queries.
+READ_POOL_SIZE = 2
+_read_pool: list[aiosqlite.Connection] = []
+_read_pool_cycle: Optional["itertools.cycle"] = None
+_read_pool_lock = asyncio.Lock()
 
 
 def get_db_path() -> Path:
@@ -73,16 +88,54 @@ async def init_db(db_path: Optional[Path] = None) -> aiosqlite.Connection:
         await run_migrations(_connection)
 
         logger.info("Datenbank initialisiert (WAL-Modus, FK aktiv)")
-        return _connection
+
+    # Read-Pool initialisieren (ausserhalb _lock, hat eigenen Lock)
+    await _init_read_pool()
+    return _connection
+
+
+async def _init_read_pool() -> None:
+    """Initialisiert den Read-Connection-Pool fuer SELECT-only Anfragen.
+
+    Jede Read-Connection oeffnet die DB im read-only-Modus via URI-Form,
+    Row-Factory analog zur Write-Connection. WAL-Modus muss bereits aktiv
+    sein (passiert in `init_db` vor diesem Call).
+    """
+    global _read_pool, _read_pool_cycle
+
+    async with _read_pool_lock:
+        if _read_pool:
+            return  # bereits initialisiert
+
+        # SQLite-URI fuer read-only Mode (verhindert versehentliche Writes)
+        ro_uri = f"file:{DB_PATH}?mode=ro"
+        for i in range(READ_POOL_SIZE):
+            try:
+                conn = await aiosqlite.connect(ro_uri, uri=True)
+                # busy_timeout auch fuer Reader (sollte selten triggern in WAL)
+                await conn.execute("PRAGMA busy_timeout=5000")
+                conn.row_factory = aiosqlite.Row
+                _read_pool.append(conn)
+            except Exception as e:
+                logger.error(f"Read-Pool-Connection #{i} init fehlgeschlagen: {e}")
+
+        if _read_pool:
+            _read_pool_cycle = itertools.cycle(_read_pool)
+            logger.info(f"Read-Pool initialisiert ({len(_read_pool)} Connections)")
+        else:
+            logger.warning("Read-Pool konnte nicht initialisiert werden — "
+                           "Fallback auf Write-Connection fuer Reads")
 
 
 async def get_db() -> aiosqlite.Connection:
     """
-    Gibt die aktive Datenbank-Connection zurueck.
+    Gibt die aktive Write-Datenbank-Connection zurueck.
     Initialisiert automatisch falls noetig.
 
+    Fuer SELECT-only Queries siehe `get_read_db()` (Read-Pool, parallel).
+
     Returns:
-        Die aktive aiosqlite-Connection
+        Die aktive aiosqlite-Connection (Write-faehig)
 
     Raises:
         RuntimeError: Wenn die DB nicht initialisiert werden konnte
@@ -96,12 +149,50 @@ async def get_db() -> aiosqlite.Connection:
     return await init_db()
 
 
+async def get_read_db() -> aiosqlite.Connection:
+    """
+    Gibt eine Read-Only Connection aus dem Pool zurueck (Round-Robin).
+
+    Fuer reine SELECT-Pfade (Analytics, Dashboard, Stats). Vermeidet
+    Serialisierung der Write-Connection bei langen Queries.
+
+    Fallback: Wenn der Read-Pool leer/un-initialisiert ist, wird die
+    Write-Connection zurueckgegeben (gleicher Effekt wie `get_db`).
+
+    Returns:
+        Eine aiosqlite-Connection (read-only oder Write-Fallback)
+    """
+    global _read_pool_cycle, _connection
+
+    # Auto-init falls noch nicht geschehen
+    if _connection is None:
+        await init_db()
+
+    if _read_pool_cycle is None or not _read_pool:
+        # Fallback: Write-Connection benutzen
+        return _connection if _connection is not None else await init_db()
+
+    return next(_read_pool_cycle)
+
+
 async def close_db() -> None:
     """
-    Schliesst die Datenbank-Verbindung sauber.
+    Schliesst die Datenbank-Verbindungen sauber (Write + Read-Pool).
     Fuehrt vorher einen WAL-Checkpoint durch.
     """
-    global _connection
+    global _connection, _read_pool, _read_pool_cycle
+
+    # Erst Read-Pool schliessen (Read-Connections koennen WAL-Checkpoint blockieren)
+    async with _read_pool_lock:
+        for conn in _read_pool:
+            try:
+                await conn.close()
+            except Exception as e:
+                logger.warning(f"Fehler beim Schliessen einer Read-Pool-Connection: {e}")
+        if _read_pool:
+            logger.info(f"Read-Pool geschlossen ({len(_read_pool)} Connections)")
+        _read_pool = []
+        _read_pool_cycle = None
 
     async with _lock:
         if _connection is None:
