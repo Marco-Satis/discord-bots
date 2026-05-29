@@ -51,6 +51,10 @@ def _default_config() -> dict[str, Any]:
         "level_formula": "5 * level^2 + 50 * level + 100",
         "channel_multipliers": {},
         "role_rewards": {},
+        # Level-Up-Karte mit Bild-Hintergrund (statt Standard-Embed)
+        "levelup_card_enabled": False,
+        "levelup_card_bg": None,
+        "levelup_card_accent": "#f1c40f",
     }
 
 
@@ -528,6 +532,40 @@ class LevelingManager:
         """
         multipliers = self._config.get("channel_multipliers", {})
         return float(multipliers.get(str(channel_id), 1.0))
+
+    # ------------------------------------------------------------------
+    # Level-Up-Karte (Bild-Hintergrund)
+    # ------------------------------------------------------------------
+
+    def is_card_enabled(self) -> bool:
+        """True wenn die Level-Up-Karte mit Bild-Hintergrund aktiv ist."""
+        return bool(self._config.get("levelup_card_enabled", False))
+
+    def get_card_bg(self) -> str | None:
+        """Dateiname des aktiven Karten-Hintergrunds (oder None)."""
+        return self._config.get("levelup_card_bg")
+
+    def get_card_accent(self) -> str:
+        """Hex-Akzentfarbe der Karte zurueckgeben (Standard: Gold)."""
+        return self._config.get("levelup_card_accent", "#f1c40f")
+
+    def set_card_enabled(self, enabled: bool) -> None:
+        """Level-Up-Karte an- oder ausschalten."""
+        self._config["levelup_card_enabled"] = bool(enabled)
+        self._save_config()
+        logger.info(f"Level-Up-Karte enabled={enabled}")
+
+    def set_card_bg(self, filename: str | None) -> None:
+        """Dateinamen des Karten-Hintergrunds setzen (None = kein BG)."""
+        self._config["levelup_card_bg"] = filename
+        self._save_config()
+        logger.info(f"Level-Up-Karten-Hintergrund: {filename}")
+
+    def set_card_accent(self, hex_color: str) -> None:
+        """Hex-Akzentfarbe der Karte setzen."""
+        self._config["levelup_card_accent"] = hex_color
+        self._save_config()
+        logger.info(f"Level-Up-Karten-Akzent: {hex_color}")
 
     # ------------------------------------------------------------------
     # Leaderboard (SQLite-Query mit In-Memory-Fallback)

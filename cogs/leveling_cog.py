@@ -20,6 +20,8 @@ Command-Struktur:
 
 from __future__ import annotations
 
+import asyncio
+import io
 from typing import Optional
 
 import discord
@@ -33,6 +35,21 @@ from utils.permissions import admin_only
 from utils.formatting import progress_bar
 
 logger = get_logger("cogs.leveling")
+
+# Level-Up-Karte braucht Pillow — bei fehlender Lib auf Embed zurueckfallen,
+# damit der Admin-Bot nicht crasht (Defense-in-Depth gegen fehlende Dependency).
+try:
+    from modules.levelup_card import render_levelup_card
+    _CARD_AVAILABLE = True
+except Exception as _card_import_err:  # noqa: BLE001
+    render_levelup_card = None  # type: ignore[assignment]
+    _CARD_AVAILABLE = False
+    logger.warning(
+        f"Level-Up-Karte nicht verfuegbar (Pillow fehlt?): {_card_import_err}"
+    )
+
+# Ablage fuer hochgeladene Level-Up-Karten-Hintergruende
+LEVELUP_BG_DIR = ADMIN_DATA_DIR / "levelup_backgrounds"
 
 
 class LevelingCog(commands.Cog):
@@ -101,41 +118,19 @@ class LevelingCog(commands.Cog):
         if not leveled_up:
             return
 
-        # Level-Up Benachrichtigung
+        # Level-Up Benachrichtigung (Bild-Karte falls aktiv, sonst Embed)
         user_data = self.leveling.get_user(message.author.id)
         new_level = user_data["level"]
 
-        embed = discord.Embed(
-            title="Level Up!",
-            description=(
-                f"{message.author.mention} hat **Level {new_level}** erreicht!"
-            ),
-            color=0xf1c40f,
-        )
-
-        # Fortschrittsbalken für nächstes Level
-        xp_needed = self.leveling.xp_for_level(new_level)
-        current_xp = user_data["xp"]
-        # XP die bereits im aktuellen Level gesammelt wurden
-        if new_level > 0:
-            xp_prev_level = self.leveling.xp_for_level(new_level - 1)
-            xp_in_level = current_xp - xp_prev_level
-            xp_for_next = xp_needed - xp_prev_level
-        else:
-            xp_in_level = current_xp
-            xp_for_next = xp_needed
-
-        bar = progress_bar(xp_in_level, xp_for_next, length=10)
-        embed.add_field(
-            name="Naechstes Level",
-            value=f"{bar} ({xp_in_level}/{xp_for_next} XP)",
-            inline=False,
-        )
-
-        embed.set_thumbnail(url=message.author.display_avatar.url)
+        file, embed = await self._build_levelup_message(message.author, new_level)
 
         try:
-            await message.channel.send(embed=embed)
+            if file is not None:
+                await message.channel.send(
+                    content=message.author.mention, embed=embed, file=file
+                )
+            else:
+                await message.channel.send(embed=embed)
         except (discord.Forbidden, discord.HTTPException) as e:
             logger.warning(f"Level-Up Nachricht konnte nicht gesendet werden: {e}")
 
@@ -203,15 +198,9 @@ class LevelingCog(commands.Cog):
         user_data = self.leveling.get_user(member.id)
         new_level = user_data["level"]
 
-        embed = discord.Embed(
-            title="Level Up!",
-            description=(
-                f"{member.mention} hat durch Voice-Aktivitaet "
-                f"**Level {new_level}** erreicht!"
-            ),
-            color=0xf1c40f,
+        file, embed = await self._build_levelup_message(
+            member, new_level, via_voice=True
         )
-        embed.set_thumbnail(url=member.display_avatar.url)
 
         # System-Channel oder ersten beschreibbaren Text-Channel finden
         channel = guild.system_channel
@@ -224,7 +213,12 @@ class LevelingCog(commands.Cog):
 
         if channel:
             try:
-                await channel.send(embed=embed)
+                if file is not None:
+                    await channel.send(
+                        content=member.mention, embed=embed, file=file
+                    )
+                else:
+                    await channel.send(embed=embed)
             except (discord.Forbidden, discord.HTTPException) as e:
                 logger.warning(
                     f"Voice Level-Up Nachricht fehlgeschlagen: {e}"
@@ -236,6 +230,90 @@ class LevelingCog(commands.Cog):
     # ==================================================================
     # Hilfsmethoden
     # ==================================================================
+
+    def _xp_progress(self, user_data: dict, level: int) -> tuple[int, int]:
+        """XP im aktuellen Level + XP-Spanne zum naechsten Level berechnen."""
+        current_xp = user_data.get("xp", 0)
+        xp_needed = self.leveling.xp_for_level(level)
+        if level > 0:
+            xp_prev = self.leveling.xp_for_level(level - 1)
+            return current_xp - xp_prev, xp_needed - xp_prev
+        return current_xp, xp_needed
+
+    async def _build_levelup_message(
+        self,
+        member: discord.Member | discord.User,
+        new_level: int,
+        *,
+        via_voice: bool = False,
+    ) -> tuple[Optional[discord.File], discord.Embed]:
+        """
+        Level-Up-Nachricht bauen.
+
+        Wenn die Bild-Karte aktiv ist und ein Hintergrund gesetzt wurde:
+        rendert eine PNG-Karte (Wallpaper + Avatar + Progress) und gibt
+        (discord.File, Embed mit set_image) zurueck. Sonst (None, Standard-Embed).
+
+        Args:
+            member: Der Member der gelevelt hat
+            new_level: Das erreichte Level
+            via_voice: True wenn durch Voice-Aktivitaet ausgeloest
+
+        Returns:
+            (file_or_None, embed)
+        """
+        user_data = self.leveling.get_user(member.id)
+        xp_in_level, xp_for_next = self._xp_progress(user_data, new_level)
+
+        # --- Bild-Karte versuchen ---
+        if _CARD_AVAILABLE and self.leveling.is_card_enabled():
+            bg_name = self.leveling.get_card_bg()
+            if bg_name:
+                bg_path = LEVELUP_BG_DIR / bg_name
+                if bg_path.exists():
+                    try:
+                        avatar_bytes = await member.display_avatar.read()
+                        accent = self.leveling.get_card_accent()
+                        png = await asyncio.to_thread(
+                            render_levelup_card,
+                            bg_path,
+                            avatar_bytes,
+                            member.display_name,
+                            new_level,
+                            xp_in_level,
+                            xp_for_next,
+                            accent,
+                        )
+                        file = discord.File(io.BytesIO(png), filename="levelup.png")
+                        try:
+                            color = int(accent.lstrip("#"), 16)
+                        except ValueError:
+                            color = 0xF1C40F
+                        embed = discord.Embed(color=color)
+                        embed.set_image(url="attachment://levelup.png")
+                        return file, embed
+                    except Exception as e:  # noqa: BLE001 — Fallback auf Embed
+                        logger.warning(
+                            f"Level-Up-Karte fehlgeschlagen, nutze Embed: {e}"
+                        )
+
+        # --- Fallback: klassisches Embed ---
+        suffix = " durch Voice-Aktivitaet" if via_voice else ""
+        embed = discord.Embed(
+            title="Level Up!",
+            description=(
+                f"{member.mention} hat{suffix} **Level {new_level}** erreicht!"
+            ),
+            color=0xF1C40F,
+        )
+        bar = progress_bar(xp_in_level, xp_for_next, length=10)
+        embed.add_field(
+            name="Naechstes Level",
+            value=f"{bar} ({xp_in_level}/{xp_for_next} XP)",
+            inline=False,
+        )
+        embed.set_thumbnail(url=member.display_avatar.url)
+        return None, embed
 
     async def _apply_role_reward(
         self,
@@ -573,6 +651,139 @@ class LevelingCog(commands.Cog):
             f"Rollen-Belohnung gesetzt: Bei **Level {level}** wird die Rolle "
             f"**{rolle.name}** vergeben.",
             ephemeral=True,
+        )
+
+    # ==================================================================
+    # /xp levelcard <aktiv> [hintergrund] [akzentfarbe]
+    # ==================================================================
+
+    @staticmethod
+    def _save_bg(raw: bytes, dst) -> None:
+        """Hochgeladenes Bild speichern, auf max 1200px Breite begrenzen (blocking)."""
+        from PIL import Image
+
+        im = Image.open(io.BytesIO(raw)).convert("RGB")
+        if im.width > 1200:
+            new_h = round(im.height * 1200 / im.width)
+            im = im.resize((1200, new_h), Image.LANCZOS)
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        im.save(dst, "PNG")
+
+    @xp_grp.command(
+        name="levelcard",
+        description="Level-Up-Karte mit Bild-Hintergrund konfigurieren",
+    )
+    @app_commands.describe(
+        aktiv="Bild-Karte an- oder ausschalten",
+        hintergrund="Bild (PNG/JPG) als Hintergrund hochladen",
+        akzentfarbe="Akzentfarbe als Hex, z.B. #ff2b6b",
+    )
+    @admin_only()
+    async def xp_levelcard(
+        self,
+        interaction: discord.Interaction,
+        aktiv: bool,
+        hintergrund: Optional[discord.Attachment] = None,
+        akzentfarbe: Optional[str] = None,
+    ) -> None:
+        """Level-Up-Karte (Bild-Hintergrund) ein-/ausschalten, Hintergrund + Akzent setzen."""
+        await interaction.response.defer(ephemeral=True)
+
+        if not _CARD_AVAILABLE:
+            await interaction.followup.send(
+                "Bild-Karten nicht verfuegbar — Pillow ist auf dem Server nicht "
+                "installiert. Installiere `pip install Pillow` und starte den Bot neu.",
+                ephemeral=True,
+            )
+            return
+
+        notes: list[str] = []
+
+        # Akzentfarbe validieren + setzen
+        if akzentfarbe:
+            h = akzentfarbe.strip()
+            if not h.startswith("#"):
+                h = "#" + h
+            hex_part = h.lstrip("#")
+            if len(hex_part) == 6 and all(c in "0123456789abcdefABCDEF" for c in hex_part):
+                self.leveling.set_card_accent(h)
+                notes.append(f"Akzent {h}")
+            else:
+                await interaction.followup.send(
+                    "Ungueltige Hex-Farbe. Format: #RRGGBB", ephemeral=True
+                )
+                return
+
+        # Hintergrund-Upload verarbeiten
+        if hintergrund is not None:
+            content_type = hintergrund.content_type or ""
+            if not content_type.startswith("image/"):
+                await interaction.followup.send(
+                    "Hintergrund muss ein Bild sein (PNG/JPG).", ephemeral=True
+                )
+                return
+            if hintergrund.size > 8 * 1024 * 1024:
+                await interaction.followup.send(
+                    "Bild zu gross (max 8 MB).", ephemeral=True
+                )
+                return
+            try:
+                raw = await hintergrund.read()
+                dst = LEVELUP_BG_DIR / "bg.png"
+                await asyncio.to_thread(self._save_bg, raw, dst)
+                self.leveling.set_card_bg("bg.png")
+                notes.append("Hintergrund gesetzt")
+            except Exception as e:  # noqa: BLE001
+                logger.error(f"Karten-Hintergrund speichern fehlgeschlagen: {e}")
+                await interaction.followup.send(
+                    f"Hintergrund speichern fehlgeschlagen: {e}", ephemeral=True
+                )
+                return
+
+        # Enable-Flag setzen
+        self.leveling.set_card_enabled(aktiv)
+        notes.append("aktiv" if aktiv else "deaktiviert")
+
+        # Aktiv aber kein Hintergrund -> Hinweis
+        if aktiv and not self.leveling.get_card_bg():
+            await interaction.followup.send(
+                "Karte aktiviert, aber noch kein Hintergrund gesetzt. "
+                "Lade mit der Option `hintergrund:` ein Bild hoch.",
+                ephemeral=True,
+            )
+            return
+
+        # Vorschau rendern (falls aktiv + Hintergrund vorhanden)
+        bg_name = self.leveling.get_card_bg()
+        if aktiv and bg_name:
+            bg_path = LEVELUP_BG_DIR / bg_name
+            if bg_path.exists():
+                try:
+                    user_data = self.leveling.get_user(interaction.user.id)
+                    lvl = user_data.get("level", 0)
+                    avatar_bytes = await interaction.user.display_avatar.read()
+                    png = await asyncio.to_thread(
+                        render_levelup_card,
+                        bg_path,
+                        avatar_bytes,
+                        interaction.user.display_name,
+                        lvl,
+                        30,
+                        100,
+                        self.leveling.get_card_accent(),
+                    )
+                    file = discord.File(io.BytesIO(png), filename="preview.png")
+                    await interaction.followup.send(
+                        content="Vorschau Level-Up-Karte (" + ", ".join(notes) + "):",
+                        file=file,
+                        ephemeral=True,
+                    )
+                    return
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(f"Karten-Vorschau fehlgeschlagen: {e}")
+
+        await interaction.followup.send(
+            "Level-Up-Karte: " + ", ".join(notes), ephemeral=True
         )
 
     # ==================================================================
