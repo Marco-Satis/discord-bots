@@ -10,10 +10,10 @@
     <!-- DSGVO: Inter-Font lokal gehostet (siehe /static/fonts/inter/inter.css).
          Migration 2026-05-16 entfernt Google-Fonts-CDN (User-IP zu Google). -->
     <link rel="stylesheet" href="/static/fonts/inter/inter.css">
-    <link rel="stylesheet" href="/static/style.css">
-    <link rel="stylesheet" href="/static/themes.css">
+    <link rel="stylesheet" href="/static/style.css?v=navy20260525">
+    <link rel="stylesheet" href="/static/themes.css?v=navy20260525">
     <!-- UI-Enhancements v1.0 (Animation-Tokens, Toast, Skeleton, A11y, Status-Pulse) -->
-    <link rel="stylesheet" href="/static/ui_enhancements.css">
+    <link rel="stylesheet" href="/static/ui_enhancements.css?v=navy20260525">
     <!-- HTMX 2.0.4 (Major-Upgrade 2026-05-16 von 1.9.10). Breaking changes:
          hx-on-Attribute syntax (Marco-Templates pruefen wenn 'hx-on' verwendet wird). -->
     <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"
@@ -80,13 +80,11 @@
             }, 5000);
         })();
 
-        // Theme-Toggle: Liest Praeferenz aus localStorage und synchronisiert mit Server
+        // Theme: fest auf Dark (Midnight Navy) — Hell/Dunkel-Umschaltung entfernt 2026-05-25.
+        // Alt-Praeferenz "light" aus localStorage wird ignoriert/bereinigt.
         (function() {
-            // Theme sofort anwenden (vor DOMContentLoaded, verhindert Flackern)
-            var savedTheme = localStorage.getItem('dashboard-theme') || 'dark';
-            if (savedTheme === 'light') {
-                document.documentElement.classList.add('light-theme');
-            }
+            document.documentElement.classList.remove('light-theme');
+            try { localStorage.removeItem('dashboard-theme'); } catch (e) {}
 
             document.addEventListener('DOMContentLoaded', function() {
                 var toggleBtn = document.getElementById('themeToggle');
@@ -303,10 +301,6 @@
         </nav>
 
         <div class="sidebar-footer">
-            <button class="theme-toggle" id="themeToggle" type="button" title="Theme wechseln">
-                <span class="nav-icon" id="themeIcon" aria-hidden="true">&#9790;</span>
-                <span class="nav-label" id="themeLabel">Light Mode</span>
-            </button>
             <small>Dashboard &middot; v4.2.0</small>
         </div>
     </aside>

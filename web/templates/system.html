@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+{% extends "base_v5.html" %}
 
 {% block title %}System{% endblock %}
 {% block nav_system %}active{% endblock %}
@@ -141,7 +141,7 @@
     </div>
     <div id="package-list-area"
          hx-get="/api/system/packages/list"
-         hx-trigger="load"
+         hx-trigger="load, packageListChanged from:body"
          hx-swap="innerHTML">
         <p style="color: var(--text-muted);">Lade Update-Informationen...</p>
     </div>

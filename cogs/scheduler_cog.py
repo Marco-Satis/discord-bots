@@ -383,6 +383,16 @@ class SchedulerCog(commands.Cog):
         if self._last_daily_restart and self._last_daily_restart.date() == now.date():
             return
 
+        # User-Override: Server manuell gestoppt → kein Auto-Restart
+        try:
+            from modules.monitoring import manual_stop_state
+            if manual_stop_state.is_manually_stopped("satisfactory"):
+                logger.info("Daily-Restart fuer Satisfactory uebersprungen — manuell gestoppt")
+                self._last_daily_restart = now
+                return
+        except Exception as e:
+            logger.debug(f"manual_stop_state-Check (sat) fehlgeschlagen: {e}")
+
         # Server running?
         running = await self.sat_server.is_running()
         if not running:
@@ -809,6 +819,16 @@ class SchedulerCog(commands.Cog):
         last = self._mc_last_restart.get(server_id)
         if last and last.date() == now.date():
             return
+
+        # User-Override: Server manuell gestoppt → kein Auto-Restart
+        try:
+            from modules.monitoring import manual_stop_state
+            if manual_stop_state.is_manually_stopped(server_id):
+                logger.info(f"[{server_id}] MC Daily-Restart uebersprungen — manuell gestoppt")
+                self._mc_last_restart[server_id] = now
+                return
+        except Exception as e:
+            logger.debug(f"manual_stop_state-Check ({server_id}) fehlgeschlagen: {e}")
 
         # Server läuft?
         running = await srv.is_running()

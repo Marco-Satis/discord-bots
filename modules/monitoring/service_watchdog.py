@@ -211,6 +211,18 @@ class ServiceWatchdog:
                 except Exception as e:
                     logger.error(f"on_service_down Callback-Fehler: {e}")
 
+            # Pruefen ob User Service manuell gestoppt hat (kein Auto-Restart)
+            try:
+                from modules.monitoring import manual_stop_state
+                if manual_stop_state.is_service_manually_stopped(name):
+                    logger.info(
+                        f"Auto-Restart fuer '{name}' ({label}) uebersprungen — "
+                        f"manuell gestoppt (markiert {manual_stop_state.stopped_at(manual_stop_state.SERVICE_TO_SERVER_ID.get(name, ''))})"
+                    )
+                    continue
+            except Exception as e:
+                logger.debug(f"manual_stop_state-Check fehlgeschlagen fuer '{name}': {e}")
+
             # Pruefen ob Restart erlaubt ist (Cooldown)
             if not self._can_restart(name):
                 restart_count: int = self._restarts_last_hour(name)

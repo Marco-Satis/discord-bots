@@ -32,6 +32,29 @@ DEFAULT_PORTS: list[Dict[str, Any]] = [
 # Timeout fuer einzelne Port-Checks (Sekunden)
 DEFAULT_CONNECT_TIMEOUT: float = 5.0
 
+# Port → server_id Mapping fuer manual_stop_state-Suppression.
+# Manuell gestoppte Server sollen keine Port-Down-Warnings erzeugen.
+PORT_TO_SERVER_ID: dict[int, str] = {
+    25575: "mc_bmc",       # BMC RCON
+    25566: "mc_bmc",       # BMC Game
+    25576: "mc_vanilla",   # Vanilla RCON
+    25565: "mc_vanilla",   # Vanilla Game
+    7777: "satisfactory",  # SAT Game (UDP, hier nur Vollstaendigkeit)
+    15777: "satisfactory", # SAT Query
+}
+
+
+def _port_belongs_to_stopped_server(port: int) -> bool:
+    """True wenn der Port zu einem manuell gestoppten Server gehoert."""
+    server_id = PORT_TO_SERVER_ID.get(port)
+    if not server_id:
+        return False
+    try:
+        from modules.monitoring import manual_stop_state
+        return manual_stop_state.is_manually_stopped(server_id)
+    except Exception:
+        return False
+
 
 class PortMonitor:
     """
@@ -243,6 +266,13 @@ class PortMonitor:
             was_open: Optional[bool] = prev_map.get(port)
 
             if not is_open:
+                # Manuell gestoppter Server → keine Warning (Server SOLL offline sein)
+                if _port_belongs_to_stopped_server(port):
+                    logger.debug(
+                        f"Port {port} ({result['label']}) zu — Server manuell gestoppt, "
+                        f"keine Warnung"
+                    )
+                    continue
                 # Port ist geschlossen
                 if self._should_alert(port):
                     logger.warning(

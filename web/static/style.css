@@ -20,35 +20,37 @@
     /* === Surfaces (Dark, Discord-adjacent) — Iteration 2 helller (2026-05-18) ===
        2. Aufhellung: Bg-Tokens nochmal ~+10 in Hex-Lightness. Discord-Brand-Look intakt,
        Text-Kontrast bleibt erhalten (--text-primary #f2f3f5 auf #353945 = ~12:1, WCAG AAA). */
-    --bg-primary:    #232631;
-    --bg-sidebar:    #2c2f3a;
-    --bg-card:       #353945;
-    --bg-card-hover: #3d4150;
-    --bg-input:      #282b35;
-    --bg-hover:      #3d4150;
+    /* === Surfaces — MIDNIGHT NAVY (gewählt 2026-05-25, Data-Terminal-Look) === */
+    --bg-primary:    #05080f;   /* App-BG (tiefes Navy-Schwarz) */
+    --bg-sidebar:    #080d1a;   /* Sidebar / Panel */
+    --bg-card:       #0f1830;   /* Karte */
+    --bg-card-hover: #16213f;   /* Karte Hover */
+    --bg-input:      #0b1222;   /* Input */
+    --bg-hover:      #16213f;   /* Hover */
 
-    /* === Borders — sichtbarer gegen die helleren Surfaces === */
-    --border-color:    rgba(255, 255, 255, 0.14);
-    --border-subtle:   rgba(255, 255, 255, 0.08);
-    --border-card:     rgba(255, 255, 255, 0.16);
-    --border-strong:   rgba(255, 255, 255, 0.22);
+    /* === Borders === */
+    --border-color:    rgba(255, 255, 255, 0.12);
+    --border-subtle:   rgba(255, 255, 255, 0.06);
+    --border-card:     rgba(255, 255, 255, 0.14);
+    --border-strong:   rgba(255, 255, 255, 0.20);
 
     /* === Text === */
-    --text-primary:   #f2f3f5;
-    --text-secondary: #b5bac1;
-    --text-muted:     #80848e;
-    --text-dim:       #4e5058;
+    --text-primary:   #eef3fb;
+    --text-secondary: #c2cde0;
+    --text-muted:     #8893ab;
+    --text-dim:       #4e5670;
 
-    /* === Brand-Accents === */
-    --accent:        #5865f2;
-    --accent-light:  #7983f5;
-    --accent-hover:  #4752c4;
-    --accent-bg:     rgba(88, 101, 242, 0.12);
-    --accent-glow:   rgba(88, 101, 242, 0.25);
-    --accent-border: rgba(88, 101, 242, 0.35);
+    /* === Brand-Accents — Blau primär (Data-Terminal-Zahlen), Violett tertiär === */
+    --accent:        #3b82f6;
+    --accent-light:  #60a5fa;
+    --accent-hover:  #2563eb;
+    --accent-bg:     rgba(59, 130, 246, 0.12);
+    --accent-glow:   rgba(59, 130, 246, 0.25);
+    --accent-border: rgba(59, 130, 246, 0.35);
 
-    --pink:          #eb459e;
-    --pink-bg:       rgba(235, 69, 158, 0.10);
+    --pink:          #d946ef;   /* Magenta — Glow/Pill-Akzent */
+    --pink-bg:       rgba(217, 70, 239, 0.10);
+    --pill-grad:     linear-gradient(135deg, #d946ef 0%, #8b5cf6 100%); /* aktive Nav-Pill (Pink→Violett) */
     --discord-blurple: #5865f2;
 
     /* === Semantic Status === */

@@ -158,6 +158,9 @@ def find_htmx_urls(source: str, filepath: Path) -> list[dict]:
     for match in pattern.finditer(source):
         method = match.group(1).upper()
         url = match.group(2)
+        # /static/-Pfade werden vom StaticFiles-Mount serviert, sind keine Routes
+        if url.startswith("/static/"):
+            continue
         urls.append({
             "method": method,
             "url": url,

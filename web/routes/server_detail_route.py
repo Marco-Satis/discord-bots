@@ -600,6 +600,16 @@ async def server_action(request: Request, server_id: str, current_user: dict = D
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
 
         if proc.returncode == 0:
+            # Manual-Stop-State pflegen damit Watchdog/Daily-Restart den User-Wunsch respektieren
+            try:
+                from modules.monitoring import manual_stop_state
+                if action in ("stop", "maintenance"):
+                    await manual_stop_state.mark_stopped(server_id)
+                elif action in ("start", "restart"):
+                    await manual_stop_state.mark_started(server_id)
+            except Exception as e:
+                logger.warning(f"manual_stop_state Update fehlgeschlagen ({action} {server_id}): {e}")
+
             html = f"""
             <div class="alert alert-success">
                 <strong>Erfolgreich:</strong>

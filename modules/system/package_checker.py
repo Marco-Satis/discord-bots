@@ -235,7 +235,14 @@ class PackageChecker:
             logger.debug(f"Fehler beim Schreiben des Package-Status: {e}")
 
     async def _persist_to_db(self, result: Dict[str, Any]) -> None:
-        """Speichert das Pruefergebnis als Event in SQLite."""
+        """Speichert das Pruefergebnis als Event in SQLite.
+
+        Nur wenn tatsaechlich Updates gefunden — sonst flutet der taegliche
+        Cron den Event-Feed mit '0 Updates'-Eintraegen ohne Informationswert.
+        Aktueller Status ist immer in package_checker.json verfuegbar.
+        """
+        if result.get("total_updates", 0) == 0:
+            return
         try:
             from modules.database.db_manager import get_db
             db = await get_db()

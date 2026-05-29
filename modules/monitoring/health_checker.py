@@ -342,13 +342,46 @@ class HealthAutoRestart:
         ggf. Auto-Restart aus und sendet Discord-Benachrichtigungen.
         Unterdrueckte Server (absichtlicher Stop/Restart) werden uebersprungen.
         """
-        # Pruefen ob Server absichtlich gestoppt wurde
+        # Pruefen ob Server absichtlich gestoppt wurde (kurzlebige In-Memory-Suppression)
         if self.is_suppressed(probe.server_type, probe.server_id):
             logger.debug(
                 f"[{probe.display_name}] Health-Check unterdrueckt "
                 f"(absichtlicher Stop/Restart)"
             )
             return
+
+        # Pruefen ob Server dauerhaft manuell gestoppt wurde (persistenter State).
+        # Dann: keine Failure-Warnings, keine Down-Notifications, kein Auto-Restart —
+        # der Server SOLL offline sein.
+        #
+        # F01-Fix: Self-Healing bei Out-of-Band-Start. Wenn der Server als manuell
+        # gestoppt markiert ist, aber tatsaechlich wieder erreichbar (z.B. via SSH/
+        # Webmin statt Dashboard gestartet), wird der Flag automatisch geloescht und
+        # die normale Health-Ueberwachung wieder aktiviert — sonst bliebe ein laufender
+        # Server dauerhaft un-ueberwacht (Monitoring-Blindspot).
+        try:
+            from modules.monitoring import manual_stop_state
+            if manual_stop_state.is_service_manually_stopped(probe.service_name):
+                if probe.reachable:
+                    server_id = manual_stop_state.SERVICE_TO_SERVER_ID.get(probe.service_name)
+                    if server_id:
+                        await manual_stop_state.mark_started(server_id)
+                    logger.info(
+                        f"[{probe.display_name}] wieder erreichbar trotz Manual-Stop-Flag "
+                        f"(Out-of-Band-Start) — Flag geloescht, Health-Ueberwachung reaktiviert"
+                    )
+                    # weiter in den Normal-Pfad (Recovery-Handling unten)
+                else:
+                    state_ms: ServerState = self._get_state(probe)
+                    state_ms.last_check = probe.check_time
+                    state_ms.consecutive_failures = 0  # reset damit kein Restart bei spaeterem Start
+                    logger.debug(
+                        f"[{probe.display_name}] Health-Check unterdrueckt — "
+                        f"manuell gestoppt (Service: {probe.service_name})"
+                    )
+                    return
+        except Exception as e:
+            logger.debug(f"manual_stop_state-Check fehlgeschlagen fuer '{probe.service_name}': {e}")
 
         state: ServerState = self._get_state(probe)
         state.last_check = probe.check_time
@@ -391,8 +424,27 @@ class HealthAutoRestart:
         """
         Versucht einen automatischen Restart per systemctl. Beachtet den
         Cooldown von 30 Minuten pro Server.
+
+        Respektiert manual_stop_state: wenn User Server bewusst gestoppt hat,
+        kein Auto-Restart (consecutive_failures wird auch zurueckgesetzt damit
+        nicht beim spaeteren Manual-Start eine alte Failure-Sequenz triggert).
         """
         now: datetime = datetime.now()
+
+        # User-Override: Server manuell gestoppt → kein Auto-Restart
+        try:
+            from modules.monitoring import manual_stop_state
+            if manual_stop_state.is_service_manually_stopped(state.service_name):
+                logger.info(
+                    f"[{state.display_name}] Auto-Restart uebersprungen — "
+                    f"manuell gestoppt (Service: {state.service_name})"
+                )
+                # consecutive_failures reset damit nach manuellem Start nicht
+                # sofort ein Restart triggert wegen alter Failures
+                state.consecutive_failures = 0
+                return
+        except Exception as e:
+            logger.debug(f"manual_stop_state-Check fehlgeschlagen fuer '{state.service_name}': {e}")
 
         # Cooldown pruefen
         if state.last_restart is not None:

@@ -1,0 +1,36 @@
+/* Tailwind v4 + Basecoat — Design-Preview Build
+ * Build: web/tools/tailwindcss.exe -i web/static/tailwind/input.css -o web/static/tailwind/output.css
+ * DSGVO: alles lokal, kein CDN. Nur fuer _design_preview/ (Live unangetastet).
+ */
+@import "tailwindcss";
+
+/* Content-Scan: nur die Design-Preview-Varianten */
+@source "../../templates/_design_preview";
+
+/* Basecoat-Komponenten (lokal, Source-Variante) */
+@import "../basecoat/basecoat.css";
+
+/* Discord-Marken-Tokens aus style.css :root — als Tailwind-Utilities nutzbar
+ * (bg-accent, text-pink, bg-dc-card, border-dc, ...). Hält Varianten
+ * markenkonsistent mit dem Ist-Dashboard. */
+@theme {
+  --color-dc-bg:       #232631;
+  --color-dc-sidebar:  #2c2f3a;
+  --color-dc-card:     #353945;
+  --color-dc-card-hi:  #3d4150;
+  --color-dc-input:    #282b35;
+
+  --color-accent:       #5865f2;
+  --color-accent-light: #7983f5;
+  --color-accent-hover: #4752c4;
+  --color-pink:         #eb459e;
+
+  --color-success: #23a55a;
+  --color-warning: #f0b232;
+  --color-danger:  #f23f43;
+  --color-info:    #00a8fc;
+
+  --color-txt:       #f2f3f5;
+  --color-txt-soft:  #b5bac1;
+  --color-txt-muted: #80848e;
+}

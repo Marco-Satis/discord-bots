@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="de" data-theme="dark" id="html-root">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ request.state.csrf_token|default('') }}">
+    <title>{% block title %}Dashboard{% endblock %} — Bot Control</title>
+    <!-- Inline-SVG-Favicon (data: URI, CSP-compliant via img-src 'data:') -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='%233b82f6'/><stop offset='1' stop-color='%236d5cf6'/></linearGradient></defs><rect width='32' height='32' rx='7' fill='url(%23g)'/><text x='16' y='22' font-family='-apple-system,BlinkMacSystemFont,sans-serif' font-size='18' font-weight='700' text-anchor='middle' fill='white'>B</text></svg>">
+
+    <!-- v5 Design-System (Midnight Navy Data-Terminal). Stack wie genehmigtes Preview. -->
+    <link rel="stylesheet" href="/static/fonts/geist/geist.css">
+    <link rel="stylesheet" href="/static/tailwind/output.css">
+    <link rel="stylesheet" href="/static/tailwind/_tokens.css?v=navy20260526">
+    <link rel="stylesheet" href="/static/_preview/v5.css?v=navy20260526">
+    <link rel="stylesheet" href="/static/_preview/v5_components.css?v=navy20260526">
+
+    <!-- HTMX 2.0.4 -->
+    <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"
+            integrity="sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+" crossorigin="anonymous"></script>
+    <!-- Chart.js 4.5.0 -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.min.js"></script>
+
+    <script>
+        // CSRF-Token fuer alle HTMX-Requests auf body setzen
+        document.addEventListener('DOMContentLoaded', function() {
+            var csrfToken = document.querySelector('meta[name="csrf-token"]');
+            if (csrfToken) {
+                document.body.setAttribute('hx-headers',
+                    JSON.stringify({"X-CSRF-Token": csrfToken.content}));
+            }
+        });
+
+        // Session-Timeout Warnung (5 Min vor Ablauf) — aus base.html uebernommen
+        (function() {
+            var SESSION_TIMEOUT = 3600; // 60 Minuten (Server-seitig konfiguriert)
+            var WARNING_BEFORE = 300;   // 5 Minuten vorher warnen
+            var _lastActivity = Date.now();
+
+            ['click', 'keypress', 'scroll', 'mousemove'].forEach(function(evt) {
+                document.addEventListener(evt, function() { _lastActivity = Date.now(); }, {passive: true});
+            });
+            document.body.addEventListener('htmx:beforeRequest', function() { _lastActivity = Date.now(); });
+
+            setInterval(function() {
+                var idle = (Date.now() - _lastActivity) / 1000;
+                var remaining = SESSION_TIMEOUT - idle;
+                if (remaining <= 0) {
+                    window.location.href = '/auth/login?reason=timeout';
+                } else if (remaining <= WARNING_BEFORE) {
+                    var mins = Math.floor(remaining / 60);
+                    var secs = Math.floor(remaining % 60);
+                    var banner = document.getElementById('session-timeout-banner');
+                    if (!banner) {
+                        banner = document.createElement('div');
+                        banner.id = 'session-timeout-banner';
+                        banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;text-align:center;padding:10px;background:var(--warn-bg);color:var(--warn);font-size:13px;border-bottom:1px solid var(--line);';
+                        document.body.prepend(banner);
+                    }
+                    banner.textContent = 'Sitzung laeuft in ' + mins + ':' + (secs < 10 ? '0' : '') + secs + ' ab. Klicke irgendwo um aktiv zu bleiben.';
+                    banner.style.display = 'block';
+                } else {
+                    var banner = document.getElementById('session-timeout-banner');
+                    if (banner) banner.style.display = 'none';
+                }
+            }, 5000);
+        })();
+
+        // Theme fest auf Dark (Midnight Navy) — Hell/Dunkel-Umschaltung entfernt.
+        try { localStorage.removeItem('dashboard-theme'); } catch (e) {}
+    </script>
+    {% block extra_head %}{% endblock %}
+</head>
+<body>
+  <div class="app">
+    <!-- SIDEBAR -->
+    <aside class="appside" id="sidebar">
+      <div class="sb-head"><span class="mark">B</span><span class="sb-title" style="font-weight:600">Bot Control</span></div>
+      <nav class="sb-nav" aria-label="Hauptnavigation">
+        <div class="sb-sec">Übersicht</div>
+        <a class="nav-i {% block nav_dashboard %}{% endblock %}" href="/">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg><span class="lbl">Dashboard</span>
+        </a>
+        <a class="nav-i {% block nav_errors %}{% endblock %}" href="/errors">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg><span class="lbl">Fehler</span>
+        </a>
+        <a class="nav-i {% block nav_system %}{% endblock %}" href="/system">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg><span class="lbl">System</span>
+        </a>
+        <a class="nav-i {% block nav_security %}{% endblock %}" href="/security">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 4v6c0 5-3.5 7.5-8 10-4.5-2.5-8-5-8-10V6z"/></svg><span class="lbl">Sicherheit</span>
+        </a>
+
+        <div class="sb-sec">Bot-Verwaltung</div>
+        <a class="nav-i {% block nav_admin_bot %}{% endblock %}" href="/admin-bot">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><circle cx="9" cy="10" r="1" fill="currentColor"/><circle cx="15" cy="10" r="1" fill="currentColor"/></svg><span class="lbl">Admin Bot</span>
+        </a>
+        <a class="nav-i {% block nav_config %}{% endblock %}" href="/config">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l1.5 4.5L18 5l-1.5 4.5L21 11l-4.5 1.5L18 17l-4.5-1.5L12 20l-1.5-4.5L6 17l1.5-4.5L3 11l4.5-1.5L6 5l4.5 1.5z"/></svg><span class="lbl">Konfiguration</span>
+        </a>
+
+        <div class="sb-sec">Game-Server</div>
+        <a class="nav-i {% block nav_sat %}{% endblock %}" href="/server/satisfactory">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><circle cx="7" cy="7" r="1" fill="currentColor"/><circle cx="7" cy="17" r="1" fill="currentColor"/></svg><span class="lbl">Satisfactory</span>
+        </a>
+        <a class="nav-i {% block nav_mc_bmc %}{% endblock %}" href="/server/mc_bmc">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 10h16M10 4v16"/></svg><span class="lbl">MC Better MC</span>
+        </a>
+        <a class="nav-i {% block nav_mc_vanilla %}{% endblock %}" href="/server/mc_vanilla">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/></svg><span class="lbl">MC Vanilla</span>
+        </a>
+
+        <div class="sb-sec">Info</div>
+        <a class="nav-i {% block nav_search %}{% endblock %}" href="/search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg><span class="lbl">Suche</span>
+        </a>
+        <a class="nav-i {% block nav_changelog %}{% endblock %}" href="/changelog">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span class="lbl">Changelog</span>
+        </a>
+
+        <a class="nav-i" href="/auth/logout" style="margin-top:8px">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg><span class="lbl">Abmelden</span>
+        </a>
+      </nav>
+      <div class="sb-foot">
+        {% if user %}
+        <div class="nav-i" style="cursor:default">
+          {% if user.avatar %}
+          <span class="mark" style="width:30px;height:30px;border-radius:9px;box-shadow:none;background-image:url('{{ user.avatar }}');background-size:cover"></span>
+          {% else %}
+          <span class="mark" style="width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,#3b82f6,#6d5cf6);box-shadow:none">{{ user.username[:1]|upper }}</span>
+          {% endif %}
+          <span class="lbl" style="font-size:13px;font-weight:600">{{ user.username }} · Owner</span>
+        </div>
+        {% else %}
+        <div class="nav-i" style="cursor:default"><span class="mark" style="width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,#3b82f6,#6d5cf6);box-shadow:none">M</span><span class="lbl" style="font-size:13px;font-weight:600">Marco · Owner</span></div>
+        {% endif %}
+      </div>
+    </aside>
+
+    <!-- MAIN -->
+    <div class="appmain">
+      <div class="apptop">
+        <button class="iconbtn" id="burger" aria-label="Sidebar umschalten"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+        <div id="crumb" class="h2">{% block crumb %}Übersicht{% endblock %}</div>
+        <div style="margin-left:auto;display:flex;align-items:center;gap:10px">
+          <span class="pill"><span class="live"></span> stabil</span>
+          <button class="btn btn--primary" onclick="window.location.reload()">↻ Aktualisieren</button>
+        </div>
+      </div>
+
+      <div class="appcont">
+        {% if error is defined and error %}
+        <div class="card" style="padding:14px 18px;margin-bottom:18px;border-color:var(--bad);color:var(--bad)">{{ error }}</div>
+        {% endif %}
+        {% if success is defined and success %}
+        <div class="card" style="padding:14px 18px;margin-bottom:18px;border-color:var(--ok);color:var(--ok)">{{ success }}</div>
+        {% endif %}
+
+        {% block content %}{% endblock %}
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Sidebar-Collapse + Mobile-Toggle (aus v5_dashboard.html)
+    (function(){
+      var mob = function(){ return window.matchMedia('(max-width:760px)').matches; };
+      if (localStorage.getItem('sb') === 'c') document.body.classList.add('collapsed');
+      var burger = document.getElementById('burger');
+      if (burger) burger.addEventListener('click', function(){
+        if (mob()) { document.body.classList.toggle('sb-open'); return; }
+        document.body.classList.toggle('collapsed');
+        localStorage.setItem('sb', document.body.classList.contains('collapsed') ? 'c' : 'o');
+      });
+    })();
+  </script>
+  {% block extra_js %}{% endblock %}
+</body>
+</html>

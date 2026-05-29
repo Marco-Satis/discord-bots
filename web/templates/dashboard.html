@@ -1,97 +1,100 @@
-{% extends "base.html" %}
+{% extends "base_v5.html" %}
 
-{% block title %}Uebersicht{% endblock %}
+{% block title %}Übersicht{% endblock %}
+{% block crumb %}Übersicht{% endblock %}
 {% block nav_dashboard %}active{% endblock %}
 
 {% block content %}
-{# Mockup v1 (~/.claude/audit/dashboard_mockup_v1.html) - 1:1 Layout mit style.css v5.0-Klassen.
-   Token-Werte ausschliesslich via var(--*). HTMX/SSE-JS-Selektoren synchron mit Klassen-Naming. #}
+{# V5 Midnight Navy Data-Terminal — alle Component-Klassen kommen aus v5_components.css.
+   Funktionale Hooks (IDs, data-attrs, Klassen) unveraendert fuer SSE/HTMX/Chart-Kompatibilitaet. #}
 
-<!-- Page Header -->
+<!-- Page-Header -->
 <div class="page-header">
     <div>
-        <h1>Server-Uebersicht</h1>
-        <p class="page-subtitle">Game-Server, Bots und System-Health auf einen Blick</p>
+        <h1>Server-Übersicht</h1>
+        <div class="page-subtitle">// Game-Server · Bots · System</div>
     </div>
-    <div class="page-actions">
-        <span class="status"><span class="status-dot status-dot--online"></span>Live-Updates aktiv</span>
-    </div>
+    <div><span class="status"><span class="status-dot status-dot--online"></span>Live</span></div>
 </div>
 
-<!-- Hero Stats: 4 Top-Level-Metrics -->
 {% set online_servers = servers|selectattr('status','equalto','online')|list|length if servers else 0 %}
 {% set total_servers = servers|length if servers else 0 %}
 {% set total_players = servers|sum(attribute='players') if servers else 0 %}
 {% set online_bots = bots|selectattr('status','equalto','online')|list|length if bots else 0 %}
-<div class="hero-stats">
-    <div class="hero-stat">
-        <div class="stat-icon stat-icon--green">&#9678;</div>
-        <div class="stat-label">Server Online</div>
-        <div class="stat-value">{{ online_servers }}<span class="metric-sub" style="display:inline; margin-left:4px;">/{{ total_servers }}</span></div>
-        <div class="stat-delta {% if online_servers == total_servers and total_servers > 0 %}stat-delta--up{% endif %}">{% if total_servers > 0 %}{{ ((online_servers / total_servers) * 100)|round|int }}%{% else %}—{% endif %}</div>
+
+<!-- BENTO HERO -->
+<div class="bento">
+    <!-- Lead: Spieler aktiv (col2 row2) -->
+    <div class="card lead-card col2 row2 hero-stat">
+        <div>
+            <div class="cap">Spieler aktiv</div>
+            <div class="lead-metric" data-stat="total_players" style="margin-top:10px">{{ total_players }}</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;color:var(--t2);font-size:12px;text-transform:uppercase;letter-spacing:.1em;font-family:ui-monospace,monospace">
+            <span class="dot" style="background:var(--ok);box-shadow:0 0 0 3px var(--ok-bg)"></span>
+            {{ online_servers }} / {{ total_servers }} Server online
+        </div>
     </div>
-    <div class="hero-stat">
-        <div class="stat-icon">&#9673;</div>
-        <div class="stat-label">Spieler aktiv</div>
-        <div class="stat-value" data-stat="total_players">{{ total_players }}</div>
-        <div class="metric-sub">ueber alle Server</div>
+
+    <!-- 4 Mini-Stats (cols 3-4, rows 1-2) -->
+    <div class="card stat-mini">
+        <div class="cap">Server</div>
+        <div class="v">{{ online_servers }}<span class="sub">/{{ total_servers }}</span></div>
     </div>
-    <div class="hero-stat">
-        {% set cpu_class = 'stat-icon--yellow' if system.cpu_percent > 60 else '' %}
-        <div class="stat-icon {{ cpu_class }}">&#9881;</div>
-        <div class="stat-label">CPU</div>
-        <div class="stat-value" data-stat="cpu_percent">{{ system.cpu_percent }}<span class="metric-sub" style="display:inline; margin-left:2px;">%</span></div>
-        <div class="metric-sub" id="cpu-trend">aktuelle Auslastung</div>
+    <div class="card stat-mini hero-stat">
+        <div class="cap">CPU</div>
+        <div class="v" data-stat="cpu_percent">{{ system.cpu_percent }}<span class="sub">%</span></div>
     </div>
-    <div class="hero-stat">
-        {% set ram_class = 'stat-icon--pink' if system.ram_percent > 70 else '' %}
-        <div class="stat-icon {{ ram_class }}">&#9783;</div>
-        <div class="stat-label">RAM</div>
-        <div class="stat-value" data-stat="ram_percent">{{ system.ram_percent }}<span class="metric-sub" style="display:inline; margin-left:2px;">%</span></div>
-        <div class="metric-sub" data-stat="ram_text">{{ system.ram_used_gb }} / {{ system.ram_total_gb }} GB</div>
+    <div class="card stat-mini hero-stat">
+        <div class="cap">RAM</div>
+        <div class="v" data-stat="ram_percent">{{ system.ram_percent }}<span class="sub">%</span></div>
+        <div class="cap" style="font-size:9px;font-weight:500" data-stat="ram_text">{{ system.ram_used_gb }} / {{ system.ram_total_gb }} GB</div>
+    </div>
+    <div class="card stat-mini">
+        <div class="cap">Disk</div>
+        <div class="v">{{ system.disk_percent }}<span class="sub">%</span></div>
     </div>
 </div>
 
-<!-- Server-Cards Section -->
+<!-- Server-Tiles -->
 <section class="section">
     <div class="section-header">
-        <h2 class="section-title">Game-Server</h2>
+        <h2 class="section-title">// Game-Server</h2>
         <a href="/errors" class="btn btn-sm">Alle Logs</a>
     </div>
     <div class="tile-grid" id="server-tiles">
         {% if servers %}
             {% for server in servers %}
             {% set status_class = 'status-online' if server.status == 'online' else ('status-offline' if server.status == 'offline' else 'status-unknown') %}
-            {% set dot_class = 'status-dot--online' if server.status == 'online' else ('status-dot--offline' if server.status == 'offline' else 'status-dot--warning') %}
-            <div class="tile" data-server-id="{{ server.id }}" data-server-url="/server/{{ server.id }}">
+            <div class="card tile" data-server-id="{{ server.id }}" data-server-url="/server/{{ server.id }}">
                 <div class="tile-header">
                     <div>
                         <div class="tile-name">{{ server.name }}</div>
-                        <div class="server-meta">{{ server.type|capitalize }}{% if server.address and server.address != 'N/A' %} &middot; {{ server.address }}{% if server.port and server.port != 'N/A' %}:{{ server.port }}{% endif %}{% endif %}</div>
+                        <div class="server-meta">{{ server.type|capitalize }}{% if server.address and server.address != 'N/A' %} · {{ server.address }}{% if server.port and server.port != 'N/A' %}:{{ server.port }}{% endif %}{% endif %}</div>
                     </div>
                     <span class="status-badge {{ status_class }}">{{ server.status|capitalize }}</span>
                 </div>
-                <div class="tile-body" style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap: var(--s-3);">
-                    <div class="metric">
+                <div class="tile-body">
+                    <div>
                         <div class="metric-label">Spieler</div>
                         {% if server.status == 'online' %}
-                        <div class="metric-value">{{ server.players }}<span class="metric-sub" style="display:inline; margin-left:2px;">/{{ server.max_players }}</span></div>
+                        <div class="metric-value">{{ server.players }}<span class="metric-sub">/{{ server.max_players }}</span></div>
                         {% else %}
                         <div class="metric-value text-dim">&mdash;</div>
                         {% endif %}
                     </div>
-                    <div class="metric">
+                    <div>
                         <div class="metric-label">Uptime</div>
                         <div class="metric-value">{% if server.status == 'online' %}{{ server.uptime }}{% else %}<span class="text-dim">&mdash;</span>{% endif %}</div>
                     </div>
-                    <div class="metric">
+                    <div>
                         <div class="metric-label">CPU</div>
                         <div class="metric-value">{% if server.status == 'online' %}{{ server.cpu_percent|default(0) }}%{% else %}<span class="text-dim">&mdash;</span>{% endif %}</div>
                     </div>
                 </div>
                 {% if server.player_names is defined and server.player_names %}
-                <div class="server-meta" style="margin-bottom: var(--s-3);">
-                    {% for p in server.player_names %}<span class="status-badge" style="margin-right:4px;">{{ p }}</span>{% endfor %}
+                <div class="server-meta" style="margin-bottom:14px">
+                    {% for p in server.player_names %}<span class="status-badge" style="margin-right:4px;background:var(--s3);color:var(--t2)">{{ p }}</span>{% endfor %}
                 </div>
                 {% endif %}
                 <div class="tile-actions" onclick="event.stopPropagation();">
@@ -100,41 +103,41 @@
                             hx-post="/api/server/{{ server.id }}/action"
                             hx-vals='{"action": "start"}'
                             hx-confirm="Server {{ server.name }} starten?"
-                            hx-swap="none">&#9654; Start</button>
+                            hx-swap="none">▶ Start</button>
                     {% else %}
                     <button class="btn btn-sm btn-danger"
                             hx-post="/api/server/{{ server.id }}/action"
                             hx-vals='{"action": "stop"}'
                             hx-confirm="Server {{ server.name }} stoppen?"
-                            hx-swap="none">&#9632; Stop</button>
+                            hx-swap="none">■ Stop</button>
                     <button class="btn btn-sm"
                             hx-post="/api/server/{{ server.id }}/action"
                             hx-vals='{"action": "restart"}'
                             hx-confirm="Server {{ server.name }} neustarten?"
-                            hx-swap="none">&#8635; Restart</button>
+                            hx-swap="none">↻ Restart</button>
                     {% endif %}
                     <a class="btn btn-sm btn-primary" href="/server/{{ server.id }}">Details</a>
                 </div>
             </div>
             {% endfor %}
         {% else %}
-            <div class="tile-empty">Keine Server-Daten verfuegbar. Status-Dateien werden nach dem ersten Health-Check erstellt.</div>
+            <div class="tile-empty">Keine Server-Daten verfügbar. Status-Dateien werden nach dem ersten Health-Check erstellt.</div>
         {% endif %}
     </div>
 </section>
 
-<!-- Bot-Health Section -->
+<!-- Bot-Health Strip -->
 <section class="section">
     <div class="section-header">
-        <h2 class="section-title">Bot-Health</h2>
+        <h2 class="section-title">// Bot-Health</h2>
         <span class="status">
             <span class="status-dot {% if online_bots == bots|length and bots|length > 0 %}status-dot--online{% elif online_bots > 0 %}status-dot--warning{% else %}status-dot--offline{% endif %}"></span>
-            {{ online_bots }} / {{ bots|length }} Bots online
+            {{ online_bots }} / {{ bots|length }} online
         </span>
     </div>
     <div class="bots-row" id="bot-status">
         {% for bot in bots %}
-        <div class="bot-card">
+        <div class="card bot-card">
             <span class="bot-indicator {% if bot.status == 'online' %}indicator-online{% elif bot.status == 'offline' %}indicator-offline{% else %}indicator-unknown{% endif %}"></span>
             <div class="bot-info">
                 <span class="bot-name">{{ bot.name }}</span>
@@ -145,34 +148,34 @@
     </div>
 </section>
 
-<!-- System-Performance Section -->
+<!-- System-Performance Bars -->
 <section class="section">
     <div class="section-header">
-        <h2 class="section-title">System-Performance</h2>
+        <h2 class="section-title">// System-Performance</h2>
     </div>
     <div class="stats-grid" id="system-stats">
         {% set cpu_state = 'danger' if system.cpu_percent > 80 else ('warning' if system.cpu_percent > 60 else 'ok') %}
-        <div class="stat-card">
+        <div class="card stat-card">
             <div class="flex justify-between items-center mb-3">
-                <span class="stat-label">CPU-Auslastung</span>
+                <span class="stat-label">CPU</span>
                 <span class="stat-value" data-stat="cpu_percent">{{ system.cpu_percent }}%</span>
             </div>
             <div class="progress-bar"><div class="progress-fill progress-{{ cpu_state }}" style="width: {{ system.cpu_percent }}%" data-bar="cpu_percent"></div></div>
             <div class="sys-metric__detail">{{ system.cpu_cores|default(0) }} Cores</div>
         </div>
         {% set ram_state = 'danger' if system.ram_percent > 85 else ('warning' if system.ram_percent > 70 else 'ok') %}
-        <div class="stat-card">
+        <div class="card stat-card">
             <div class="flex justify-between items-center mb-3">
-                <span class="stat-label">RAM-Auslastung</span>
+                <span class="stat-label">RAM</span>
                 <span class="stat-value" data-stat="ram_percent">{{ system.ram_percent }}%</span>
             </div>
             <div class="progress-bar"><div class="progress-fill progress-{{ ram_state }}" style="width: {{ system.ram_percent }}%" data-bar="ram_percent"></div></div>
             <div class="sys-metric__detail" data-stat="ram_text">{{ system.ram_used_gb }} GB / {{ system.ram_total_gb }} GB</div>
         </div>
         {% set disk_state = 'danger' if system.disk_percent > 90 else ('warning' if system.disk_percent > 75 else 'ok') %}
-        <div class="stat-card">
+        <div class="card stat-card">
             <div class="flex justify-between items-center mb-3">
-                <span class="stat-label">Festplatte</span>
+                <span class="stat-label">Disk</span>
                 <span class="stat-value" data-stat="disk_percent">{{ system.disk_percent }}%</span>
             </div>
             <div class="progress-bar"><div class="progress-fill progress-{{ disk_state }}" style="width: {{ system.disk_percent }}%" data-bar="disk_percent"></div></div>
@@ -181,13 +184,35 @@
     </div>
 </section>
 
-<!-- Events Feed -->
+<!-- Charts + Events 2-Col -->
 <section class="section">
     <div class="section-header">
-        <h2 class="section-title">Letzte Ereignisse</h2>
-        <a class="btn btn-sm" href="/errors">Vollstaendiges Log</a>
+        <h2 class="section-title">// Verlauf</h2>
+        <div class="chart-controls">
+            <button class="chart-period-btn active" data-period="24h" onclick="loadCharts('24h', this)">24h</button>
+            <button class="chart-period-btn" data-period="7d" onclick="loadCharts('7d', this)">7 Tage</button>
+            <button class="chart-period-btn" data-period="30d" onclick="loadCharts('30d', this)">30 Tage</button>
+        </div>
     </div>
-    <div class="event-feed">
+    <div class="chart-grid">
+        <div class="card chart-card">
+            <h4>System-Auslastung</h4>
+            <div class="chart-wrap"><canvas id="systemChart"></canvas></div>
+        </div>
+        <div class="card chart-card">
+            <h4>Spieler Online</h4>
+            <div class="chart-wrap"><canvas id="playersChart"></canvas></div>
+        </div>
+    </div>
+</section>
+
+<!-- Events -->
+<section class="section">
+    <div class="section-header">
+        <h2 class="section-title">// Letzte Ereignisse</h2>
+        <a class="btn btn-sm" href="/errors">Vollständiges Log</a>
+    </div>
+    <div class="card feed-card">
         <ul class="event-list" id="event-feed">
         {% if events %}
             {% for ev in events[:10] %}
@@ -201,72 +226,55 @@
             </li>
             {% endfor %}
         {% else %}
-            <li class="event-item"><span class="event-time">&mdash;</span><span class="event-type badge-info">INFO</span><span class="event-message text-dim">Keine Ereignisse in der Historie.</span></li>
+            <li class="event-item"><span class="event-time">—</span><span class="event-type badge-info">INFO</span><span class="event-message text-dim">Keine Ereignisse in der Historie.</span></li>
         {% endif %}
         </ul>
     </div>
 </section>
 
-<!-- Analytics-Charts (bewusste Abweichung vom Mockup: Backend liefert Chart-Daten) -->
+<!-- System-Updates -->
 <section class="section">
     <div class="section-header">
-        <h2 class="section-title">Verlauf</h2>
-        <div class="chart-controls">
-            <button class="btn btn-sm btn-primary chart-period-btn active" data-period="24h" onclick="loadCharts('24h', this)">24h</button>
-            <button class="btn btn-sm chart-period-btn" data-period="7d" onclick="loadCharts('7d', this)">7 Tage</button>
-            <button class="btn btn-sm chart-period-btn" data-period="30d" onclick="loadCharts('30d', this)">30 Tage</button>
-        </div>
+        <h2 class="section-title">// System-Updates</h2>
     </div>
-    <div class="chart-grid">
-        <div class="chart-card">
-            <h4>System-Auslastung</h4>
-            <canvas id="systemChart" height="200"></canvas>
-        </div>
-        <div class="chart-card">
-            <h4>Spieler Online</h4>
-            <canvas id="playersChart" height="200"></canvas>
-        </div>
-    </div>
-</section>
-
-<!-- System-Updates (bewusste Abweichung vom Mockup: apt-Update-Feature) -->
-<section class="section">
-    <div class="section-header">
-        <h2 class="section-title">System-Updates</h2>
-    </div>
-    <div id="package-update-result" style="margin-bottom: var(--s-3);"></div>
-    <div style="display: flex; gap: var(--s-2); margin-bottom: var(--s-4); flex-wrap: wrap;">
+    <div id="package-update-result" style="margin-bottom:12px"></div>
+    <div style="display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap">
         <button class="btn btn-sm"
                 hx-post="/api/system/packages/check"
                 hx-target="#package-list-area"
-                hx-swap="innerHTML">Auf Updates pruefen</button>
+                hx-swap="innerHTML">Auf Updates prüfen</button>
         <button class="btn btn-sm btn-primary"
                 hx-post="/api/system/packages/upgrade"
                 hx-target="#package-update-result"
                 hx-confirm="System-Updates installieren? (kann ~5-10 min dauern)"
                 hx-swap="innerHTML">Updates installieren</button>
     </div>
-    <div id="package-list-area"></div>
+    <div id="package-list-area"
+         hx-get="/api/system/packages/list"
+         hx-trigger="load, packageListChanged from:body"
+         hx-swap="innerHTML"></div>
 </section>
+{% endblock %}
 
+{% block extra_js %}
 <script>
 // ============================================================
-//   Chart.js Setup (unveraendert seit v4)
+//   Chart.js Setup — Midnight-Navy-Blau (V5)
 // ============================================================
 const CHART_COLORS = {
-    cpu: 'rgba(242, 63, 67, 1)',
-    ram: 'rgba(88, 101, 242, 1)',
-    disk: 'rgba(240, 178, 50, 1)',
-    players: ['rgba(35, 165, 90, 1)', 'rgba(235, 69, 158, 1)', 'rgba(0, 168, 252, 1)', 'rgba(240, 178, 50, 1)']
+    cpu: '#3b82f6',
+    ram: '#60a5fa',
+    disk: '#6d5cf6',
+    players: ['#3b82f6', '#60a5fa', '#6d5cf6', '#22d3ee']
 };
 const CHART_DEFAULTS = {
     responsive: true,
     maintainAspectRatio: false,
     scales: {
-        x: { ticks: { color: '#80848e', maxTicksLimit: 12 }, grid: { color: 'rgba(255,255,255,0.04)' } },
-        y: { ticks: { color: '#80848e' }, grid: { color: 'rgba(255,255,255,0.06)' }, beginAtZero: true }
+        x: { ticks: { color: '#8893ab', maxTicksLimit: 12, font: { family: 'ui-monospace, monospace', size: 10 } }, grid: { color: 'rgba(255,255,255,0.04)' } },
+        y: { ticks: { color: '#8893ab', font: { family: 'ui-monospace, monospace', size: 10 } }, grid: { color: 'rgba(255,255,255,0.06)' }, beginAtZero: true }
     },
-    plugins: { legend: { labels: { color: '#b5bac1' } } },
+    plugins: { legend: { labels: { color: '#c2cde0', font: { family: 'ui-monospace, monospace', size: 11 } } } },
     elements: { point: { radius: 2, hoverRadius: 5 }, line: { tension: 0.3, borderWidth: 2 } }
 };
 let systemChart = null;
@@ -277,13 +285,12 @@ function loadCharts(period, btn) {
     document.querySelectorAll('.chart-period-btn').forEach(function(b) { b.classList.remove('btn-primary','active'); });
     if (btn) { btn.classList.add('btn-primary','active'); }
 
-    // Race-Schutz: laufende Period-Wechsel-Fetches abbrechen bevor neue starten
     if (chartsAbort) { try { chartsAbort.abort(); } catch(e) {} }
     chartsAbort = new AbortController();
     var signal = chartsAbort.signal;
 
     function _showChartError(chartId, err) {
-        if (err && err.name === 'AbortError') return; // erwartet, nicht melden
+        if (err && err.name === 'AbortError') return;
         console.error('Chart "' + chartId + '" konnte nicht geladen werden:', err);
         var canvas = document.getElementById(chartId);
         if (!canvas) return;
@@ -292,14 +299,14 @@ function loadCharts(period, btn) {
         if (existing) existing.remove();
         var msg = document.createElement('div');
         msg.className = 'chart-error empty-text';
-        msg.textContent = 'Daten nicht verfuegbar (' + (err.message || err.status || 'Fehler') + ')';
+        msg.textContent = 'Daten nicht verfügbar (' + (err.message || err.status || 'Fehler') + ')';
         parent.appendChild(msg);
     }
 
     fetch('/api/analytics/system?period=' + period, { signal: signal })
         .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
         .then(function(data) {
-            if (!data || !data.datasets || data.datasets.length < 3) throw new Error('Unvollstaendige Daten');
+            if (!data || !data.datasets || data.datasets.length < 3) throw new Error('Unvollständige Daten');
             if (systemChart) systemChart.destroy();
             var prev = document.querySelector('#systemChart').parentNode.querySelector('.chart-error');
             if (prev) prev.remove();
@@ -307,9 +314,9 @@ function loadCharts(period, btn) {
             systemChart = new Chart(ctx, {
                 type: 'line',
                 data: { labels: data.labels, datasets: [
-                    { label: 'CPU %', data: data.datasets[0].data, borderColor: CHART_COLORS.cpu, backgroundColor: 'rgba(242,63,67,0.1)', fill: true },
-                    { label: 'RAM %', data: data.datasets[1].data, borderColor: CHART_COLORS.ram, backgroundColor: 'rgba(88,101,242,0.1)', fill: true },
-                    { label: 'Disk %', data: data.datasets[2].data, borderColor: CHART_COLORS.disk, backgroundColor: 'rgba(240,178,50,0.08)', fill: true }
+                    { label: 'CPU %', data: data.datasets[0].data, borderColor: CHART_COLORS.cpu, backgroundColor: 'rgba(59,130,246,0.12)', fill: true },
+                    { label: 'RAM %', data: data.datasets[1].data, borderColor: CHART_COLORS.ram, backgroundColor: 'rgba(96,165,250,0.10)', fill: true },
+                    { label: 'Disk %', data: data.datasets[2].data, borderColor: CHART_COLORS.disk, backgroundColor: 'rgba(109,92,246,0.08)', fill: true }
                 ]},
                 options: Object.assign({}, CHART_DEFAULTS, { scales: Object.assign({}, CHART_DEFAULTS.scales, { y: Object.assign({}, CHART_DEFAULTS.scales.y, { max: 100 }) }) })
             });
@@ -319,7 +326,7 @@ function loadCharts(period, btn) {
     fetch('/api/analytics/players?period=' + period, { signal: signal })
         .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
         .then(function(data) {
-            if (!data || !data.datasets) throw new Error('Unvollstaendige Daten');
+            if (!data || !data.datasets) throw new Error('Unvollständige Daten');
             if (playersChart) playersChart.destroy();
             var prev = document.querySelector('#playersChart').parentNode.querySelector('.chart-error');
             if (prev) prev.remove();
@@ -329,10 +336,8 @@ function loadCharts(period, btn) {
                 borderColor: CHART_COLORS.players[i % CHART_COLORS.players.length],
                 backgroundColor: 'transparent', fill: false
             }; });
-            // Empty-Dataset-Check: wenn alle datasets data-arrays leer sind, Empty-State zeigen
             var hasData = datasets.some(function(ds) { return ds.data && ds.data.length > 0; });
-            if (!hasData) { _showChartError('playersChart', new Error('Noch keine Spieler-Daten in DB — Collector laeuft, sammelt aber: warte 5-10 min')); return; }
-            // Players-Chart: y-Achse als integer (Spieleranzahl), min=0
+            if (!hasData) { _showChartError('playersChart', new Error('Noch keine Spieler-Daten in DB — warte 5-10 min')); return; }
             var playerOpts = Object.assign({}, CHART_DEFAULTS, { scales: Object.assign({}, CHART_DEFAULTS.scales, { y: Object.assign({}, CHART_DEFAULTS.scales.y, { ticks: Object.assign({}, CHART_DEFAULTS.scales.y.ticks || {}, { stepSize: 1, precision: 0 }) }) }) });
             playersChart = new Chart(ctx, { type: 'line', data: { labels: data.labels, datasets: datasets }, options: playerOpts });
         })
@@ -341,8 +346,7 @@ function loadCharts(period, btn) {
 document.addEventListener('DOMContentLoaded', function() { loadCharts('24h'); });
 
 // ============================================================
-//   SSE Live-Updates (XSS-safe via DOM-API)
-//   Selektoren auf style.css v5.0 angepasst (2026-05-17 refactor).
+//   SSE Live-Updates (Hooks unveraendert)
 // ============================================================
 (function() {
     var sse = null;
@@ -350,7 +354,6 @@ document.addEventListener('DOMContentLoaded', function() { loadCharts('24h'); })
     var reconnectTimer = null;
 
     function connectSSE() {
-        // Guard: laufende Connection erst schliessen, doppelte setTimeout-Queues vermeiden
         if (sse) { try { sse.close(); } catch(e) {} sse = null; }
         reconnectTimer = null;
 
@@ -373,7 +376,6 @@ document.addEventListener('DOMContentLoaded', function() { loadCharts('24h'); })
         };
     }
 
-    // Cleanup beim Navigieren (pagehide robuster als beforeunload fuer BFCache)
     window.addEventListener('pagehide', function() {
         if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
         if (sse) { try { sse.close(); } catch(e) {} sse = null; }
@@ -397,8 +399,6 @@ document.addEventListener('DOMContentLoaded', function() { loadCharts('24h'); })
         node.appendChild(document.createTextNode(String(players)));
         var sub = document.createElement('span');
         sub.className = 'metric-sub';
-        sub.style.display = 'inline';
-        sub.style.marginLeft = '2px';
         sub.textContent = '/' + String(maxPlayers);
         node.appendChild(sub);
     }
@@ -442,18 +442,15 @@ document.addEventListener('DOMContentLoaded', function() { loadCharts('24h'); })
     function updateSystemStats(sys) {
         var bar = document.getElementById('system-stats');
         if (!bar) return;
-        // Defensive Numeric-Cast gegen JSON-Drift (null/undefined/string → 0)
         var cpuN = Number(sys.cpu_percent) || 0;
         var ramN = Number(sys.ram_percent) || 0;
         var diskN = Number(sys.disk_percent) || 0;
         sys.cpu_percent = cpuN; sys.ram_percent = ramN; sys.disk_percent = diskN;
-        // CPU
         var cpuVal = bar.querySelector('[data-stat="cpu_percent"]');
         var cpuBar = bar.querySelector('[data-bar="cpu_percent"]');
         var cpuState = _stateClass(sys.cpu_percent, 60, 80);
         if (cpuVal) { cpuVal.textContent = sys.cpu_percent + '%'; }
         if (cpuBar) { cpuBar.style.width = sys.cpu_percent + '%'; cpuBar.className = 'progress-fill progress-' + cpuState; }
-        // RAM
         var ramVal = bar.querySelector('[data-stat="ram_percent"]');
         var ramBar = bar.querySelector('[data-bar="ram_percent"]');
         var ramText = bar.querySelector('[data-stat="ram_text"]');
@@ -461,23 +458,22 @@ document.addEventListener('DOMContentLoaded', function() { loadCharts('24h'); })
         if (ramVal) { ramVal.textContent = sys.ram_percent + '%'; }
         if (ramText) { ramText.textContent = sys.ram_used_gb + ' GB / ' + sys.ram_total_gb + ' GB'; }
         if (ramBar) { ramBar.style.width = sys.ram_percent + '%'; ramBar.className = 'progress-fill progress-' + ramState; }
-        // Disk
         var diskVal = bar.querySelector('[data-stat="disk_percent"]');
         var diskBar = bar.querySelector('[data-bar="disk_percent"]');
         var diskState = _stateClass(sys.disk_percent, 75, 90);
         if (diskVal) { diskVal.textContent = sys.disk_percent + '%'; }
         if (diskBar) { diskBar.style.width = sys.disk_percent + '%'; diskBar.className = 'progress-fill progress-' + diskState; }
-        // Hero-Stats data-stat=cpu_percent/ram_percent/ram_text duplicates (selektive Update)
+        // Hero-Stat duplicates (Bento mini cards) — selektive Updates
         document.querySelectorAll('.hero-stat [data-stat="cpu_percent"]').forEach(function(el) {
             el.replaceChildren();
             el.appendChild(document.createTextNode(String(sys.cpu_percent)));
-            var sub = document.createElement('span'); sub.className = 'metric-sub'; sub.style.display = 'inline'; sub.style.marginLeft = '2px'; sub.textContent = '%';
+            var sub = document.createElement('span'); sub.className = 'sub'; sub.textContent = '%';
             el.appendChild(sub);
         });
         document.querySelectorAll('.hero-stat [data-stat="ram_percent"]').forEach(function(el) {
             el.replaceChildren();
             el.appendChild(document.createTextNode(String(sys.ram_percent)));
-            var sub = document.createElement('span'); sub.className = 'metric-sub'; sub.style.display = 'inline'; sub.style.marginLeft = '2px'; sub.textContent = '%';
+            var sub = document.createElement('span'); sub.className = 'sub'; sub.textContent = '%';
             el.appendChild(sub);
         });
         document.querySelectorAll('.hero-stat [data-stat="ram_text"]').forEach(function(el) {

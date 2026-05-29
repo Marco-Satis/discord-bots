@@ -9,6 +9,7 @@ import asyncio
 import html
 import json
 import platform
+import re
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Request
@@ -219,51 +220,203 @@ async def service_action(request: Request, current_user: dict = Depends(require_
 # ==============================================================
 
 
-async def _get_upgradable_packages() -> list[dict]:
-    """Liest verfuegbare Package-Updates via apt list --upgradable."""
-    packages = []
+# Regex fuer apt-get-Simulations-Output:
+#   Inst <pkg> [<old-version>] (<new-version> <repo...> [<arch>]) [...]
+#   Inst <pkg> (<new-version> <repo...>)          (Neu-Installation, kein [old])
+_INST_RE = re.compile(
+    r"^Inst\s+(?P<name>\S+)\s+"
+    r"(?:\[(?P<old>[^\]]+)\]\s+)?"
+    r"\((?P<new>\S+)\s"
+)
+
+
+# Zeilen die im apt-Output nur Rauschen sind (kein echter Fehler).
+_APT_NOISE = (
+    "WARNING: apt does not have a stable CLI",
+    "debconf:",
+    "dialog frontend",
+    "Dialog frontend will not work",
+    "falling back to frontend",
+    "unable to initialize frontend",
+    "(Reading database",
+    "Preparing to unpack",
+    "Unpacking ",
+    "Selecting previously",
+)
+
+
+def _clean_apt_output(text: str) -> str:
+    """Entfernt Rausch-Zeilen (debconf/CLI-Warnings) aus apt-Output fuer saubere Anzeige."""
+    lines = []
+    for line in text.splitlines():
+        s = line.strip()
+        if not s:
+            continue
+        if any(noise.lower() in s.lower() for noise in _APT_NOISE):
+            continue
+        lines.append(s)
+    return "\n".join(lines)
+
+
+def _parse_apt_sim(output: str) -> list[dict]:
+    """Parst `apt-get -s {upgrade|dist-upgrade}`-Output (Inst-Zeilen)."""
+    packages: list[dict] = []
+    for line in output.splitlines():
+        line = line.strip()
+        if not line.startswith("Inst "):
+            continue
+        m = _INST_RE.match(line)
+        if not m:
+            continue
+        packages.append({
+            "name": m.group("name"),
+            "current": m.group("old") or "(neu)",
+            "available": m.group("new"),
+        })
+    return packages
+
+
+async def _apt_sim(mode: str) -> str:
+    """Fuehrt `apt-get -s <mode>` aus (Simulation, read-only, kein sudo noetig).
+
+    LANG=C erzwingt parsbaren englischen Output (sonst Server-Locale).
+    """
     try:
         proc = await asyncio.create_subprocess_exec(
-            "apt", "list", "--upgradable",
+            "apt-get", "-s", mode,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
+            env={"LANG": "C", "LC_ALL": "C", "PATH": "/usr/sbin:/usr/bin:/sbin:/bin"},
         )
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30.0)
-        output = stdout.decode("utf-8", errors="replace")
-
-        for line in output.strip().split("\n"):
-            # Format: "paketname/suite version arch [upgradable from: alte_version]"
-            if "[upgradable from:" in line:
-                parts = line.split("/", 1)
-                if len(parts) >= 2:
-                    pkg_name = parts[0].strip()
-                    rest = parts[1]
-                    # Neue Version extrahieren
-                    version_parts = rest.split(" ")
-                    new_version = version_parts[1] if len(version_parts) > 1 else "?"
-                    # Alte Version extrahieren
-                    old_version = "?"
-                    if "from:" in rest:
-                        old_version = rest.split("from:")[-1].strip().rstrip("]").strip()
-                    packages.append({
-                        "name": pkg_name,
-                        "current": old_version,
-                        "available": new_version,
-                    })
+        return stdout.decode("utf-8", errors="replace")
     except (asyncio.TimeoutError, OSError) as e:
-        logger.warning(f"Fehler beim Lesen der Package-Updates: {e}")
+        logger.warning(f"apt-get -s {mode} fehlgeschlagen: {e}")
+        return ""
 
-    return packages
+
+async def _get_upgradable_packages() -> list[dict]:
+    """Pakete die `apt upgrade` installieren wuerde.
+
+    Nutzt `apt-get -s upgrade` (Simulation) statt `apt list --upgradable` —
+    letzteres versteckt Phased-Updates + zeigt Pakete die gar nicht installiert
+    werden, was zu falschen Zaehlungen fuehrt. `-s upgrade` matcht exakt den
+    Upgrade-Button (`apt upgrade -y`).
+    """
+    return _parse_apt_sim(await _apt_sim("upgrade"))
+
+
+async def _get_heldback_packages() -> list[dict]:
+    """Pakete die nur via `apt full-upgrade`/`dist-upgrade` kommen (held-back).
+
+    Diff dist-upgrade − upgrade. Diese brauchen neue Dependencies und werden
+    von `apt upgrade` zurueckgehalten. Erklaeren die Differenz zu Webmins Zaehlung.
+    """
+    upgrade_names = {p["name"] for p in await _get_upgradable_packages()}
+    dist = _parse_apt_sim(await _apt_sim("dist-upgrade"))
+    return [p for p in dist if p["name"] not in upgrade_names]
+
+
+async def _heldback_html() -> str:
+    """HTML-Sektion fuer held-back Pakete (nur via dist-upgrade) — sonst leer.
+
+    Diese Pakete erscheinen NICHT in `apt upgrade` (Button), brauchen neue
+    Dependencies. Erklaert die Differenz zu Webmins hoeherer Zaehlung.
+    """
+    held = await _get_heldback_packages()
+    if not held:
+        return ""
+    rows = "".join(
+        f"<tr><td style='font-weight:500'>{html.escape(p['name'])}</td>"
+        f"<td style='color:var(--text-muted)'>{html.escape(p['current'])}</td>"
+        f"<td style='color:var(--accent-light);font-weight:600'>{html.escape(p['available'])}</td></tr>"
+        for p in held
+    )
+    return f"""
+    <details style="margin-top:14px" open>
+      <summary style="cursor:pointer;color:var(--t2);font-size:13px;font-weight:600">
+        {len(held)} zurueckgehaltene{'s' if len(held) == 1 else ''} Update{'s' if len(held) != 1 else ''}
+        (brauchen Full-Upgrade)
+      </summary>
+      <p style="color:var(--text-muted);font-size:11px;margin:8px 0">
+        Diese Pakete erfordern neue Abhaengigkeiten und werden vom Standard-Update
+        nicht installiert. Full-Upgrade installiert sie &mdash; kann dabei einzelne
+        Pakete entfernen.
+      </p>
+      <div class="table-wrapper">
+        <table class="data-table">
+          <thead><tr><th>Paket</th><th>Installiert</th><th>Verfuegbar</th></tr></thead>
+          <tbody>{rows}</tbody>
+        </table>
+      </div>
+      <button class="btn btn-sm btn-warning" style="margin-top:10px"
+              hx-post="/api/system/packages/full-upgrade"
+              hx-target="#package-update-result"
+              hx-swap="innerHTML"
+              hx-confirm="Full-Upgrade installiert {len(held)} zurueckgehaltene Paket(e) und kann dabei Pakete ENTFERNEN. Fortfahren?">
+        Zurueckgehaltene installieren (Full-Upgrade)
+      </button>
+    </details>
+    """
+
+
+def _check_reboot_required() -> dict:
+    """Prueft ob ein System-Reboot nach Updates noetig ist.
+
+    Ubuntu legt /var/run/reboot-required an wenn Kernel/glibc/systemd-Update
+    installiert wurde. /var/run/reboot-required.pkgs listet die ausloesenden
+    Pakete. Liest beide Files read-only (kein sudo noetig).
+
+    Returns: {"required": bool, "packages": list[str]}
+    """
+    flag = Path("/var/run/reboot-required")
+    pkgs_file = Path("/var/run/reboot-required.pkgs")
+    if not flag.exists():
+        return {"required": False, "packages": []}
+    pkgs: list[str] = []
+    try:
+        if pkgs_file.exists():
+            pkgs = [
+                line.strip() for line in pkgs_file.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+    except OSError as e:
+        logger.debug(f"reboot-required.pkgs nicht lesbar: {e}")
+    return {"required": True, "packages": sorted(set(pkgs))}
+
+
+def _reboot_banner_html() -> str:
+    """Liefert HTML-Banner wenn Reboot noetig — sonst leerer String."""
+    status = _check_reboot_required()
+    if not status["required"]:
+        return ""
+    pkgs = status["packages"]
+    pkg_list = (
+        f' <span style="font-family:ui-monospace,monospace;font-size:11px;color:var(--t3)">'
+        f'({html.escape(", ".join(pkgs[:6]))}{"…" if len(pkgs) > 6 else ""})</span>'
+        if pkgs else ""
+    )
+    return (
+        '<div class="alert alert-warning" style="margin-bottom:12px">'
+        '<strong>System-Reboot empfohlen</strong> — '
+        'Kernel oder Kern-Bibliothek aktualisiert, voller Effekt erst nach Neustart.'
+        f'{pkg_list}'
+        '</div>'
+    )
 
 
 @router.get("/api/system/packages/list", response_class=HTMLResponse)
 async def get_package_list(current_user: dict = Depends(require_auth_api)):
     """Gibt die Liste verfuegbarer Updates als HTML-Partial zurueck."""
     packages = await _get_upgradable_packages()
+    reboot_banner = _reboot_banner_html()
+    heldback = await _heldback_html()
 
     if not packages:
         return HTMLResponse(
+            f'{reboot_banner}'
             '<p style="color: var(--success); font-weight: 600;">Alle Pakete sind aktuell.</p>'
+            f'{heldback}'
         )
 
     rows = ""
@@ -275,6 +428,7 @@ async def get_package_list(current_user: dict = Depends(require_auth_api)):
         </tr>"""
 
     result_html = f"""
+    {reboot_banner}
     <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 0.75rem;">
         {len(packages)} Update{'s' if len(packages) != 1 else ''} verfuegbar
     </p>
@@ -284,6 +438,7 @@ async def get_package_list(current_user: dict = Depends(require_auth_api)):
             <tbody>{rows}</tbody>
         </table>
     </div>
+    {heldback}
     """
     return HTMLResponse(result_html)
 
@@ -295,7 +450,7 @@ async def check_package_updates(current_user: dict = Depends(require_auth_api)):
 
     try:
         proc = await asyncio.create_subprocess_exec(
-            "sudo", "apt", "update", "-qq",
+            "sudo", "-n", "/usr/bin/apt", "update",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -305,10 +460,15 @@ async def check_package_updates(current_user: dict = Depends(require_auth_api)):
 
     # Jetzt aktualisierte Liste abrufen
     packages = await _get_upgradable_packages()
+    reboot_banner = _reboot_banner_html()
+    heldback = await _heldback_html()
 
     if not packages:
         return HTMLResponse(
+            f'{reboot_banner}'
+            '<div class="alert alert-success" style="margin-bottom: 0.75rem;">Paketlisten aktualisiert.</div>'
             '<p style="color: var(--success); font-weight: 600;">Alle Pakete sind aktuell.</p>'
+            f'{heldback}'
         )
 
     rows = ""
@@ -320,6 +480,7 @@ async def check_package_updates(current_user: dict = Depends(require_auth_api)):
         </tr>"""
 
     result_html = f"""
+    {reboot_banner}
     <div class="alert alert-success" style="margin-bottom: 0.75rem;">Paketlisten aktualisiert.</div>
     <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 0.75rem;">
         {len(packages)} Update{'s' if len(packages) != 1 else ''} verfuegbar
@@ -330,51 +491,95 @@ async def check_package_updates(current_user: dict = Depends(require_auth_api)):
             <tbody>{rows}</tbody>
         </table>
     </div>
+    {heldback}
     """
     return HTMLResponse(result_html)
 
 
-@router.post("/api/system/packages/upgrade", response_class=HTMLResponse)
-async def upgrade_packages(current_user: dict = Depends(require_auth_api)):
-    """Fuehrt apt upgrade -y aus und aktualisiert alle Pakete."""
-    logger.info(f"Package-Upgrade gestartet von {current_user.get('username', 'Unbekannt')}")
+async def _run_apt_upgrade(wrapper: str, label: str) -> HTMLResponse:
+    """Fuehrt ein Root-Wrapper-Upgrade-Script aus + rendert Ergebnis.
+
+    Shared von /packages/upgrade (apt upgrade) + /packages/full-upgrade (dist-upgrade).
+    Beide Wrapper sind root-owned, fixe Command, keine User-Args → injection-sicher.
+    """
+    # Vor-Snapshot fuer Diff (dist-upgrade-Snapshot deckt beide Faelle ab)
+    pre_names = {p["name"] for p in await _get_upgradable_packages()}
+    pre_names |= {p["name"] for p in await _get_heldback_packages()}
 
     try:
         proc = await asyncio.create_subprocess_exec(
-            "sudo", "-n", "apt", "upgrade", "-y", "-qq",
+            "sudo", "-n", wrapper,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             stdin=asyncio.subprocess.DEVNULL,
-            env={"DEBIAN_FRONTEND": "noninteractive", "PATH": "/usr/sbin:/usr/bin:/sbin:/bin"},
+            env={"LANG": "C", "LC_ALL": "C", "PATH": "/usr/sbin:/usr/bin:/sbin:/bin"},
         )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=600.0)
+        _stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=600.0)
 
         if proc.returncode == 0:
-            output = stdout.decode("utf-8", errors="replace").strip()
-            # Anzahl aktualisierter Pakete zaehlen
-            upgraded_lines = [l for l in output.split("\n") if l.strip()]
-            count = len(upgraded_lines) if upgraded_lines and upgraded_lines[0] else 0
+            post_names = {p["name"] for p in await _get_upgradable_packages()}
+            post_names |= {p["name"] for p in await _get_heldback_packages()}
+            installed = sorted(pre_names - post_names)
+            count = len(installed)
 
-            logger.info(f"Package-Upgrade abgeschlossen: {count} Pakete")
-            return HTMLResponse(
-                f'<div class="alert alert-success">System-Update erfolgreich abgeschlossen.</div>'
+            logger.info(f"{label} abgeschlossen: {count} Pakete ({', '.join(installed) if installed else 'keine'})")
+
+            installed_html = ""
+            if installed:
+                rows = "".join(f"<li><code>{html.escape(n)}</code></li>" for n in installed)
+                installed_html = (
+                    f'<details style="margin-top:10px"><summary style="cursor:pointer;color:var(--t2);font-size:12px">'
+                    f'{count} Paket{"e" if count != 1 else ""} aktualisiert &mdash; Details</summary>'
+                    f'<ul style="margin:8px 0 0 16px;font-family:ui-monospace,monospace;font-size:12px">{rows}</ul></details>'
+                )
+            still_open = (
+                f'<p style="margin-top:8px;color:var(--warn);font-size:12px">{len(post_names)} Update(s) bleiben offen: {html.escape(", ".join(sorted(post_names)))}</p>'
+                if post_names else ""
             )
-        else:
-            error_msg = stderr.decode("utf-8", errors="replace").strip()
-            logger.warning(f"Package-Upgrade Fehler: {error_msg}")
-            return HTMLResponse(
-                f'<div class="alert alert-danger">Fehler beim Update: {html.escape(error_msg[:300])}</div>'
+            html_body = (
+                f'{_reboot_banner_html()}'
+                f'<div class="alert alert-success">{label} erfolgreich &mdash; '
+                f'{count} Paket{"e" if count != 1 else ""} installiert.</div>'
+                f'{installed_html}{still_open}'
             )
+            return HTMLResponse(html_body, headers={"HX-Trigger": "packageListChanged"})
+
+        error_msg = stderr.decode("utf-8", errors="replace")
+        cleaned = _clean_apt_output(error_msg)
+        logger.warning(f"{label} Fehler (rc={proc.returncode}): {error_msg.strip()[:500]}")
+        pre = (
+            f'<pre class="code-block" style="white-space:pre-wrap;word-break:break-word;'
+            f'max-height:240px;overflow:auto">{html.escape(cleaned[:1500])}</pre>'
+            if cleaned else ""
+        )
+        return HTMLResponse(
+            f'<div class="alert alert-danger">{label} fehlgeschlagen '
+            f'(Exit-Code {proc.returncode}).</div>{pre}'
+        )
 
     except asyncio.TimeoutError:
         return HTMLResponse(
-            '<div class="alert alert-danger">Timeout — Update dauert zu lange (10 Min. Limit).</div>'
+            f'<div class="alert alert-danger">Timeout — {label} dauert zu lange (10 Min. Limit).</div>'
         )
     except Exception as e:
-        logger.error(f"Package-Upgrade Exception: {e}")
+        logger.error(f"{label} Exception: {e}")
         return HTMLResponse(
             f'<div class="alert alert-danger">Fehler: {html.escape(str(e)[:200])}</div>'
         )
+
+
+@router.post("/api/system/packages/upgrade", response_class=HTMLResponse)
+async def upgrade_packages(current_user: dict = Depends(require_auth_api)):
+    """Fuehrt `apt upgrade -y` aus (ohne held-back Pakete)."""
+    logger.info(f"Package-Upgrade gestartet von {current_user.get('username', 'Unbekannt')}")
+    return await _run_apt_upgrade("/usr/local/sbin/dashboard-apt-upgrade", "System-Update")
+
+
+@router.post("/api/system/packages/full-upgrade", response_class=HTMLResponse)
+async def full_upgrade_packages(current_user: dict = Depends(require_auth_api)):
+    """Fuehrt `apt full-upgrade -y` aus (inkl. held-back, kann Pakete entfernen)."""
+    logger.info(f"Package-Full-Upgrade gestartet von {current_user.get('username', 'Unbekannt')}")
+    return await _run_apt_upgrade("/usr/local/sbin/dashboard-apt-fullupgrade", "Full-Upgrade")
 
 
 # ==============================================================

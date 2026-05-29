@@ -1,0 +1,82 @@
+/* ============================================================
+   v5 Design-System — Token-Fundament (Phase 0)
+   Dual-Mode: dunkel (Default) + hell (html[data-theme="light"]).
+   Lädt NACH output.css → überschreibt Basecoat-shadcn-Defaults.
+   ============================================================ */
+:root{
+  /* ---- Surfaces / Elevation (4 Stufen) — MIDNIGHT NAVY (gewählt 2026-05-25) ---- */
+  --s0:#03060f;                       /* App-BG-Basis (tiefes Navy-Schwarz) */
+  --s1:#080d1a;                       /* Panel / Sidebar */
+  --s2:#0d1426;                       /* Karte */
+  --s3:#152038;                       /* erhöhte Karte / Hover */
+  --elev1:0 1px 0 rgba(255,255,255,.05) inset, 0 8px 24px rgba(0,0,0,.40);
+  --elev2:0 1px 0 rgba(255,255,255,.07) inset, 0 16px 44px rgba(0,0,0,.50);
+  --elev3:0 1px 0 rgba(255,255,255,.09) inset, 0 24px 64px rgba(59,130,246,.26), 0 0 40px rgba(109,92,246,.16);
+
+  /* ---- Borders ---- */
+  --line:rgba(255,255,255,.10);
+  --line-soft:rgba(255,255,255,.06);
+  --line-accent:rgba(59,130,246,.32);
+
+  /* ---- Text ---- */
+  --t1:#eef3fb;                       /* primär */
+  --t2:#c2cde0;                       /* soft */
+  --t3:#8893ab;                       /* muted */
+
+  /* ---- Akzente: MIDNIGHT NAVY (Blau primär, Hellblau sekundär, Violett Glow) ----
+     Data-Terminal-Look: kräftiges Blau für Zahlen/Action, Violett für Glow + Pills. */
+  --acc:#3b82f6;        /* Blau — primär / Daten-Zahlen */
+  --acc-2:#60a5fa;      /* Hellblau — sekundär */
+  --acc-3:#6d5cf6;      /* Violett — tertiär / Glow */
+  --acc-grad:linear-gradient(135deg,#3b82f6 0%,#6d5cf6 100%);              /* Blau→Violett */
+  --acc-grad-3:linear-gradient(120deg,#60a5fa 0%,#6d5cf6 50%,#22d3ee 110%);/* Hellblau→Violett→Cyan */
+  --acc-soft:rgba(59,130,246,.14);
+  --pill-grad:linear-gradient(135deg,#d946ef 0%,#8b5cf6 100%);            /* Pink→Violett — aktive Nav-Pills (bleibt wie gewählt) */
+
+  /* ---- Semantik ---- */
+  --ok:#34e0a1; --warn:#f5b13d; --bad:#fb6f78;
+  --ok-bg:rgba(52,224,161,.14); --warn-bg:rgba(245,177,61,.14); --bad-bg:rgba(251,111,120,.14);
+
+  /* ---- Hintergrund-Mix: Navy-Blau + Violett-Tiefe ---- */
+  --mesh-1:rgba(59,130,246,.30);   /* oben-links blau */
+  --mesh-2:rgba(96,165,250,.22);   /* oben-rechts hellblau */
+  --mesh-3:rgba(109,92,246,.20);   /* unten-rechts violett */
+  --mesh-4:rgba(59,130,246,.16);   /* unten-links blau */
+  --grid-line:rgba(255,255,255,.035);
+  --grain-blend:overlay; --grain-op:.05;
+
+  /* ---- Typo-Skala (Display ≥ 2.5× body) ---- */
+  --fs-display:clamp(44px,7vw,78px);  --lh-display:1.02; --tr-display:-.04em;
+  --fs-h1:clamp(28px,4vw,40px);       --lh-h1:1.1;  --tr-h1:-.03em;
+  --fs-h2:20px;  --lh-h2:1.25; --tr-h2:-.01em;
+  --fs-body:15px; --lh-body:1.6;
+  --fs-cap:12.5px; --lh-cap:1.4; --tr-cap:.04em;
+
+  /* ---- Spacing-Rhythmik ---- */
+  --gap-section:48px; --gap-card:16px; --gap-inner:12px;
+  --pad-card:24px; --radius:18px; --radius-sm:12px; --radius-pill:999px;
+
+  /* ---- Motion ---- */
+  --fast:.16s; --norm:.26s; --slow:.5s; --ease:cubic-bezier(.16,1,.3,1);
+}
+
+/* ---- LIGHT-MODE ---- */
+html[data-theme="light"]{
+  --s0:#f4f3fb; --s1:#ffffff; --s2:#ffffff; --s3:#f7f5fd;
+  --elev1:0 1px 2px rgba(24,18,43,.06), 0 4px 14px rgba(24,18,43,.06);
+  --elev2:0 4px 14px rgba(24,18,43,.08), 0 12px 30px rgba(24,18,43,.08);
+  --elev3:0 8px 24px rgba(139,92,246,.18), 0 0 36px rgba(232,75,214,.12);
+  --line:rgba(24,18,43,.10); --line-soft:rgba(24,18,43,.06); --line-accent:rgba(139,92,246,.30);
+  --t1:#171326; --t2:#4a4566; --t3:#7b758f;
+  --acc:#e6602a; --acc-2:#0e9fb8; --acc-3:#c81fb0;
+  --acc-grad:linear-gradient(135deg,#e6602a 0%,#c81fb0 100%);
+  --acc-grad-3:linear-gradient(120deg,#f0793f 0%,#c81fb0 50%,#0e9fb8 110%);
+  --acc-soft:rgba(230,96,42,.10);
+  --mesh-1:rgba(255,154,90,.34); --mesh-2:rgba(103,232,249,.30);
+  --mesh-3:rgba(232,121,217,.24); --mesh-4:rgba(255,154,90,.22);
+  --grid-line:rgba(24,18,43,.05);
+  --grain-blend:multiply; --grain-op:.04;
+}
+
+/* Basecoat-Default-Foreground neutralisieren */
+body{ color:var(--t1); background:var(--s0); }

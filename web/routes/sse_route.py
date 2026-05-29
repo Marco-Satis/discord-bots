@@ -155,9 +155,12 @@ async def _collect_recent_events(limit: int = 20) -> list[dict]:
     """
     try:
         db = await get_db()
+        # Filter '0 Updates verfuegbar'-Noise vom Daily-Cron (sind keine echten Events).
         cursor = await db.execute(
             "SELECT timestamp, event_type, category, server_id, message, details "
-            "FROM events ORDER BY timestamp DESC LIMIT ?",
+            "FROM events "
+            "WHERE NOT (event_type = 'package_check' AND message LIKE '0 Updates%') "
+            "ORDER BY timestamp DESC LIMIT ?",
             (limit,),
         )
         rows = await cursor.fetchall()
