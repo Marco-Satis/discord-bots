@@ -71,3 +71,62 @@ mtime-Hinweis von Marco = Tiebreaker NUR bei echten Konflikt-Hunks (neuere Datei
 ## Session-Arbeit die in main steckt (NICHT verlieren beim Merge)
 
 V5-Dashboard-Redesign (base_v5 + v5_components.css, 9 Seiten), `manual_stop_state` (4 Consumer + Self-Heal in health_checker/watchdog/scheduler/port_monitor), Updater-Überarbeitung (apt-get -s Parser, Full-Upgrade-Button, Root-Wrapper, Reboot-Banner, Events-0-Update-Filter), Level-Up-Card (Pillow), Doku v4.3.0 + docx.
+
+---
+
+## AUSFÜHRBARER MERGE-PLAN (via /lyra, 2026-06-01) — Opus 4.7 @ xhigh
+
+**Phase 0 — Branch-Verifikation + consolidate-Branch**
+```
+MR="C:/Users/Marco/OneDrive/Dokumente/DIscord_Bots"
+git -C "$MR" fetch origin
+git -C "$MR" log --oneline -1 origin/main     # 8752139
+git -C "$MR" log --oneline -1 origin/master   # fa08dbf
+git -C "$MR" merge-base origin/main origin/master   # 9c680a5
+git -C "$MR" checkout -b consolidate origin/main
+```
+
+**Phase 1 — Pre-Merge-Konflikt-Vorschau (Baseline VOR Merge)**
+```
+git -C "$MR" merge-tree $(git -C "$MR" merge-base origin/main origin/master) origin/main origin/master > /tmp/merge_preview.txt
+grep -c '<<<<<<<' /tmp/merge_preview.txt
+```
+Erwartete Konflikt-Files (~10): scheduler_cog, health_checker, service_watchdog, package_checker, port_monitor, leveling, db_manager, CHANGELOG, CLAUDE.md, VERSION.
+
+**Phase 2 — 3-Wege-Merge (offen halten)**
+```
+git -C "$MR" merge --no-commit --no-ff origin/master
+git -C "$MR" diff --name-only --diff-filter=U   # Konflikt-Liste
+```
+
+**Phase 3 — Konflikt-Auflösung pro Datei (Entscheidungsbaum):**
+1. Beide Seiten ändern VERSCHIEDENE Funktionen → beide Hunks behalten.
+2. Beide ändern DIESELBE Funktion:
+   - main = Session-Feature (manual_stop/V5/Updater) → main-Logik + master-Änderung derselben Stelle einarbeiten falls orthogonal.
+   - Versions-/Format-Unterschied (CHANGELOG/VERSION/CLAUDE.md) → manuell: VERSION→4.4.0, CHANGELOG beide chronologisch, CLAUDE.md beide Status-Fakten.
+   - Echter Logik-Widerspruch (z.B. db_manager Write-Retry) → Tiebreaker: (a) bessere/robustere Funktion, (b) neueres Commit-Date:
+     `git -C "$MR" log -1 --format=%ci origin/master -- <f>` vs `... origin/main -- <f>`.
+3. Pro Datei: `git -C "$MR" add <f>` + `python -m py_compile "$MR/<f>"`.
+
+**Phase 4 — Verifikation vor Commit**
+```
+git -C "$MR" diff --cached --name-only -- '*.py' | sed "s#^#$MR/#" | xargs -r python -m py_compile
+# + Jinja: Loader $MR/web/templates, jedes *.html get_template()
+git -C "$MR" commit   # "merge(consolidate): master Module + main V5/Updater/manual_stop -> v4.4.0"
+```
+
+**Phase 5 — Tests (alle Pflicht)**
+```
+cd "$MR" && for t in test_imports test_routes test_cogs test_env_completeness test_manual_stop_state; do python tests/$t.py; echo "$t -> $?"; done
+```
+(test_env nur pre-existing WEB_HOST-Drift akzeptieren.)
+
+**Phase 6 — /review auf Merge-Diff** (`git diff origin/main...consolidate`): Functional-Correctness + Data-Flow, Coverage-statt-Filtering. Pro Konflikt-Datei prüfen: main-Funktion UND master-Funktion final drin (0 gekappt).
+
+**Phase 7 — Server-Abgleich:** `git -C "$MR" diff --name-only origin/main origin/master -- modules cogs web '*.py'` → Deploy-Kandidaten-Liste (master-Module fehlen live). NICHT auto-deployen, Marco-Approval.
+
+**Phase 8 — VERSION 4.4.0 + CHANGELOG + Push** `git -C "$MR" push origin HEAD:main`.
+
+**Rollback:** vor Commit `git -C "$MR" merge --abort`; nach Commit/vor Push `git -C "$MR" reset --hard origin/main`. Self-Stop: 3× Fehlschlag selbe Datei → Marco melden.
+
+**Self-Check vor Push:** Konflikte alle weg | pro Datei beide Funktionen benannt | 5 Tests grün | py+Jinja-Compile | /review 0 gekappt | VERSION 4.4.0 | Branches auf GitHub (Rollback intakt) | Deploy-Liste erstellt.
