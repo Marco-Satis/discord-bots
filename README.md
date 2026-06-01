@@ -1,4 +1,4 @@
-# Discord Bot System v4.2.0
+# Discord Bot System v4.3.0
 
 **3-Bot-System + Web-Dashboard fuer Game-Server-Management**
 

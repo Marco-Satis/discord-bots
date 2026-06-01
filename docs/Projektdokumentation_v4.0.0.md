@@ -161,6 +161,19 @@ Crash Replay (F30), Moderation-Erweiterungen (F39), Leveling-System (F40), Givea
 **Phase 5 — Feinschliff (5 Features):**
 Maintenance Mode (F38), Paket-Checker (F42), Dark Mode (F46), Performance-Optimierung (F47), Webhook-Integration (F60).
 
+### 1.4 Neuerungen in v4.3.0 (2026-06-01)
+
+**V5 Dashboard-Redesign (Midnight-Navy Data-Terminal):**
+Neues Shell-Template `base_v5.html` (appside/appmain-Layout) + zentrales `web/static/_preview/v5_components.css` mit Compat-Layer fuer die alten `style.css`-CSS-Variablen. `dashboard.html` komplett neu (Bento-Hero, Mono-Zahlen, fixe Chart-Hoehe, blaue Chart-Palette). 8 weitere Seiten (errors, system, security, admin_bot, config, server_detail, search, changelog) auf das V5-Shell umgestellt. Theme-Toggle entfernt (Dark fix). Geist-Font + kompiliertes Tailwind/Basecoat-Output.
+
+**Manuelles Stoppen wird respektiert (`manual_stop_state`):**
+Neues Modul `modules/monitoring/manual_stop_state.py` mit persistentem State (`data/manual_stop_state.json`). Ein ueber das Dashboard gestoppter Server wird NICHT mehr automatisch hochgefahren — vier Quellen (Health-Checker, Service-Watchdog, Daily-Restart, Port-Monitor) respektieren den Flag. Self-Healing: Out-of-Band-Start (SSH/Webmin) loescht den Flag automatisch sobald der Server wieder erreichbar ist.
+
+**Updater-Ueberarbeitung:**
+Package-Parser auf `apt-get -s upgrade` (statt `apt list --upgradable` — versteckte Phased-Updates). Held-back-Pakete sichtbar mit eigenem Full-Upgrade-Button. Root-Wrapper-Scripts fuer noninteractive-Upgrades (fixt debconf-Dialog-Fehler). Reboot-Required-Banner. Locale-Fix (LANG=C). Events-Feed: `0 Updates`-Cron-Noise gefiltert.
+
+**Leveling:** Bild-Hintergrund fuer Level-Up-Benachrichtigungen (`modules/levelup_card.py`, Pillow-gerendert).
+
 ---
 
 ## 2. Architektur
@@ -423,6 +436,8 @@ Intelligenter Health-Check fuer alle Gameserver. Unterscheidet zwischen "Prozess
 
 **Callbacks:** Discord-Benachrichtigungen an `ADMIN_LOG_CHANNEL_ID`. StatusWriter-Integration fuer Dashboard.
 
+**Manual-Stop-Awareness (seit v4.3.0):** Ein ueber das Dashboard gestoppter Server (Flag in `data/manual_stop_state.json`) loest keine Failure-Warnings, Down-Notifications oder Auto-Restarts mehr aus — er SOLL offline sein. Self-Healing: wird er out-of-band (SSH/Webmin) wieder gestartet, erkennt der Health-Checker die Erreichbarkeit, loescht den Flag und reaktiviert die normale Ueberwachung.
+
 ### 6.2 Auto-Backup
 
 SAT: Alle 6h Savegame-Backup. Lokal + OneDrive (verpflichtend).
@@ -430,7 +445,7 @@ MC: Alle 6h World-Backup. `save-all` vor Backup. Lokal + OneDrive.
 
 ### 6.3 Daily Restart
 
-04:00 Uhr fuer alle Server. Nur wenn >12h runtime. Skip wenn Spieler online.
+04:00 Uhr (SAT) bzw. 05:00 Uhr (MC) fuer alle Server. Nur wenn >12h runtime. Skip wenn Spieler online. **Seit v4.3.0:** Skip auch wenn der Server manuell gestoppt wurde (`manual_stop_state`).
 
 ### 6.4 Player-Tracking
 

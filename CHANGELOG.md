@@ -4,6 +4,43 @@ Alle relevanten Aenderungen am Discord Bot System werden hier dokumentiert.
 
 ---
 
+## [4.3.0] — 2026-06-01
+
+### Dashboard — V5 Midnight-Navy Redesign
+
+- **Neues Shell-Template `web/templates/base_v5.html`** (appside/appmain-Layout, Midnight-Navy Data-Terminal-Look) + zentrales `web/static/_preview/v5_components.css` mit Compat-Layer der alten `style.css`-CSS-Variablen → bestehendes Markup laeuft ohne Cross-File-Edits weiter.
+- **`dashboard.html` komplett neu:** Bento-Hero-Grid, Mono-Zahlen, fixe Chart-Hoehe (`.chart-wrap` 220px gegen Endlos-Wachstum), blaue Chart.js-Palette (#3b82f6/#60a5fa/#6d5cf6/#22d3ee). Alle SSE/HTMX-Hooks unveraendert.
+- **8 weitere Seiten auf `base_v5.html` umgestellt:** errors, system, security, admin_bot, config, server_detail, search, changelog. Tabs einzeilig scrollbar (nowrap + overflow-x), `.appcont` max-width 1120 → 1320px.
+- **`base.html`:** Theme-Toggle entfernt (Dark fix), `style.css` auf Midnight-Navy rethemed.
+- Geist-Font + kompiliertes Tailwind/Basecoat-Output + Navy-Tokens (`tailwind/_tokens.css`).
+
+### Server-Control — Manuelles Stoppen wird respektiert
+
+- **Neu `modules/monitoring/manual_stop_state.py`:** persistenter State (`data/manual_stop_state.json`, atomic Read-Modify-Write unter Lock), Service↔server_id-Mapping. Dashboard-Stop/Maintenance setzt Flag, Start/Restart loescht ihn.
+- **4 Auto-Restart/Warning-Quellen respektieren den Flag:** `health_checker` (keine Failure-Warnings/Down-Notify/Auto-Restart), `service_watchdog`, `scheduler_cog` (Daily-Restart SAT+MC), `port_monitor` (keine Port-Down-Warnings).
+- **Self-Healing:** wird ein manuell gestoppter Server out-of-band (SSH/Webmin) wieder gestartet, erkennt `health_checker` die Erreichbarkeit, loescht den Flag automatisch und reaktiviert die Ueberwachung — kein Monitoring-Blindspot.
+
+### System-Updates — Updater-Ueberarbeitung
+
+- **Parser auf `apt-get -s upgrade`** statt `apt list --upgradable` (versteckte Phased-Updates → fehlerhafte Zaehlung). LANG=C erzwingt parsbaren Output (vorher Locale-Bug: deutscher apt-Output → leere Liste).
+- **Held-back-Pakete sichtbar:** `<details>`-Sektion (Diff dist-upgrade − upgrade) mit eigenem **Full-Upgrade-Button** (`apt full-upgrade -y`, Warn-Confirm da Pakete entfernt werden koennen).
+- **Root-Wrapper-Scripts** `/usr/local/sbin/dashboard-apt-upgrade` + `-fullupgrade` (DEBIAN_FRONTEND=noninteractive + force-confold/confdef) — fixt debconf-Dialog-Fehler durch `sudo` env_reset. Output gefiltert (`_clean_apt_output`) + `<pre>`-formatiert statt rohem char-wrap.
+- **Reboot-Required-Banner** (`/var/run/reboot-required`) in Check/List/Upgrade-Response. **HX-Trigger** `packageListChanged` refresht Liste nach Upgrade automatisch.
+- **Events-Feed:** `0 Updates verfuegbar`-Cron-Noise gefiltert (source-side in `package_checker._persist_to_db` + query-side in `dashboard.py`/`sse_route.py`).
+
+### Leveling — Bild-Hintergrund fuer Level-Up
+
+- **Neu `modules/levelup_card.py`:** Pillow-gerenderte Level-Up-Card (900×280, hochgeladenes Bild als Hintergrund + Avatar, Level, XP-Progress-Bar). Config-Methoden in `leveling.py`, `/xp levelcard`-Command, Guarded-Import mit Embed-Fallback wenn Pillow fehlt. `Pillow` in requirements.txt.
+
+### Sonstiges
+
+- Webmin-Zugang: ufw + miniserv-allow auf aktuelle Marco-IP angepasst.
+- `/review` Multi-Agent-Audit der Session-Diff: 0 CRITICAL/HIGH, F01-F03 (Self-Heal, Tests, Race-Fix) gefixt.
+- Tests: `tests/test_manual_stop_state.py` (8 Tests).
+- Repo auf GitHub gepusht (`Marco-Satis/discord-bots`, main).
+
+---
+
 ## [4.2.0] — 2026-05-17
 
 ### Audit-Fixes (Full-System-Review Master-Report)
