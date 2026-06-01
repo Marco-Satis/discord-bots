@@ -45,7 +45,7 @@ class MinecraftRCON:
         self._lock = asyncio.Lock()
 
     def _next_request_id(self) -> int:
-        """Naechste Request-ID (einfacher Zaehler)"""
+        """Nächste Request-ID (einfacher Zähler)"""
         self._request_id_counter += 1
         if self._request_id_counter > 2_000_000_000:
             self._request_id_counter = 1
@@ -100,7 +100,7 @@ class MinecraftRCON:
 
         # Sanity-Check: Length muss positiv und innerhalb der Grenzen sein
         if length < 10 or length > MAX_PACKET_SIZE:
-            raise RuntimeError(f"Ungueltiges RCON-Paket: length={length}")
+            raise RuntimeError(f"Ungültiges RCON-Paket: length={length}")
 
         # Restliches Paket lesen (exakt 'length' Bytes)
         packet_data = await asyncio.wait_for(
@@ -148,7 +148,7 @@ class MinecraftRCON:
             return True
 
         except Exception as e:
-            logger.error(f"RCON-Verbindungsfehler: {e}")
+            logger.debug(f"RCON-Verbindungsfehler: {e}")
             await self.close()
             return False
 

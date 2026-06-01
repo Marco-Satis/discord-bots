@@ -25,8 +25,12 @@ from __future__ import annotations
 
 import asyncio
 import json
-import random
+import secrets
 from datetime import datetime
+
+# secrets.SystemRandom fuer XP-Variation (Defense-in-Depth, verhindert
+# Pattern-Vorhersage durch Spieler die XP-Boost erfarmen wollen).
+_rand = secrets.SystemRandom()
 from pathlib import Path
 from typing import Any
 
@@ -335,7 +339,7 @@ class LevelingManager:
         # XP berechnen
         xp_min = self._config.get("xp_per_message_min", 15)
         xp_max = self._config.get("xp_per_message_max", 25)
-        xp = random.randint(xp_min, xp_max)
+        xp = _rand.randint(xp_min, xp_max)
 
         # Channel-Multiplikator anwenden
         if channel_id:

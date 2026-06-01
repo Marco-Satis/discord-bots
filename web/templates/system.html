@@ -129,13 +129,13 @@
                 hx-post="/api/system/packages/check"
                 hx-target="#package-list-area"
                 hx-swap="innerHTML">
-            Auf Updates pruefen
+            Auf Updates prüfen
         </button>
         <button class="btn btn-sm btn-primary"
                 hx-post="/api/system/packages/upgrade"
                 hx-target="#package-update-result"
                 hx-swap="innerHTML"
-                hx-confirm="Alle verfuegbaren Pakete aktualisieren? Der Vorgang kann einige Minuten dauern.">
+                hx-confirm="Alle verfügbaren Pakete aktualisieren? Der Vorgang kann einige Minuten dauern.">
             Alle Updates installieren
         </button>
     </div>
@@ -151,11 +151,11 @@
 <section class="config-section">
     <h2 class="section-title">Webmin Server-Administration</h2>
     <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 1rem;">
-        Webmin laeuft als eigener Service mit selbstsigniertem Zertifikat.
-        Browser blockieren solche Zertifikate in eingebetteten Frames — bitte Webmin direkt oeffnen.
+        Webmin läuft als eigener Service mit selbstsigniertem Zertifikat.
+        Browser blockieren solche Zertifikate in eingebetteten Frames — bitte Webmin direkt öffnen.
     </p>
     <a href="{{ webmin_url }}" target="_blank" class="btn btn-primary" style="display: inline-flex; gap: 0.5rem; align-items: center;">
-        <span>&#9881;</span> Webmin oeffnen ({{ webmin_url }})
+        <span>&#9881;</span> Webmin öffnen ({{ webmin_url }})
     </a>
     <p style="color: var(--text-muted); font-size: 0.8rem; margin-top: 0.75rem;">
         Beim ersten Zugriff muss das selbstsignierte Zertifikat im Browser akzeptiert werden.

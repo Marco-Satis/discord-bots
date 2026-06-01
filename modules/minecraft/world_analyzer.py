@@ -303,7 +303,7 @@ class WorldAnalyzer:
         return players
 
     async def _analyze_world_size(self, results: dict) -> None:
-        """Analysiert die Welt-Groesse (Region-Files + Dateisystem)"""
+        """Analysiert die Welt-Größe (Region-Files + Dateisystem)"""
         try:
             size_info = await asyncio.to_thread(self._calc_world_size)
             results["world_size"] = size_info
@@ -312,7 +312,7 @@ class WorldAnalyzer:
             logger.error(f"World-Size Analyse fehlgeschlagen: {e}")
 
     def _calc_world_size(self) -> dict[str, Any]:
-        """Berechnet Welt-Groesse und erkundete Flaeche (blocking)"""
+        """Berechnet Welt-Größe und erkundete Fläche (blocking)"""
         info: dict[str, Any] = {}
 
         # Dimension-Verzeichnisse
@@ -333,7 +333,7 @@ class WorldAnalyzer:
             region_count = len(region_files)
             dim_size = sum(f.stat().st_size for f in region_files if f.is_file())
 
-            # Erkundete Flaeche: 1 Region = 32x32 Chunks = 512x512 Bloecke
+            # Erkundete Fläche: 1 Region = 32x32 Chunks = 512x512 Blöcke
             # = 0.262144 km²
             explored_km2 = round(region_count * 0.262144, 2)
 
@@ -364,7 +364,7 @@ class WorldAnalyzer:
 
     @staticmethod
     def _get_dir_size(path: Path) -> int:
-        """Berechnet die Gesamtgroesse eines Verzeichnisses (blocking)"""
+        """Berechnet die Gesamtgröße eines Verzeichnisses (blocking)"""
         total = 0
         try:
             for entry in path.rglob("*"):

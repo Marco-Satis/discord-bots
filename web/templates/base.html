@@ -5,10 +5,27 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ request.state.csrf_token|default('') }}">
     <title>{% block title %}Dashboard{% endblock %} — Bot Dashboard</title>
+    <!-- DSGVO: Inter-Font lokal gehostet (siehe /static/fonts/inter/inter.css).
+         Migration 2026-05-16 entfernt Google-Fonts-CDN (User-IP zu Google). -->
+    <link rel="stylesheet" href="/static/fonts/inter/inter.css">
     <link rel="stylesheet" href="/static/style.css">
     <link rel="stylesheet" href="/static/themes.css">
-    <script src="https://unpkg.com/htmx.org@1.9.10/dist/htmx.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <!-- UI-Enhancements v1.0 (Animation-Tokens, Toast, Skeleton, A11y, Status-Pulse) -->
+    <link rel="stylesheet" href="/static/ui_enhancements.css">
+    <!-- HTMX 2.0.4 (Major-Upgrade 2026-05-16 von 1.9.10). Breaking changes:
+         hx-on-Attribute syntax (Marco-Templates pruefen wenn 'hx-on' verwendet wird). -->
+    <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"
+            integrity="sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+" crossorigin="anonymous"></script>
+    <!-- Chart.js 4.5.0 (Patch-Update 2026-05-16). Kandidat fuer Migration zu uPlot. -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.min.js"></script>
+    <!-- uPlot 1.6.30: high-performance Charts fuer Live-Streaming. Migration-Pilot in einem analytics-Template. -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.30/dist/uPlot.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/uplot@1.6.30/dist/uPlot.iife.min.js"></script>
+    <!-- Lucide-Icons v0.x (1300+ SVG-Icons, ESM-Bundle). Aktivierung via lucide.createIcons() -->
+    <script src="https://unpkg.com/lucide@0.428.0/dist/umd/lucide.min.js"></script>
+    <!-- UI-Enhancements JS (Toast, HTMX-Listener, Lucide-Render-Hook) — am Ende des Headers
+         damit DOMContentLoaded korrekt feuert -->
+    <script src="/static/ui_enhancements.js" defer></script>
     <script>
         // F64: CSRF-Token fuer alle HTMX-Requests
         document.addEventListener('DOMContentLoaded', function() {
@@ -138,7 +155,7 @@
         .sidebar-search-input:focus {
             outline: none;
             border-color: var(--accent);
-            box-shadow: 0 0 0 2px rgba(88, 101, 242, 0.2);
+            box-shadow: 0 0 0 3px var(--accent-glow);
         }
         .sidebar-search-input::placeholder {
             color: var(--text-secondary);
@@ -232,7 +249,7 @@
                 <span class="nav-icon" id="themeIcon">&#9790;</span>
                 <span class="nav-label" id="themeLabel">Light Mode</span>
             </button>
-            <small>Dashboard &middot; v4.0.0</small>
+            <small>Dashboard &middot; v4.1.0</small>
         </div>
     </aside>
 

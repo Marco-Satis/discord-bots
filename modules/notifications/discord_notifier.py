@@ -87,6 +87,14 @@ class DiscordNotifier:
         content = self.role_ping if ping_role else None
         try:
             await channel.send(content=content, embed=embed)
+        except discord.HTTPException as e:
+            if e.status == 429:
+                retry_after = float(getattr(e, "retry_after", 5))
+                logger.warning(
+                    f"Discord-Notify channel.send 429 (Rate-Limit), retry_after={retry_after:.1f}s"
+                )
+            else:
+                logger.error(f"Failed to send notification (HTTP {e.status}): {e}")
         except Exception as e:
             logger.error(f"Failed to send notification: {e}")
 
@@ -122,7 +130,7 @@ class DiscordNotifier:
     async def notify_crash(self, crash_number: int, auto_restart: bool = True) -> None:  # type: ignore
         """Server crash detected"""
         desc = (
-            f"Satisfactory ist abgestuerzt!\n"
+            f"Satisfactory ist abgestürzt!\n"
             f"Crash #{crash_number}"
         )
         if auto_restart:
@@ -158,21 +166,25 @@ class DiscordNotifier:
 
     async def notify_player_join(self, player_name: str) -> None:  # type: ignore
         """Player joined the server"""
+        # escape_markdown: verhindert dass Player-Names mit *, _, ~, ` etc.
+        # die Embed-Formattierung brechen oder Mention-Spoofing erlauben.
+        safe_name = discord.utils.escape_markdown(player_name)
         await self.send_admin(
             "Spieler beigetreten",
-            f"**{player_name}** hat den Server betreten",
+            f"**{safe_name}** hat den Server betreten",
             NotifyLevel.INFO,
         )
 
     async def notify_player_leave(self, player_name: str, duration_min: int) -> None:  # type: ignore
         """Player left the server"""
+        safe_name = discord.utils.escape_markdown(player_name)
         if duration_min > 0:
             hours = duration_min // 60
             mins = duration_min % 60
             time_str = f"{hours}h {mins}m" if hours > 0 else f"{mins}m"
-            desc = f"**{player_name}** hat den Server verlassen (Spielzeit: {time_str})"
+            desc = f"**{safe_name}** hat den Server verlassen (Spielzeit: {time_str})"
         else:
-            desc = f"**{player_name}** hat den Server verlassen"
+            desc = f"**{safe_name}** hat den Server verlassen"
 
         await self.send_admin(
             "Spieler verlassen",
@@ -307,6 +319,12 @@ class DiscordNotifier:
             await user.send(embed=embed)
         except discord.Forbidden:
             logger.warning("Owner hat DMs deaktiviert — Benachrichtigung nur via Channel")
+        except discord.HTTPException as e:
+            if e.status == 429:
+                retry_after = float(getattr(e, "retry_after", 5))
+                logger.warning(f"Owner-DM 429 (Rate-Limit), retry_after={retry_after:.1f}s")
+            else:
+                logger.error(f"Owner-DM HTTPException (HTTP {e.status}): {e}")
         except Exception as e:
             logger.error(f"DM an Owner fehlgeschlagen: {e}")
 
@@ -336,6 +354,12 @@ class DiscordNotifier:
         )
         try:
             await channel.send(embed=embed)
+        except discord.HTTPException as e:
+            if e.status == 429:
+                retry_after = float(getattr(e, "retry_after", 5))
+                logger.warning(f"Daily report 429 (Rate-Limit), retry_after={retry_after:.1f}s")
+            else:
+                logger.error(f"Failed to send daily report (HTTP {e.status}): {e}")
         except Exception as e:
             logger.error(f"Failed to send daily report: {e}")
 
@@ -353,5 +377,11 @@ class DiscordNotifier:
         )
         try:
             await channel.send(embed=embed)
+        except discord.HTTPException as e:
+            if e.status == 429:
+                retry_after = float(getattr(e, "retry_after", 5))
+                logger.warning(f"Weekly report 429 (Rate-Limit), retry_after={retry_after:.1f}s")
+            else:
+                logger.error(f"Failed to send weekly report (HTTP {e.status}): {e}")
         except Exception as e:
             logger.error(f"Failed to send weekly report: {e}")

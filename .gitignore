@@ -33,3 +33,10 @@ backups/
 # OS
 .DS_Store
 Thumbs.db
+
+# Generierter Output / Git-Worktrees (nicht committen)
+graphify-out/
+.claude/worktrees/
+=*
+*.exe
+web/tools/

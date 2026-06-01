@@ -1,12 +1,12 @@
 """
 Audit Logger — Phase 11g
-Zentrales Audit-Logging fuer den Admin Bot.
+Zentrales Audit-Logging für den Admin Bot.
 
-Loggt Server-Events (Joins, Leaves, Rollen-Aenderungen, Nick-Aenderungen,
-Channel-Aenderungen, Moderations-Aktionen) als farbige Embeds in
-konfigurierbare Discord-Kanaele.
+Loggt Server-Events (Joins, Leaves, Rollen-Änderungen, Nick-Änderungen,
+Channel-Änderungen, Moderations-Aktionen) als farbige Embeds in
+konfigurierbare Discord-Kanäle.
 
-Zusaetzlich werden alle Events persistent in der SQLite-Datenbank
+Zusätzlich werden alle Events persistent in der SQLite-Datenbank
 (Tabelle: audit_log) gespeichert.
 
 Konfiguration in data/admin/audit_config.json:
@@ -19,7 +19,7 @@ Konfiguration in data/admin/audit_config.json:
 }
 
 Die Discord-Kanal-Konfiguration wird in audit_config.json gespeichert.
-Die Logs gehen an Discord-Kanaele UND in die SQLite-Datenbank.
+Die Logs gehen an Discord-Kanäle UND in die SQLite-Datenbank.
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ logger = get_logger("modules.audit_logger")
 # Pfad zur Konfigurationsdatei
 CONFIG_FILE = ADMIN_DATA_DIR / "audit_config.json"
 
-# Standard-Konfiguration (alle Kanaele deaktiviert)
+# Standard-Konfiguration (alle Kanäle deaktiviert)
 _DEFAULT_CONFIG = {
     "mod_log_channel": 0,
     "join_log_channel": 0,
@@ -49,7 +49,7 @@ _DEFAULT_CONFIG = {
     "server_log_channel": 0,
 }
 
-# Kategorie-Zuordnung fuer den /audit setup Command
+# Kategorie-Zuordnung für den /audit setup Command
 CATEGORY_TO_KEY = {
     "mod": "mod_log_channel",
     "join": "join_log_channel",
@@ -58,28 +58,28 @@ CATEGORY_TO_KEY = {
     "server": "server_log_channel",
 }
 
-# Farben fuer verschiedene Log-Typen
-COLOR_JOIN = 0x2ecc71       # Gruen
+# Farben für verschiedene Log-Typen
+COLOR_JOIN = 0x2ecc71       # Grün
 COLOR_LEAVE = 0xe74c3c      # Rot
 COLOR_MOD = 0xe67e22        # Orange
 COLOR_NICK = 0x3498db       # Blau
 COLOR_AVATAR = 0x9b59b6     # Lila
-COLOR_ROLE_ADD = 0x2ecc71   # Gruen
+COLOR_ROLE_ADD = 0x2ecc71   # Grün
 COLOR_ROLE_REMOVE = 0xe74c3c  # Rot
-COLOR_CHANNEL_CREATE = 0x2ecc71  # Gruen
+COLOR_CHANNEL_CREATE = 0x2ecc71  # Grün
 COLOR_CHANNEL_DELETE = 0xe74c3c  # Rot
 COLOR_SERVER = 0xf1c40f      # Gelb
 
 
 class AuditLogger:
     """
-    Audit-Logging-System fuer den Admin Bot.
+    Audit-Logging-System für den Admin Bot.
 
     Loggt Server-Events als farbige Embeds in konfigurierbare
-    Discord-Kanaele. Jede Log-Kategorie (Moderation, Joins, Member,
+    Discord-Kanäle. Jede Log-Kategorie (Moderation, Joins, Member,
     Rollen, Server) hat einen eigenen konfigurierbaren Kanal.
 
-    Zusaetzlich werden alle Events persistent in der SQLite-Datenbank
+    Zusätzlich werden alle Events persistent in der SQLite-Datenbank
     (Tabelle: audit_log) gespeichert.
 
     Die Konfiguration (Channel-IDs) wird in audit_config.json gespeichert.
@@ -187,7 +187,7 @@ class AuditLogger:
 
         Args:
             bot: Bot-Instanz
-            config_key: Konfigurationsschluessel fuer den Kanal
+            config_key: Konfigurationsschlüssel für den Kanal
             embed: Das zu sendende Embed
 
         Returns:
@@ -218,10 +218,10 @@ class AuditLogger:
 
         Args:
             action: Art der Aktion (z.B. "mod_ban", "member_join", "role_add")
-            user_id: Discord-User-ID des Ausfuehrenden (als String)
-            user_name: Anzeigename des Ausfuehrenden
+            user_id: Discord-User-ID des Ausführenden (als String)
+            user_name: Anzeigename des Ausführenden
             target: Ziel der Aktion (z.B. User-ID, Channel-Name, Rollen-Name)
-            details: Zusaetzliche Details (JSON-String oder Freitext)
+            details: Zusätzliche Details (JSON-String oder Freitext)
             source: Quelle des Events (Standard: "bot")
         """
         try:
@@ -254,8 +254,8 @@ class AuditLogger:
             bot: Bot-Instanz
             action: Art der Aktion (z.B. "Ban", "Kick", "Warn", "Mute")
             target: Betroffener User
-            moderator: Ausfuehrender Moderator
-            reason: Grund fuer die Aktion
+            moderator: Ausführender Moderator
+            reason: Grund für die Aktion
 
         Returns:
             True wenn erfolgreich geloggt
@@ -460,7 +460,7 @@ class AuditLogger:
         after: discord.Member,
     ) -> bool:
         """
-        Nickname- oder Avatar-Aenderungen loggen.
+        Nickname- oder Avatar-Änderungen loggen.
 
         Args:
             bot: Bot-Instanz
@@ -468,14 +468,14 @@ class AuditLogger:
             after: Member-Zustand nachher
 
         Returns:
-            True wenn eine Aenderung geloggt wurde
+            True wenn eine Änderung geloggt wurde
         """
         logged = False
 
-        # Nickname-Aenderung
+        # Nickname-Änderung
         if before.nick != after.nick:
             embed = discord.Embed(
-                title="Nickname geaendert",
+                title="Nickname geändert",
                 description=f"{after.mention} (`{after}`)",
                 color=COLOR_NICK,
                 timestamp=datetime.now(timezone.utc),
@@ -505,10 +505,10 @@ class AuditLogger:
             if sent:
                 logged = True
 
-        # Avatar-Aenderung (Guild-spezifisch)
+        # Avatar-Änderung (Guild-spezifisch)
         if before.guild_avatar != after.guild_avatar:
             embed = discord.Embed(
-                title="Server-Avatar geaendert",
+                title="Server-Avatar geändert",
                 description=f"{after.mention} (`{after}`)",
                 color=COLOR_AVATAR,
                 timestamp=datetime.now(timezone.utc),
@@ -540,7 +540,7 @@ class AuditLogger:
                 action="avatar_change",
                 user_id=str(after.id),
                 user_name=str(after),
-                details="Server-Avatar geaendert",
+                details="Server-Avatar geändert",
             )
 
             sent = await self._send_embed(bot, "member_log_channel", embed)
@@ -557,7 +557,7 @@ class AuditLogger:
         after_roles: list[discord.Role],
     ) -> bool:
         """
-        Rollen-Aenderungen loggen (hinzugefuegt/entfernt).
+        Rollen-Änderungen loggen (hinzugefügt/entfernt).
 
         Args:
             bot: Bot-Instanz
@@ -566,7 +566,7 @@ class AuditLogger:
             after_roles: Rollen nachher
 
         Returns:
-            True wenn eine Aenderung geloggt wurde
+            True wenn eine Änderung geloggt wurde
         """
         before_set = set(r.id for r in before_roles)
         after_set = set(r.id for r in after_roles)
@@ -579,19 +579,19 @@ class AuditLogger:
 
         logged = False
 
-        # Rollen hinzugefuegt
+        # Rollen hinzugefügt
         if added_ids:
             added_roles = [r for r in after_roles if r.id in added_ids]
             roles_str = ", ".join(r.mention for r in added_roles)
 
             embed = discord.Embed(
-                title="Rolle(n) hinzugefuegt",
+                title="Rolle(n) hinzugefügt",
                 description=f"{member.mention} (`{member}`)",
                 color=COLOR_ROLE_ADD,
                 timestamp=datetime.now(timezone.utc),
             )
             embed.add_field(
-                name="Hinzugefuegt",
+                name="Hinzugefügt",
                 value=roles_str[:1024],
                 inline=False,
             )
@@ -608,7 +608,7 @@ class AuditLogger:
                 user_id=str(member.id),
                 user_name=str(member),
                 target=", ".join(role_names),
-                details=f"Rollen hinzugefuegt: {', '.join(role_names)}",
+                details=f"Rollen hinzugefügt: {', '.join(role_names)}",
             )
 
             sent = await self._send_embed(bot, "role_log_channel", embed)
@@ -660,11 +660,11 @@ class AuditLogger:
         channel: discord.abc.GuildChannel,
     ) -> bool:
         """
-        Channel-Aenderungen loggen (erstellt/geloescht).
+        Channel-Änderungen loggen (erstellt/gelöscht).
 
         Args:
             bot: Bot-Instanz
-            action: "erstellt" oder "geloescht"
+            action: "erstellt" oder "gelöscht"
             channel: Betroffener Kanal
 
         Returns:
@@ -680,7 +680,7 @@ class AuditLogger:
             discord.ChannelType.category: "Kategorie",
             discord.ChannelType.stage_voice: "Stage",
             discord.ChannelType.forum: "Forum",
-            discord.ChannelType.news: "Ankuendigungen",
+            discord.ChannelType.news: "Ankündigungen",
         }
         channel_type = type_map.get(channel.type, str(channel.type))
 

@@ -1,13 +1,13 @@
 """
 Temp Voice Views — Phase 12a (F17)
-Persistente Views und Modals fuer die Steuerung temporaerer Voice-Channels.
+Persistente Views und Modals für die Steuerung temporärer Voice-Channels.
 
-Enthaelt die interaktiven UI-Elemente, die dem Channel-Owner
-zur Verfuegung stehen:
+Enthält die interaktiven UI-Elemente, die dem Channel-Owner
+zur Verfügung stehen:
   - Umbenennen (Modal mit Texteingabe)
   - Limit setzen (Modal mit Zahleneingabe)
   - Sperren/Entsperren (Toggle fuer @everyone connect)
-  - Ownership uebertragen (User-Select-Menu)
+  - Ownership übertragen (User-Select-Menu)
 
 Alle Views verwenden feste custom_ids und sind persistent —
 sie funktionieren auch nach einem Bot-Neustart.
@@ -33,7 +33,7 @@ logger = get_logger("modules.temp_voice_views")
 
 class RenameModal(discord.ui.Modal, title="Channel umbenennen"):
     """
-    Modal-Dialog zum Umbenennen eines temporaeren Voice-Channels.
+    Modal-Dialog zum Umbenennen eines temporären Voice-Channels.
 
     Fragt den neuen Kanalnamen ab und wendet ihn an.
     """
@@ -49,11 +49,11 @@ class RenameModal(discord.ui.Modal, title="Channel umbenennen"):
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         """Modal abgeschickt — Kanal umbenennen."""
-        # Cog-Referenz ueber den Bot holen
+        # Cog-Referenz über den Bot holen
         cog = interaction.client.get_cog("TempVoiceCog")
         if not cog:
             await interaction.response.send_message(
-                "Temp-Voice-System ist nicht verfuegbar.", ephemeral=True
+                "Temp-Voice-System ist nicht verfügbar.", ephemeral=True
             )
             return
 
@@ -68,17 +68,17 @@ class RenameModal(discord.ui.Modal, title="Channel umbenennen"):
         channel = member.voice.channel
         manager: TempVoiceManager = cog.manager
 
-        # Pruefen ob der User Owner ist
+        # Prüfen ob der User Owner ist
         if not manager.is_temp_channel(channel.id):
             await interaction.response.send_message(
-                "Du bist nicht in einem temporaeren Channel.", ephemeral=True
+                "Du bist nicht in einem temporären Channel.", ephemeral=True
             )
             return
 
         owner_id = manager.get_owner(channel.id)
         if owner_id != member.id:
             await interaction.response.send_message(
-                "Nur der Channel-Owner kann den Namen aendern.", ephemeral=True
+                "Nur der Channel-Owner kann den Namen ändern.", ephemeral=True
             )
             return
 
@@ -103,7 +103,7 @@ class RenameModal(discord.ui.Modal, title="Channel umbenennen"):
 
 class LimitModal(discord.ui.Modal, title="Userlimit setzen"):
     """
-    Modal-Dialog zum Setzen des Userlimits eines temporaeren Voice-Channels.
+    Modal-Dialog zum Setzen des Userlimits eines temporären Voice-Channels.
 
     Akzeptiert Werte von 0 (unbegrenzt) bis 99.
     """
@@ -122,7 +122,7 @@ class LimitModal(discord.ui.Modal, title="Userlimit setzen"):
         cog = interaction.client.get_cog("TempVoiceCog")
         if not cog:
             await interaction.response.send_message(
-                "Temp-Voice-System ist nicht verfuegbar.", ephemeral=True
+                "Temp-Voice-System ist nicht verfügbar.", ephemeral=True
             )
             return
 
@@ -138,14 +138,14 @@ class LimitModal(discord.ui.Modal, title="Userlimit setzen"):
 
         if not manager.is_temp_channel(channel.id):
             await interaction.response.send_message(
-                "Du bist nicht in einem temporaeren Channel.", ephemeral=True
+                "Du bist nicht in einem temporären Channel.", ephemeral=True
             )
             return
 
         owner_id = manager.get_owner(channel.id)
         if owner_id != member.id:
             await interaction.response.send_message(
-                "Nur der Channel-Owner kann das Limit aendern.", ephemeral=True
+                "Nur der Channel-Owner kann das Limit ändern.", ephemeral=True
             )
             return
 
@@ -154,7 +154,7 @@ class LimitModal(discord.ui.Modal, title="Userlimit setzen"):
             limit = int(self.limit_input.value.strip())
         except ValueError:
             await interaction.response.send_message(
-                "Bitte gib eine gueltige Zahl ein (0-99).", ephemeral=True
+                "Bitte gib eine gültige Zahl ein (0-99).", ephemeral=True
             )
             return
 
@@ -173,7 +173,7 @@ class LimitModal(discord.ui.Modal, title="Userlimit setzen"):
                 f"Userlimit auf **{limit_text}** gesetzt.", ephemeral=True
             )
             logger.info(
-                f"Temp-Voice Limit geaendert: {channel.id} -> {limit} "
+                f"Temp-Voice Limit geändert: {channel.id} -> {limit} "
                 f"von {member.display_name}"
             )
         except (discord.Forbidden, discord.HTTPException) as e:
@@ -189,27 +189,27 @@ class LimitModal(discord.ui.Modal, title="Userlimit setzen"):
 
 class OwnerTransferSelect(discord.ui.UserSelect):
     """
-    User-Select-Menu zum Uebertragen der Channel-Ownership.
+    User-Select-Menu zum Übertragen der Channel-Ownership.
 
-    Zeigt eine Benutzerauswahl an. Der ausgewaehlte User muss
+    Zeigt eine Benutzerauswahl an. Der ausgewählte User muss
     sich im selben Voice-Channel befinden.
     """
 
     def __init__(self) -> None:
         # Kein fester custom_id — jede Instanz bekommt eine einzigartige ID
-        # damit mehrere gleichzeitige Transfer-Dialoge sich nicht gegenseitig stoeren
+        # damit mehrere gleichzeitige Transfer-Dialoge sich nicht gegenseitig stören
         super().__init__(
-            placeholder="Neuen Owner auswaehlen...",
+            placeholder="Neuen Owner auswählen...",
             min_values=1,
             max_values=1,
         )
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        """User ausgewaehlt — Ownership uebertragen."""
+        """User ausgewählt — Ownership übertragen."""
         cog = interaction.client.get_cog("TempVoiceCog")
         if not cog:
             await interaction.response.send_message(
-                "Temp-Voice-System ist nicht verfuegbar.", ephemeral=True
+                "Temp-Voice-System ist nicht verfügbar.", ephemeral=True
             )
             return
 
@@ -225,19 +225,19 @@ class OwnerTransferSelect(discord.ui.UserSelect):
 
         if not manager.is_temp_channel(channel.id):
             await interaction.response.send_message(
-                "Du bist nicht in einem temporaeren Channel.", ephemeral=True
+                "Du bist nicht in einem temporären Channel.", ephemeral=True
             )
             return
 
         owner_id = manager.get_owner(channel.id)
         if owner_id != member.id:
             await interaction.response.send_message(
-                "Nur der Channel-Owner kann die Ownership uebertragen.",
+                "Nur der Channel-Owner kann die Ownership übertragen.",
                 ephemeral=True,
             )
             return
 
-        # Ausgewaehlten User pruefen
+        # Ausgewählten User prüfen
         selected_user = self.values[0]
         if selected_user.id == member.id:
             await interaction.response.send_message(
@@ -245,17 +245,17 @@ class OwnerTransferSelect(discord.ui.UserSelect):
             )
             return
 
-        # Pruefen ob der ausgewaehlte User im Channel ist
+        # Prüfen ob der ausgewählte User im Channel ist
         target_member = channel.guild.get_member(selected_user.id)
         if not target_member or not target_member.voice or target_member.voice.channel != channel:
             await interaction.response.send_message(
-                "Der ausgewaehlte User muss sich im selben Voice-Channel befinden.",
+                "Der ausgewählte User muss sich im selben Voice-Channel befinden.",
                 ephemeral=True,
             )
             return
 
         # Berechtigungen aktualisieren: alter Owner verliert Manage-Rechte,
-        # neuer Owner bekommt sie — BEVOR Ownership uebertragen wird (Rollback-Sicherheit)
+        # neuer Owner bekommt sie — BEVOR Ownership übertragen wird (Rollback-Sicherheit)
         try:
             await channel.set_permissions(
                 member,
@@ -284,11 +284,11 @@ class OwnerTransferSelect(discord.ui.UserSelect):
             )
             return
 
-        # Ownership uebertragen (erst nach erfolgreichen Permissions)
+        # Ownership übertragen (erst nach erfolgreichen Permissions)
         manager.transfer_ownership(channel.id, selected_user.id)
 
         await interaction.response.send_message(
-            f"Ownership an **{target_member.display_name}** uebertragen.",
+            f"Ownership an **{target_member.display_name}** übertragen.",
             ephemeral=True,
         )
         logger.info(
@@ -299,10 +299,10 @@ class OwnerTransferSelect(discord.ui.UserSelect):
 
 class OwnerTransferView(discord.ui.View):
     """
-    Temporaere View fuer die Owner-Transfer-Auswahl.
+    Temporäre View für die Owner-Transfer-Auswahl.
 
     Wird als Antwort auf den Transfer-Button gesendet und
-    enthaelt ein User-Select-Menu.
+    enthält ein User-Select-Menu.
     """
 
     def __init__(self) -> None:
@@ -316,10 +316,10 @@ class OwnerTransferView(discord.ui.View):
 
 class TempVoiceControlView(discord.ui.View):
     """
-    Persistente View fuer die Channel-Steuerung.
+    Persistente View für die Channel-Steuerung.
 
     Wird als Kontrollpanel im Channel oder als Nachricht gesendet.
-    Enthaelt Buttons fuer alle Channel-Aktionen. Verwendet feste
+    Enthält Buttons für alle Channel-Aktionen. Verwendet feste
     custom_ids damit die Buttons nach einem Bot-Neustart funktionieren.
     """
 
@@ -339,7 +339,7 @@ class TempVoiceControlView(discord.ui.View):
         interaction: discord.Interaction,
     ) -> tuple[discord.Member, discord.VoiceChannel, "TempVoiceManager"] | None:
         """
-        Hilfsmethode: Pruefen ob der User Owner eines Temp-Channels ist.
+        Hilfsmethode: Prüfen ob der User Owner eines Temp-Channels ist.
 
         Returns:
             Tuple (member, channel, manager) wenn alles OK, sonst None
@@ -348,7 +348,7 @@ class TempVoiceControlView(discord.ui.View):
         manager = self._get_manager(interaction)
         if not manager:
             await interaction.response.send_message(
-                "Temp-Voice-System ist nicht verfuegbar.", ephemeral=True
+                "Temp-Voice-System ist nicht verfügbar.", ephemeral=True
             )
             return None
 
@@ -368,14 +368,14 @@ class TempVoiceControlView(discord.ui.View):
 
         if not manager.is_temp_channel(channel.id):
             await interaction.response.send_message(
-                "Du bist nicht in einem temporaeren Channel.", ephemeral=True
+                "Du bist nicht in einem temporären Channel.", ephemeral=True
             )
             return None
 
         owner_id = manager.get_owner(channel.id)
         if owner_id != member.id:
             await interaction.response.send_message(
-                "Nur der Channel-Owner kann diese Aktion ausfuehren.",
+                "Nur der Channel-Owner kann diese Aktion ausführen.",
                 ephemeral=True,
             )
             return None
@@ -398,8 +398,8 @@ class TempVoiceControlView(discord.ui.View):
         interaction: discord.Interaction,
         button: discord.ui.Button,
     ) -> None:
-        """Button-Handler: Modal zum Umbenennen oeffnen."""
-        # Vorpruefung: Ist der User Owner?
+        """Button-Handler: Modal zum Umbenennen öffnen."""
+        # Vorprüfung: Ist der User Owner?
         result = await self._check_owner(interaction)
         if result is None:
             return
@@ -423,7 +423,7 @@ class TempVoiceControlView(discord.ui.View):
         interaction: discord.Interaction,
         button: discord.ui.Button,
     ) -> None:
-        """Button-Handler: Modal zum Setzen des Userlimits oeffnen."""
+        """Button-Handler: Modal zum Setzen des Userlimits öffnen."""
         result = await self._check_owner(interaction)
         if result is None:
             return
@@ -454,21 +454,21 @@ class TempVoiceControlView(discord.ui.View):
 
         member, channel, manager = result
 
-        # Aktuellen Lock-Status pruefen
-        # Standard-Berechtigung fuer @everyone im Channel ermitteln
+        # Aktuellen Lock-Status prüfen
+        # Standard-Berechtigung für @everyone im Channel ermitteln
         everyone_role = channel.guild.default_role
         overwrites = channel.overwrites_for(everyone_role)
 
         # Toggle: Wenn connect erlaubt oder nicht gesetzt -> sperren
         # Wenn connect gesperrt -> entsperren
-        # Nur connect-Berechtigung aendern, alle anderen beibehalten
+        # Nur connect-Berechtigung ändern, alle anderen beibehalten
         if overwrites.connect is False:
             # Entsperren: connect wieder erlauben
             try:
                 overwrites.connect = True
                 await channel.set_permissions(everyone_role, overwrite=overwrites)
                 await interaction.response.send_message(
-                    "Channel **entsperrt** — Alle koennen beitreten.",
+                    "Channel **entsperrt** — Alle können beitreten.",
                     ephemeral=True,
                 )
                 logger.info(
@@ -486,7 +486,7 @@ class TempVoiceControlView(discord.ui.View):
                 overwrites.connect = False
                 await channel.set_permissions(everyone_role, overwrite=overwrites)
                 await interaction.response.send_message(
-                    "Channel **gesperrt** — Nur aktuelle Mitglieder koennen bleiben.",
+                    "Channel **gesperrt** — Nur aktuelle Mitglieder können bleiben.",
                     ephemeral=True,
                 )
                 logger.info(
@@ -500,11 +500,11 @@ class TempVoiceControlView(discord.ui.View):
                 )
 
     # ------------------------------------------------------------------
-    # Button: Ownership uebertragen
+    # Button: Ownership übertragen
     # ------------------------------------------------------------------
 
     @discord.ui.button(
-        label="Owner uebertragen",
+        label="Owner übertragen",
         style=discord.ButtonStyle.danger,
         custom_id="temp_voice:transfer",
         emoji="\U0001f91d",
@@ -515,19 +515,19 @@ class TempVoiceControlView(discord.ui.View):
         interaction: discord.Interaction,
         button: discord.ui.Button,
     ) -> None:
-        """Button-Handler: User-Select zum Uebertragen der Ownership anzeigen."""
+        """Button-Handler: User-Select zum Übertragen der Ownership anzeigen."""
         result = await self._check_owner(interaction)
         if result is None:
             return
 
         member, channel, manager = result
 
-        # Pruefen ob andere User im Channel sind
+        # Prüfen ob andere User im Channel sind
         other_members = [m for m in channel.members if not m.bot and m.id != member.id]
         if not other_members:
             await interaction.response.send_message(
                 "Kein anderer User im Channel, an den die Ownership "
-                "uebertragen werden koennte.",
+                "übertragen werden könnte.",
                 ephemeral=True,
             )
             return
@@ -535,7 +535,7 @@ class TempVoiceControlView(discord.ui.View):
         # User-Select-View senden
         view = OwnerTransferView()
         await interaction.response.send_message(
-            "Waehle den neuen Owner aus:",
+            "Wähle den neuen Owner aus:",
             view=view,
             ephemeral=True,
         )

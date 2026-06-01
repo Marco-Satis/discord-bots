@@ -1,0 +1,67 @@
+/* ============================================================
+ *  Theme Toggle — Light-Theme Overrides
+ *
+ *  Das Dark-Theme (Blau) ist Standard (in style.css definiert).
+ *  Diese Datei ueberschreibt nur die CSS-Variablen fuer das
+ *  Light-Theme, wenn die Klasse 'light-theme' auf <html> gesetzt ist.
+ * ============================================================ */
+
+html.light-theme {
+    --bg-primary: #f1f5f9;
+    --bg-sidebar: #ffffff;
+    --bg-card: #ffffff;
+    --bg-card-hover: #f8fafc;
+    --bg-input: #f8fafc;
+    --bg-hover: #e2e8f0;
+    --accent: #2563eb;
+    --accent-light: #3b82f6;
+    --accent-glow: rgba(37, 99, 235, 0.08);
+    --accent-border: rgba(37, 99, 235, 0.2);
+    --text-primary: #0f172a;
+    --text-secondary: #475569;
+    --text-muted: #94a3b8;
+    --text-dim: #cbd5e1;
+    --border-color: rgba(15, 23, 42, 0.06);
+    --border-subtle: rgba(15, 23, 42, 0.03);
+    --border-card: rgba(15, 23, 42, 0.08);
+    --shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+    --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.06);
+}
+
+html.light-theme .sidebar {
+    box-shadow: 1px 0 4px rgba(0, 0, 0, 0.03);
+}
+
+/* Hero-Stats im Light-Theme */
+html.light-theme .hero-stat {
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+/* Toggle-Button Styling */
+.theme-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0.5rem 1rem;
+    color: var(--text-muted);
+    font-size: 0.82rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: none;
+    background: none;
+    width: 100%;
+    text-align: left;
+    border-left: 2px solid transparent;
+}
+
+.theme-toggle:hover {
+    background: var(--bg-hover);
+    color: var(--text-secondary);
+}
+
+.theme-toggle .nav-icon {
+    font-size: 0.9rem;
+    width: 20px;
+    text-align: center;
+    opacity: 0.6;
+}

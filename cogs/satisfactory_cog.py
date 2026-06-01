@@ -701,9 +701,11 @@ class SatisfactoryCog(commands.Cog):
             view = UploadConfirmView(
                 self, interaction, datei, target_path, exists
             )
-            desc = f"Savegame **{datei.filename}** hochladen?\n\n"
+            # escape_markdown: Filename koennte *, _, ~, ` enthalten -> Embed-Format brechen.
+            safe_filename = discord.utils.escape_markdown(datei.filename)
+            desc = f"Savegame **{safe_filename}** hochladen?\n\n"
             desc += f"Größe: {format_bytes(datei.size)}\n"
-            desc += f"Ziel: `{savegame_dir.name}/{datei.filename}`\n"
+            desc += f"Ziel: `{savegame_dir.name}/{safe_filename}`\n"
             if exists:
                 existing_size = target_path.stat().st_size
                 desc += (

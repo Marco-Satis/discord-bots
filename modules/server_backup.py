@@ -31,14 +31,14 @@ BACKUP_DIR = ADMIN_DATA_DIR / "server_backups"
 
 class ServerBackupManager:
     """
-    Manager fuer Discord-Server-Struktur-Backups.
+    Manager für Discord-Server-Struktur-Backups.
 
-    Erstellt vollstaendige Snapshots der Server-Struktur und ermoeglicht
+    Erstellt vollständige Snapshots der Server-Struktur und ermöglicht
     Vergleich und Wiederherstellung. Jedes Backup wird als eigene
     JSON-Datei in data/admin/server_backups/ gespeichert.
     """
 
-    # Regex fuer gueltige Backup-IDs (nur alphanumerisch + Bindestriche)
+    # Regex für gültige Backup-IDs (nur alphanumerisch + Bindestriche)
     _VALID_ID_RE = re.compile(r'^[a-zA-Z0-9\-]+$')
 
     def __init__(self) -> None:
@@ -51,15 +51,15 @@ class ServerBackupManager:
     # ------------------------------------------------------------------
 
     def _backup_path(self, backup_id: str) -> Path:
-        """Dateipfad fuer ein Backup anhand der ID.
+        """Dateipfad für ein Backup anhand der ID.
 
         Validiert die ID gegen Path-Traversal-Angriffe.
 
         Raises:
-            ValueError: Wenn die Backup-ID ungueltige Zeichen enthaelt.
+            ValueError: Wenn die Backup-ID ungültige Zeichen enthält.
         """
         if not self._VALID_ID_RE.match(backup_id):
-            raise ValueError(f"Ungueltige Backup-ID: {backup_id}")
+            raise ValueError(f"Ungültige Backup-ID: {backup_id}")
         path = (BACKUP_DIR / f"{backup_id}.json").resolve()
         if not str(path).startswith(str(BACKUP_DIR.resolve())):
             raise ValueError(f"Path-Traversal erkannt: {backup_id}")
@@ -339,25 +339,25 @@ class ServerBackupManager:
 
     async def delete_backup(self, backup_id: str) -> bool:
         """
-        Backup-Datei loeschen.
+        Backup-Datei löschen.
 
         Args:
             backup_id: Eindeutige Backup-ID
 
         Returns:
-            True wenn erfolgreich geloescht, False wenn nicht gefunden
+            True wenn erfolgreich gelöscht, False wenn nicht gefunden
         """
         path = self._backup_path(backup_id)
         if not path.exists():
-            logger.warning(f"Backup {backup_id} zum Loeschen nicht gefunden")
+            logger.warning(f"Backup {backup_id} zum Löschen nicht gefunden")
             return False
 
         try:
             path.unlink()
-            logger.info(f"Backup {backup_id} geloescht")
+            logger.info(f"Backup {backup_id} gelöscht")
             return True
         except IOError as e:
-            logger.error(f"Backup {backup_id} loeschen fehlgeschlagen: {e}")
+            logger.error(f"Backup {backup_id} Löschen fehlgeschlagen: {e}")
             return False
 
     # ------------------------------------------------------------------
@@ -377,7 +377,7 @@ class ServerBackupManager:
             backup_id: ID des zu vergleichenden Backups
 
         Returns:
-            Dict mit Aenderungen:
+            Dict mit Änderungen:
             {
                 "found": bool,
                 "channels": {"added": [...], "removed": [...], "changed": [...]},
@@ -432,7 +432,7 @@ class ServerBackupManager:
                 changes.append(f"Name: {bch['name']} -> {ch.name}")
             if hasattr(ch, "topic") and isinstance(ch, discord.TextChannel):
                 if (ch.topic or "") != (bch.get("topic") or ""):
-                    changes.append("Topic geaendert")
+                    changes.append("Topic geändert")
             if changes:
                 channels_changed.append(f"{ch.name}: {', '.join(changes)}")
 
@@ -471,9 +471,9 @@ class ServerBackupManager:
             if role.name != brole["name"]:
                 changes.append(f"Name: {brole['name']} -> {role.name}")
             if role.color.value != brole["color"]:
-                changes.append("Farbe geaendert")
+                changes.append("Farbe geändert")
             if role.permissions.value != brole["permissions"]:
-                changes.append("Berechtigungen geaendert")
+                changes.append("Berechtigungen geändert")
             if role.hoist != brole["hoist"]:
                 changes.append(f"Hoist: {brole['hoist']} -> {role.hoist}")
             if role.mentionable != brole["mentionable"]:
@@ -558,13 +558,13 @@ class ServerBackupManager:
             guild: Discord-Server
             backup_id: ID des Backups
             mode: Wiederherstellungsmodus
-                  - "full": Alles wiederherstellen (gefaehrlich!)
+                  - "full": Alles wiederherstellen (gefährlich!)
                   - "roles_only": Nur Rollen wiederherstellen
                   - "channels_only": Nur Channels wiederherstellen
-                  - "add_missing": Nur fehlende Elemente hinzufuegen
+                  - "add_missing": Nur fehlende Elemente hinzufügen
 
         Returns:
-            Ergebnis-Dict mit Zusammenfassung der durchgefuehrten Aktionen
+            Ergebnis-Dict mit Zusammenfassung der durchgeführten Aktionen
         """
         backup = self._load_backup(backup_id)
         if not backup:
@@ -616,9 +616,9 @@ class ServerBackupManager:
         logger.info(
             f"Wiederherstellung {backup_id} abgeschlossen: "
             f"{results['roles_created']} Rollen erstellt, "
-            f"{results['roles_deleted']} geloescht, "
+            f"{results['roles_deleted']} gelöscht, "
             f"{results['channels_created']} Channels erstellt, "
-            f"{results['channels_deleted']} geloescht, "
+            f"{results['channels_deleted']} gelöscht, "
             f"{results['categories_created']} Kategorien erstellt"
         )
 
@@ -649,7 +649,7 @@ class ServerBackupManager:
             r.name for r in guild.roles if not r.is_default() and not r.managed
         }
 
-        # Im full-Modus: Rollen loeschen die nicht im Backup sind
+        # Im full-Modus: Rollen löschen die nicht im Backup sind
         if mode == "full":
             for role in guild.roles:
                 if role.is_default() or role.managed:
@@ -660,7 +660,7 @@ class ServerBackupManager:
                         results["roles_deleted"] += 1
                     except (discord.Forbidden, discord.HTTPException) as e:
                         results["roles_errors"].append(
-                            f"Loeschen '{role.name}': {e}"
+                            f"Löschen '{role.name}': {e}"
                         )
 
         # Fehlende Rollen erstellen (sortiert nach Position, niedrigste zuerst)
@@ -731,7 +731,7 @@ class ServerBackupManager:
             if not isinstance(c, discord.CategoryChannel)
         }
 
-        # Im full-Modus: Channels und Kategorien loeschen die nicht im Backup sind
+        # Im full-Modus: Channels und Kategorien löschen die nicht im Backup sind
         if mode == "full":
             for ch in guild.channels:
                 if isinstance(ch, discord.CategoryChannel):
@@ -745,7 +745,7 @@ class ServerBackupManager:
                             )
                         except (discord.Forbidden, discord.HTTPException) as e:
                             results["channels_errors"].append(
-                                f"Kategorie loeschen '{ch.name}': {e}"
+                                f"Kategorie löschen '{ch.name}': {e}"
                             )
                 else:
                     if ch.name not in backup_ch_names:
@@ -756,7 +756,7 @@ class ServerBackupManager:
                             results["channels_deleted"] += 1
                         except (discord.Forbidden, discord.HTTPException) as e:
                             results["channels_errors"].append(
-                                f"Channel loeschen '{ch.name}': {e}"
+                                f"Channel löschen '{ch.name}': {e}"
                             )
 
         # Mapping: Alte Kategorie-ID -> neue Kategorie (fuer Channel-Zuordnung)

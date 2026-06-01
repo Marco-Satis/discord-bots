@@ -1,0 +1,55 @@
+/* ============================================================
+ *  Tailwind v4 Input — Discord-Bot-Dashboard
+ *  Build: web/tools/tailwindcss.exe -i web/static/tailwind/input.css \
+ *         -o web/static/tailwind/output.css --watch
+ *
+ *  DSGVO: rein lokal generiert, kein CDN. Basecoat lokal eingebunden.
+ *  Tokens aus style.css :root (Dark-Default) übernommen für Marken-Konsistenz.
+ *  Angelegt 2026-05-24 (Frontend-Foundation, inkrementell-parallel).
+ * ============================================================ */
+
+@import "tailwindcss";
+
+/* Basecoat (shadcn-Ästhetik als plain HTML, lokal) */
+@import "../basecoat/basecoat.css";
+
+/* Template-Quellen für Utility-Scan (Live-Templates + Design-Previews) */
+@source "../../templates/**/*.html";
+
+/* Discord-Blurple Brand-Tokens → werden zu Tailwind-Utilities
+   (bg-accent, text-accent, bg-bg-card, text-text-primary, etc.) */
+@theme {
+  /* Brand-Accents */
+  --color-discord-blurple: #5865f2;
+  --color-accent:          #5865f2;
+  --color-accent-light:    #7983f5;
+  --color-accent-hover:    #4752c4;
+
+  /* Surfaces (Dark-Default) */
+  --color-bg-primary:    #0f1014;
+  --color-bg-sidebar:    #16171c;
+  --color-bg-card:       #1e2027;
+  --color-bg-card-hover: #262932;
+  --color-bg-input:      #14161c;
+
+  /* Text */
+  --color-text-primary:   #f2f3f5;
+  --color-text-secondary: #b5bac1;
+  --color-text-muted:     #80848e;
+  --color-text-dim:       #4e5058;
+
+  /* Semantic Status */
+  --color-success: #23a55a;
+  --color-warning: #f0b232;
+  --color-danger:  #f23f43;
+  --color-info:    #00a8fc;
+  --color-pink:    #eb459e;
+
+  /* Spacing 8-Punkt-Skala (ergänzend zu Tailwind-Default) */
+  --spacing-s1:  4px;
+  --spacing-s2:  8px;
+  --spacing-s3:  12px;
+  --spacing-s4:  16px;
+  --spacing-s6:  24px;
+  --spacing-s8:  32px;
+}

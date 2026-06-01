@@ -1,7 +1,7 @@
 """
-F62: Startup Selftest — Pre-Boot-Pruefung vor bot.run()
+F62: Startup Selftest — Pre-Boot-Prüfung vor bot.run()
 
-Prueft ob alle Voraussetzungen erfuellt sind bevor der Bot startet.
+Prüft ob alle Voraussetzungen erfüllt sind bevor der Bot startet.
 Kritische Fehler verhindern den Start, Warnungen werden geloggt.
 """
 
@@ -41,12 +41,12 @@ class SelftestResult:
 def run_selftest(bot_name: str, required_env: Optional[list[str]] = None,
                  required_paths: Optional[list[Path]] = None) -> list[SelftestResult]:
     """
-    Fuehrt alle Pre-Boot-Checks aus und gibt Ergebnisse zurueck.
+    Führt alle Pre-Boot-Checks aus und gibt Ergebnisse zurück.
 
     Args:
         bot_name: Name des Bots (gameserver, monitor, admin)
         required_env: Liste kritischer ENV-Variablen
-        required_paths: Liste benoetigter Verzeichnisse
+        required_paths: Liste benötigter Verzeichnisse
 
     Returns:
         Liste von SelftestResult-Objekten
@@ -66,7 +66,7 @@ def run_selftest(bot_name: str, required_env: Optional[list[str]] = None,
     # 4. Dependencies importierbar
     results.append(_check_dependencies())
 
-    # 5. DNS-Aufloesung
+    # 5. DNS-Auflösung
     results.append(_check_dns())
 
     # 6. Datenverzeichnisse schreibbar
@@ -76,7 +76,7 @@ def run_selftest(bot_name: str, required_env: Optional[list[str]] = None,
 
 
 def _check_config_json() -> SelftestResult:
-    """Prueft ob config.json existiert und valides JSON enthaelt."""
+    """Prüft ob config.json existiert und valides JSON enthält."""
     cfg_path = CONFIG_DIR / "config.json"
     try:
         if not cfg_path.exists():
@@ -88,10 +88,10 @@ def _check_config_json() -> SelftestResult:
             data = json.load(f)
         if not isinstance(data, dict):
             return SelftestResult(
-                "config.json", False, "Kein gueltiges JSON-Objekt",
+                "config.json", False, "Kein gültiges JSON-Objekt",
                 critical=True, category="Config"
             )
-        # Pflicht-Keys pruefen
+        # Pflicht-Keys prüfen
         missing = []
         for key in ("features", "thresholds", "scheduler"):
             if key not in data:
@@ -119,7 +119,7 @@ def _check_config_json() -> SelftestResult:
 
 
 def _check_env_vars(required: list[str]) -> SelftestResult:
-    """Prueft ob alle kritischen ENV-Variablen gesetzt sind."""
+    """Prüft ob alle kritischen ENV-Variablen gesetzt sind."""
     missing = []
     for var in required:
         val = get_env(var)
@@ -139,7 +139,7 @@ def _check_env_vars(required: list[str]) -> SelftestResult:
 
 
 def _check_paths(extra_paths: Optional[list[Path]] = None) -> list[SelftestResult]:
-    """Prueft ob wichtige Verzeichnisse existieren und schreibbar sind."""
+    """Prüft ob wichtige Verzeichnisse existieren und schreibbar sind."""
     results = []
     paths_to_check = [
         (CONFIG_DIR, "Config-Verzeichnis", False),
@@ -153,7 +153,7 @@ def _check_paths(extra_paths: Optional[list[Path]] = None) -> list[SelftestResul
     for path, name, need_write in paths_to_check:
         try:
             if not path.exists():
-                # Versuche zu erstellen wenn Schreibrechte benoetigt
+                # Versuche zu erstellen wenn Schreibrechte benötigt
                 if need_write:
                     path.mkdir(parents=True, exist_ok=True)
                     results.append(SelftestResult(
@@ -197,7 +197,7 @@ def _check_paths(extra_paths: Optional[list[Path]] = None) -> list[SelftestResul
 
 
 def _check_dependencies() -> SelftestResult:
-    """Prueft ob alle benoetigten Python-Pakete importierbar sind."""
+    """Prüft ob alle benötigten Python-Pakete importierbar sind."""
     required_modules = [
         "discord", "dotenv", "aiohttp", "aiofiles", "psutil",
         "fastapi", "uvicorn", "httpx", "jwt", "bcrypt",
@@ -218,33 +218,33 @@ def _check_dependencies() -> SelftestResult:
         )
     return SelftestResult(
         "Dependencies", True,
-        f"Alle {len(required_modules)} Pakete verfuegbar",
+        f"Alle {len(required_modules)} Pakete verfügbar",
         category="System"
     )
 
 
 def _check_dns() -> SelftestResult:
-    """Prueft ob DNS-Aufloesung funktioniert."""
+    """Prüft ob DNS-Auflösung funktioniert."""
     try:
         socket.getaddrinfo("discord.com", 443, socket.AF_INET, socket.SOCK_STREAM)
         return SelftestResult(
-            "DNS-Aufloesung", True, "discord.com erreichbar",
+            "DNS-Auflösung", True, "discord.com erreichbar",
             category="Netzwerk"
         )
     except socket.gaierror as e:
         return SelftestResult(
-            "DNS-Aufloesung", False, f"DNS fehlgeschlagen: {e}",
+            "DNS-Auflösung", False, f"DNS fehlgeschlagen: {e}",
             critical=True, category="Netzwerk"
         )
     except Exception as e:
         return SelftestResult(
-            "DNS-Aufloesung", False, f"Netzwerk-Fehler: {e}",
+            "DNS-Auflösung", False, f"Netzwerk-Fehler: {e}",
             critical=False, category="Netzwerk"
         )
 
 
 def _check_data_dirs() -> SelftestResult:
-    """Prueft und erstellt Bot-Datenverzeichnisse."""
+    """Prüft und erstellt Bot-Datenverzeichnisse."""
     subdirs = ["gameserver", "monitor", "admin"]
     created = []
     for sub in subdirs:
@@ -270,11 +270,11 @@ def execute_selftest(bot_name: str,
                      required_env: Optional[list[str]] = None,
                      required_paths: Optional[list[Path]] = None) -> bool:
     """
-    Fuehrt Selftest aus und gibt True zurueck wenn der Bot starten darf.
+    Führt Selftest aus und gibt True zurück wenn der Bot starten darf.
 
-    Loggt alle Ergebnisse. Bei kritischen Fehlern gibt False zurueck.
+    Loggt alle Ergebnisse. Bei kritischen Fehlern gibt False zurück.
     """
-    logger.info(f"=== Selftest fuer {bot_name} gestartet ===")
+    logger.info(f"=== Selftest für {bot_name} gestartet ===")
     results = run_selftest(bot_name, required_env, required_paths)
 
     passed = 0

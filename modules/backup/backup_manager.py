@@ -368,16 +368,26 @@ class BackupManager:
             return False, f"Restore fehlgeschlagen: {e}"
 
     def _extract_archive(self, archive: Path, target_dir: Path) -> None:  # type: ignore
-        """Extract tar.gz archive (runs in executor)"""
+        """Extract tar.gz archive (runs in executor).
+
+        Validierung in 2 Schritten:
+        1. Path-Traversal-Check: alle Member-Pfade muessen unter target_dir bleiben
+        2. Symlink/Hardlink-Filter: keine *.sym oder *.link auspacken (zusaetzliche
+           Defense-in-Depth gegen tarfile-Class-CWE)
+        """
         with tarfile.open(archive, "r:gz") as tar:
-            # Validate all members and filter to prevent path traversal
             safe_members = []
             for member in tar.getmembers():
+                # 1. Path-Traversal-Check
                 member_path = (target_dir / member.name).resolve()
                 if not str(member_path).startswith(str(target_dir.resolve())):
                     raise ValueError(f"Path traversal detected in archive: {member.name}")
+                # 2. Symlinks + Hardlinks ueberspringen (Defense-in-Depth)
+                if member.issym() or member.islnk():
+                    logger.warning(f"Backup-Restore: skipping symlink/hardlink {member.name}")
+                    continue
                 safe_members.append(member)
-            tar.extractall(path=target_dir, members=safe_members)  # nosec B202 - explicit path-traversal check oben
+            tar.extractall(path=target_dir, members=safe_members)  # nosec B202 - path-traversal-check + symlink-filter oben
 
     async def verify_backup(self, backup_path: Path) -> Tuple[bool, str]:
         """

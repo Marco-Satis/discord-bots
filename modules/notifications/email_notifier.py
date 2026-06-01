@@ -70,7 +70,7 @@ class EmailNotifier:
         Args:
             subject: Email-Betreff (ohne Prefix)
             body: Email-Inhalt
-            event_type: Fuer Rate-Limiting
+            event_type: Für Rate-Limiting
             server_label: Optionaler Prefix (Default: "SAT Server")
         """
         if not self._can_send(event_type):
@@ -145,12 +145,12 @@ class EmailNotifier:
         subject = f"🚨 Server Crash #{crash_number}"
         label = server_label or "SAT Server"
         body = (
-            f"Server ist abgestuerzt!\n\n"
+            f"Server ist abgestürzt!\n\n"
             f"Crash Nummer: {crash_number}\n"
             f"Zeitpunkt: {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}\n"
         )
         if auto_restart:
-            body += "\nAuto-Restart wird ausgefuehrt..."
+            body += "\nAuto-Restart wird ausgeführt..."
         else:
             body += "\nKein Auto-Restart konfiguriert. Manuelles Eingreifen erforderlich!"
 
@@ -176,7 +176,7 @@ class EmailNotifier:
         label = server_label or "SAT Server"
         subject = "⚠️ Kritische Performance-Warnung"
         body = (
-            f"Performance-Schwellwerte ueberschritten:\n\n"
+            f"Performance-Schwellwerte überschritten:\n\n"
             + "\n".join(f"• {w}" for w in warnings) +
             f"\n\nZeitpunkt: {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}"
         )
@@ -187,12 +187,12 @@ class EmailNotifier:
                                      server_label: Optional[str] = None) -> bool:  # type: ignore
         """Send email about available update"""
         label = server_label or "SAT Server"
-        subject = "📦 Server Update verfuegbar"
+        subject = "📦 Server Update verfügbar"
         body = (
-            f"Ein Server-Update ist verfuegbar.\n\n"
+            f"Ein Server-Update ist verfügbar.\n\n"
             f"Installierte Version: Build {installed}\n"
-            f"Verfuegbare Version: Build {available}\n\n"
-            f"Verwende den Update-Befehl im Discord um das Update durchzufuehren."
+            f"Verfügbare Version: Build {available}\n\n"
+            f"Verwende den Update-Befehl im Discord um das Update durchzuführen."
         )
         return await self._send_email(subject, body, f"update_{label}",
                                        server_label=label)

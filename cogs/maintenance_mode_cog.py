@@ -1,10 +1,10 @@
 """
-F43: Wartungsmodus-Toggle — Zentraler Wartungsmodus fuer alle Server
+F43: Wartungsmodus-Toggle — Zentraler Wartungsmodus für alle Server
 
 Aktiviert/deaktiviert einen globalen Wartungsmodus. Wenn aktiv, werden alle
 Server-Kacheln auf "Wartung" gesetzt. Der Status wird in SQLite gespeichert
 und zusaetzlich als JSON-Datei geschrieben, damit StatusWriter und Dashboard
-ihn lesen koennen.
+ihn lesen können.
 
 Sicherheitsnetz: Wartungsmodus endet automatisch nach 6 Stunden.
 
@@ -33,12 +33,12 @@ logger = get_logger("cogs.maintenance_mode")
 # Automatisches Ende nach 6 Stunden (Sicherheitsnetz)
 AUTO_TIMEOUT_HOURS = 6
 
-# Pfad zur JSON-Datei fuer StatusWriter und Dashboard
+# Pfad zur JSON-Datei für StatusWriter und Dashboard
 MAINTENANCE_JSON = MONITOR_DATA_DIR / "maintenance.json"
 
 
 class MaintenanceModeCog(commands.Cog):
-    """Zentraler Wartungsmodus-Toggle fuer alle Server"""
+    """Zentraler Wartungsmodus-Toggle für alle Server"""
 
     # ==================================================================
     # Command-Gruppe
@@ -166,11 +166,11 @@ class MaintenanceModeCog(commands.Cog):
 
         await db.commit()
 
-        # JSON-Datei fuer StatusWriter und Dashboard schreiben
+        # JSON-Datei für StatusWriter und Dashboard schreiben
         self._write_json(active, reason)
 
     def _write_json(self, active: bool, reason: str = "") -> None:
-        """Schreibt maintenance.json fuer externe Systeme"""
+        """Schreibt maintenance.json für externe Systeme"""
         try:
             MAINTENANCE_JSON.parent.mkdir(parents=True, exist_ok=True)
             data = {"active": active, "reason": reason}
@@ -204,7 +204,7 @@ class MaintenanceModeCog(commands.Cog):
                 )
                 await self._set_active(False)
 
-                # Benachrichtigung im Admin-Channel senden (falls verfuegbar)
+                # Benachrichtigung im Admin-Channel senden (falls verfügbar)
                 notifier = getattr(self.bot, "notifier", None)
                 if notifier:
                     try:
@@ -233,7 +233,7 @@ class MaintenanceModeCog(commands.Cog):
         description="Wartungsmodus aktivieren — alle Server-Kacheln zeigen 'Wartung'",
     )
     @app_commands.describe(
-        grund="Optionaler Grund fuer die Wartung (z.B. 'Server-Update')"
+        grund="Optionaler Grund für die Wartung (z.B. 'Server-Update')"
     )
     async def wartung_an(
         self,
@@ -263,7 +263,7 @@ class MaintenanceModeCog(commands.Cog):
             datetime.now() + timedelta(hours=AUTO_TIMEOUT_HOURS)
         ).strftime("%d.%m.%Y %H:%M")
 
-        # Embed fuer die Bestaetigung
+        # Embed für die Bestaetigung
         embed = discord.Embed(
             title="Wartungsmodus aktiviert",
             color=0xFF9900,
@@ -314,7 +314,7 @@ class MaintenanceModeCog(commands.Cog):
         """Deaktiviert den globalen Wartungsmodus"""
         await interaction.response.defer(ephemeral=True)
 
-        # Pruefen ob ueberhaupt aktiv
+        # Pruefen ob überhaupt aktiv
         state = await self._get_state()
         if not state["active"]:
             await interaction.followup.send(
@@ -420,11 +420,11 @@ class MaintenanceModeCog(commands.Cog):
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     # ------------------------------------------------------------------
-    # Oeffentliche API fuer andere Cogs / Module
+    # Oeffentliche API für andere Cogs / Module
     # ------------------------------------------------------------------
 
     async def is_maintenance_active(self) -> bool:
-        """Prueft ob der Wartungsmodus aktiv ist (fuer externe Abfrage)"""
+        """Prueft ob der Wartungsmodus aktiv ist (für externe Abfrage)"""
         state = await self._get_state()
         return state["active"]
 
@@ -440,7 +440,7 @@ class MaintenanceModeCog(commands.Cog):
         if isinstance(error, app_commands.CheckFailure):
             if not interaction.response.is_done():
                 await interaction.response.send_message(
-                    "Keine Berechtigung fuer diesen Befehl.", ephemeral=True
+                    "Keine Berechtigung für diesen Befehl.", ephemeral=True
                 )
         else:
             logger.error(

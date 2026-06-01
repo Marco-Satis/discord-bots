@@ -5,18 +5,20 @@ Stellt zwei SSE-Endpunkte bereit:
   1. /api/sse/dashboard — Streamt alle Dashboard-Daten (Server, System, Bots, Events)
   2. /api/sse/events   — Streamt nur neue Ereignisse aus der SQLite-Datenbank
 
-Verwendet StreamingResponse mit text/event-stream Content-Type.
-Heartbeat alle 15 Sekunden hält die Verbindung offen.
+Refactored 2026-05-16: sse-starlette EventSourceResponse statt manuellem
+StreamingResponse + selbst-formatiertem text/event-stream. Heartbeat wird
+automatisch via ping-Parameter gesendet; Headers (Cache-Control,
+X-Accel-Buffering) sind bereits in EventSourceResponse-Defaults oder werden
+explizit gesetzt.
 """
 
 import asyncio
 import json
-import time
 from pathlib import Path
 from typing import AsyncGenerator
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import StreamingResponse
+from sse_starlette.sse import EventSourceResponse
 
 from utils.config import DATA_DIR, MONITOR_DATA_DIR
 from utils.logger import get_logger
@@ -30,6 +32,7 @@ router = APIRouter(prefix="/api/sse", tags=["SSE"])
 # Intervalle (in Sekunden)
 DASHBOARD_INTERVAL = 5
 EVENTS_INTERVAL = 3
+# Heartbeat: sse-starlette sendet automatisch ping-Kommentar (siehe ping=15 unten)
 HEARTBEAT_INTERVAL = 15
 
 
@@ -98,7 +101,9 @@ def _collect_system_stats() -> dict:
     try:
         import psutil
 
-        stats["cpu_percent"] = psutil.cpu_percent(interval=0.1)
+        # interval=None: cached delta seit letztem Call (kein Block).
+        # Im SSE-Loop alle 5s ausreichend akkurat; vermeidet 100ms-Block pro Client.
+        stats["cpu_percent"] = psutil.cpu_percent(interval=None)
 
         mem = psutil.virtual_memory()
         stats["ram_percent"] = mem.percent
@@ -202,30 +207,18 @@ async def _collect_new_events_since(since_ts: str) -> list[dict]:
 
 
 # ================================================================
-#  SSE-Formatter
+#  SSE-Generatoren — yields dicts fuer EventSourceResponse
 # ================================================================
 
-def _format_sse(event: str, data: str) -> str:
-    """Formatiert eine SSE-Nachricht gemaess dem Standard."""
-    return f"event: {event}\ndata: {data}\n\n"
-
-
-def _format_heartbeat() -> str:
-    """Erzeugt einen SSE-Kommentar als Heartbeat (haelt Verbindung offen)."""
-    return ":heartbeat\n\n"
-
-
-# ================================================================
-#  SSE-Generatoren
-# ================================================================
-
-async def _dashboard_stream(request: Request) -> AsyncGenerator[str, None]:
+async def _dashboard_stream(request: Request) -> AsyncGenerator[dict, None]:
     """
     Generator fuer den /dashboard-Endpoint.
     Streamt alle 5 Sekunden ein vollstaendiges Dashboard-Update.
-    Sendet alle 15 Sekunden einen Heartbeat.
+    sse-starlette EventSourceResponse formatiert die yields automatisch
+    als SSE; ping-Heartbeat wird automatisch alle HEARTBEAT_INTERVAL Sekunden
+    eingefuegt (siehe ping=HEARTBEAT_INTERVAL im Endpunkt).
     """
-    last_heartbeat = time.monotonic()
+    import time as _time
     logger.info("SSE Dashboard-Stream gestartet")
 
     try:
@@ -235,34 +228,35 @@ async def _dashboard_stream(request: Request) -> AsyncGenerator[str, None]:
                 logger.debug("SSE Dashboard-Client hat Verbindung getrennt")
                 break
 
-            # Dashboard-Daten sammeln
+            # Dashboard-Daten sammeln (parallel via to_thread, kein Event-Loop-Block)
             try:
-                servers = _collect_server_status()
-                system = _collect_system_stats()
-                bots = _collect_bot_status()
-                events = await _collect_recent_events(limit=20)
+                servers, system, bots, events = await asyncio.gather(
+                    asyncio.to_thread(_collect_server_status),
+                    asyncio.to_thread(_collect_system_stats),
+                    asyncio.to_thread(_collect_bot_status),
+                    _collect_recent_events(limit=20),
+                )
 
                 payload = {
                     "servers": servers,
                     "system": system,
                     "bots": bots,
                     "events": events,
-                    "timestamp": time.time(),
+                    "timestamp": _time.time(),
                 }
 
-                yield _format_sse("dashboard_update", json.dumps(payload, ensure_ascii=False))
+                yield {
+                    "event": "dashboard_update",
+                    "data": json.dumps(payload, ensure_ascii=False),
+                }
 
             except Exception as e:
                 logger.error(f"Fehler beim Sammeln der Dashboard-Daten: {e}")
                 # Fehler-Event senden damit der Client Bescheid weiss
-                error_payload = {"error": str(e), "timestamp": time.time()}
-                yield _format_sse("error", json.dumps(error_payload))
-
-            # Heartbeat pruefen und ggf. senden
-            now = time.monotonic()
-            if now - last_heartbeat >= HEARTBEAT_INTERVAL:
-                yield _format_heartbeat()
-                last_heartbeat = now
+                yield {
+                    "event": "error",
+                    "data": json.dumps({"error": str(e), "timestamp": _time.time()}),
+                }
 
             await asyncio.sleep(DASHBOARD_INTERVAL)
 
@@ -274,15 +268,13 @@ async def _dashboard_stream(request: Request) -> AsyncGenerator[str, None]:
         logger.info("SSE Dashboard-Stream beendet")
 
 
-async def _events_stream(request: Request) -> AsyncGenerator[str, None]:
+async def _events_stream(request: Request) -> AsyncGenerator[dict, None]:
     """
     Generator fuer den /events-Endpoint.
     Prueft alle 3 Sekunden ob neue Events in der DB vorliegen.
-    Sendet nur neue Events (Delta-Modus).
+    Sendet nur neue Events (Delta-Modus). Heartbeat via ping-Parameter.
     """
-    # Startpunkt: aktuellen Zeitstempel als Referenz holen
     last_timestamp = ""
-    last_heartbeat = time.monotonic()
     logger.info("SSE Events-Stream gestartet")
 
     try:
@@ -304,16 +296,13 @@ async def _events_stream(request: Request) -> AsyncGenerator[str, None]:
                 if new_events:
                     # Zeitstempel des neuesten Events merken
                     last_timestamp = new_events[-1].get("timestamp", last_timestamp)
-                    yield _format_sse("new_events", json.dumps(new_events, ensure_ascii=False))
+                    yield {
+                        "event": "new_events",
+                        "data": json.dumps(new_events, ensure_ascii=False),
+                    }
 
             except Exception as e:
                 logger.error(f"Fehler beim Abfragen neuer Events: {e}")
-
-            # Heartbeat pruefen und ggf. senden
-            now = time.monotonic()
-            if now - last_heartbeat >= HEARTBEAT_INTERVAL:
-                yield _format_heartbeat()
-                last_heartbeat = now
 
             await asyncio.sleep(EVENTS_INTERVAL)
 
@@ -344,14 +333,10 @@ async def sse_dashboard(request: Request, current_user: dict = Depends(require_a
       event: dashboard_update
       data: {"servers": [...], "system": {...}, "bots": [...], "events": [...]}
     """
-    return StreamingResponse(
+    return EventSourceResponse(
         _dashboard_stream(request),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",  # Nginx: Buffering deaktivieren
-        },
+        ping=HEARTBEAT_INTERVAL,
+        headers={"X-Accel-Buffering": "no"},  # Nginx: Buffering deaktivieren
     )
 
 
@@ -367,12 +352,8 @@ async def sse_events(request: Request, current_user: dict = Depends(require_auth
       event: new_events
       data: [{"timestamp": ..., "event_type": ..., "message": ...}, ...]
     """
-    return StreamingResponse(
+    return EventSourceResponse(
         _events_stream(request),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",  # Nginx: Buffering deaktivieren
-        },
+        ping=HEARTBEAT_INTERVAL,
+        headers={"X-Accel-Buffering": "no"},  # Nginx: Buffering deaktivieren
     )

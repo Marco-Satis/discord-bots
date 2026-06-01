@@ -1861,17 +1861,26 @@ class SchedulerCog(commands.Cog):
             self._scheduled_messages = []
 
     async def _save_scheduled_messages(self) -> None:
-        """Scheduled Messages in JSON speichern"""
-        try:
-            SCHEDULED_MESSAGES_FILE.parent.mkdir(parents=True, exist_ok=True)
-            data = {
-                "messages": self._scheduled_messages,
-                "next_id": self._next_schedule_id,
-            }
-            async with aiofiles.open(SCHEDULED_MESSAGES_FILE, "w", encoding="utf-8") as f:
-                await f.write(json.dumps(data, indent=2, ensure_ascii=False))
-        except Exception as e:
-            logger.error(f"Scheduled Messages speichern fehlgeschlagen: {e}")
+        """Scheduled Messages in JSON speichern.
+
+        Atomic-Write via temp-File + os.replace (verhindert Crash-mid-write
+        Korruption). Per-Instance asyncio.Lock verhindert konkurrierende
+        Writes aus mehreren Tasks (z. B. mehrere Schedule-Adds in <100ms).
+        """
+        async with self._schedule_lock:
+            try:
+                SCHEDULED_MESSAGES_FILE.parent.mkdir(parents=True, exist_ok=True)
+                data = {
+                    "messages": self._scheduled_messages,
+                    "next_id": self._next_schedule_id,
+                }
+                tmp_path = SCHEDULED_MESSAGES_FILE.with_suffix(SCHEDULED_MESSAGES_FILE.suffix + ".tmp")
+                async with aiofiles.open(tmp_path, "w", encoding="utf-8") as f:
+                    await f.write(json.dumps(data, indent=2, ensure_ascii=False))
+                # Atomic rename (POSIX guarantee, Windows os.replace ist auch atomar).
+                await asyncio.to_thread(os.replace, tmp_path, SCHEDULED_MESSAGES_FILE)
+            except Exception as e:
+                logger.error(f"Scheduled Messages speichern fehlgeschlagen: {e}")
 
     def _parse_time(self, zeit: str) -> Optional[datetime]:
         """Parst relative ('2h', '30m') oder absolute ('20:00', '2026-02-21 18:00') Zeitangaben.

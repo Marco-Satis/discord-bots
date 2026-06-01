@@ -4,6 +4,46 @@ Alle relevanten Aenderungen am Discord Bot System werden hier dokumentiert.
 
 ---
 
+## [4.1.0] — 2026-03-15
+
+### Hinzugefuegt
+
+- **Auto-Update-System (A0 + I1-I9 + B0-B4 + C)**
+  - UpdateManager: Vollstaendiges Modpack-Update mit Atomic Swap + Rollback
+  - ModpackUpdater: CurseForge API Integration (Versions-Check + Download)
+  - FileManager: Streaming-Download mit SHA1/MD5 Hash-Verifikation
+  - NeoForgeUpdater: Automatische NeoForge-Installation nach Modpack-Update
+  - MCCountdownTimer: In-Game Countdown mit RCON-Warnungen
+  - UpdateChecker: SteamCMD Build-ID Check fuer Satisfactory
+  - Chat-Bridge: 8 In-Game-Befehle (!status, !version, !players, etc.)
+  - Discord-Commands: /mc modpack status/update/cancel/rollback/history/check
+  - Discord-Commands: /sat update + /sat update cancel
+  - Scheduler: Modpack-Check 12:00+00:00, Auto-Update 04:00
+  - DB Schema v4: modpack_updates + server_versions Tabellen
+  - ENV-Dokumentation: config/.env.example aktualisiert
+
+### Gefixt
+
+- **SAT CPU/RAM zeigt 0**: _find_process() gab Wrapper-Prozess statt Game-Prozess zurueck.
+  Fix: Waehlt jetzt den Prozess mit dem meisten RAM (FactoryServer-Linux-Shipping).
+- **CSRF-Schutz deaktiviert**: Middleware pruefte session.user (immer None) statt JWT-Cookie.
+  Fix: Prueft jetzt dashboard_token Cookie-Existenz.
+- **BUG-1**: mc_countdown.py Race Condition — asyncio.create_task statt call_later
+- **BUG-2**: file_manager.py doppelte Hash-Berechnung — Streaming-Hash wiederverwendet
+- **BUG-3**: neoforge_updater.py RAM-Ueberlauf — iter_chunked statt resp.read()
+- **BUG-4**: update_manager.py Update auf laufendem Server — Abbruch bei Stop-Timeout
+- **BUG-5**: update_manager.py kein RCON stop — RCON zuerst, systemctl als Fallback
+- **BUG-6**: update_manager.py NeoForge im falschen Ordner — nach Atomic Swap installiert
+- **BUG-7**: update_manager.py kein Rollback bei Crash — Rollback nach 3 fehlgeschlagenen Starts
+- **RISK-5**: update_manager.py HAR-Suppress zu kurz — bei jedem Phasenwechsel +900s
+
+### Aufgeraeumt
+
+- 171 __pycache__ Verzeichnisse auf Server bereinigt
+- Unbekannte Ports dokumentiert (8081=Nginx, 8888=SAT RCON, 9090=Webmin)
+
+---
+
 ## [4.0.0] — 2026-02-22
 
 ### Hinzugefuegt

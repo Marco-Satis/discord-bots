@@ -110,7 +110,7 @@ class StatsTracker:
                      len(self._data["savegame_sizes"]) +
                      len(self._data["crashes"]))
             logger.info(
-                f"StatsTracker geladen aus SQLite: {total} Eintraege "
+                f"StatsTracker geladen aus SQLite: {total} Einträge "
                 f"(server_type={self.server_type}, server_id={self.server_id})"
             )
 

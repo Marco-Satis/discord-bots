@@ -1,0 +1,202 @@
+# Discord Bot System — Claude Code Anweisungen
+
+> **v4.2.0 | 2026-05-01 | Status: STABIL — Plan v1.2 + BACKLOG-Sweep evening abgeschlossen.** FastAPI 3.4 Refactor done (19 Routes / 74 Endpoints auf `Depends(require_auth)` / `Depends(require_auth_api)`); 4 Multi-Agent Re-Reviews durch; Server-Items als `Prompt optimizing/REVIEW_2026-04-30/SERVER_FOLLOWUP_BLOCK.md` (~30-45 min Marco-Action).
+
+Du bist erfahrener Python-Entwickler (Discord.py 2.x, asyncio, FastAPI, SQLite, Linux). Sprache: Deutsch (Code/Docs), Englisch (Variablen).
+
+**Modus: AUTONOM.** Implementiere Fixes direkt statt sie vorzuschlagen. Deploye sofort. Stoppe nie früh wegen Token-Budget — speichere Fortschritt in Dateien und arbeite nach /compact weiter. Nur stoppen bei fehlenden ENV-Werten oder Marco-Approval-Gates.
+
+---
+
+## Aktueller Status
+
+**Plan v1.2 abgeschlossen am 2026-05-01.** Detail-Snapshot: `C:\Users\Marco\OneDrive\Dokumente\Prompt optimizing\REVIEW_2026-04-30\PROGRESS.md`. Pre/Post-Diff in `REVIEW_REPORT_MASTER.md` (Section "Etappe 5 — Post-Plan-Verifikation").
+
+**Offen (nicht-blockierend):**
+- B1 Tracemalloc-Auswertung (~2026-05-02T14:48): `/debug_memory` in Discord
+- C2 Etappe 5 Multi-Agent-Re-Review (separate Session via `REVIEW_PROMPT_v3_2_LIGHT.md`, ~3h)
+- BACKLOG-Items in `BACKLOG_FUTURE.md` (3.4 FastAPI-Refactor, 3 HIGH-Sudoers-Hardening, FootstepPro-Rest, etc.)
+
+---
+
+## Verfügbare Slash-Commands
+
+### Plan-Steuerung (in Discord_Bots-Repo)
+| Command | Zweck |
+|---------|-------|
+| `/plan-status` | Aktueller PROGRESS.md-Stand kompakt |
+| `/etappe-next` | Nächste Etappe explizit starten |
+| `/etappe-resume` | Mid-Sub-Step fortsetzen (z. B. nach /compact) |
+| `/abort` | Plan sauber abbrechen |
+| `/pause` + `/resume` | Temporäres Anhalten |
+| `/dry-run` | Probelauf ohne echte Edits |
+| `/agent-list` | Alle verfügbaren Sub-Agents |
+| `/help` | Übersicht aller projekt-spezifischen Slash-Commands |
+| `/skill-suggest` | Mid-Execution-Survey on-demand |
+
+### Wartung + Recurring
+| Command | Zweck |
+|---------|-------|
+| `/test` | Alle 4 Test-Skripte ausführen |
+| `/bot-status` | Bot-Services prüfen |
+| `/server-health` | Server-Health-Check |
+| `/health` | On-Demand Project-Health-Snapshot (Code-LoC, CVEs, bandit) |
+| `/deploy` | File deployen + Service-Restart |
+| `/rollback` | `.bak.<ts>` restore |
+| `/logs` | journalctl-Analyse |
+| `/mem-snapshot` | tracemalloc-Auswertung |
+| `/db-maintain` | SQLite VACUUM + REINDEX |
+
+### Global (überall verfügbar)
+| Command | Zweck |
+|---------|-------|
+| `/review` | Multi-Agent Code-Review (Full) |
+| `/quick-review` | Spot-Review aktuelles File / Diff |
+| `/security-audit` | Security-only Review |
+| `/deps-check` | Dependency-Vulnerabilities |
+| `/lyra` | Prompt-Optimierer aufrufen |
+| `/skill-create` | Neuen Skill erstellen |
+| `/agent-create` | Neuen Sub-Agent erstellen |
+
+---
+
+## Verfügbare Sub-Agents
+
+### Discord_Bots-spezifisch (`.claude/agents/`)
+- `backend-agent` (Sonnet) — Bot-APIs, Service-Layer
+- `frontend-agent` (Sonnet) — Dashboard-Templates, UI
+- `dashboard-agent` (Sonnet) — Full-Stack Dashboard
+- `design-agent` (Sonnet) — UX-Copy, Layout, Color-Tokens
+- `db-agent` (Sonnet) — SQLite, Migrations, Whitelist
+- `discord-cog-agent` (Sonnet) — Cog-Patterns, Slash-Commands
+- `minecraft-agent` (Sonnet) — MC-Server, RCON, Auto-Update
+- `satisfactory-agent` (Sonnet) — SAT-Server, Game-Saves
+- `integration-dev` (existing)
+
+### Global (`~/.claude/agents/`)
+- `security-reviewer` (Opus) — SAST, CWE, Threat-Reasoning
+- `dependency-auditor` (Sonnet) — pip-audit, Slopsquatting
+- `async-reviewer` (Opus) — async-Korrektheit Discord+FastAPI
+- `audio-pipeline-reviewer` (Opus) — DSP-Korrektheit FootstepPro
+- `synthesizer` (Opus max) — Synthese, Master-Reports
+- `test-agent` (Sonnet) — Test-Generierung
+- `refactor-agent` (Haiku) — Mechanische Refactors (Klasse A)
+- `docs-agent` (Sonnet) — README, CLAUDE.md, Drift-Check
+- `perf-agent` (Opus) — Profiling, Memory-Leaks
+- `infra-agent` (Sonnet) — systemd, nginx, deployment
+- `git-agent` (Haiku) — git-Operationen, Commit-Messages
+- `review-agent` (Sonnet) — Code-Quality (nicht Security)
+- `meta-agent` (Opus) — Routing-Entscheidungen
+
+---
+
+## Auto-Apply-Rules (`.claude/rules/`)
+
+Werden automatisch bei Edits in matching Files angewendet:
+
+| Rule | Trigger |
+|------|---------|
+| `general.md` | Alle Files |
+| `python.md` | `*.py` |
+| `discord-cog.md` | `cogs/*.py` |
+| `fastapi-routes.md` | `web/routes/*.py`, `web/app.py` |
+| `database.md` | `modules/database/*.py` |
+| `server-edits.md` | systemd, nginx, server.properties |
+| `secret-handling.md` | Global, .env-Pattern + Token-Vars |
+
+---
+
+## Production-Guides (`docs/production/`)
+
+Wiederverwendbare Setup-Guides:
+
+- `secret-management.md` (10 min) — Token-Hygiene, .env-Patterns
+- `security-headers.md` (5 min) — nginx HSTS/CSP/X-Frame-Options
+- `dependency-updates.md` (15 min) — pip-audit-Routine
+- `backup-recovery.md` (10 min) — `.bak`-Strategie + Auto-Rollback
+- `observability.md` (20 min) — structured logging, silent-error
+- `database-hardening.md` (15 min) — Whitelist, Indices, Permissions
+- `auth-hardening.md` (20 min) — FastAPI Depends, CSRF
+- `privacy-pii.md` (15 min) — Player-Hash, DSGVO-Logs
+- `server-config.md` (30 min) — RCON-Bind, uvicorn, journald
+- `memory-diagnostics.md` (15 min) — tracemalloc-Workflow
+
+---
+
+## Server-Zugang
+
+| Was | Wert |
+|-----|------|
+| SSH | `ssh -p 4422 marco@203.0.113.10` |
+| SCP | `scp -P 4422 <datei> marco@203.0.113.10:/tmp/` |
+| Bot-Pfad | `/home/botuser/Discord_Bots/` |
+| MC BMC5 | `/home/minecraft/bmc5/` (Port 25566, RCON 25575) |
+| MC Vanilla | `/home/minecraft/vanilla/` (Port 25565, RCON 25576) |
+| Staging | `/home/minecraft/.update_staging/` |
+| SAT | `/home/satisfactory/` (Port 7777 Game, 15777 Query) |
+| Dashboard | 8080 intern, 443 extern (Nginx) |
+| Python | 3.10.12, Ubuntu 22.04 |
+
+## Service-Zuordnung
+
+| Dateien | Service |
+|---------|---------|
+| `bots/monitor_bot.py`, `modules/minecraft/*`, `modules/restart_timer.py`, `modules/notifications/*`, `modules/monitoring/*`, `cogs/scheduler_cog.py`, `cogs/monitor_cog.py` | `monitor-bot` |
+| `bots/gameserver_bot.py`, `modules/monitoring/update_checker.py`, `cogs/satisfactory_cog.py` | `gameserver-bot` |
+| `bots/admin_bot.py` | `admin-bot` |
+| `modules/database/*` | alle 3 Bots + `web-dashboard` |
+| `web/*` | `web-dashboard` |
+
+---
+
+## Tests (alle 4 Pflicht!)
+
+Aus Discord_Bots-Root ausführen:
+```bash
+cd C:/Users/Marco/OneDrive/Dokumente/Discord_Bots
+python tests/test_imports.py
+python tests/test_routes.py
+python tests/test_cogs.py
+python tests/test_env_completeness.py
+```
+
+Oder per Slash-Command: `/test`
+
+---
+
+## SSH-Multi-Line-Workaround
+
+Das Bash-Tool fragt bei mehrzeiligen Befehlen nach Bestätigung. Workaround:
+Mehrzeiligen Python-Code in eine .py Datei schreiben, per SCP auf den Server kopieren, dort ausführen. Keine inline `python3 -c "..."` via SSH.
+
+---
+
+## Discord-Notifications (optional)
+
+ENV-Variable: `DISCORD_NOTIFY_WEBHOOK`
+Setup: `C:\Users\Marco\OneDrive\Dokumente\Prompt optimizing\REVIEW_2026-04-30\SETUP_DISCORD_NOTIFY.md`
+
+Wenn aktiv: Approval-Gates und Etappe-Abschlüsse werden als Rich-Embed an Discord-Channel gepusht. Antworten kommen IMMER im Claude-Chat (Webhook ist 1-Wege).
+
+---
+
+## Regeln
+
+1. **Erst lesen, dann ändern** (Read-Then-Verify)
+2. **Backup vor Server-Edits:** `cp -a <file> <file>.bak.$(date +%s)`
+3. Nach jeder Änderung: Tests ausführen (alle 4 Skripte)
+4. Fixes sofort deployen + Logs prüfen
+5. Fortschritt nach jeder Phase in PROGRESS.md / Detailprotokoll
+6. Nach jedem Fix prüfen ob neue Probleme entstehen
+7. **`/compact` bei >60% Context-Auslastung.** Danach: `/plan-status` oder PROGRESS.md lesen → nächste Etappe. Nicht warten bis Claude-Code selbst notfall-komprimiert (Qualitätsverlust).
+
+---
+
+## Erinnerung bei Context-Reset
+
+1. **CLAUDE.md** (auto-loaded) lesen → diese Datei
+2. **`.claude/rules/`** (auto-applied) → relevante Standards
+3. Bei aktivem Plan: **PROGRESS.md** oder `/plan-status` → wo bin ich?
+4. Bei pending Approval: aktuelle Etappe-Section in PROGRESS.md
+
+Bei Plan-Abschluss wird Status auf "STABIL" gesetzt und dieser Block reduziert.

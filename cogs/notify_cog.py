@@ -22,6 +22,7 @@ Persistenz: SQLite-Tabelle 'notify_subscriptions'
 
 from __future__ import annotations
 
+import asyncio
 import time
 from datetime import datetime, timezone
 
@@ -31,6 +32,58 @@ from discord.ext import commands
 
 from modules.database.db_manager import get_db
 from utils.logger import get_logger
+
+# Throttle zwischen DMs (Discord empfiehlt ≤5 DMs/sec, sicher: 100ms = 10/sec).
+_DM_THROTTLE_S = 0.1
+# Max Retries bei HTTP-429 pro DM.
+_DM_MAX_RETRIES = 3
+# Default-Sleep falls retry_after Header fehlt.
+_DM_DEFAULT_RETRY_AFTER = 5.0
+
+
+async def _send_dm_safe(
+    user: discord.User | discord.Member,
+    embed: discord.Embed,
+    logger_,
+    user_id_str: str,
+) -> bool:
+    """Sendet eine DM mit 429-Retry-After-Handling.
+
+    Returns True bei Erfolg, False bei dauerhaftem Fehler (Forbidden/NotFound/Max-Retries).
+    """
+    for attempt in range(_DM_MAX_RETRIES + 1):
+        try:
+            await user.send(embed=embed)
+            return True
+        except discord.Forbidden:
+            logger_.debug(f"Notify: DMs deaktiviert für User {user_id_str}")
+            return False
+        except discord.NotFound:
+            logger_.warning(f"Notify: User {user_id_str} nicht erreichbar")
+            return False
+        except discord.HTTPException as e:
+            if e.status == 429:
+                retry_after = float(getattr(e, "retry_after", _DM_DEFAULT_RETRY_AFTER))
+                if attempt < _DM_MAX_RETRIES:
+                    logger_.warning(
+                        f"Notify: 429 Rate-Limit für {user_id_str}, "
+                        f"warte {retry_after:.1f}s (Versuch {attempt + 1}/{_DM_MAX_RETRIES})"
+                    )
+                    await asyncio.sleep(retry_after)
+                    continue
+                logger_.warning(
+                    f"Notify: 429 Max-Retries erreicht für {user_id_str}, abgebrochen"
+                )
+                return False
+            logger_.warning(f"Notify: HTTPException für {user_id_str}: {e}")
+            return False
+        except Exception as e:
+            logger_.error(
+                f"Notify: Unerwarteter Fehler bei {user_id_str}: {e}",
+                exc_info=True,
+            )
+            return False
+    return False
 
 logger = get_logger("cogs.notify")
 
@@ -394,44 +447,37 @@ class NotifyCog(commands.Cog):
         )
         embed.set_footer(text="Abmelden mit /notify unsubscribe")
 
-        # DMs an alle Abonnenten senden
+        # DMs an alle Abonnenten senden — mit Retry-After-Handling und Throttle.
         sent_count = 0
         failed_count = 0
 
         for user_id_str in subscriber_ids:
             try:
                 user_id = int(user_id_str)
-                user = self.bot.get_user(user_id)
-                if user is None:
-                    try:
-                        user = await self.bot.fetch_user(user_id)
-                    except (discord.NotFound, discord.HTTPException):
-                        logger.warning(
-                            f"Notify: User {user_id_str} nicht gefunden, überspringe"
-                        )
-                        failed_count += 1
-                        continue
+            except (ValueError, TypeError):
+                logger.warning(f"Notify: Ungueltige User-ID '{user_id_str}', skip")
+                failed_count += 1
+                continue
 
-                await user.send(embed=embed)
+            user = self.bot.get_user(user_id)
+            if user is None:
+                try:
+                    user = await self.bot.fetch_user(user_id)
+                except (discord.NotFound, discord.HTTPException):
+                    logger.warning(
+                        f"Notify: User {user_id_str} nicht gefunden, überspringe"
+                    )
+                    failed_count += 1
+                    continue
+
+            ok = await _send_dm_safe(user, embed, logger, user_id_str)
+            if ok:
                 sent_count += 1
+            else:
+                failed_count += 1
 
-            except discord.Forbidden:
-                # User hat DMs deaktiviert — graceful behandeln
-                logger.debug(
-                    f"Notify: DMs deaktiviert für User {user_id_str}, überspringe"
-                )
-                failed_count += 1
-            except discord.HTTPException as e:
-                logger.warning(
-                    f"Notify: DM an User {user_id_str} fehlgeschlagen: {e}"
-                )
-                failed_count += 1
-            except Exception as e:
-                logger.error(
-                    f"Notify: Unerwarteter Fehler beim Senden an {user_id_str}: {e}",
-                    exc_info=True,
-                )
-                failed_count += 1
+            # Throttle zwischen DMs (verhindert Discord-Rate-Limit-Bursts).
+            await asyncio.sleep(_DM_THROTTLE_S)
 
         logger.info(
             f"Notify: {event_type} für {server_id} — "

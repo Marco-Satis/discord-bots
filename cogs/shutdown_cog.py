@@ -1,7 +1,7 @@
 """
 F54: Geplanter Shutdown mit Countdown — Server herunterfahren mit Vorwarnung
 
-Plant einen zeitgesteuerten Shutdown fuer einen Gameserver. Spieler werden
+Plant einen zeitgesteuerten Shutdown für einen Gameserver. Spieler werden
 vorher per Discord und (bei Minecraft) per RCON In-Game gewarnt.
 
 Warnungen bei: 30min, 15min, 5min, 1min vor dem Shutdown.
@@ -45,7 +45,7 @@ SERVER_DISPLAY_NAMES = {
 # Warnungszeitpunkte in Minuten vor dem Shutdown
 WARNING_THRESHOLDS = [30, 15, 5, 1]
 
-# Choices fuer die Server-Auswahl im Slash Command
+# Choices für die Server-Auswahl im Slash Command
 _SERVER_CHOICES = [
     app_commands.Choice(name="Satisfactory", value="satisfactory"),
     app_commands.Choice(name="Minecraft BMC", value="mc_bmc"),
@@ -89,7 +89,7 @@ class ShutdownCog(commands.Cog):
             task = info.get("task")
             if task and not task.done():
                 task.cancel()
-            logger.info(f"Geplanter Shutdown fuer {server_id} abgebrochen (Cog entladen)")
+            logger.info(f"Geplanter Shutdown für {server_id} abgebrochen (Cog entladen)")
         self._planned.clear()
         logger.info("ShutdownCog entladen")
 
@@ -114,18 +114,18 @@ class ShutdownCog(commands.Cog):
             remaining = (shutdown_at - now).total_seconds()
             remaining_min = remaining / 60.0
 
-            # Shutdown-Zeitpunkt erreicht oder ueberschritten
+            # Shutdown-Zeitpunkt erreicht oder überschritten
             if remaining <= 0:
                 await self._execute_shutdown(server_id, info)
                 continue
 
-            # Warnungen pruefen
+            # Warnungen prüfen
             sent: set = info.setdefault("warnings_sent", set())
             for threshold in WARNING_THRESHOLDS:
                 if threshold in sent:
                     continue
                 # Warnung senden wenn verbleibende Zeit unter dem Schwellwert liegt
-                # (plus Puffer fuer den 30-Sekunden-Tick)
+                # (plus Puffer für den 30-Sekunden-Tick)
                 if remaining_min <= threshold + 0.5:
                     await self._send_warning(server_id, info, threshold)
                     sent.add(threshold)
@@ -185,7 +185,7 @@ class ShutdownCog(commands.Cog):
         minutes_left: int,
         reason: str = "",
     ) -> None:
-        """Sendet In-Game Warnungen falls moeglich"""
+        """Sendet In-Game Warnungen falls möglich"""
         reason_part = f" Grund: {reason}" if reason else ""
 
         # Minecraft: RCON say-Befehl
@@ -205,15 +205,15 @@ class ShutdownCog(commands.Cog):
                         f"[{server_id}] RCON-Warnung fehlgeschlagen: {e}"
                     )
 
-        # Satisfactory: Keine In-Game API verfuegbar — nur loggen
+        # Satisfactory: Keine In-Game API verfügbar — nur loggen
         elif server_id == "satisfactory":
             logger.info(
                 f"[satisfactory] Shutdown in {minutes_left}min "
-                f"(keine In-Game-Warnung moeglich)"
+                f"(keine In-Game-Warnung möglich)"
             )
 
     # ------------------------------------------------------------------
-    # Shutdown ausfuehren
+    # Shutdown ausführen
     # ------------------------------------------------------------------
 
     async def _execute_shutdown(self, server_id: str, info: dict) -> None:
@@ -222,7 +222,7 @@ class ShutdownCog(commands.Cog):
         service = SERVER_SERVICES.get(server_id)
 
         if not service:
-            logger.error(f"Kein Service fuer Server '{server_id}' gefunden")
+            logger.error(f"Kein Service für Server '{server_id}' gefunden")
             self._planned.pop(server_id, None)
             return
 
@@ -231,7 +231,7 @@ class ShutdownCog(commands.Cog):
         # Health-Check unterdruecken (absichtlicher Stop → kein Auto-Restart)
         har = getattr(self.bot, "health_auto_restart", None)
         if har:
-            # Server-Typ und ID fuer Health-Checker bestimmen
+            # Server-Typ und ID für Health-Checker bestimmen
             if server_id == "satisfactory":
                 har.suppress("sat", "main", duration_seconds=600)
             elif server_id.startswith("mc_"):
@@ -241,7 +241,7 @@ class ShutdownCog(commands.Cog):
         # Letzte In-Game Warnung
         await self._send_ingame_warning(server_id, 0, info.get("reason", ""))
 
-        # systemctl stop ausfuehren
+        # systemctl stop ausführen
         success = False
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -307,7 +307,7 @@ class ShutdownCog(commands.Cog):
     @app_commands.describe(
         server="Server der heruntergefahren werden soll",
         minuten="Countdown in Minuten bis zum Shutdown",
-        grund="Optionaler Grund fuer den Shutdown",
+        grund="Optionaler Grund für den Shutdown",
     )
     @app_commands.choices(server=_SERVER_CHOICES)
     async def shutdown_plan(
@@ -421,7 +421,7 @@ class ShutdownCog(commands.Cog):
 
         if server not in self._planned:
             await interaction.followup.send(
-                f"Kein Shutdown fuer **{SERVER_DISPLAY_NAMES.get(server, server)}** geplant.",
+                f"Kein Shutdown für **{SERVER_DISPLAY_NAMES.get(server, server)}** geplant.",
                 ephemeral=True,
             )
             return
@@ -538,7 +538,7 @@ class ShutdownCog(commands.Cog):
         if isinstance(error, app_commands.CheckFailure):
             if not interaction.response.is_done():
                 await interaction.response.send_message(
-                    "Keine Berechtigung fuer diesen Befehl.", ephemeral=True
+                    "Keine Berechtigung für diesen Befehl.", ephemeral=True
                 )
         else:
             logger.error(f"Shutdown Command-Fehler: {error}", exc_info=True)

@@ -1,0 +1,47 @@
+"""Setzt einen Spieler als OP via RCON."""
+import socket
+import struct
+import sys
+
+
+def rcon_command(host: str, port: int, password: str, command: str) -> str:
+    """Sendet einen RCON-Befehl und gibt die Antwort zurueck."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(10)
+    sock.connect((host, port))
+
+    def _send(req_id: int, req_type: int, payload: str) -> None:
+        data = struct.pack("<ii", req_id, req_type) + payload.encode("utf-8") + b"\x00\x00"
+        sock.send(struct.pack("<i", len(data)) + data)
+
+    def _recv() -> tuple:
+        raw_len = sock.recv(4)
+        if len(raw_len) < 4:
+            return -1, -1, ""
+        length = struct.unpack("<i", raw_len)[0]
+        data = b""
+        while len(data) < length:
+            data += sock.recv(length - len(data))
+        req_id = struct.unpack("<i", data[:4])[0]
+        req_type = struct.unpack("<i", data[4:8])[0]
+        payload = data[8:-2].decode("utf-8", errors="replace")
+        return req_id, req_type, payload
+
+    # Login (Type 3)
+    _send(1, 3, password)
+    rid, rtype, _ = _recv()
+    if rid == -1:
+        sock.close()
+        return "RCON Login fehlgeschlagen"
+
+    # Command (Type 2)
+    _send(2, 2, command)
+    _, _, response = _recv()
+    sock.close()
+    return response
+
+
+if __name__ == "__main__":
+    player = sys.argv[1] if len(sys.argv) > 1 else "SpielerName420"
+    result = rcon_command("127.0.0.1", 25575, "_TYzy)HFsbwpzCJ9", f"op {player}")
+    print(f"RCON Antwort: {result}")

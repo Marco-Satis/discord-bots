@@ -6,6 +6,7 @@ Temp Voice, TeamSpeak, WordFilter, AntiSpam, Warn-System,
 Reaction Roles, Leveling, Tickets, Audit-Logging, Giveaways.
 """
 
+import asyncio
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -494,19 +495,22 @@ async def admin_bot_page(request: Request, current_user: dict = Depends(require_
     Laedt standardmaessig den ersten Tab (Temp Voice).
     """
     user = current_user
-    # Standard-Tab: Temp Voice
-    config = _load_module_config("temp_voice")
-
-    # Admin Bot Status aus data/admin/bot_status.json lesen
+    # Standard-Tab + Admin-Bot-Status parallel via to_thread (kein Event-Loop-Block)
     admin_status_file = DATA_DIR / "admin" / "bot_status.json"
-    admin_bot_status = "offline"
-    try:
-        if admin_status_file.exists():
-            with open(admin_status_file, "r", encoding="utf-8") as f:
-                admin_data = json.load(f)
-                admin_bot_status = admin_data.get("status", "offline")
-    except (json.JSONDecodeError, IOError):
-        pass
+
+    def _read_admin_status() -> str:
+        try:
+            if admin_status_file.exists():
+                with open(admin_status_file, "r", encoding="utf-8") as f:
+                    return json.load(f).get("status", "offline")
+        except (json.JSONDecodeError, IOError):
+            pass
+        return "offline"
+
+    config, admin_bot_status = await asyncio.gather(
+        asyncio.to_thread(_load_module_config, "temp_voice"),
+        asyncio.to_thread(_read_admin_status),
+    )
 
     return templates.TemplateResponse("admin_bot.html", {
         "request": request,
@@ -532,7 +536,7 @@ async def admin_bot_tab(request: Request, tab_name: str, current_user: dict = De
             status_code=404,
         )
 
-    config = _load_module_config(tab_name)
+    config = await asyncio.to_thread(_load_module_config, tab_name)
     template_name = TAB_TEMPLATES[tab_name]
 
     return templates.TemplateResponse(template_name, {
@@ -565,7 +569,7 @@ async def admin_bot_save(request: Request, module_name: str, current_user: dict 
         parser = FORM_PARSERS[module_name]
         config = parser(form)
 
-        if _save_module_config(module_name, config):
+        if await asyncio.to_thread(_save_module_config, module_name, config):
             success_msg = "Einstellungen erfolgreich gespeichert."
             logger.info(
                 f"Admin-Bot Modul '{module_name}' gespeichert von "
@@ -577,7 +581,7 @@ async def admin_bot_save(request: Request, module_name: str, current_user: dict 
     except Exception as e:
         logger.error(f"Fehler beim Speichern von '{module_name}': {e}")
         error_msg = "Fehler beim Speichern der Einstellungen. Details im Server-Log."
-        config = _load_module_config(module_name)
+        config = await asyncio.to_thread(_load_module_config, module_name)
 
     return templates.TemplateResponse(template_name, {
         "request": request,

@@ -63,7 +63,7 @@ class PlayerTracker:
         self.on_leave: Optional[Callable[[str, int], Awaitable]] = None  # name, duration_min
 
     def _save(self) -> None:
-        """No-op — alle Schreibvorgaenge gehen direkt nach SQLite."""
+        """No-op — alle Schreibvorgänge gehen direkt nach SQLite."""
         pass
 
     # ------------------------------------------------------------------
@@ -92,7 +92,7 @@ class PlayerTracker:
 
             if not rows:
                 logger.info(
-                    f"Keine Spieler in SQLite fuer server_type='{st}' — starte leer"
+                    f"Keine Spieler in SQLite für server_type='{st}' — starte leer"
                 )
                 return
 

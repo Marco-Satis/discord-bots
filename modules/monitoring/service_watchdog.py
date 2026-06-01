@@ -1,6 +1,6 @@
 """
-Service Watchdog Module (F50) - Ueberwacht systemd-Services und startet sie bei Ausfall neu.
-Prueft alle 2 Minuten per systemctl is-active ob konfigurierte Services laufen.
+Service Watchdog Module (F50) - Überwacht systemd-Services und startet sie bei Ausfall neu.
+Prüft alle 2 Minuten per systemctl is-active ob konfigurierte Services laufen.
 Bei Ausfall: automatischer Neustart mit Cooldown (max 3 Restarts pro Stunde pro Service).
 """
 
@@ -20,7 +20,7 @@ COLOR_ERROR: int = 0xE74C3C
 COLOR_SUCCESS: int = 0x2ECC71
 COLOR_INFO: int = 0x5865F2
 
-# Standardmaessig ueberwachte Services (kann per Config ueberschrieben werden)
+# Standardmäßig überwachte Services (kann per Config überschrieben werden)
 DEFAULT_SERVICES: list[Dict[str, str]] = [
     {"name": "satisfactory", "label": "Satisfactory Server"},
 ]
@@ -28,7 +28,7 @@ DEFAULT_SERVICES: list[Dict[str, str]] = [
 
 class ServiceWatchdog:
     """
-    Ueberwacht systemd-Services und startet sie bei Ausfall automatisch neu.
+    Überwacht systemd-Services und startet sie bei Ausfall automatisch neu.
     Implementiert einen Cooldown, um Restart-Schleifen zu verhindern.
 
     Usage:
@@ -104,7 +104,7 @@ class ServiceWatchdog:
             logger.info("ServiceWatchdog Background-Task gestoppt")
 
     async def _loop(self) -> None:
-        """Endlos-Schleife: Prueft alle check_interval Sekunden die Services."""
+        """Endlos-Schleife: Prüft alle check_interval Sekunden die Services."""
         try:
             while True:
                 try:
@@ -113,7 +113,7 @@ class ServiceWatchdog:
                 except asyncio.CancelledError:
                     raise
                 except OSError as e:
-                    logger.error(f"ServiceWatchdog Pruefung fehlgeschlagen: {e}")
+                    logger.error(f"ServiceWatchdog Prüfung fehlgeschlagen: {e}")
                 except RuntimeError as e:
                     logger.error(f"ServiceWatchdog Runtime-Fehler: {e}")
 
@@ -127,13 +127,13 @@ class ServiceWatchdog:
 
     async def check_services(self) -> List[Dict[str, Any]]:
         """
-        Prueft alle konfigurierten Services per systemctl is-active.
+        Prüft alle konfigurierten Services per systemctl is-active.
 
         Returns:
             Liste von Dicts mit Keys:
                 - name: Service-Name (systemd Unit)
                 - label: Menschenlesbarer Name
-                - active: True wenn der Service laeuft
+                - active: True wenn der Service läuft
                 - status: Status-String von systemctl
                 - checked_at: ISO-Zeitstempel
         """
@@ -186,7 +186,7 @@ class ServiceWatchdog:
     # ------------------------------------------------------------------
 
     async def _handle_results(self, results: List[Dict[str, Any]]) -> None:
-        """Verarbeitet die Pruefergebnisse und startet ggf. Services neu."""
+        """Verarbeitet die Prüfergebnisse und startet ggf. Services neu."""
         for result in results:
             name: str = result["name"]
             label: str = result["label"]
@@ -196,7 +196,7 @@ class ServiceWatchdog:
             self._last_status[name] = result["status"]
 
             if is_active:
-                # Service laeuft, alles gut
+                # Service läuft, alles gut
                 continue
 
             # Service ist nicht aktiv
@@ -211,11 +211,11 @@ class ServiceWatchdog:
                 except Exception as e:
                     logger.error(f"on_service_down Callback-Fehler: {e}")
 
-            # Pruefen ob Restart erlaubt ist (Cooldown)
+            # Prüfen ob Restart erlaubt ist (Cooldown)
             if not self._can_restart(name):
                 restart_count: int = self._restarts_last_hour(name)
                 logger.warning(
-                    f"Cooldown aktiv fuer '{name}': {restart_count} Restarts "
+                    f"Cooldown aktiv für '{name}': {restart_count} Restarts "
                     f"in der letzten Stunde (Max: {self.max_restarts_per_hour})"
                 )
                 if self.on_cooldown_reached:
@@ -268,7 +268,7 @@ class ServiceWatchdog:
             self._restart_history[service_name].append(datetime.now())
 
             if proc.returncode == 0:
-                # Kurz warten und pruefen ob Service wirklich laeuft
+                # Kurz warten und prüfen ob Service wirklich läuft
                 await asyncio.sleep(3)
                 status: str = await self._get_service_status(service_name)
                 if status == "active":
@@ -288,15 +288,15 @@ class ServiceWatchdog:
     # ------------------------------------------------------------------
 
     def _can_restart(self, service_name: str) -> bool:
-        """Prueft ob ein Restart fuer den Service erlaubt ist (Cooldown)."""
+        """Prüft ob ein Restart für den Service erlaubt ist (Cooldown)."""
         return self._restarts_last_hour(service_name) < self.max_restarts_per_hour
 
     def _restarts_last_hour(self, service_name: str) -> int:
-        """Zaehlt die Restarts eines Services in der letzten Stunde."""
+        """Zählt die Restarts eines Services in der letzten Stunde."""
         cutoff: datetime = datetime.now() - timedelta(hours=1)
         history: List[datetime] = self._restart_history.get(service_name, [])
 
-        # Alte Eintraege bereinigen
+        # Alte Einträge bereinigen
         recent: List[datetime] = [ts for ts in history if ts > cutoff]
         self._restart_history[service_name] = recent
 
@@ -307,11 +307,11 @@ class ServiceWatchdog:
     # ------------------------------------------------------------------
 
     def get_embed_color(self, active: bool) -> int:
-        """Gibt die passende Embed-Farbe zurueck."""
+        """Gibt die passende Embed-Farbe zurück."""
         return COLOR_SUCCESS if active else COLOR_ERROR
 
     def get_summary(self) -> Dict[str, Any]:
-        """Gibt eine Zusammenfassung aller Service-Status zurueck."""
+        """Gibt eine Zusammenfassung aller Service-Status zurück."""
         return {
             "services": [
                 {

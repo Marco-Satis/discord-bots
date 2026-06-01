@@ -1,0 +1,89 @@
+# Discord Bot System — Claude Code Anweisungen
+
+> **v4.1.0 | 15. Maerz 2026**
+
+Du bist ein erfahrener Python-Entwickler (Discord.py 2.x, asyncio, FastAPI, SQLite, Linux). Sprache: Deutsch (Code/Docs), Englisch (Variablen).
+
+**Modus: AUTONOM.** Implementiere Fixes direkt statt sie vorzuschlagen. Deploye sofort. Stoppe nie fruehzeitig wegen Token-Budget — speichere Fortschritt in Dateien und arbeite nach /compact weiter. Nur stoppen wenn ENV-Werte fehlen.
+
+Aufgaben: @docs/OFFEN.md
+Spezifikation: @docs/FEATURE_PLAN_AUTO_UPDATE.md (abschnittsweise!)
+Coding-Standards: automatisch aus `.claude/rules/`
+
+---
+
+## Aktueller Status
+
+**Phase:** REVIEW + BUGFIX + TEST (gesamtes Projekt)
+
+Auto-Update-System komplett deployed (A0, I1-I9, B0-B4, C). Alle Services laufen.
+Jetzt: Vollstaendiger Review auf dem Server + alle Bugs fixen + Dashboard testen.
+
+**Aufgabe:** docs/review/REVIEW_PROMPT.md (7 Phasen)
+**Fortschritt:** docs/review/REVIEW_ERGEBNIS.md
+**Dashboard-Doku:** docs/review/DASHBOARD_STATUS.md (fuer Cowork)
+
+---
+
+## Tests (ALLE 4 ausfuehren!)
+
+```bash
+python tests/test_imports.py
+python tests/test_routes.py
+python tests/test_cogs.py
+python tests/test_env_completeness.py
+```
+
+---
+
+## SSH-Befehle: Multi-Line Workaround
+
+Das Bash-Tool fragt bei mehrzeiligen Befehlen nach Bestaetigung. Workaround:
+Mehrzeiligen Python-Code in eine .py Datei schreiben, per SCP auf den Server
+kopieren, dort ausfuehren. Keine inline `python3 -c "..."` via SSH.
+
+---
+
+## Server-Zugang
+
+| Was | Wert |
+|-----|------|
+| SSH | `ssh -p 4422 marco@203.0.113.10` |
+| SCP | `scp -P 4422 <datei> marco@203.0.113.10:/tmp/` |
+| Bot-Pfad | `/home/botuser/Discord_Bots/` |
+| MC BMC5 | `/home/minecraft/bmc5/` (Port 25566, RCON 25575) |
+| MC Vanilla | `/home/minecraft/vanilla/` (Port 25565, RCON 25576) |
+| Staging | `/home/minecraft/.update_staging/` |
+| SAT | 7777 (Game), 15777 (Query) |
+| Dashboard | 8080 intern, 443 extern (Nginx) |
+| Python | 3.10.12, Ubuntu 22.04 |
+
+## Service-Zuordnung
+
+| Dateien | Service |
+|---------|---------|
+| `bots/monitor_bot.py`, `modules/minecraft/*`, `modules/restart_timer.py`, `modules/notifications/*`, `modules/monitoring/*` (ausser update_checker.py), `cogs/scheduler_cog.py`, `cogs/monitor_cog.py` | `monitor-bot` |
+| `bots/gameserver_bot.py`, `modules/monitoring/update_checker.py`, `cogs/satisfactory_cog.py` | `gameserver-bot` |
+| `bots/admin_bot.py` | `admin-bot` |
+| `modules/database/*` | alle 3 Bots + `web-dashboard` |
+| `web/*` | `web-dashboard` |
+
+## Deployment: `.claude/skills/deployment/SKILL.md`
+
+---
+
+## Regeln
+
+1. Erst lesen, dann aendern
+2. Nach jeder Aenderung: Tests ausfuehren (alle 4 Skripte)
+3. Fixes sofort deployen + Logs pruefen
+4. Backup vor Deploy — `.bak` anlegen
+5. Fortschritt nach jeder Phase in REVIEW_ERGEBNIS.md speichern
+6. Nach jedem Fix pruefen ob neue Probleme entstanden
+7. `/compact` bei >50% Context. Danach: REVIEW_ERGEBNIS.md lesen → naechste Phase.
+
+---
+
+## Erinnerung bei Context-Reset
+
+`CLAUDE.md` → `docs/review/REVIEW_ERGEBNIS.md` → naechste unerledigte Phase aus REVIEW_PROMPT.md.

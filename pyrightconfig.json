@@ -1,0 +1,43 @@
+{
+  "include": [
+    "bots",
+    "cogs",
+    "modules",
+    "utils",
+    "web",
+    "tests"
+  ],
+  "exclude": [
+    "**/__pycache__",
+    "**/node_modules",
+    "**/.venv",
+    "**/venv",
+    "**/.bak.*",
+    "**/*.bak.*",
+    "**/backups",
+    "**/data",
+    "**/logs",
+    "**/Apps",
+    "**/Erweiterte",
+    "**/Gaming Server + DC Bots",
+    "**/.claude",
+    "**/Prompt optimizing"
+  ],
+  "typeCheckingMode": "basic",
+  "pythonVersion": "3.10",
+  "pythonPlatform": "Linux",
+  "useLibraryCodeForTypes": true,
+  "reportMissingImports": "warning",
+  "reportMissingTypeStubs": "none",
+  "reportUnknownMemberType": "none",
+  "reportUnknownVariableType": "none",
+  "reportUnknownArgumentType": "none",
+  "reportGeneralTypeIssues": "warning",
+  "reportOptionalMemberAccess": "warning",
+  "reportOptionalSubscript": "warning",
+  "reportPrivateImportUsage": "none",
+  "reportDeprecated": "warning",
+  "strictListInference": false,
+  "strictDictionaryInference": false,
+  "strictSetInference": false
+}

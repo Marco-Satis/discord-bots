@@ -5,7 +5,7 @@
 {% block content %}
 <!-- Zurueck-Button und Header -->
 <div class="page-header" style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
-    <a href="/" class="btn btn-secondary btn-sm" style="flex-shrink: 0;">&larr; Zurueck</a>
+    <a href="/" class="btn btn-secondary btn-sm" style="flex-shrink: 0;">&larr; Zurück</a>
     <div style="flex: 1;">
         <h1 style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
             <!-- Status-Indikator (gruener/roter Punkt) -->
@@ -74,7 +74,7 @@
                 hx-vals='{"action": "maintenance"}'
                 hx-target="#action-result"
                 hx-swap="innerHTML"
-                hx-confirm="Wartungsmodus fuer {{ server.name }} aktivieren?">
+                hx-confirm="Wartungsmodus für {{ server.name }} aktivieren?">
             &#9874; Wartung
         </button>
     </div>
@@ -84,7 +84,7 @@
 <!-- Tab-Navigation -->
 <section class="section">
     <div class="detail-tabs">
-        <button class="detail-tab active" onclick="switchTab(this, 'tab-overview')">Uebersicht</button>
+        <button class="detail-tab active" onclick="switchTab(this, 'tab-overview')">Übersicht</button>
         <button class="detail-tab" onclick="switchTab(this, 'tab-players')">Spieler</button>
         {% if server.has_rcon %}
         <button class="detail-tab" onclick="switchTab(this, 'tab-rcon')">RCON Console</button>
@@ -96,7 +96,7 @@
         <button class="detail-tab" onclick="switchTab(this, 'tab-updates')">Update Status</button>
     </div>
 
-    <!-- Tab: Uebersicht (Standard) -->
+    <!-- Tab: Übersicht (Standard) -->
     <div id="tab-overview" class="tab-content" style="display: block;">
         <div class="stats-grid" style="margin-bottom: 1.5rem;">
             <div class="stat-card">
@@ -191,15 +191,15 @@
 
             <!-- RCON-Ausgabe -->
             <div id="rcon-output" style="
-                background: #0d0d1a;
+                background: #080c15;
                 border: 1px solid var(--border-color);
                 border-radius: var(--radius);
                 padding: 1rem;
                 min-height: 200px;
                 max-height: 400px;
                 overflow-y: auto;
-                font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-                font-size: 0.85rem;
+                font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+                font-size: 0.82rem;
                 line-height: 1.6;
                 margin-bottom: 1rem;
             ">
@@ -226,7 +226,7 @@
                            border: 1px solid var(--border-color);
                            border-radius: var(--radius-sm);
                            color: var(--text-primary);
-                           font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+                           font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
                            font-size: 0.9rem;
                        ">
                 <button type="submit" class="btn btn-primary">Senden</button>
@@ -244,7 +244,7 @@
                     hx-vals='{"action": "backup"}'
                     hx-target="#action-result"
                     hx-swap="innerHTML"
-                    hx-confirm="Backup fuer {{ server.name }} erstellen?">
+                    hx-confirm="Backup für {{ server.name }} erstellen?">
                 + Backup erstellen
             </button>
         </div>
@@ -277,7 +277,7 @@
                 {% endfor %}
             </div>
             {% else %}
-            <p style="color: var(--text-muted); padding: 1rem;">Keine Welt-/Savegame-Daten verfuegbar.</p>
+            <p style="color: var(--text-muted); padding: 1rem;">Keine Welt-/Savegame-Daten verfügbar.</p>
             {% endif %}
         </div>
     </div>
@@ -310,7 +310,7 @@
                 {% endfor %}
             </div>
             {% else %}
-            <p style="color: var(--text-muted); padding: 1rem;">Keine Konfigurationsdaten verfuegbar.</p>
+            <p style="color: var(--text-muted); padding: 1rem;">Keine Konfigurationsdaten verfügbar.</p>
             {% endif %}
         </div>
     </div>
@@ -336,9 +336,9 @@
                         {{ server.update_info.current_version }}
                     </span>
                 </div>
-                <!-- Verfuegbare Version -->
+                <!-- Verfügbare Version -->
                 <div class="stat-card">
-                    <h4>Verfuegbare Version</h4>
+                    <h4>Verfügbare Version</h4>
                     <span style="font-size: 1.2rem; font-weight: 700;
                         {% if server.update_info.update_available %}color: var(--warning);{% else %}color: var(--text-primary);{% endif %}
                     ">
@@ -357,7 +357,7 @@
                         border-radius: 12px;
                         font-size: 0.85rem;
                         font-weight: 600;
-                    ">Update verfuegbar</span>
+                    ">Update verfügbar</span>
                     {% else %}
                     <span style="
                         display: inline-block;
@@ -395,7 +395,7 @@
         color: var(--danger);
     }
     code {
-        font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+        font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
     }
 </style>
 
@@ -409,7 +409,7 @@ function switchTab(btn, tabId) {
     document.querySelectorAll('.detail-tab').forEach(function(t) {
         t.classList.remove('active');
     });
-    // Gewaehlten Tab anzeigen
+    // Gewählten Tab anzeigen
     document.getElementById(tabId).style.display = 'block';
     btn.classList.add('active');
 }
