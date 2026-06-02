@@ -715,6 +715,9 @@ health_checker.on_crash = _on_crash
 health_checker.on_recovery = _on_recovery
 health_checker.on_restart_success = _on_restart_success
 health_checker.on_restart_failed = _on_restart_failed
+# Crash-Detection waehrend geplantem Update/Restart unterdruecken (nutzt die
+# bestehende HAR-Suppression; perform_update ruft har.suppress("sat","main")).
+health_checker.suppress_crash_check = lambda: health_auto_restart.is_suppressed("sat", "main")
 
 
 async def _on_player_join(name):

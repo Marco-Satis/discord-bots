@@ -82,6 +82,9 @@ class HealthChecker:
         self.on_restart_success: Optional[Callable[[CrashEvent], Awaitable]] = None
         self.on_restart_failed: Optional[Callable[[CrashEvent, str], Awaitable]] = None
         self.on_performance_warning: Optional[Callable[[List[str]], Awaitable]] = None
+        # Optionaler Check: liefert True wenn Crash-Detection unterdrueckt werden
+        # soll (z.B. geplanter Stop fuer Update/Restart -> kein False-Crash).
+        self.suppress_crash_check: Optional[Callable[[], bool]] = None
 
     @property
     def crash_count(self) -> int:
@@ -153,8 +156,20 @@ class HealthChecker:
 
             # Detect crash: was online/starting, now process dead
             if prev_state in (ServerState.ONLINE, ServerState.STARTING):
-                self.status.state = ServerState.CRASHED
-                await self._handle_crash()
+                # Geplanter Stop (Update/Restart)? -> kein Crash, kein Alarm.
+                suppressed = False
+                if self.suppress_crash_check is not None:
+                    try:
+                        suppressed = bool(self.suppress_crash_check())
+                    except Exception as e:
+                        logger.debug(f"suppress_crash_check Fehler: {e}")
+                if suppressed:
+                    logger.info("Prozess gestoppt im unterdrueckten Fenster "
+                                "(geplanter Update/Restart) — kein Crash")
+                    self.status.state = ServerState.OFFLINE
+                else:
+                    self.status.state = ServerState.CRASHED
+                    await self._handle_crash()
             else:
                 self.status.state = ServerState.OFFLINE
 

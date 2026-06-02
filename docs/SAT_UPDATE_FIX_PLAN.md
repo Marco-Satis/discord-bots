@@ -23,12 +23,10 @@
 State-Guard `self._notified_buildid`: `on_update_available` + Log nur bei available != _notified_buildid. Reset wenn kein Update. → 1 Notify pro Build je Instanz.
 ### ✅ Fix 2 — steamcmd Retry (perform_update) — IMPLEMENTIERT + DEPLOYED
 `perform_update` läuft steamcmd jetzt in `for _attempt in range(2)`: break wenn returncode != 8, sonst erneut (2. Lauf nutzt das selbst-aktualisierte steamcmd). (Helper-Script via Bash-Heredoc nötig, da security_reminder_hook Edit/Write mit "subprocess/exec" blockt — False-Positive auf sichere List-Form.)
-### ☐ Fix 3 — Crash-Suppress während Update (health_check.py) — OFFEN (Cross-Modul-Wiring)
-HealthMonitor (`health_check.py:64`) hat KEINE Suppress-Mechanik + keine har-Referenz. Nötig:
-  1. HealthMonitor: `self._crash_suppressed_until: Optional[datetime] = None` + Methode `suppress_crash(seconds)`.
-  2. Crash-Branch (`:155`): wenn `_crash_suppressed_until` aktiv → `ServerState.OFFLINE` statt `CRASHED` (kein `_handle_crash`).
-  3. perform_update braucht Zugriff auf den HealthMonitor (nicht nur har!) — entweder health_monitor als Param durchreichen, ODER HealthMonitor bekommt har-Ref und prüft `har.is_suppressed("sat","main")`.
-Priorität gesunken: Fix 2 beendet den Loop → False-Crash tritt nur noch 1× pro legitimem Update auf (harmlos, keine Datenverluste).
+### ✅ Fix 3a — False-Crash (health_check.py HealthChecker) — IMPLEMENTIERT
+HealthChecker bekam `self.suppress_crash_check: Optional[Callable[[], bool]]`. Crash-Branch (`:155`): wenn Check True → `ServerState.OFFLINE` statt `CRASHED` (kein `_handle_crash`/Alarm). Wiring in `monitor_bot.py` nach on_crash: `health_checker.suppress_crash_check = lambda: health_auto_restart.is_suppressed("sat","main")`. Nutzt die bestehende HAR-Suppression (perform_update ruft `har.suppress("sat","main")`), die nach 900s auto-expired → kein Permanent-Block-Risiko.
+### ☐ Fix 3b — service_watchdog während Update (OFFEN, zustandskritisch)
+service_watchdog (`:216`) überspringt nur Services die in `manual_stop_state` markiert sind. perform_update markiert SAT dort NICHT (nur HAR) → Watchdog meldet "Service ausgefallen" UND könnte SAT **mitten im steamcmd-Update neustarten** (Race/Korruptionsrisiko, seit Watchdog-Restart durch Fix A wieder funktioniert). Lösung: perform_update soll `await manual_stop_state.mark_stopped("satisfactory")` VOR dem Stop + `mark_started("satisfactory")` in ALLEN Restart-Pfaden (am besten in `_safe_start`, das jeder Pfad aufruft) — sonst hängt SAT als "manually-stopped" (Auto-Restart permanent blockiert). Bewusst NICHT unter Zeitdruck/grossem Context gemacht; eigener fokussierter Schritt mit Test der Clear-Pfade. Priorität: Fix 2 beendet den Loop → tritt nur bei legitimen Updates auf; SAT-Update lief diesmal trotzdem erfolgreich durch (Build 23300422).
 ### ✅ Fix 4 — OBSOLET
 Marco bestätigt: 23300422 ist ein **echtes** heute erschienenes Update (kein Phantom). Reconcile nicht nötig — Fix 2 installiert es.
 
