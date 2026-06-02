@@ -1,8 +1,26 @@
 # Discord Bot System — Abgeschlossene Features & Arbeiten
 
-> **Stand:** 15. März 2026 | **Aktuelle Version:** v4.0.1
+> **Stand:** 2. Juni 2026 | **Aktuelle Version:** v4.4.0
 > **Server:** Netcup RS 4000 G12 (12 vCores, 31 GB RAM, 1 TB NVMe, Ubuntu 22.04)
 > **Python:** 3.10.12 | **Discord.py:** 2.x | **DB:** SQLite (WAL-Modus) | **Web:** FastAPI + Jinja2
+
+---
+
+## 0. v4.4.0 — Konsolidierung master↔main (+ Server-Quelle) — 2026-06-02
+
+Git-seitig komplett, gepusht (`origin/main` = `f93eac9`, privates Repo). **Server-Redeploy 2026-06-02 erledigt** — Server läuft v4.4.0 (Deploy-Script grün, remote verifiziert: 4/4 Services active, 0 Errors, Dashboard ok; Backup `backup_pre_v440_1780401693.tar.gz`).
+
+- **3-Wege-Merge** der divergierten Linien (`main` V5/Updater/manual_stop ↔ `master` ~40 Module) via Vorfahr `9c680a5`. 15 Konflikte gelöst, keine Funktion verloren — orthogonale Features kombiniert:
+  - `db_manager.py`: Read-Pool (main) **+** Cross-Prozess-Write-Retry (master) beide aktiv.
+  - `reaction_roles_cog.py`: `track_task` GC-Schutz (main) **+** Panel-Lock-Cleanup-Loop-Start (master).
+  - `pipeline_approval_cog.py`: master-Superset (Approve/Dismiss/**Recat**).
+  - Monitoring (`health_checker`/`service_watchdog`/`package_checker`): main manual_stop + 0-Update-Filter behalten.
+- **Frontend:** main-V5 autoritativ (master-Alt-Design verworfen); verwaisten Dashboard-`Events-Clear`-Button nachverdrahtet; Mods-Daten in V5 im Updates-Tab integriert. `server_detail.py`→`server_detail_route.py`-Rename sauber.
+- **master-Module dazu:** `scripts/rcon_op.py`, `web/tools/build_css.py`, 6 Server-Test-Files, Basecoat-CSS-Toolchain, `.claude/`-Agents + Skills. Junk (.bak/.legacy/agent-memory/alte docx) ausgeschlossen.
+- **Server als 3. Quelle:** 237 Files inventarisiert, kein Hotfix-Verlust (alle Abweichungen < Session-Git), 19 `_preview`-Experimente = Noise. Deploy-Set 55 Runtime-Files berechnet.
+- **Security:** RCON-PW + management-server-secret in `docs/server_snapshot/` redigiert (HEAD), `.secrets.baseline` regeneriert.
+- VERSION → 4.4.0. Verifikation grün (5 Tests, py_compile, Jinja).
+- Detail: `docs/KONSOLIDIERUNG_2026-06-01.md`.
 
 ---
 

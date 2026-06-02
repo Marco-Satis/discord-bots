@@ -1,8 +1,20 @@
 # Discord Bot System — Offene Punkte
 
-> **Stand:** 15. März 2026
-> **Referenz-Spezifikation:** `docs/FEATURE_PLAN_AUTO_UPDATE.md` (v1.6)
-> **Code-Review:** `docs/CODE_REVIEW_AUTO_UPDATE.md`
+> **Stand:** 2. Juni 2026 (v4.4.0-Konsolidierung) — ältere Abschnitte unten sind historisch (v4.1.0-Auto-Update, abgeschlossen).
+
+---
+
+## AKTUELL OFFEN (Stand 2026-06-02, nach v4.4.0-Konsolidierung)
+
+### ✅ ERLEDIGT (2026-06-02) — Server-Redeploy v4.1.0-Hybrid → v4.4.0
+Server läuft jetzt **v4.4.0**. `sudo bash /tmp/deploy_consolidate_v440.sh` lief grün (Backup→Extract 55 Files→VERSION 4.4.0→py_compile→Restart→Smoke). Remote verifiziert (read-only): VERSION=4.4.0, 4/4 Services active, 0 Errors letzte 3 min, Dashboard 8080 antwortet. Backup: `/home/botuser/backup_pre_v440_1780401693.tar.gz` (nach 24 h löschbar). Damit: lokal + GitHub + Server gleichstand v4.4.0.
+
+### 🟡 MED — RCON-Passwort-Rotation (Hygiene)
+HEAD bereits redigiert (`docs/server_snapshot/` Platzhalter). Reales Risiko ≈ 0 (Repo PRIVATE, RCON 127.0.0.1, management-server `enabled=false`). Rotation = Best-Practice. Runbook: `docs/KONSOLIDIERUNG_2026-06-01.md` (Security-Befund). `minecraft-vanilla.service` hardcodet RCON-PW im `ExecStop` → besser `EnvironmentFile` (Refactor).
+
+### ⚪ LOW / SKIP
+- **git-history-rewrite** (`filter-repo`) für die alten Secret-Commits: empfohlen SKIP (private Repo + localhost-RCON). Nur nach Rotation + Marco-OK + `--force-with-lease`.
+- **env-Doku-Drift:** `MC_VANILLA_*` (11 Vars) im Code referenziert, fehlen in `.env.example`. Pre-existing, non-blocking (test_env exit 0).
 
 ---
 
