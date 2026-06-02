@@ -278,6 +278,11 @@ class UpdateChecker:
                 self.steamcmd,
                 "+force_install_dir", self.install_dir,
                 "+login", "anonymous",
+                # app_info_update 1 erzwingt frische Steam-Metadaten (analog
+                # _get_available_buildid). Ohne dies nutzt steamcmd-as-satisfactory
+                # einen veralteten appinfo-Cache und meldet faelschlich "bereits
+                # aktuell" -> Build erreicht nie die verfuegbare Version -> Update-Loop.
+                "+app_info_update", "1",
                 "+app_update", self.app_id, "validate",
                 "+quit",
             ]
