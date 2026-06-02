@@ -245,7 +245,7 @@ class UpdateChecker:
         try:
             # Schritt 1: HAR unterdrücken
             if har and hasattr(har, "suppress"):
-                har.suppress(900)  # 15 Minuten
+                har.suppress("sat", "main", duration_seconds=900)  # 15 Minuten
                 logger.info("Health-Auto-Restart für 15 Min unterdrückt")
 
             # Schritt 2: Server stoppen (falls noch aktiv)
