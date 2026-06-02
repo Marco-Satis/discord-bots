@@ -44,6 +44,9 @@ class UpdateChecker:
 
         # Callback: async def callback(installed_build, available_build)
         self.on_update_available: Optional[Callable[[str, str], Awaitable]] = None
+        # Build, fuer die zuletzt benachrichtigt wurde (Notify-Dedup gegen Spam
+        # durch parallele Checker/Loops). Reset wenn kein Update mehr verfuegbar.
+        self._notified_buildid: Optional[str] = None
 
     async def check(self) -> Tuple[bool, Dict[str, Any]]:
         """
@@ -71,17 +74,22 @@ class UpdateChecker:
         if installed and available and installed != available:
             self.update_available = True
             info["update_available"] = True
-            logger.info(
-                f"Update available! Installed: {installed}, Available: {available}"
-            )
 
-            if self.on_update_available:
-                try:
-                    await self.on_update_available(installed, available)
-                except Exception as e:
-                    logger.error(f"Update callback error: {e}")
+            # Notify nur bei NEUER verfuegbarer Build (State-Change), nicht bei
+            # jedem Check -> verhindert Mehrfach-Spam durch parallele Checker/Loops.
+            if available != self._notified_buildid:
+                logger.info(
+                    f"Update available! Installed: {installed}, Available: {available}"
+                )
+                self._notified_buildid = available
+                if self.on_update_available:
+                    try:
+                        await self.on_update_available(installed, available)
+                    except Exception as e:
+                        logger.error(f"Update callback error: {e}")
         else:
             self.update_available = False
+            self._notified_buildid = None
 
         return self.update_available, info
 
