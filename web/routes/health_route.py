@@ -11,6 +11,7 @@ Systeme (Uptime Robot, Healthcheck.io etc.). Geben nur Status-Daten aus,
 keine Writes. Rate-Limiting + IP-Allowlist in Plan v1.3 / v1.4.
 """
 
+import asyncio
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -181,17 +182,21 @@ async def health_check() -> JSONResponse:
         JSON mit Gesamtstatus und Server-Details.
         HTTP 200 wenn alles OK, HTTP 503 wenn Server down.
     """
-    servers: list[dict] = []
+    # Alle File-Reads parallel via to_thread (kein Event-Loop-Block).
+    # Public-Health-Endpoint, hohe Hit-Rate von externen Monitoring-Tools.
+    server_files = [config["file"] for config in SERVER_STATUS_FILES]
+    bot_files = [GAMESERVER_DATA_DIR / "bot_status.json", MONITOR_DATA_DIR / "bot_status.json"]
+    all_results = await asyncio.gather(
+        *(asyncio.to_thread(_read_status_file, f) for f in server_files + bot_files),
+    )
+    server_data_list = all_results[: len(server_files)]
+    bot_data_list = all_results[len(server_files):]
 
-    # Server-Status-Dateien lesen
-    for config in SERVER_STATUS_FILES:
-        data = _read_status_file(config["file"])
-        entry = _build_server_entry(config, data)
-        servers.append(entry)
-
-    # Bot-Status lesen (GameServer Bot)
-    gameserver_bot_status = _read_status_file(GAMESERVER_DATA_DIR / "bot_status.json")
-    monitor_bot_status = _read_status_file(MONITOR_DATA_DIR / "bot_status.json")
+    servers: list[dict] = [
+        _build_server_entry(config, data)
+        for config, data in zip(SERVER_STATUS_FILES, server_data_list)
+    ]
+    gameserver_bot_status, monitor_bot_status = bot_data_list
 
     # Gesamtstatus bestimmen
     overall_status = _determine_overall_status(servers)
@@ -268,7 +273,7 @@ async def health_selftest() -> JSONResponse:
 @router.get("/api/health/auto-restart")
 async def health_auto_restart() -> JSONResponse:
     """F27: Gibt den Status der Health-Auto-Restart-Ueberwachung zurueck."""
-    data = _read_status_file(MONITOR_DATA_DIR / "health_auto_restart.json")
+    data = await asyncio.to_thread(_read_status_file, MONITOR_DATA_DIR / "health_auto_restart.json")
     if data is None:
         return JSONResponse(content={"status": "unknown", "message": "Keine Daten"}, status_code=200)
     return JSONResponse(content=data)
@@ -281,7 +286,7 @@ async def health_auto_restart() -> JSONResponse:
 @router.get("/api/health/disk")
 async def health_disk() -> JSONResponse:
     """F49: Gibt den aktuellen Festplatten-Status zurueck."""
-    data = _read_status_file(MONITOR_DATA_DIR / "disk_guard.json")
+    data = await asyncio.to_thread(_read_status_file, MONITOR_DATA_DIR / "disk_guard.json")
     if data is None:
         return JSONResponse(content={"status": "unknown", "message": "Keine Daten"}, status_code=200)
     return JSONResponse(content=data)
@@ -294,7 +299,7 @@ async def health_disk() -> JSONResponse:
 @router.get("/api/health/services")
 async def health_services() -> JSONResponse:
     """F50: Gibt den Status der ueberwachten Services zurueck."""
-    data = _read_status_file(MONITOR_DATA_DIR / "service_watchdog.json")
+    data = await asyncio.to_thread(_read_status_file, MONITOR_DATA_DIR / "service_watchdog.json")
     if data is None:
         return JSONResponse(content={"status": "unknown", "message": "Keine Daten"}, status_code=200)
     return JSONResponse(content=data)
@@ -307,7 +312,7 @@ async def health_services() -> JSONResponse:
 @router.get("/api/health/dns")
 async def health_dns() -> JSONResponse:
     """F51: Gibt den DuckDNS DNS-Check-Status zurueck."""
-    data = _read_status_file(MONITOR_DATA_DIR / "duckdns_monitor.json")
+    data = await asyncio.to_thread(_read_status_file, MONITOR_DATA_DIR / "duckdns_monitor.json")
     if data is None:
         return JSONResponse(content={"status": "unknown", "message": "Keine Daten"}, status_code=200)
     return JSONResponse(content=data)
@@ -320,7 +325,7 @@ async def health_dns() -> JSONResponse:
 @router.get("/api/health/ports")
 async def health_ports() -> JSONResponse:
     """F52: Gibt den Port-Monitor-Status zurueck."""
-    data = _read_status_file(MONITOR_DATA_DIR / "port_monitor.json")
+    data = await asyncio.to_thread(_read_status_file, MONITOR_DATA_DIR / "port_monitor.json")
     if data is None:
         return JSONResponse(content={"status": "unknown", "message": "Keine Daten"}, status_code=200)
     return JSONResponse(content=data)

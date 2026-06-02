@@ -1,10 +1,10 @@
 """
-Disk Guard Module (F49) - Ueberwacht freien Speicherplatz und raeumte automatisch auf.
-Background-Task prueft alle 10 Minuten den Speicherplatz und reagiert in drei Stufen:
+Disk Guard Module (F49) - Überwacht freien Speicherplatz und räumte automatisch auf.
+Background-Task prüft alle 10 Minuten den Speicherplatz und reagiert in drei Stufen:
   Stufe 1 (<20% frei): Admin-Benachrichtigung
-  Stufe 2 (<10% frei): Automatisches Loeschen alter Logs/Backups/Temp-Dateien
+  Stufe 2 (<10% frei): Automatisches Löschen alter Logs/Backups/Temp-Dateien
   Stufe 3 (<5% frei): Kritische Warnung an alle Admins
-NIEMALS aktive Savegames oder Config-Dateien loeschen.
+NIEMALS aktive Savegames oder Config-Dateien löschen.
 """
 
 import asyncio
@@ -26,7 +26,7 @@ COLOR_ERROR: int = 0xE74C3C
 COLOR_SUCCESS: int = 0x2ECC71
 COLOR_INFO: int = 0x5865F2
 
-# Geschuetzte Verzeichnis-Muster (werden NIEMALS geloescht)
+# Geschützte Verzeichnis-Muster (werden NIEMALS gelöscht)
 PROTECTED_PATTERNS: tuple[str, ...] = (
     "SaveGames",
     "savegames",
@@ -40,8 +40,8 @@ PROTECTED_PATTERNS: tuple[str, ...] = (
 
 class DiskGuard:
     """
-    Ueberwacht den Festplatten-Speicherplatz und fuehrt bei Engpaessen
-    automatisch gestufte Aufraeumaktionen durch.
+    Überwacht den Festplatten-Speicherplatz und führt bei Engpässen
+    automatisch gestufte Aufräumaktionen durch.
 
     Usage:
         guard = DiskGuard(bot)
@@ -108,7 +108,7 @@ class DiskGuard:
             logger.info("DiskGuard Background-Task gestoppt")
 
     async def _loop(self) -> None:
-        """Endlos-Schleife: Prueft alle check_interval Sekunden den Speicherplatz."""
+        """Endlos-Schleife: Prüft alle check_interval Sekunden den Speicherplatz."""
         try:
             while True:
                 try:
@@ -117,7 +117,7 @@ class DiskGuard:
                 except asyncio.CancelledError:
                     raise
                 except OSError as e:
-                    logger.error(f"DiskGuard Pruefung fehlgeschlagen: {e}")
+                    logger.error(f"DiskGuard Prüfung fehlgeschlagen: {e}")
                 except RuntimeError as e:
                     logger.error(f"DiskGuard Runtime-Fehler: {e}")
 
@@ -126,12 +126,12 @@ class DiskGuard:
             logger.info("DiskGuard Loop beendet")
 
     # ------------------------------------------------------------------
-    # Haupt-Pruefmethode
+    # Haupt-Prüfmethode
     # ------------------------------------------------------------------
 
     async def check_disk(self) -> Dict[str, Any]:
         """
-        Prueft den aktuellen Speicherplatz und gibt einen Status-Dict zurueck.
+        Prüft den aktuellen Speicherplatz und gibt einen Status-Dict zurück.
 
         Returns:
             dict mit Keys:
@@ -180,7 +180,7 @@ class DiskGuard:
     # ------------------------------------------------------------------
 
     async def _handle_result(self, result: Dict[str, Any]) -> None:
-        """Reagiert abhaengig von der Stufe auf das Pruefergebnis."""
+        """Reagiert abhängig von der Stufe auf das Prüfungsergebnis."""
         level: str = result["level"]
 
         if level == "ok":
@@ -224,7 +224,7 @@ class DiskGuard:
                     await self.on_critical(result)
 
     def _should_alert(self, alert_type: str) -> bool:
-        """Prueft ob ein Alert gesendet werden soll (Cooldown-basiert)."""
+        """Prüft ob ein Alert gesendet werden soll (Cooldown-basiert)."""
         now = datetime.now()
         last: Optional[datetime] = self._last_alert_time.get(alert_type)
 
@@ -239,10 +239,10 @@ class DiskGuard:
 
     async def _auto_cleanup(self) -> Dict[str, Any]:
         """
-        Fuehrt automatische Bereinigung in definierter Reihenfolge durch:
-        1. Alte Logs loeschen
-        2. Alte lokale Backups loeschen
-        3. Temp-Dateien loeschen
+        Führt automatische Bereinigung in definierter Reihenfolge durch:
+        1. Alte Logs löschen
+        2. Alte lokale Backups löschen
+        3. Temp-Dateien löschen
         NIEMALS aktive Savegames oder Config-Dateien.
 
         Returns:
@@ -283,14 +283,14 @@ class DiskGuard:
 
         logger.info(
             f"Bereinigung abgeschlossen: {logs_deleted} Logs, "
-            f"{backups_deleted} Backups, {temp_deleted} Temp-Dateien geloescht. "
+            f"{backups_deleted} Backups, {temp_deleted} Temp-Dateien gelöscht. "
             f"{summary['space_freed_mb']} MB freigegeben"
         )
 
         return summary
 
     def _delete_old_logs(self) -> int:
-        """Loescht Log-Dateien aelter als log_max_age_days."""
+        """Löscht Log-Dateien älter als log_max_age_days."""
         if not self.log_dir.exists():
             return 0
 
@@ -308,14 +308,14 @@ class DiskGuard:
                     if mtime < cutoff:
                         log_file.unlink()
                         count += 1
-                        logger.debug(f"Alte Log-Datei geloescht: {log_file.name}")
+                        logger.debug(f"Alte Log-Datei gelöscht: {log_file.name}")
                 except OSError as e:
-                    logger.debug(f"Fehler beim Loeschen von {log_file}: {e}")
+                    logger.debug(f"Fehler beim Löschen von {log_file}: {e}")
 
         return count
 
     def _delete_old_backups(self) -> int:
-        """Loescht lokale Backup-Dateien aelter als backup_max_age_days."""
+        """Löscht lokale Backup-Dateien älter als backup_max_age_days."""
         if not self.backup_dir.exists():
             return 0
 
@@ -332,14 +332,14 @@ class DiskGuard:
                     if mtime < cutoff:
                         backup_file.unlink()
                         count += 1
-                        logger.debug(f"Altes Backup geloescht: {backup_file.name}")
+                        logger.debug(f"Altes Backup gelöscht: {backup_file.name}")
                 except OSError as e:
-                    logger.debug(f"Fehler beim Loeschen von {backup_file}: {e}")
+                    logger.debug(f"Fehler beim Löschen von {backup_file}: {e}")
 
         return count
 
     def _delete_temp_files(self) -> int:
-        """Loescht alle Dateien im Temp-Verzeichnis."""
+        """Löscht alle Dateien im Temp-Verzeichnis."""
         if not self.temp_dir.exists():
             return 0
 
@@ -349,15 +349,15 @@ class DiskGuard:
                 try:
                     temp_file.unlink()
                     count += 1
-                    logger.debug(f"Temp-Datei geloescht: {temp_file.name}")
+                    logger.debug(f"Temp-Datei gelöscht: {temp_file.name}")
                 except OSError as e:
-                    logger.debug(f"Fehler beim Loeschen von {temp_file}: {e}")
+                    logger.debug(f"Fehler beim Löschen von {temp_file}: {e}")
 
         return count
 
     @staticmethod
     def _is_protected(path: Path) -> bool:
-        """Prueft ob eine Datei oder ein Pfad geschuetzt ist (Savegames, Config)."""
+        """Prüft ob eine Datei oder ein Pfad geschützt ist (Savegames, Config)."""
         path_str: str = str(path)
         for pattern in PROTECTED_PATTERNS:
             if pattern in path_str:
@@ -369,7 +369,7 @@ class DiskGuard:
     # ------------------------------------------------------------------
 
     def get_embed_color(self, level: str) -> int:
-        """Gibt die passende Embed-Farbe fuer eine Stufe zurueck."""
+        """Gibt die passende Embed-Farbe für eine Stufe zurück."""
         colors: Dict[str, int] = {
             "ok": COLOR_SUCCESS,
             "warning": COLOR_WARNING,
@@ -383,7 +383,7 @@ class DiskGuard:
         level_labels: Dict[str, str] = {
             "ok": "OK",
             "warning": "Warnung",
-            "cleanup": "Bereinigung noetig",
+            "cleanup": "Bereinigung nötig",
             "critical": "KRITISCH",
         }
         label: str = level_labels.get(result["level"], result["level"])
@@ -399,9 +399,9 @@ class DiskGuard:
             actions: Dict[str, Any] = result["cleanup_actions"]
             lines.append("")
             lines.append("**Bereinigung:**")
-            lines.append(f"Logs geloescht: {actions['logs_deleted']}")
-            lines.append(f"Backups geloescht: {actions['backups_deleted']}")
-            lines.append(f"Temp geloescht: {actions['temp_deleted']}")
+            lines.append(f"Logs gelöscht: {actions['logs_deleted']}")
+            lines.append(f"Backups gelöscht: {actions['backups_deleted']}")
+            lines.append(f"Temp gelöscht: {actions['temp_deleted']}")
             lines.append(f"Freigegeben: {actions['space_freed_mb']} MB")
 
         return "\n".join(lines)

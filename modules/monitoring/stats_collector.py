@@ -1,7 +1,7 @@
 """
 Stats Collector — Sammelt periodisch System- und Server-Metriken.
 
-Laeuft als Hintergrund-Task im Monitor Bot und schreibt Daten
+Läuft als Hintergrund-Task im Monitor Bot und schreibt Daten
 in die SQLite-Datenbank (Tabelle stats_history).
 """
 
@@ -18,7 +18,7 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-# Maximale Anzahl Eintraege im Ringbuffer
+# Maximale Anzahl Einträge im Ringbuffer
 # 30 Tage * 24 Stunden * 60 Minuten / 5 Minuten Intervall = 8640
 MAX_ENTRIES = 8640
 
@@ -54,19 +54,19 @@ class StatsCollector:
 
     def _save_history(self, entry: dict) -> None:
         """
-        Fuegt einen neuen Eintrag zum In-Memory-Ringbuffer hinzu (Cache).
+        Fügt einen neuen Eintrag zum In-Memory-Ringbuffer hinzu (Cache).
 
         Args:
             entry: Der neue Metrik-Eintrag mit Timestamp, System- und Server-Daten
         """
         self._history["entries"].append(entry)
 
-        # Ringbuffer: Aelteste Eintraege entfernen wenn Maximum ueberschritten
+        # Ringbuffer: Älteste Einträge entfernen wenn Maximum überschritten
         max_entries = self._history.get("max_entries", MAX_ENTRIES)
         if len(self._history["entries"]) > max_entries:
             overflow = len(self._history["entries"]) - max_entries
             self._history["entries"] = self._history["entries"][overflow:]
-            logger.debug(f"Ringbuffer getrimmt: {overflow} alte Eintraege entfernt")
+            logger.debug(f"Ringbuffer getrimmt: {overflow} alte Einträge entfernt")
 
     def _collect_system_stats(self) -> dict:
         """
@@ -100,7 +100,7 @@ class StatsCollector:
             stats["disk_used_gb"] = round(disk.used / (1024 ** 3), 1)
 
         except ImportError:
-            logger.debug("psutil nicht installiert — System-Stats nicht verfuegbar")
+            logger.debug("psutil nicht installiert — System-Stats nicht verfügbar")
         except Exception as e:
             logger.warning(f"Fehler beim Sammeln der System-Stats: {e}")
 
@@ -192,7 +192,7 @@ class StatsCollector:
 
     async def collect_once(self) -> dict:
         """
-        Fuehrt eine einzelne Sammelrunde durch — sammelt System- und
+        Führt eine einzelne Sammelrunde durch — sammelt System- und
         Server-Metriken, speichert in SQLite und im In-Memory-Cache.
 
         Returns:
@@ -229,7 +229,7 @@ class StatsCollector:
     async def start(self) -> None:
         """Startet die periodische Sammlung als Hintergrund-Task."""
         if self._running:
-            logger.warning("StatsCollector laeuft bereits")
+            logger.warning("StatsCollector läuft bereits")
             return
 
         self._running = True
@@ -250,7 +250,7 @@ class StatsCollector:
         logger.info("StatsCollector gestoppt")
 
     async def _collection_loop(self) -> None:
-        """Interne Sammelschleife — laeuft bis stop() aufgerufen wird."""
+        """Interne Sammelschleife — läuft bis stop() aufgerufen wird."""
         logger.info("Stats-Sammelschleife gestartet")
 
         while self._running:
@@ -259,7 +259,7 @@ class StatsCollector:
             except Exception as e:
                 logger.error(f"Fehler in der Sammelschleife: {e}", exc_info=True)
 
-            # Warten bis zum naechsten Intervall
+            # Warten bis zum nächsten Intervall
             try:
                 await asyncio.sleep(self.interval)
             except asyncio.CancelledError:
@@ -269,8 +269,8 @@ class StatsCollector:
 
     def get_history(self) -> dict:
         """
-        Gibt die In-Memory Stats-Historie zurueck (Cache).
-        Fuer DB-Abfragen get_entries_from_db() verwenden.
+        Gibt die In-Memory Stats-Historie zurück (Cache).
+        Für DB-Abfragen get_entries_from_db() verwenden.
 
         Returns:
             Dict mit 'entries' (Liste) und 'max_entries' (int)
@@ -279,24 +279,24 @@ class StatsCollector:
 
     def get_entries(self) -> list[dict]:
         """
-        Gibt die Eintrags-Liste aus dem In-Memory-Cache zurueck.
-        Fuer DB-Abfragen get_entries_from_db() verwenden.
+        Gibt die Eintrags-Liste aus dem In-Memory-Cache zurück.
+        Für DB-Abfragen get_entries_from_db() verwenden.
 
         Returns:
-            Liste aller gecachten Metrik-Eintraege
+            Liste aller gecachten Metrik-Einträge
         """
         return self._history.get("entries", [])
 
     async def get_entries_from_db(self, limit: int = 8640) -> list[dict]:
         """
-        Liest Metrik-Eintraege direkt aus der SQLite-Datenbank.
-        Primaere Lesemethode fuer Dashboard-Abfragen.
+        Liest Metrik-Einträge direkt aus der SQLite-Datenbank.
+        Primäre Lesemethode für Dashboard-Abfragen.
 
         Args:
-            limit: Maximale Anzahl Eintraege (Standard: 8640 = 30 Tage)
+            limit: Maximale Anzahl Einträge (Standard: 8640 = 30 Tage)
 
         Returns:
-            Liste von Metrik-Eintraegen im gleichen Format wie get_entries()
+            Liste von Metrik-Einträgen im gleichen Format wie get_entries()
         """
         try:
             db = await get_db()
@@ -342,5 +342,5 @@ class StatsCollector:
             return self._history.get("entries", [])
 
     def get_entry_count(self) -> int:
-        """Gibt die Anzahl der gespeicherten Eintraege im Cache zurueck."""
+        """Gibt die Anzahl der gespeicherten Einträge im Cache zurück."""
         return len(self._history.get("entries", []))

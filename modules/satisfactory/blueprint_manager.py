@@ -61,7 +61,7 @@ class BlueprintManager:
         return self.active_world_path
 
     def _detect_active_world(self) -> str:
-        """Erkennt den aktiven Welt-Ordner (neuester nach Aenderungszeit).
+        """Erkennt den aktiven Welt-Ordner (neuester nach Änderungszeit).
         Cached das Ergebnis in _active_world."""
         try:
             if not self.base_path.exists():
@@ -567,7 +567,7 @@ class BlueprintManager:
             return False, f"Blueprint '{name}' nicht gefunden."
 
         if not is_admin and bp["uploader_id"] != deleted_by_id:
-            return False, "Du kannst nur eigene Blueprints loeschen!"
+            return False, "Du kannst nur eigene Blueprints löschen!"
 
         # Remove files from ALL world directories
         deleted_from = []
@@ -603,7 +603,7 @@ class BlueprintManager:
             f"Blueprint deleted: {name} by user {deleted_by_id} "
             f"from worlds: {', '.join(deleted_from)}"
         )
-        return True, f"Blueprint '{name}' geloescht!"
+        return True, f"Blueprint '{name}' gelöscht!"
 
     def list_from_filesystem(self) -> List[Dict[str, Any]]:
         """Liest alle Blueprints direkt vom Dateisystem (aktive Welt).
@@ -655,7 +655,7 @@ class BlueprintManager:
         ))
 
     async def delete_by_name(self, name: str) -> Tuple[bool, str]:
-        """Loescht einen Blueprint (sbp+sbpcfg) aus ALLEN Welten. Keine Rechte-Pruefung."""
+        """Löscht einen Blueprint (sbp+sbpcfg) aus ALLEN Welten. Keine Rechte-Prüfung."""
         deleted_from = []
         for world_dir in self.base_path.iterdir():
             if not world_dir.is_dir():
@@ -686,7 +686,7 @@ class BlueprintManager:
         await self._save()
 
         logger.info(f"Blueprint deleted: {name} from worlds: {', '.join(deleted_from)}")
-        return True, f"Blueprint '{name}' geloescht (aus {len(deleted_from)} Welten)!"
+        return True, f"Blueprint '{name}' gelöscht (aus {len(deleted_from)} Welten)!"
 
     def count(self, category: Optional[str] = None) -> int:
         if category:

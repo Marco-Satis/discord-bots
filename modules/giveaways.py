@@ -7,7 +7,7 @@ Persistenz: SQLite giveaways + giveaway_participants Tabellen (alleinige Datenqu
 from __future__ import annotations
 
 import asyncio
-import random
+import secrets
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
@@ -16,6 +16,10 @@ from utils.async_tasks import schedule_from_sync
 from modules.database.db_manager import get_db
 
 logger = get_logger("modules.giveaways")
+
+# secrets.SystemRandom() liefert kryptographisch sichere Zufallszahlen
+# (Defense-in-Depth fuer Giveaway-Winner-Auswahl, verhindert prediction-attacks).
+_rand = secrets.SystemRandom()
 
 
 class GiveawayManager:
@@ -520,8 +524,8 @@ class GiveawayManager:
             )
             return True, []
 
-        # Neue Gewinner ziehen
-        new_winners = random.sample(eligible, min(winners_count, len(eligible)))
+        # Neue Gewinner ziehen (kryptographisch sicher, kein PRNG-prediction)
+        new_winners = _rand.sample(eligible, min(winners_count, len(eligible)))
 
         # Gewinner aktualisieren
         giveaway["winner_ids"] = new_winners
@@ -675,7 +679,7 @@ class GiveawayManager:
         # Nicht mehr Gewinner als Teilnehmer
         count = min(winners_count, len(participants))
 
-        winners = random.sample(participants, count)
+        winners = _rand.sample(participants, count)
         return winners
 
     def cleanup_old(self, max_age_days: int = 30) -> int:

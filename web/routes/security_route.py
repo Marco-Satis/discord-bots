@@ -331,8 +331,16 @@ async def api_unban_ip(request: Request, current_user: dict = Depends(require_au
         elif source == "fail2ban":
             jail = str(form.get("jail", "")).strip()
             if not jail:
-                # Versuche alle bekannten Jails
+                # Versuche default Jail
                 jail = "sshd"
+
+            # Defense-in-Depth: jail muss alphanumerisch + dash/underscore sein
+            # (fail2ban-jails haben Konvention "sshd", "minecraft-bmc", "nginx-auth").
+            # Verhindert command-injection ueber form-data trotz subprocess_exec.
+            if not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,31}$", jail):
+                return HTMLResponse(
+                    f'<div class="alert alert-danger">Ungueltiger Jail-Name: {html.escape(jail[:50])}</div>'
+                )
 
             proc = await asyncio.create_subprocess_exec(
                 "sudo", "fail2ban-client", "set", jail, "unbanip", ip,

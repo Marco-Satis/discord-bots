@@ -18,11 +18,11 @@ async def should_send_alert(
     alert_type: str, target: str, min_interval_minutes: int = 30
 ) -> bool:
     """
-    Prueft ob ein Alert gesendet werden soll oder unterdrueckt wird.
+    Prüft ob ein Alert gesendet werden soll oder unterdrückt wird.
 
     - Kein unresolved Alert vorhanden: INSERT + return True
-    - Unresolved Alert vorhanden, aber aelter als min_interval: UPDATE + return True
-    - Unresolved Alert vorhanden und noch im Zeitfenster: return False (unterdruecken)
+    - Unresolved Alert vorhanden, aber älter als min_interval: UPDATE + return True
+    - Unresolved Alert vorhanden und noch im Zeitfenster: return False (unterdrücken)
     - Bei DB-Fehler: return True (fail-open)
 
     Args:
@@ -31,7 +31,7 @@ async def should_send_alert(
         min_interval_minutes: Mindestabstand zwischen gleichen Alerts
 
     Returns:
-        True wenn der Alert gesendet werden soll, False wenn unterdrueckt
+        True wenn der Alert gesendet werden soll, False wenn unterdrückt
     """
     try:
         db = await get_db()
@@ -75,9 +75,9 @@ async def should_send_alert(
             )
             return True
 
-        # Noch im Zeitfenster — unterdruecken
+        # Noch im Zeitfenster — unterdrücken
         logger.debug(
-            "Alert unterdrueckt: type=%s target=%s (letzte Sendung: %s)",
+            "Alert unterdrückt: type=%s target=%s (letzte Sendung: %s)",
             alert_type,
             target,
             last_sent,
@@ -141,7 +141,7 @@ async def get_active_alerts() -> list[dict]:
 
 async def cleanup_old_alerts(days: int = 30) -> int:
     """
-    Loescht resolved Alerts die aelter als X Tage sind.
+    Löscht resolved Alerts die älter als X Tage sind.
 
     Args:
         days: Alter in Tagen ab dem geloescht wird

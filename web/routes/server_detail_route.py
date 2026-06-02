@@ -465,6 +465,23 @@ async def server_action(request: Request, server_id: str, current_user: dict = D
                     </div>
                 """)
 
+            # Defense-in-Depth: IP-Format-Re-Check (CWE-20).
+            # DB-Inhalt koennte korrupt sein (manueller Eingriff, Migration), und
+            # iptables-Argument muss strikt IPv4 oder IPv6 sein, sonst command-injection.
+            try:
+                import ipaddress
+                _validated = ipaddress.ip_address(player_ip)
+                player_ip = str(_validated)  # normalisierte Form
+            except (ValueError, TypeError):
+                logger.error(f"DB-IP fuer {target} ist kein valides IP-Format: {player_ip!r}")
+                return HTMLResponse(content=f"""
+                    <div class="alert alert-danger">
+                        <strong>IP-Validierung fehlgeschlagen:</strong> Die in der DB gespeicherte
+                        IP-Adresse fuer {safe_target} ist kein gueltiges IPv4/IPv6-Format.
+                        Aktion abgebrochen (Defense-in-Depth).
+                    </div>
+                """, status_code=400)
+
             # --- Hilfsfunktionen: iptables REJECT (sofortige Trennung) ---
             async def _run_cmd(*args: str) -> tuple[int, str]:
                 """Fuehrt einen Shell-Befehl aus. Returns (returncode, stderr)."""

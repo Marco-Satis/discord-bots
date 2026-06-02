@@ -1,0 +1,136 @@
+{# uPlot Performance-Demo (Migration-Pilot 2026-05-16)
+   ===================================================
+   Vorlage fuer Migration Chart.js -> uPlot bei Live-Streaming-Charts.
+
+   Vorteil uPlot: 60fps bei ~10% CPU vs Chart.js ~30-40% bei selber Last.
+   Use-Cases im Marcos Dashboard: analytics (CPU/RAM), forecast (Prediction),
+   correlation (Heatmap nicht moeglich in uPlot — nur Line/Bar).
+
+   API-Unterschiede zu Chart.js:
+     - Daten: 2D-Array [xValues[], serie1[], serie2[]] statt Objekt-Datasets
+     - Optionen: opts.series[].stroke statt borderColor
+     - Resize: uPlot setSize({width, height}) manuell, Chart.js auto
+
+   uPlot CDN bereits in base.html eingebunden (uPlot 1.6.30).
+#}
+
+<div class="uplot-perf-demo">
+    <h3>Performance-Chart (uPlot-Pilot)</h3>
+    <div id="uplot-perf-container" style="width: 100%; height: 320px;"></div>
+    <button type="button" id="uplot-perf-load" class="btn btn-primary">Daten laden</button>
+    <small class="text-muted">
+        Migration-Pilot: vergleicht Performance gegen Chart.js-Variante in analytics.html.
+        DevTools -> Performance-Tab oeffnen, Aufnahme starten, "Daten laden" klicken.
+    </small>
+</div>
+
+<script>
+(function() {
+    'use strict';
+
+    const CONTAINER_ID = 'uplot-perf-container';
+    const ENDPOINT = '/api/analytics/system?period=24h';
+
+    let chart = null;
+
+    function buildOpts(width) {
+        return {
+            width: width,
+            height: 320,
+            cursor: {
+                drag: { setScale: true }
+            },
+            series: [
+                { label: 'Zeit' },
+                {
+                    label: 'CPU %',
+                    stroke: 'rgb(220, 53, 69)',
+                    fill: 'rgba(220, 53, 69, 0.1)',
+                    width: 2,
+                    points: { show: false }
+                },
+                {
+                    label: 'RAM %',
+                    stroke: 'rgb(13, 110, 253)',
+                    fill: 'rgba(13, 110, 253, 0.1)',
+                    width: 2,
+                    points: { show: false }
+                }
+            ],
+            axes: [
+                {
+                    grid: { stroke: 'rgba(128, 128, 128, 0.1)' }
+                },
+                {
+                    label: '%',
+                    grid: { stroke: 'rgba(128, 128, 128, 0.1)' },
+                    values: (u, vals) => vals.map(v => v.toFixed(0) + '%')
+                }
+            ],
+            scales: {
+                y: { range: [0, 100] }
+            }
+        };
+    }
+
+    async function loadData() {
+        const container = document.getElementById(CONTAINER_ID);
+        if (!container) {
+            console.error('[uPlot-Demo] Container nicht gefunden');
+            return;
+        }
+
+        try {
+            const resp = await fetch(ENDPOINT);
+            if (!resp.ok) {
+                console.error('[uPlot-Demo] API-Fehler: ' + resp.status);
+                return;
+            }
+            const apiData = await resp.json();
+
+            // Chart.js-Format -> uPlot-Format konvertieren
+            // Chart.js: { labels: [...], datasets: [{ data: [...] }, { data: [...] }] }
+            // uPlot:    [ [xValues...], [serie1...], [serie2...] ]
+            const labels = apiData.labels || [];
+            const cpuData = apiData.datasets?.[0]?.data || [];
+            const ramData = apiData.datasets?.[1]?.data || [];
+
+            // Labels sind Strings (z.B. "12:00"); uPlot braucht Unix-Timestamps oder Numbers
+            // Vereinfacht: Index als x-Achse (0,1,2,...). Bei echten Timestamps: Date.parse() nutzen.
+            const xValues = labels.map((_, i) => i);
+
+            const uplotData = [xValues, cpuData, ramData];
+
+            // Existierenden Chart zerstoeren
+            if (chart) {
+                chart.destroy();
+                chart = null;
+            }
+
+            // Neuen Chart bauen
+            const opts = buildOpts(container.offsetWidth);
+            chart = new uPlot(opts, uplotData, container);
+
+            console.log('[uPlot-Demo] Geladen: ' + xValues.length + ' Datenpunkte');
+        } catch (e) {
+            console.error('[uPlot-Demo] Fehler:', e);
+        }
+    }
+
+    // Resize-Handler
+    window.addEventListener('resize', function() {
+        if (chart) {
+            const container = document.getElementById(CONTAINER_ID);
+            chart.setSize({ width: container.offsetWidth, height: 320 });
+        }
+    });
+
+    // Click-Handler
+    document.addEventListener('DOMContentLoaded', function() {
+        const btn = document.getElementById('uplot-perf-load');
+        if (btn) {
+            btn.addEventListener('click', loadData);
+        }
+    });
+})();
+</script>

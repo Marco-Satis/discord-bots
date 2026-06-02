@@ -216,19 +216,21 @@ sudo systemctl restart gameserver-bot admin-bot web-dashboard
 
 ## D. Bekannte Bugs (niedrigere Priorität)
 
-| Bug | Prio | Beschreibung |
-|-----|------|-------------|
-| SAT CPU/RAM zeigt 0 | 2 | psutil AccessDenied, /proc-Fallback fehlerhaft |
-| Spieler-Online-Chart | 3 | Nach StatsCollector-Fix nicht verifiziert |
-| RCON BMC sporadisch | 3 | Retry-Logik vorhanden, beobachten |
-| MC Vanilla offline | 3 | Entscheidung offen |
-| Unbekannte Ports | 3 | 8081, 8888, 9090 |
+| Bug | Prio | Beschreibung | Status |
+|-----|------|-------------|--------|
+| ~~SAT CPU/RAM zeigt 0~~ | 2 | psutil fand Wrapper statt Game-Prozess | **GEFIXT v4.1.0** |
+| Spieler-Online-Chart | 3 | StatsCollector laeuft, fuellt sich ueber Zeit | OK — beobachten |
+| RCON BMC sporadisch | 3 | 0 Fehler in 2h, Retry-Logik funktioniert | OK — beobachten |
+| ~~MC Vanilla offline~~ | 3 | Server laeuft, RCON antwortet | **OK** |
+| ~~Unbekannte Ports~~ | 3 | 8081=Nginx, 8888=SAT RCON, 9090=Webmin | **DOKUMENTIERT** |
+| ~~CSRF-Bug~~ | 1 | session.user statt JWT-Cookie geprueft | **GEFIXT v4.1.0** |
 
 Chat-Bridge Bracket-Bug + Duplikate → in I3 integriert.
 
 ## E. Server-Cleanup (minor)
 
-Pycache (128 .pyc), Temp-Dateien, WEB_ADMIN_PASS_HASH, .env-Scanner blockieren, VERSION auf 4.1.0 nach Deployment
+~~Pycache (128 .pyc)~~ bereinigt, ~~VERSION auf 4.1.0~~ erledigt.
+Offen: Temp-Dateien, WEB_ADMIN_PASS_HASH, .env-Scanner blockieren
 
 ---
 

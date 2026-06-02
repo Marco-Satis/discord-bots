@@ -94,8 +94,8 @@ class PlayerIPTracker:
                  **kwargs) -> None:
         """
         Args:
-            game_type: "sat" fuer Satisfactory, "mc" fuer Minecraft
-            game_ports: Server ports to block (default abhaengig von game_type)
+            game_type: "sat" für Satisfactory, "mc" für Minecraft
+            game_ports: Server ports to block (default abhängig von game_type)
         """
         self.game_type: str = game_type
 
@@ -160,7 +160,7 @@ class PlayerIPTracker:
                 )
             else:
                 logger.info(
-                    f"Keine IP-Mappings in SQLite fuer {self.server_type} — starte leer"
+                    f"Keine IP-Mappings in SQLite für {self.server_type} — starte leer"
                 )
 
             # --- Load active bans ---
@@ -192,23 +192,23 @@ class PlayerIPTracker:
                 )
             else:
                 logger.info(
-                    f"Keine Bans in SQLite fuer {self.server_type} — starte leer"
+                    f"Keine Bans in SQLite für {self.server_type} — starte leer"
                 )
 
         except Exception as e:
             logger.warning(
-                f"SQLite-Lesefehler fuer {self.server_type}: {e}"
+                f"SQLite-Lesefehler für {self.server_type}: {e}"
             )
 
     def _save(self) -> None:
-        """No-op — alle Schreibvorgaenge gehen direkt nach SQLite."""
+        """No-op — alle Schreibvorgänge gehen direkt nach SQLite."""
         pass
 
     def process_log_line(self, line: str) -> None:
         """
         Process a single log line to extract player IP mappings.
         Call this for each new log line during monitoring.
-        Waehlt automatisch SAT- oder MC-Parser basierend auf game_type.
+        Wählt automatisch SAT- oder MC-Parser basierend auf game_type.
         """
         if self.game_type == "mc":
             self._process_mc_line(line)

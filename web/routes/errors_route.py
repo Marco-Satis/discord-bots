@@ -5,9 +5,11 @@ Liest die letzten Fehler und Warnungen aus den Bot-Log-Dateien
 und stellt sie in einer filterbaren Tabelle dar.
 """
 
+import asyncio
 import re
 from pathlib import Path
 
+import aiofiles
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -37,20 +39,23 @@ MAX_LINES_PER_FILE = 5000
 MAX_RESULTS = 200
 
 
-def _scan_log_file(log_path: Path) -> list[dict]:
+async def _scan_log_file(log_path: Path) -> list[dict]:
     """
     Scannt eine einzelne Log-Datei nach ERROR- und WARNING-Zeilen.
-    Liest die letzten MAX_LINES_PER_FILE Zeilen.
+    Liest die letzten MAX_LINES_PER_FILE Zeilen via aiofiles (non-blocking).
     """
     entries = []
     try:
-        if not log_path.exists() or log_path.stat().st_size == 0:
+        # exists()/stat() in to_thread, da bei Netzwerk-Mounts blocking moeglich.
+        st = await asyncio.to_thread(_safe_stat, log_path)
+        if st is None or st.st_size == 0:
             return entries
 
-        with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+        async with aiofiles.open(log_path, "r", encoding="utf-8", errors="replace") as f:
             # Letzte Zeilen lesen (effizient fuer grosse Dateien)
-            lines = f.readlines()
-            recent_lines = lines[-MAX_LINES_PER_FILE:]
+            content = await f.read()
+        lines = content.splitlines()
+        recent_lines = lines[-MAX_LINES_PER_FILE:]
 
         for line in recent_lines:
             line = line.strip()
@@ -70,9 +75,19 @@ def _scan_log_file(log_path: Path) -> list[dict]:
     return entries
 
 
-def _collect_all_errors(level_filter: str = "") -> list[dict]:
+def _safe_stat(p: Path):
+    """exists() + stat() Helper (sync), wird via to_thread aufgerufen."""
+    try:
+        if not p.exists():
+            return None
+        return p.stat()
+    except OSError:
+        return None
+
+
+async def _collect_all_errors(level_filter: str = "") -> list[dict]:
     """
-    Sammelt alle ERROR/WARNING-Eintraege aus allen Log-Dateien.
+    Sammelt alle ERROR/WARNING-Eintraege aus allen Log-Dateien (async, parallel).
 
     Args:
         level_filter: Optional "ERROR" oder "WARNING" zum Filtern.
@@ -83,10 +98,17 @@ def _collect_all_errors(level_filter: str = "") -> list[dict]:
         logger.debug(f"Log-Verzeichnis nicht gefunden: {LOG_DIR}")
         return all_entries
 
-    # Alle .log-Dateien durchsuchen
-    for log_file in sorted(LOG_DIR.glob("*.log")):
-        entries = _scan_log_file(log_file)
-        all_entries.extend(entries)
+    # Alle .log-Dateien parallel scannen (asyncio.gather statt sequentielle Schleife).
+    log_files = sorted(LOG_DIR.glob("*.log"))
+    results = await asyncio.gather(
+        *(_scan_log_file(lf) for lf in log_files),
+        return_exceptions=True,
+    )
+    for r in results:
+        if isinstance(r, Exception):
+            logger.warning(f"Scan-Task gescheitert: {r}")
+            continue
+        all_entries.extend(r)
 
     # Nach Level filtern falls gewuenscht
     if level_filter in ("ERROR", "WARNING"):
@@ -105,7 +127,7 @@ async def errors_page(request: Request, level: str = "", current_user: dict = De
     Fehler-Uebersicht mit optionalem Level-Filter.
     Unterstuetzt HTMX-Fragment-Anfragen fuer Auto-Refresh.
     """
-    entries = _collect_all_errors(level_filter=level.upper() if level else "")
+    entries = await _collect_all_errors(level_filter=level.upper() if level else "")
 
     # Pruefen ob es ein HTMX-Request ist (nur Tabellen-Fragment zurueckgeben)
     is_htmx = request.headers.get("HX-Request") == "true"

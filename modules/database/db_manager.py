@@ -15,6 +15,7 @@ Architektur (audit-fix 2026-05-17, perf.md F2):
 
 import asyncio
 import itertools
+import sqlite3
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, Union
 
@@ -38,6 +39,13 @@ READ_POOL_SIZE = 2
 _read_pool: list[aiosqlite.Connection] = []
 _read_pool_cycle: Optional["itertools.cycle"] = None
 _read_pool_lock = asyncio.Lock()
+
+# Write-Retry bei Cross-Prozess-Lock-Kollision (4 Prozesse teilen ein WAL-File).
+# busy_timeout=5000 deckt kurze Kollisionen ab; der Retry fängt den Fall ab,
+# dass ein anderer Prozess den Writer länger als busy_timeout hält und SQLite
+# "database is locked" wirft, statt den Fehler hart zum Caller durchzureichen.
+_WRITE_RETRIES = 2
+_WRITE_RETRY_BASE_DELAY = 0.05  # Sekunden, verdoppelt sich pro Versuch (50/100 ms)
 
 
 def get_db_path() -> Path:
@@ -294,7 +302,14 @@ class DBHelper:
     async def fetch_one(
         self, sql: str, params: Tuple = ()
     ) -> Optional[Dict[str, Any]]:
-        """Fuehrt eine Query aus und gibt die erste Zeile als dict zurueck."""
+        """
+        Fuehrt eine Query aus und gibt die erste Zeile als dict zurueck.
+
+        Kein Write-Retry wie in execute(): unter WAL blocken Reader nicht auf
+        Writer (konsistenter Snapshot aus dem WAL). Das einzige Lock-Fenster
+        fuer einen Read ist ein checkpoint(TRUNCATE), und das deckt
+        busy_timeout=5000 bereits ab — ein Retry waere hier toter Code.
+        """
         cursor = await self._conn.execute(sql, params)
         row = await cursor.fetchone()
         if row is None:
@@ -309,9 +324,37 @@ class DBHelper:
         """
         Fuehrt ein INSERT/UPDATE/DELETE aus und committet.
 
+        Bei "database is locked" (Cross-Prozess-Write-Kollision, die ueber
+        busy_timeout hinaus dauert) wird das Statement mit exponentiellem
+        Backoff bis zu _WRITE_RETRIES-mal neu versucht.
+
+        WICHTIG: Nur der execute()-Aufruf wird retryt, NICHT der commit().
+        Grund: Schlaegt execute() fehl, wurde nichts geschrieben — ein erneuter
+        Versuch ist sicher. Schlaegt dagegen commit() fehl, steckt der Write
+        bereits in der Transaktion; ein erneutes execute() wuerde ihn doppelt
+        anwenden (doppeltes INSERT, doppeltes UPDATE x=x+1). Kein rollback als
+        Ausweg: die Connection ist prozessweit geteilt, ein rollback wuerde die
+        parallele Transaktion eines anderen Callers verwerfen. commit()-Fehler
+        werden daher unveraendert zum Caller durchgereicht.
+
         Returns:
             lastrowid bei INSERT, sonst None
         """
-        cursor = await self._conn.execute(sql, params)
+        delay = _WRITE_RETRY_BASE_DELAY
+        for attempt in range(1, _WRITE_RETRIES + 1):
+            try:
+                cursor = await self._conn.execute(sql, params)
+                break
+            except sqlite3.OperationalError as e:
+                locked = "locked" in str(e).lower() or "busy" in str(e).lower()
+                if not locked or attempt == _WRITE_RETRIES:
+                    raise
+                logger.warning(
+                    f"DB gesperrt (Versuch {attempt}/{_WRITE_RETRIES}), "
+                    f"Retry in {delay * 1000:.0f}ms: {e}"
+                )
+                await asyncio.sleep(delay)
+                delay *= 2
+
         await self._conn.commit()
         return cursor.lastrowid

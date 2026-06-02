@@ -5,6 +5,7 @@ Zeigt Server-Status, Bot-Status, System-Performance und
 aktuelle Ereignisse in einer Kacheluebersicht an.
 """
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -94,7 +95,10 @@ def _collect_system_stats() -> dict:
     }
     try:
         import psutil
-        stats["cpu_percent"] = psutil.cpu_percent(interval=0.5)
+        # interval=None gibt den CPU%-Delta seit letztem Call zurueck (kein Block).
+        # Erster Call liefert 0.0; spaetere Calls liefern den realen Wert.
+        # Vermeidet 500ms Event-Loop-Block in async Hot-Path.
+        stats["cpu_percent"] = psutil.cpu_percent(interval=None)
 
         mem = psutil.virtual_memory()
         stats["ram_percent"] = mem.percent
@@ -191,10 +195,14 @@ async def dashboard_overview(request: Request, current_user: dict = Depends(requ
     Hauptseite des Dashboards mit Uebersicht aller Server,
     Bots und System-Performance.
     """
-    servers = _collect_server_status()
-    system_stats = _collect_system_stats()
-    bot_status = _collect_bot_status()
-    recent_events = await _collect_recent_events_db()
+    # File-I/O-Collector parallel via to_thread → kein Event-Loop-Block.
+    # Bei 3-5 _status.json-Files spart das ~10-50ms pro Request gegenueber sequentiell-sync.
+    servers, system_stats, bot_status, recent_events = await asyncio.gather(
+        asyncio.to_thread(_collect_server_status),
+        asyncio.to_thread(_collect_system_stats),
+        asyncio.to_thread(_collect_bot_status),
+        _collect_recent_events_db(),
+    )
 
     return templates.TemplateResponse("dashboard.html", {
         "request": request,

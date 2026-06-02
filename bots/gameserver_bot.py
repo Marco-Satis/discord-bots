@@ -145,6 +145,19 @@ if bot.mc_servers:
             server_id=_sid,
         )
 
+# ModpackUpdater fuer minecraft_cog (Versions-Check, Status-Abfrage)
+from modules.minecraft.modpack_updater import ModpackUpdater
+mc_modpack_updaters: dict[str, ModpackUpdater] = {}
+for _mc_sid in bot.mc_servers:
+    _mpu = ModpackUpdater.from_env(server_id=_mc_sid)
+    if _mpu.enabled:
+        mc_modpack_updaters[_mc_sid] = _mpu
+        logger.info(f"ModpackUpdater aktiviert: {_mc_sid} (v{_mpu.current_version})")
+    else:
+        logger.debug(f"ModpackUpdater fuer {_mc_sid} nicht konfiguriert — uebersprungen")
+bot.mc_modpack_updaters = mc_modpack_updaters
+bot.modpack_updater = mc_modpack_updaters.get("BMC", ModpackUpdater())
+
 # Phase 8e: MC Blacklist (serveruebergreifend)
 from modules.minecraft.blacklist import MinecraftBlacklist
 bot.mc_blacklist = MinecraftBlacklist()

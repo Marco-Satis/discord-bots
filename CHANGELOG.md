@@ -4,6 +4,22 @@ Alle relevanten Aenderungen am Discord Bot System werden hier dokumentiert.
 
 ---
 
+## [4.4.0] — 2026-06-02
+
+### Konsolidierung master ↔ main (+ Server-Quelle)
+
+- **3-Wege-Merge** der parallelen Entwicklungslinien (`main` = V5/Updater/manual_stop ↔ `master` = ~40 weiterentwickelte Module) via gemeinsamem Vorfahr `9c680a5` — keine Funktion verloren, orthogonale Features kombiniert statt eine Seite verworfen.
+- **`db_manager`:** Read-Pool (main) **und** Cross-Prozess-Write-Retry (master) beide aktiv.
+- **`reaction_roles_cog`:** GC-sicheres `track_task` (main) **und** Panel-Lock-Cleanup-Loop-Start (master).
+- **`pipeline_approval_cog`:** master-Superset (Approve/Dismiss/**Recat**) übernommen.
+- **Monitoring (`health_checker`/`service_watchdog`/`package_checker`):** main-`manual_stop`/0-Update-Filter behalten, master-Änderungen auto-gemerged.
+- **master-Module dazu:** `scripts/rcon_op.py`, `web/tools/build_css.py`, 6 Server-Test-Files, Basecoat-CSS-Toolchain, `.claude/`-Agents + Skills.
+- **Frontend:** main-V5 autoritativ (master-Alt-Design verworfen); verwaiste Endpoints nachverdrahtet (Dashboard **Events-Clear-Button**). Mods-Daten in V5 im Updates-Tab integriert.
+- **Server als 3. Vergleichsquelle** inventarisiert (237 Files, kein Hotfix-Verlust; Redeploy-Liste erstellt). Detail: `docs/KONSOLIDIERUNG_2026-06-01.md`.
+- Junk bereinigt: `.bak`/`.legacy`/alte `.docx`/`agent-memory` nicht übernommen.
+
+---
+
 ## [4.3.0] — 2026-06-01
 
 ### Dashboard — V5 Midnight-Navy Redesign
@@ -75,9 +91,41 @@ Alle relevanten Aenderungen am Discord Bot System werden hier dokumentiert.
 
 ## [4.1.0] — 2026-03-15
 
-Auto-Update I1-I9 fuer Minecraft- und Satisfactory-Server (Iteration-Cycles), CurseForge-Manifest-Verifikation, Staging-Workflow, Discord-Notifications, Versions-Tracking.
+### Hinzugefuegt
 
-(Detaillierte Feature-Liste in `docs/FEATURE_PLAN_AUTO_UPDATE.md`)
+- **Auto-Update-System (A0 + I1-I9 + B0-B4 + C)**
+  - UpdateManager: Vollstaendiges Modpack-Update mit Atomic Swap + Rollback
+  - ModpackUpdater: CurseForge API Integration (Versions-Check + Download)
+  - FileManager: Streaming-Download mit SHA1/MD5 Hash-Verifikation
+  - NeoForgeUpdater: Automatische NeoForge-Installation nach Modpack-Update
+  - MCCountdownTimer: In-Game Countdown mit RCON-Warnungen
+  - UpdateChecker: SteamCMD Build-ID Check fuer Satisfactory
+  - Chat-Bridge: 8 In-Game-Befehle (!status, !version, !players, etc.)
+  - Discord-Commands: /mc modpack status/update/cancel/rollback/history/check
+  - Discord-Commands: /sat update + /sat update cancel
+  - Scheduler: Modpack-Check 12:00+00:00, Auto-Update 04:00
+  - DB Schema v4: modpack_updates + server_versions Tabellen
+  - ENV-Dokumentation: config/.env.example aktualisiert
+
+### Gefixt
+
+- **SAT CPU/RAM zeigt 0**: _find_process() gab Wrapper-Prozess statt Game-Prozess zurueck.
+  Fix: Waehlt jetzt den Prozess mit dem meisten RAM (FactoryServer-Linux-Shipping).
+- **CSRF-Schutz deaktiviert**: Middleware pruefte session.user (immer None) statt JWT-Cookie.
+  Fix: Prueft jetzt dashboard_token Cookie-Existenz.
+- **BUG-1**: mc_countdown.py Race Condition — asyncio.create_task statt call_later
+- **BUG-2**: file_manager.py doppelte Hash-Berechnung — Streaming-Hash wiederverwendet
+- **BUG-3**: neoforge_updater.py RAM-Ueberlauf — iter_chunked statt resp.read()
+- **BUG-4**: update_manager.py Update auf laufendem Server — Abbruch bei Stop-Timeout
+- **BUG-5**: update_manager.py kein RCON stop — RCON zuerst, systemctl als Fallback
+- **BUG-6**: update_manager.py NeoForge im falschen Ordner — nach Atomic Swap installiert
+- **BUG-7**: update_manager.py kein Rollback bei Crash — Rollback nach 3 fehlgeschlagenen Starts
+- **RISK-5**: update_manager.py HAR-Suppress zu kurz — bei jedem Phasenwechsel +900s
+
+### Aufgeraeumt
+
+- 171 __pycache__ Verzeichnisse auf Server bereinigt
+- Unbekannte Ports dokumentiert (8081=Nginx, 8888=SAT RCON, 9090=Webmin)
 
 ---
 

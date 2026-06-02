@@ -140,7 +140,7 @@ MOB_DISPLAY_NAMES = {
     "Skeleton": "Skelett",
     "Creeper": "Creeper",
     "Spider": "Spinne",
-    "Cave Spider": "Hoehlenspinne",
+    "Cave Spider": "Höhlenspinne",
     "Enderman": "Enderman",
     "Endermite": "Endermite",
     "Witch": "Hexe",
@@ -525,10 +525,10 @@ class MinecraftChatBridge:
             if not await self._is_op(player):
                 await self._tellraw([
                     {"text": "[BOT] ", "color": "gold", "bold": True},
-                    {"text": "Keine Berechtigung! Nur OPs koennen !",
+                    {"text": "Keine Berechtigung! Nur OPs können !",
                      "color": "red"},
                     {"text": command, "color": "red", "bold": True},
-                    {"text": " ausfuehren.", "color": "red"},
+                    {"text": " ausführen.", "color": "red"},
                 ])
                 logger.info(
                     f"[{self.server_id}] !{command} von {player} abgelehnt (kein OP)"
@@ -783,7 +783,7 @@ class MinecraftChatBridge:
             await self._say("[BOT] Fehler beim Neustart-Countdown.")
 
     async def _cmd_backup(self, player: str, args: str) -> None:
-        """!backup — Sofortiges World-Backup ausloesen (OP-only)"""
+        """!backup — Sofortiges World-Backup auslösen (OP-only)"""
         if not self.mc_server:
             return
 

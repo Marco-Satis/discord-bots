@@ -1,7 +1,7 @@
 """
 F42: Automatischer Paket-Update-Check — SQLite-basiert.
 
-Prueft woechentlich per 'apt list --upgradable' ob System-Updates verfuegbar sind.
+Prüft wöchentlich per 'apt list --upgradable' ob System-Updates verfügbar sind.
 Security-Updates werden separat erkannt und priorisiert gemeldet.
 Ergebnisse werden in SQLite (events-Tabelle) persistiert.
 """
@@ -16,15 +16,15 @@ from utils.config import get_config, MONITOR_DATA_DIR
 
 logger = get_logger("package_checker")
 
-# Standard: Woechentlich (7 Tage)
+# Standard: Wöchentlich (7 Tage)
 DEFAULT_INTERVAL: int = 604800
 
 
 class PackageChecker:
     """
-    Prueft automatisch auf verfuegbare System-Paket-Updates.
+    Prüft automatisch auf verfügbare System-Paket-Updates.
     Erkennt Security-Updates anhand der Suite ('security' im Quellnamen).
-    Persistiert Ergebnisse in SQLite und schreibt JSON fuer Dashboard.
+    Persistiert Ergebnisse in SQLite und schreibt JSON für Dashboard.
 
     Usage:
         checker = PackageChecker(bot)
@@ -74,7 +74,7 @@ class PackageChecker:
             logger.info("PackageChecker Background-Task gestoppt")
 
     async def _loop(self) -> None:
-        """Endlos-Schleife: Prueft im konfigurierten Intervall auf Updates."""
+        """Endlos-Schleife: Prüft im konfigurierten Intervall auf Updates."""
         try:
             while True:
                 try:
@@ -95,11 +95,11 @@ class PackageChecker:
 
     async def check_updates(self) -> Dict[str, Any]:
         """
-        Fuehrt 'sudo apt update -qq' und 'apt list --upgradable' aus.
+        Führt 'sudo apt update -qq' und 'apt list --upgradable' aus.
 
         Returns:
             dict mit Keys:
-                - total_updates: Gesamtzahl verfuegbarer Updates
+                - total_updates: Gesamtzahl verfügbarer Updates
                 - security_updates: Anzahl Security-Updates
                 - packages: Liste der Update-Details
                 - checked_at: ISO-Zeitstempel
@@ -193,7 +193,7 @@ class PackageChecker:
 
     @staticmethod
     def _is_security(suite: str) -> bool:
-        """Prueft ob eine Suite ein Security-Update enthaelt."""
+        """Prüft ob eine Suite ein Security-Update enthält."""
         return "security" in suite.lower()
 
     # ------------------------------------------------------------------
@@ -201,7 +201,7 @@ class PackageChecker:
     # ------------------------------------------------------------------
 
     async def _handle_result(self, result: Dict[str, Any]) -> None:
-        """Verarbeitet das Pruefergebnis: Callbacks und Persistierung."""
+        """Verarbeitet das Prüfungsergebnis: Callbacks und Persistierung."""
         if result.get("error"):
             return
 
@@ -258,7 +258,7 @@ class PackageChecker:
                     result["checked_at"],
                     "package_check",
                     "system",
-                    f"{result['total_updates']} Updates verfuegbar "
+                    f"{result['total_updates']} Updates verfügbar "
                     f"({result['security_updates']} Security)",
                     details,
                 ),
@@ -273,13 +273,13 @@ class PackageChecker:
 
     @property
     def last_result(self) -> Optional[Dict[str, Any]]:
-        """Gibt das letzte Pruefergebnis zurueck."""
+        """Gibt das letzte Prüfungsergebnis zurück."""
         return self._last_result
 
     def get_summary(self) -> Dict[str, Any]:
-        """Gibt eine Zusammenfassung zurueck."""
+        """Gibt eine Zusammenfassung zurück."""
         if not self._last_result:
-            return {"status": "unknown", "message": "Noch kein Check durchgefuehrt"}
+            return {"status": "unknown", "message": "Noch kein Check durchgeführt"}
         return {
             "total_updates": self._last_result.get("total_updates", 0),
             "security_updates": self._last_result.get("security_updates", 0),

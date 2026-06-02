@@ -20,11 +20,13 @@ Persistenz: SQLite reaction_roles Tabelle (alleinige Datenquelle)
 
 from __future__ import annotations
 
+import asyncio
+import time
 from typing import Any, Optional
 
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 from utils.logger import get_logger
 from utils.permissions import admin_only
@@ -46,6 +48,26 @@ class ReactionRolesCog(commands.Cog):
         self.bot = bot
         # In-Memory Cache: {msg_id_str: {channel_id, guild_id, roles: {emoji: role_id}}}
         self._data: dict[str, dict[str, Any]] = {}
+        # Race-Lock: per-message_id asyncio.Lock fuer Embed-Rebuild
+        # (concurrent Reactions koennen sonst Lost-Updates verursachen).
+        self._panel_locks: dict[int, asyncio.Lock] = {}
+        self._panel_lock_use: dict[int, float] = {}
+
+    def _get_panel_lock(self, message_id: int) -> asyncio.Lock:
+        """Holt oder erstellt einen Lock fuer eine bestimmte panel-message_id."""
+        if message_id not in self._panel_locks:
+            self._panel_locks[message_id] = asyncio.Lock()
+        self._panel_lock_use[message_id] = time.time()
+        return self._panel_locks[message_id]
+
+    def cleanup_old_panel_locks(self, max_age_hours: float = 24.0) -> int:
+        """Entfernt Panel-Locks aelter als max_age_hours."""
+        cutoff = time.time() - max_age_hours * 3600.0
+        stale = [mid for mid, t in self._panel_lock_use.items() if t < cutoff]
+        for mid in stale:
+            self._panel_locks.pop(mid, None)
+            self._panel_lock_use.pop(mid, None)
+        return len(stale)
 
     async def cog_load(self) -> None:
         """Beim Laden des Cogs Daten aus SQLite laden und re-registrieren"""
@@ -53,10 +75,27 @@ class ReactionRolesCog(commands.Cog):
         # Reference-Tracking gegen GC-Verlust (audit-fix 2026-05-17)
         track_task(self._re_register_reactions(),
                    name="reaction_roles.re_register")
+        # Panel-Lock-Cleanup-Loop starten (master-Linie: Memory-Hygiene)
+        self._cleanup_panel_locks_task.start()
         logger.info("Reaction-Roles-Cog geladen")
 
     async def cog_unload(self) -> None:
+        self._cleanup_panel_locks_task.cancel()
         logger.info("Reaction-Roles-Cog entladen")
+
+    @tasks.loop(hours=6)
+    async def _cleanup_panel_locks_task(self) -> None:
+        """Entfernt alle 6h Panel-Locks aelter als 24h (Memory-Hygiene)."""
+        try:
+            removed = self.cleanup_old_panel_locks(max_age_hours=24.0)
+            if removed:
+                logger.info(f"ReactionRoles: {removed} stale Panel-Locks entfernt")
+        except Exception as e:
+            logger.warning(f"Panel-Locks-Cleanup fehlgeschlagen: {e}")
+
+    @_cleanup_panel_locks_task.before_loop
+    async def before_cleanup_panel_locks(self) -> None:
+        await self.bot.wait_until_ready()
 
     # ------------------------------------------------------------------
     # Persistenz (SQLite)
@@ -696,45 +735,49 @@ class ReactionRolesCog(commands.Cog):
 
         Fuegt die Rollen-Zuordnung als Feld zum bestehenden Embed hinzu.
 
+        Race-Lock: per-message_id verhindert Lost-Updates bei concurrent Reactions
+        (Read-Modify-Write der Embed-Felder).
+
         Args:
             message: Die Discord-Nachricht mit dem Embed
             entry: Der Reaction-Role-Eintrag aus self._data
         """
-        roles_map = entry.get("roles", {})
+        async with self._get_panel_lock(message.id):
+            roles_map = entry.get("roles", {})
 
-        if not message.embeds:
-            return
+            if not message.embeds:
+                return
 
-        embed = message.embeds[0].copy()
+            embed = message.embeds[0].copy()
 
-        # Bestehendes Rollen-Feld entfernen (falls vorhanden)
-        new_fields: list[dict[str, Any]] = []
-        for field in embed.fields:
-            if field.name != "Rollen":
-                new_fields.append(
-                    {"name": field.name, "value": field.value, "inline": field.inline}
+            # Bestehendes Rollen-Feld entfernen (falls vorhanden)
+            new_fields: list[dict[str, Any]] = []
+            for field in embed.fields:
+                if field.name != "Rollen":
+                    new_fields.append(
+                        {"name": field.name, "value": field.value, "inline": field.inline}
+                    )
+
+            embed.clear_fields()
+            for field in new_fields:
+                embed.add_field(**field)
+
+            # Rollen-Feld hinzufuegen (wenn Rollen vorhanden)
+            if roles_map:
+                role_lines: list[str] = []
+                for emoji_str, role_id in roles_map.items():
+                    role_lines.append(f"{emoji_str} — <@&{role_id}>")
+
+                embed.add_field(
+                    name="Rollen",
+                    value="\n".join(role_lines),
+                    inline=False,
                 )
 
-        embed.clear_fields()
-        for field in new_fields:
-            embed.add_field(**field)
-
-        # Rollen-Feld hinzufuegen (wenn Rollen vorhanden)
-        if roles_map:
-            role_lines: list[str] = []
-            for emoji_str, role_id in roles_map.items():
-                role_lines.append(f"{emoji_str} — <@&{role_id}>")
-
-            embed.add_field(
-                name="Rollen",
-                value="\n".join(role_lines),
-                inline=False,
-            )
-
-        try:
-            await message.edit(embed=embed)
-        except (discord.Forbidden, discord.HTTPException) as e:
-            logger.warning(f"Konnte Reaction-Role-Embed nicht aktualisieren: {e}")
+            try:
+                await message.edit(embed=embed)
+            except (discord.Forbidden, discord.HTTPException) as e:
+                logger.warning(f"Konnte Reaction-Role-Embed nicht aktualisieren: {e}")
 
     # ==================================================================
     # Fehlerbehandlung

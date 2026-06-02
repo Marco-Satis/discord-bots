@@ -180,7 +180,7 @@ class TimeoutManager:
             return (
                 False,
                 f"**{player_name}** hat bereits einen aktiven Timeout "
-                f"(laeuft ab: {expires})",
+                f"(läuft ab: {expires})",
                 [],
             )
 

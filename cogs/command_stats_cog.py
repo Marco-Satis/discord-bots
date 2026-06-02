@@ -71,7 +71,7 @@ class CommandStatsCog(commands.Cog):
             )
             """
         )
-        # Indices fuer schnelle Abfragen
+        # Indices für schnelle Abfragen
         await db.execute(
             "CREATE INDEX IF NOT EXISTS idx_cmdlog_cmd "
             "ON command_log(command_name, timestamp)"
@@ -460,7 +460,7 @@ class CommandStatsCog(commands.Cog):
         if isinstance(error, app_commands.CheckFailure):
             if not interaction.response.is_done():
                 await interaction.response.send_message(
-                    "Keine Berechtigung fuer diesen Befehl.", ephemeral=True
+                    "Keine Berechtigung für diesen Befehl.", ephemeral=True
                 )
         else:
             logger.error(

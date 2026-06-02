@@ -2,8 +2,8 @@
 F27: Gameserver Health-Check mit Auto-Restart
 Background-Task fuer den Monitor Bot.
 
-Prueft alle Server (Satisfactory + Minecraft) periodisch auf Erreichbarkeit
-und fuehrt bei 3 aufeinanderfolgenden Fehlschlaegen einen automatischen
+Prüft alle Server (Satisfactory + Minecraft) periodisch auf Erreichbarkeit
+und führt bei 3 aufeinanderfolgenden Fehlschlägen einen automatischen
 Restart per systemctl durch. Cooldown: max 1 Restart pro 30 Min pro Server.
 """
 
@@ -33,7 +33,7 @@ COLOR_SUCCESS: int = 0x2ECC71
 # Standard-Konfiguration (Fallbacks)
 # ---------------------------------------------------------------------------
 DEFAULT_CHECK_INTERVAL: int = 150          # Sekunden (~2.5 Min)
-DEFAULT_FAILURE_THRESHOLD: int = 3         # Aufeinanderfolgende Fehlschlaege
+DEFAULT_FAILURE_THRESHOLD: int = 3         # Aufeinanderfolgende Fehlschläge
 DEFAULT_RESTART_COOLDOWN: int = 1800       # 30 Minuten in Sekunden
 DEFAULT_CHECK_TIMEOUT: int = 10            # Sekunden pro Probe
 # Satisfactory Game-Port (UDP) — Port 15777 (ServerQueryPort) ist bei vielen
@@ -52,7 +52,7 @@ MC_DEFAULT_PORTS: Dict[str, int] = {       # Minecraft Game-Ports pro Server-ID
 
 @dataclass
 class ServerProbe:
-    """Ergebnis einer einzelnen Server-Pruefung."""
+    """Ergebnis einer einzelnen Server-Prüfung."""
     server_id: str
     server_type: str                        # "sat" oder "mc"
     display_name: str
@@ -64,7 +64,7 @@ class ServerProbe:
 
 @dataclass
 class ServerState:
-    """Laufender Zustand eines ueberwachten Servers."""
+    """Laufender Zustand eines überwachten Servers."""
     server_id: str
     server_type: str
     display_name: str
@@ -81,7 +81,7 @@ class ServerState:
 
 class HealthAutoRestart:
     """
-    Periodischer Health-Check fuer alle Gameserver mit automatischem Restart.
+    Periodischer Health-Check für alle Gameserver mit automatischem Restart.
 
     Verwendung aus dem Monitor-Bot Background-Task::
 
@@ -113,10 +113,10 @@ class HealthAutoRestart:
             "ADMIN_LOG_CHANNEL_ID", cast=int, default=0
         )
 
-        # Server-Zustaende: key = "<type>:<server_id>"  (z.B. "sat:main", "mc:BMC")
+        # Server-Zustände: key = "<type>:<server_id>"  (z.B. "sat:main", "mc:BMC")
         self._states: Dict[str, ServerState] = {}
 
-        # Unterdrueckte Server: key → Zeitpunkt bis wann unterdrueckt
+        # Unterdrückte Server: key → Zeitpunkt bis wann unterdrückt
         # Wird gesetzt wenn ein Server absichtlich gestoppt/neugestartet wird
         self._suppressed: Dict[str, datetime] = {}
 
@@ -127,17 +127,17 @@ class HealthAutoRestart:
         )
 
     # ------------------------------------------------------------------
-    # Oeffentliche API
+    # Öffentliche API
     # ------------------------------------------------------------------
 
     async def check_all_servers(self) -> List[ServerProbe]:
         """
-        Fuehrt Health-Checks fuer alle konfigurierten Server durch und
+        Führt Health-Checks für alle konfigurierten Server durch und
         startet bei Bedarf automatische Restarts. Gibt die Probe-Ergebnisse
-        zurueck.
+        zurück.
         """
         if not self._enabled:
-            logger.debug("HealthAutoRestart ist deaktiviert, ueberspringe Checks")
+            logger.debug("HealthAutoRestart ist deaktiviert, überspringe Checks")
             return []
 
         probes: List[ServerProbe] = []
@@ -161,7 +161,7 @@ class HealthAutoRestart:
     # ------------------------------------------------------------------
 
     async def _check_satisfactory(self) -> Optional[ServerProbe]:
-        """Prueft den Satisfactory Server per Lightweight-Query auf Port 15777."""
+        """Prüft den Satisfactory Server per Lightweight-Query auf Port 15777."""
         # Satisfactory Server-Objekt aus dem Bot holen (falls vorhanden)
         sat_server: Any = getattr(self.bot, "sat_server", None)
         if sat_server is None:
@@ -196,9 +196,9 @@ class HealthAutoRestart:
 
     async def _probe_sat_query(self, host: str, port: int) -> bool:
         """
-        Leichtgewichtiger Connectivity-Check fuer den Satisfactory Dedicated
+        Leichtgewichtiger Connectivity-Check für den Satisfactory Dedicated
         Server. Versucht zuerst UDP (Protocol Query), dann TCP-Fallback.
-        Timeout gemaess Konfiguration (Standard 10s).
+        Timeout gemäß Konfiguration (Standard 10s).
         """
         loop = asyncio.get_running_loop()
 
@@ -233,7 +233,7 @@ class HealthAutoRestart:
     def _udp_probe(host: str, port: int) -> bool:
         """
         Sendet ein minimales UDP-Paket an den Satisfactory Query-Port
-        und wartet auf eine Antwort. Gibt True zurueck falls eine
+        und wartet auf eine Antwort. Gibt True zurück falls eine
         Antwort kommt (beliebige Daten = Server lebt).
         """
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -268,7 +268,7 @@ class HealthAutoRestart:
     # ------------------------------------------------------------------
 
     async def _check_all_minecraft(self) -> List[ServerProbe]:
-        """Prueft alle konfigurierten Minecraft-Server per TCP-Connect."""
+        """Prüft alle konfigurierten Minecraft-Server per TCP-Connect."""
         mc_servers: Dict[str, Any] = getattr(self.bot, "mc_servers", {})
         probes: List[ServerProbe] = []
 
@@ -280,7 +280,7 @@ class HealthAutoRestart:
 
     async def _check_minecraft(self, server_id: str, srv: Any) -> ServerProbe:
         """
-        Prueft einen einzelnen Minecraft-Server per TCP-Connect auf
+        Prüft einen einzelnen Minecraft-Server per TCP-Connect auf
         den Game-Port (25565/25566). Liest den Port aus ENV oder
         verwendet den Standard.
         """
@@ -325,7 +325,7 @@ class HealthAutoRestart:
     # ------------------------------------------------------------------
 
     def _get_state(self, probe: ServerProbe) -> ServerState:
-        """Holt oder erstellt den laufenden Zustand fuer einen Server."""
+        """Holt oder erstellt den laufenden Zustand für einen Server."""
         key: str = f"{probe.server_type}:{probe.server_id}"
         if key not in self._states:
             self._states[key] = ServerState(
@@ -338,14 +338,14 @@ class HealthAutoRestart:
 
     async def _process_probe(self, probe: ServerProbe) -> None:
         """
-        Verarbeitet ein Probe-Ergebnis: zaehlt Fehlschlaege, loest
+        Verarbeitet ein Probe-Ergebnis: zählt Fehlschläge, löst
         ggf. Auto-Restart aus und sendet Discord-Benachrichtigungen.
-        Unterdrueckte Server (absichtlicher Stop/Restart) werden uebersprungen.
+        Unterdrückte Server (absichtlicher Stop/Restart) werden übersprungen.
         """
         # Pruefen ob Server absichtlich gestoppt wurde (kurzlebige In-Memory-Suppression)
         if self.is_suppressed(probe.server_type, probe.server_id):
             logger.debug(
-                f"[{probe.display_name}] Health-Check unterdrueckt "
+                f"[{probe.display_name}] Health-Check unterdrückt "
                 f"(absichtlicher Stop/Restart)"
             )
             return
@@ -387,12 +387,12 @@ class HealthAutoRestart:
         state.last_check = probe.check_time
 
         if probe.reachable:
-            # Server erreichbar — Recovery pruefen
+            # Server erreichbar — Recovery prüfen
             if state.consecutive_failures >= self._failure_threshold:
                 # War vorher als ausgefallen markiert → Recovery-Meldung
                 logger.info(
                     f"[{probe.display_name}] Server ist wieder erreichbar "
-                    f"(nach {state.consecutive_failures} Fehlschlaegen)"
+                    f"(nach {state.consecutive_failures} Fehlschlägen)"
                 )
                 await self._notify_recovery(state)
 
@@ -453,17 +453,17 @@ class HealthAutoRestart:
                 remaining: int = int(self._restart_cooldown - elapsed)
                 logger.warning(
                     f"[{state.display_name}] Restart-Cooldown aktiv, "
-                    f"noch {remaining}s bis zum naechsten Restart moeglich"
+                    f"noch {remaining}s bis zum nächsten Restart möglich"
                 )
                 # Nur bei genau dem Schwellwert benachrichtigen (nicht bei jedem weiteren Check)
                 if state.consecutive_failures == self._failure_threshold:
                     await self._notify_cooldown(state, remaining)
                 return
 
-        # Restart ausfuehren
+        # Restart ausführen
         logger.info(
             f"[{state.display_name}] Starte Auto-Restart "
-            f"(nach {state.consecutive_failures} Fehlschlaegen)..."
+            f"(nach {state.consecutive_failures} Fehlschlägen)..."
         )
         await self._notify_restart_attempt(state)
 
@@ -506,8 +506,8 @@ class HealthAutoRestart:
         self, service_name: str, timeout: int = 60
     ) -> tuple[int, str, str]:
         """
-        Fuehrt 'sudo systemctl restart <service>' asynchron aus.
-        Gibt (returncode, stdout, stderr) zurueck.
+        Führt 'sudo systemctl restart <service>' asynchron aus.
+        Gibt (returncode, stdout, stderr) zurück.
         """
         proc = await asyncio.create_subprocess_exec(
             "sudo", "/usr/bin/systemctl", "restart", service_name,
@@ -556,10 +556,10 @@ class HealthAutoRestart:
                 f"nicht bestanden.\n\n"
                 f"**Service:** `{state.service_name}`\n"
                 f"**Fehler:** {probe.error or 'Nicht erreichbar'}\n"
-                f"**Fehlschlaege:** {state.consecutive_failures}/"
+                f"**Fehlschläge:** {state.consecutive_failures}/"
                 f"{self._failure_threshold}\n\n"
                 f"Auto-Restart nach {self._failure_threshold} "
-                f"aufeinanderfolgenden Fehlschlaegen."
+                f"aufeinanderfolgenden Fehlschlägen."
             ),
             color=COLOR_WARNING,
             timestamp=datetime.now(),
@@ -575,7 +575,7 @@ class HealthAutoRestart:
                 f"Server **{state.display_name}** war "
                 f"**{state.consecutive_failures}x** nicht erreichbar.\n\n"
                 f"**Service:** `{state.service_name}`\n"
-                f"Fuehre `systemctl restart` aus..."
+                f"Führe `systemctl restart` aus..."
             ),
             color=COLOR_WARNING,
             timestamp=datetime.now(),
@@ -591,7 +591,7 @@ class HealthAutoRestart:
                 f"Server **{state.display_name}** wurde erfolgreich "
                 f"neu gestartet.\n\n"
                 f"**Service:** `{state.service_name}`\n"
-                f"Der naechste Health-Check prueft die Erreichbarkeit."
+                f"Der nächste Health-Check prüft die Erreichbarkeit."
             ),
             color=COLOR_SUCCESS,
             timestamp=datetime.now(),
@@ -629,7 +629,7 @@ class HealthAutoRestart:
                 f"erreichbar, aber der Restart-Cooldown ist noch aktiv.\n\n"
                 f"**Service:** `{state.service_name}`\n"
                 f"**Verbleibend:** {minutes}m {seconds}s\n"
-                f"**Fehlschlaege:** {state.consecutive_failures}\n\n"
+                f"**Fehlschläge:** {state.consecutive_failures}\n\n"
                 f"Max. 1 automatischer Restart pro "
                 f"{self._restart_cooldown // 60} Minuten."
             ),
@@ -661,7 +661,7 @@ class HealthAutoRestart:
     # ------------------------------------------------------------------
 
     def get_status(self) -> Dict[str, Any]:
-        """Gibt den aktuellen Zustand aller ueberwachten Server zurueck."""
+        """Gibt den aktuellen Zustand aller überwachten Server zurück."""
         result: Dict[str, Any] = {}
         for key, state in self._states.items():
             suppressed_until = self._suppressed.get(key)
@@ -691,15 +691,15 @@ class HealthAutoRestart:
         return result
 
     def reset_state(self, server_type: str, server_id: str) -> None:
-        """Setzt den Zustand eines Servers zurueck (z.B. nach manuellem Restart)."""
+        """Setzt den Zustand eines Servers zurück (z.B. nach manuellem Restart)."""
         key: str = f"{server_type}:{server_id}"
         if key in self._states:
             self._states[key].consecutive_failures = 0
-            logger.info(f"Zustand zurueckgesetzt: {key}")
+            logger.info(f"Zustand zurückgesetzt: {key}")
 
     @property
     def enabled(self) -> bool:
-        """Gibt zurueck ob der Health-Auto-Restart aktiv ist."""
+        """Gibt zurück ob der Health-Auto-Restart aktiv ist."""
         return self._enabled
 
     @enabled.setter
@@ -712,34 +712,34 @@ class HealthAutoRestart:
         self, server_type: str, server_id: str, duration_seconds: int = 600
     ) -> None:
         """
-        Unterdrueckt Health-Checks fuer einen Server fuer die angegebene Dauer.
+        Unterdrückt Health-Checks für einen Server für die angegebene Dauer.
         Wird aufgerufen wenn ein Server absichtlich gestoppt oder neugestartet wird,
-        damit der Auto-Restart nicht faelschlicherweise ausloest.
+        damit der Auto-Restart nicht fälschlicherweise auslöst.
 
         Args:
             server_type: "sat" oder "mc"
             server_id: z.B. "main", "BMC", "VANILLA"
-            duration_seconds: Wie lange unterdruecken (Standard: 10 Minuten)
+            duration_seconds: Wie lange unterdrücken (Standard: 10 Minuten)
         """
         key = f"{server_type}:{server_id}"
         until = datetime.now() + timedelta(seconds=duration_seconds)
         self._suppressed[key] = until
-        # Auch Failure-Counter zuruecksetzen
+        # Auch Failure-Counter zurücksetzen
         if key in self._states:
             self._states[key].consecutive_failures = 0
         logger.info(
-            f"Health-Check fuer {key} unterdrueckt bis "
+            f"Health-Check für {key} unterdrückt bis "
             f"{until.strftime('%H:%M:%S')} ({duration_seconds}s)"
         )
 
     def unsuppress(self, server_type: str, server_id: str) -> None:
-        """Hebt die Unterdrueckung fuer einen Server auf."""
+        """Hebt die Unterdrückung für einen Server auf."""
         key = f"{server_type}:{server_id}"
         self._suppressed.pop(key, None)
-        logger.info(f"Health-Check Unterdrueckung aufgehoben: {key}")
+        logger.info(f"Health-Check Unterdrückung aufgehoben: {key}")
 
     def is_suppressed(self, server_type: str, server_id: str) -> bool:
-        """Prueft ob Health-Checks fuer einen Server unterdrueckt sind."""
+        """Prüft ob Health-Checks für einen Server unterdrückt sind."""
         key = f"{server_type}:{server_id}"
         until = self._suppressed.get(key)
         if until is None:
@@ -747,12 +747,12 @@ class HealthAutoRestart:
         if datetime.now() >= until:
             # Abgelaufen — automatisch aufheben
             del self._suppressed[key]
-            logger.info(f"Health-Check Unterdrueckung abgelaufen: {key}")
+            logger.info(f"Health-Check Unterdrückung abgelaufen: {key}")
             return False
         return True
 
     def reload_config(self) -> None:
-        """Laedt die Konfiguration aus config.json neu."""
+        """Lädt die Konfiguration aus config.json neu."""
         self._config = get_config()
         self._scheduler_cfg = self._config.get("scheduler", {})
         self._enabled = self._scheduler_cfg.get(

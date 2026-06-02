@@ -1,7 +1,7 @@
 """
-F32: SSL Monitor — Ueberwacht Zertifikat-Ablaufdaten.
+F32: SSL Monitor — Überwacht Zertifikat-Ablaufdaten.
 
-Prueft taeglichen SSL/TLS-Zertifikatstatus fuer konfigurierte Domains.
+Prüft täglichen SSL/TLS-Zertifikatstatus für konfigurierte Domains.
 Warnt 14 Tage vor Ablauf, meldet kritisch 3 Tage vor Ablauf.
 """
 
@@ -29,10 +29,10 @@ SSL_TIMEOUT: float = 15.0
 
 class SSLMonitor:
     """
-    Ueberwacht SSL/TLS-Zertifikate auf ihre Gueltigkeit.
+    Überwacht SSL/TLS-Zertifikate auf ihre Gültigkeit.
 
     Liest die Domain aus der Umgebungsvariable WEB_DOMAIN oder
-    faellt auf den Standard "marco-satisfactory.duckdns.org" zurueck.
+    fällt auf den Standard "marco-satisfactory.duckdns.org" zurück.
     """
 
     def __init__(
@@ -44,10 +44,10 @@ class SSLMonitor:
     ) -> None:
         """
         Args:
-            domain: Domain die geprueft werden soll (None = aus ENV lesen)
+            domain: Domain die geprüft werden soll (None = aus ENV lesen)
             port: HTTPS-Port (Standard: 443)
-            warning_days: Tage vor Ablauf fuer Warnung (Standard: 14)
-            critical_days: Tage vor Ablauf fuer kritische Warnung (Standard: 3)
+            warning_days: Tage vor Ablauf für Warnung (Standard: 14)
+            critical_days: Tage vor Ablauf für kritische Warnung (Standard: 3)
         """
         self.domain: str = domain or get_env("WEB_DOMAIN", "marco-satisfactory.duckdns.org")
         self.port: int = port
@@ -121,17 +121,17 @@ class SSLMonitor:
 
     async def check_certificate(self) -> dict:
         """
-        Prueft das SSL-Zertifikat der konfigurierten Domain.
+        Prüft das SSL-Zertifikat der konfigurierten Domain.
 
         Returns:
             Dict mit Keys:
-                - domain (str): Gepruefete Domain
+                - domain (str): Geprüfte Domain
                 - valid_until (str): Ablaufdatum als ISO-String
                 - days_remaining (int): Verbleibende Tage
                 - status (str): "ok", "warning", "critical" oder "expired"
                 - issuer (str|None): Zertifikats-Aussteller
                 - subject (str|None): Zertifikats-Subject
-                - checked_at (str): Zeitpunkt der Pruefung als ISO-String
+                - checked_at (str): Zeitpunkt der Prüfung als ISO-String
                 - error (str|None): Fehlermeldung falls vorhanden
         """
         result: dict = {
@@ -188,17 +188,17 @@ class SSLMonitor:
             # Log-Meldung je nach Status
             if result["status"] == "ok":
                 logger.info(
-                    "SSL-Check %s: OK — %d Tage verbleibend (laeuft ab am %s)",
+                    "SSL-Check %s: OK — %d Tage verbleibend (läuft ab am %s)",
                     self.domain, days_remaining, expiry_date.strftime("%Y-%m-%d")
                 )
             elif result["status"] == "warning":
                 logger.warning(
-                    "SSL-Check %s: WARNUNG — Nur noch %d Tage gueltig! (Ablauf: %s)",
+                    "SSL-Check %s: WARNUNG — Nur noch %d Tage gültig! (Ablauf: %s)",
                     self.domain, days_remaining, expiry_date.strftime("%Y-%m-%d")
                 )
             elif result["status"] == "critical":
                 logger.error(
-                    "SSL-Check %s: KRITISCH — Nur noch %d Tage gueltig! (Ablauf: %s)",
+                    "SSL-Check %s: KRITISCH — Nur noch %d Tage gültig! (Ablauf: %s)",
                     self.domain, days_remaining, expiry_date.strftime("%Y-%m-%d")
                 )
             elif result["status"] == "expired":
@@ -211,13 +211,13 @@ class SSLMonitor:
             result["error"] = f"SSL-Fehler: {e}"
             logger.error("SSL-Check %s: %s", self.domain, result["error"])
         except ssl.SSLCertVerificationError as e:
-            result["error"] = f"Zertifikat ungueltig: {e}"
+            result["error"] = f"Zertifikat ungültig: {e}"
             logger.error("SSL-Check %s: %s", self.domain, result["error"])
         except socket.timeout:
             result["error"] = f"Verbindungs-Timeout nach {SSL_TIMEOUT}s"
             logger.error("SSL-Check %s: %s", self.domain, result["error"])
         except socket.gaierror as e:
-            result["error"] = f"DNS-Aufloesung fehlgeschlagen: {e}"
+            result["error"] = f"DNS-Auflösung fehlgeschlagen: {e}"
             logger.error("SSL-Check %s: %s", self.domain, result["error"])
         except ConnectionRefusedError:
             result["error"] = f"Verbindung abgelehnt auf Port {self.port}"
@@ -230,12 +230,12 @@ class SSLMonitor:
         return result
 
     def get_last_result(self) -> Optional[dict]:
-        """Gibt das letzte Pruefergebnis zurueck (oder None wenn noch nicht geprueft)."""
+        """Gibt das letzte Prüfungsergebnis zurück (oder None wenn noch nicht geprüft)."""
         return self._last_result
 
     def is_expiring_soon(self) -> bool:
         """
-        Schnell-Check ob das Zertifikat bald ablaeuft.
+        Schnell-Check ob das Zertifikat bald abläuft.
 
         Returns:
             True wenn Status "warning", "critical" oder "expired"

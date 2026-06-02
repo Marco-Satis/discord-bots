@@ -61,10 +61,21 @@ async def _is_service_active(service_name: str) -> bool:
 
 
 async def _collect_service_status() -> list[dict]:
-    """Sammelt den Status aller bekannten Services."""
+    """Sammelt den Status aller bekannten Services parallel.
+
+    Vorher: sequentiell await je 1× systemctl-Subprocess pro Service
+    (7 Services × 50-200ms = 0.35-1.4s).
+    Jetzt: alle Subprocesses parallel via asyncio.gather (~50-200ms total).
+    """
+    # Parallele Status-Abfrage statt sequentielle Schleife
+    active_results = await asyncio.gather(
+        *(_is_service_active(svc["service_name"]) for svc in KNOWN_SERVICES),
+        return_exceptions=True,
+    )
     services = []
-    for svc in KNOWN_SERVICES:
-        active = await _is_service_active(svc["service_name"])
+    for svc, active in zip(KNOWN_SERVICES, active_results):
+        if isinstance(active, Exception):
+            active = False
         services.append({
             "service_name": svc["service_name"],
             "display_name": svc["display_name"],
@@ -92,7 +103,8 @@ def _get_system_info() -> dict:
         import time
 
         info["cpu_count"] = psutil.cpu_count(logical=True) or 0
-        info["cpu_percent"] = psutil.cpu_percent(interval=0.1)
+        # interval=None: cached delta (kein Block). Erster Call = 0.0, danach real.
+        info["cpu_percent"] = psutil.cpu_percent(interval=None)
 
         mem = psutil.virtual_memory()
         info["ram_total_gb"] = round(mem.total / (1024 ** 3), 1)
@@ -122,8 +134,11 @@ async def system_page(request: Request, current_user: dict = Depends(require_aut
     Zeigt die System-Verwaltungsseite mit System-Info, Service-Status
     und einem Link zum Webmin-Interface.
     """
-    system_info = _get_system_info()
-    services = await _collect_service_status()
+    # _get_system_info ist sync (psutil) → in Thread auslagern, parallel zu Service-Status.
+    system_info, services = await asyncio.gather(
+        asyncio.to_thread(_get_system_info),
+        _collect_service_status(),
+    )
 
     return templates.TemplateResponse("system.html", {
         "request": request,
@@ -132,6 +147,18 @@ async def system_page(request: Request, current_user: dict = Depends(require_aut
         "system_info": system_info,
         "services": services,
     })
+
+
+_service_action_locks: dict[str, asyncio.Lock] = {}
+
+
+def _get_service_action_lock(service_name: str) -> asyncio.Lock:
+    """Per-Service-Lock fuer service_action — verhindert konkurrierende
+    start/stop/restart-Calls (z. B. zwei Browser-Tabs gleichzeitig).
+    """
+    if service_name not in _service_action_locks:
+        _service_action_locks[service_name] = asyncio.Lock()
+    return _service_action_locks[service_name]
 
 
 @router.post("/api/system/service/action")
@@ -157,15 +184,19 @@ async def service_action(request: Request, current_user: dict = Depends(require_
                 f'<div class="alert alert-danger">Ungültige Aktion: {html.escape(action)}</div>'
             )
 
-        # Service-Aktion ausführen
-        proc = await asyncio.create_subprocess_exec(
-            "sudo", "systemctl", action, service_name,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await asyncio.wait_for(
-            proc.communicate(), timeout=30.0
-        )
+        # Service-Aktion ausführen — Per-Service-Lock verhindert konkurrierende Calls
+        # (z. B. zwei Browser-Tabs gleichzeitig start+stop). Lock umfasst den
+        # gesamten Subprocess-Lifecycle bis communicate() done ist.
+        lock = _get_service_action_lock(service_name)
+        async with lock:
+            proc = await asyncio.create_subprocess_exec(
+                "sudo", "systemctl", action, service_name,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(), timeout=30.0
+            )
 
         if proc.returncode == 0:
             action_labels = {"start": "gestartet", "stop": "gestoppt", "restart": "neugestartet"}

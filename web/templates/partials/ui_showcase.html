@@ -1,0 +1,118 @@
+{# UI-Showcase — Beispiele für die neuen UI-Enhancements
+   ========================================================
+   Marco kann dieses Partial in einer Test-Route einbinden:
+     {# Demo-Include in einer Test-Route oder direkt: {% include 'partials/ui_showcase.html' %} #}
+   Oder per direkt-include:
+     {% include 'partials/ui_showcase.html' %}
+#}
+
+<section class="section">
+    <h2 class="section-title">UI-Enhancements Demo</h2>
+
+    <!-- ============================================================
+         1. Lucide-Icons im Nav-Item-Pattern
+         ============================================================ -->
+    <h3 style="margin-top:1.5rem; font-size:0.9rem; color:var(--text-secondary);">Icons (Lucide)</h3>
+    <div style="display:flex; gap:1rem; align-items:center; padding:0.75rem; background:var(--bg-card); border-radius:var(--radius-md);">
+        <span><i data-lucide="server" class="icon"></i> Server</span>
+        <span><i data-lucide="users" class="icon"></i> Spieler</span>
+        <span><i data-lucide="activity" class="icon"></i> Aktivität</span>
+        <span><i data-lucide="cpu" class="icon icon-lg"></i> CPU</span>
+        <span><i data-lucide="hard-drive" class="icon icon-xl"></i> Storage</span>
+    </div>
+
+    <!-- ============================================================
+         2. Status-Badges mit Pulse-Animation
+         ============================================================ -->
+    <h3 style="margin-top:1.5rem; font-size:0.9rem; color:var(--text-secondary);">Status-Badges</h3>
+    <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
+        <span class="status-badge status-online">Online</span>
+        <span class="status-badge status-offline">Offline</span>
+        <span class="status-badge status-unknown">Unknown</span>
+    </div>
+
+    <!-- ============================================================
+         3. Toast-Notifications (Trigger-Buttons)
+         ============================================================ -->
+    <h3 style="margin-top:1.5rem; font-size:0.9rem; color:var(--text-secondary);">Toast-Demo</h3>
+    <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+        <button type="button" class="btn btn-sm btn-primary"
+                onclick="window.toastSuccess('Server gestartet')">
+            <i data-lucide="check-circle" class="icon"></i>
+            Success Toast
+        </button>
+        <button type="button" class="btn btn-sm"
+                onclick="window.toastInfo('Daten werden geladen')"
+                style="background:var(--info); color:white;">
+            <i data-lucide="info" class="icon"></i>
+            Info Toast
+        </button>
+        <button type="button" class="btn btn-sm"
+                onclick="window.toastWarning('Server reagiert langsam')"
+                style="background:var(--warning); color:white;">
+            <i data-lucide="alert-triangle" class="icon"></i>
+            Warning Toast
+        </button>
+        <button type="button" class="btn btn-sm btn-danger"
+                onclick="window.toastError('Verbindung verloren')">
+            <i data-lucide="x-circle" class="icon"></i>
+            Error Toast
+        </button>
+    </div>
+
+    <!-- ============================================================
+         4. Skeleton-Loading-States
+         ============================================================ -->
+    <h3 style="margin-top:1.5rem; font-size:0.9rem; color:var(--text-secondary);">Skeleton-Loading</h3>
+    <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:1rem;">
+        <div style="background:var(--bg-card); border:1px solid var(--border-card); border-radius:var(--radius); padding:1rem;">
+            <div class="skeleton skeleton--text-lg" style="margin-bottom:0.75rem;">.</div>
+            <div class="skeleton skeleton--text">.</div>
+            <div class="skeleton skeleton--text-sm">.</div>
+        </div>
+        <div>
+            <div class="skeleton skeleton--card">.</div>
+        </div>
+        <div style="display:flex; gap:0.75rem; align-items:center;">
+            <div class="skeleton skeleton--circle">.</div>
+            <div style="flex:1;">
+                <div class="skeleton skeleton--text-lg">.</div>
+                <div class="skeleton skeleton--text-sm">.</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============================================================
+         5. Empty-State
+         ============================================================ -->
+    <h3 style="margin-top:1.5rem; font-size:0.9rem; color:var(--text-secondary);">Empty-State</h3>
+    <div style="background:var(--bg-card); border:1px solid var(--border-card); border-radius:var(--radius);">
+        <div class="empty-state">
+            <i data-lucide="inbox" class="empty-state__icon"></i>
+            <h3 class="empty-state__title">Keine Daten</h3>
+            <p class="empty-state__msg">
+                Aktuell sind keine Events in der Datenbank. Sobald ein Server-Event eintritt,
+                wird es hier angezeigt.
+            </p>
+        </div>
+    </div>
+
+    <!-- ============================================================
+         6. HTMX-Indikator (Loading-Spinner waehrend Request)
+         ============================================================ -->
+    <h3 style="margin-top:1.5rem; font-size:0.9rem; color:var(--text-secondary);">HTMX-Loading-Indikator</h3>
+    <div style="display:flex; gap:0.5rem; align-items:center;">
+        <button type="button" class="btn btn-primary"
+                hx-get="/api/health"
+                hx-target="#htmx-result"
+                hx-indicator="#htmx-spinner">
+            <i data-lucide="zap" class="icon"></i>
+            Test-Request
+            <span id="htmx-spinner" class="htmx-indicator">
+                <span class="spinner-ring"></span>
+            </span>
+        </button>
+        <span id="htmx-result" style="color:var(--text-muted); font-size:0.85rem;"></span>
+    </div>
+
+</section>

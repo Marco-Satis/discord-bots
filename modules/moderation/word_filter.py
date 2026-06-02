@@ -104,7 +104,7 @@ class DiscordWordFilter:
         for pattern, original_word in self._compiled:
             if pattern.search(content):
                 logger.info(
-                    f"Wortfilter ausgeloest: '{original_word}' in Nachricht gefunden"
+                    f"Wortfilter ausgelöst: '{original_word}' in Nachricht gefunden"
                 )
                 return True, original_word
 

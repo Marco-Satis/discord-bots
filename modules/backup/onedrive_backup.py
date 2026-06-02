@@ -165,7 +165,7 @@ class OneDriveBackup:
                 except (subprocess.SubprocessError, OSError, asyncio.TimeoutError) as e:
                     logger.debug(f"Failed to delete cloud backup {f['name']}: {e}")
 
-            msg = f"{deleted} alte Cloud-Backups geloescht, {len(files) - deleted} verbleibend"
+            msg = f"{deleted} alte Cloud-Backups gelöscht, {len(files) - deleted} verbleibend"
             return True, msg
 
         except Exception as e:

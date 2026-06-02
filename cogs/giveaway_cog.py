@@ -18,6 +18,8 @@ Features:
 
 from __future__ import annotations
 
+import asyncio
+import time
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -51,7 +53,33 @@ class GiveawayView(discord.ui.View):
 
     Verwendet eine feste custom_id mit Prefix, damit Discord die
     Interaktion auch nach einem Bot-Neustart zuordnen kann.
+
+    Race-Lock: per-message_id asyncio.Lock verhindert Lost-Counts bei
+    concurrent Button-Clicks (Read-Modify-Write der Embed-Teilnehmer-Anzeige).
     """
+
+    # message_id -> asyncio.Lock (class-level, geteilt zwischen View-Instanzen)
+    _embed_locks: dict[int, asyncio.Lock] = {}
+    # message_id -> last-use-timestamp (für Cleanup alter Locks)
+    _last_lock_use: dict[int, float] = {}
+
+    @classmethod
+    def _get_lock(cls, message_id: int) -> asyncio.Lock:
+        """Holt oder erstellt einen Lock fuer eine bestimmte message_id."""
+        if message_id not in cls._embed_locks:
+            cls._embed_locks[message_id] = asyncio.Lock()
+        cls._last_lock_use[message_id] = time.time()
+        return cls._embed_locks[message_id]
+
+    @classmethod
+    def cleanup_old_locks(cls, max_age_hours: float = 24.0) -> int:
+        """Entfernt Locks aelter als max_age_hours. Returns Anzahl entfernter Locks."""
+        cutoff = time.time() - max_age_hours * 3600.0
+        stale = [mid for mid, t in cls._last_lock_use.items() if t < cutoff]
+        for mid in stale:
+            cls._embed_locks.pop(mid, None)
+            cls._last_lock_use.pop(mid, None)
+        return len(stale)
 
     def __init__(self, manager: GiveawayManager) -> None:
         super().__init__(timeout=None)  # Kein Timeout — persistent
@@ -168,16 +196,18 @@ class GiveawayView(discord.ui.View):
                 )
                 return
 
-        # Embed mit aktueller Teilnehmer-Anzahl aktualisieren
-        try:
-            count = self.manager.get_participant_count(message_id)
-            embed = interaction.message.embeds[0] if interaction.message.embeds else None
-            if embed:
-                # Teilnehmer-Feld aktualisieren
-                updated_embed = self._update_participant_count(embed, count)
-                await interaction.message.edit(embed=updated_embed)
-        except (discord.Forbidden, discord.HTTPException) as e:
-            logger.warning(f"Giveaway-Embed aktualisieren fehlgeschlagen: {e}")
+        # Embed mit aktueller Teilnehmer-Anzahl aktualisieren — per-message_id-Lock
+        # verhindert Lost-Counts bei concurrent Buttons (Read-Modify-Write).
+        async with self._get_lock(message_id):
+            try:
+                count = self.manager.get_participant_count(message_id)
+                embed = interaction.message.embeds[0] if interaction.message.embeds else None
+                if embed:
+                    # Teilnehmer-Feld aktualisieren
+                    updated_embed = self._update_participant_count(embed, count)
+                    await interaction.message.edit(embed=updated_embed)
+            except (discord.Forbidden, discord.HTTPException) as e:
+                logger.warning(f"Giveaway-Embed aktualisieren fehlgeschlagen: {e}")
 
     @staticmethod
     def _update_participant_count(
@@ -242,7 +272,7 @@ class GiveawayCog(commands.Cog):
         logger.info("GiveawayCog initialisiert")
 
     async def cog_load(self) -> None:
-        """DB-Daten laden und Background-Task starten."""
+        """DB-Daten laden und Background-Tasks starten."""
         # Giveaway-Daten aus SQLite laden
         try:
             await self.manager.load_from_db()
@@ -250,12 +280,14 @@ class GiveawayCog(commands.Cog):
         except Exception as e:
             logger.warning(f"SQLite-Load fehlgeschlagen: {e}")
         self.check_giveaways.start()
-        logger.info("Giveaway-Background-Task gestartet")
+        self.cleanup_embed_locks.start()
+        logger.info("Giveaway-Background-Tasks gestartet (check + cleanup)")
 
     async def cog_unload(self) -> None:
-        """Background-Task stoppen wenn Cog entladen wird"""
+        """Background-Tasks stoppen wenn Cog entladen wird"""
         self.check_giveaways.cancel()
-        logger.info("Giveaway-Background-Task gestoppt")
+        self.cleanup_embed_locks.cancel()
+        logger.info("Giveaway-Background-Tasks gestoppt")
 
     # ==================================================================
     # Background-Task: Abgelaufene Giveaways automatisch beenden
@@ -284,6 +316,21 @@ class GiveawayCog(commands.Cog):
 
     @check_giveaways.before_loop
     async def before_check_giveaways(self) -> None:
+        """Warten bis Bot bereit ist"""
+        await self.bot.wait_until_ready()
+
+    @tasks.loop(hours=6)
+    async def cleanup_embed_locks(self) -> None:
+        """Entfernt alle 6h Embed-Locks aelter als 24h (Memory-Hygiene)."""
+        try:
+            removed = GiveawayView.cleanup_old_locks(max_age_hours=24.0)
+            if removed:
+                logger.info(f"Giveaway: {removed} stale Embed-Locks entfernt")
+        except Exception as e:
+            logger.warning(f"Embed-Locks-Cleanup fehlgeschlagen: {e}")
+
+    @cleanup_embed_locks.before_loop
+    async def before_cleanup_embed_locks(self) -> None:
         """Warten bis Bot bereit ist"""
         await self.bot.wait_until_ready()
 

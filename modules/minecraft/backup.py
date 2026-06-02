@@ -320,7 +320,7 @@ class MinecraftBackupManager:
     # ------------------------------------------------------------------
 
     async def delete_backup(self, backup_name: str) -> Tuple[bool, str]:
-        """Backup loeschen"""
+        """Backup löschen"""
         # Path-Traversal Schutz
         backup_target = (self.backup_path / backup_name).resolve()
         if not str(backup_target).startswith(str(self.backup_path.resolve())):
@@ -333,18 +333,18 @@ class MinecraftBackupManager:
 
         try:
             await loop.run_in_executor(None, shutil.rmtree, backup_target)
-            logger.info(f"[{self.server_id}] Backup geloescht: {backup_name}")
-            return True, f"Backup geloescht: {backup_name}"
+            logger.info(f"[{self.server_id}] Backup gelöscht: {backup_name}")
+            return True, f"Backup gelöscht: {backup_name}"
         except Exception as e:
-            logger.error(f"[{self.server_id}] Loeschung fehlgeschlagen ({backup_name}): {e}")
-            return False, f"Loeschung fehlgeschlagen: {e}"
+            logger.error(f"[{self.server_id}] Löschung fehlgeschlagen ({backup_name}): {e}")
+            return False, f"Löschung fehlgeschlagen: {e}"
 
     # ------------------------------------------------------------------
     # Hilfsfunktionen
     # ------------------------------------------------------------------
 
     async def _get_path_size_mb_async(self, path: Path) -> float:
-        """Verzeichnisgroesse in MB berechnen (async)"""
+        """Verzeichnisgröße in MB berechnen (async)"""
         loop = asyncio.get_running_loop()
 
         def _calc() -> float:
@@ -354,13 +354,13 @@ class MinecraftBackupManager:
                     if entry.is_file():
                         total += entry.stat().st_size
             except Exception as e:
-                logger.debug(f"[{self.server_id}] Groessenberechnung Fehler: {e}")
+                logger.debug(f"[{self.server_id}] Größenberechnung Fehler: {e}")
             return total / (1024 * 1024)
 
         return await loop.run_in_executor(None, _calc)
 
     async def _cleanup_old_backups(self) -> None:
-        """Alte Backups loeschen wenn max_backups ueberschritten"""
+        """Alte Backups löschen wenn max_backups überschritten"""
         if self.max_backups <= 0:
             return
 

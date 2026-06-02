@@ -1,6 +1,6 @@
 {
   "features": {
-    "chat_bridge": false,
+    "chat_bridge": true,
     "word_filter": true,
     "anti_spam": true,
     "player_tracking": true,
@@ -48,7 +48,7 @@
     "max_cloud_backups": 10,
     "update_check_enabled": true,
     "update_check_interval_hours": 6,
-    "auto_update_enabled": false,
+    "auto_update_enabled": true,
     "auto_update_hour": 5,
     "auto_update_require_empty": true,
     "daily_report_enabled": true,
