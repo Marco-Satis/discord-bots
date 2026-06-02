@@ -14,7 +14,7 @@ HEAD bereits redigiert (`docs/server_snapshot/` Platzhalter). Reales Risiko ≈ 
 
 ### ⚪ LOW / SKIP
 - **git-history-rewrite** (`filter-repo`) für die alten Secret-Commits: empfohlen SKIP (private Repo + localhost-RCON). Nur nach Rotation + Marco-OK + `--force-with-lease`.
-- **env-Doku-Drift:** `MC_VANILLA_*` (11 Vars) im Code referenziert, fehlen in `.env.example`. Pre-existing, non-blocking (test_env exit 0).
+- ~~**env-Doku-Drift**~~ **ERLEDIGT 2026-06-02:** Befund war ungenau (MC_VANILLA *war* schon dokumentiert). Echte Drift = 8 fehlende Vars (DUCKDNS_DOMAIN/TOKEN, WEB_HOST, GITHUB_WEBHOOK_SECRET, MARCO_DISCORD_UID, PIPELINE_APPROVE_SCRIPT, PIPELINE_PYTHON_BIN, TRACEMALLOC_ENABLED) + 2 tote (MINECRAFT_ROLE_ID, UPDATE_STAGING_PATH). Beide gefixt in `config/.env.example`, `test_env_completeness` jetzt **exit 0**.
 
 ---
 
