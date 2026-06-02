@@ -1,6 +1,26 @@
-# Konsolidierung master ↔ main — State + Plan (2026-06-01)
+# Konsolidierung master ↔ main (+ Server) — State + Plan (2026-06-01 / erweitert 2026-06-02)
 
 > **Zweck:** Compact-Survival-Doku. Bei Resume: diese Datei zuerst lesen, dann Plan ab "Resume-Schritte" ausführen.
+> **2026-06-02 Erweiterung:** Server als 3. Quelle in den Vergleich aufgenommen — siehe Abschnitt "## SERVER ALS 3. QUELLE" unten. Merge-Richtung + Strategie unverändert; Phase 7 erweitert (Full-Redeploy statt nur Kandidaten-Liste).
+
+## SERVER ALS 3. QUELLE (2026-06-02)
+
+Live-Server `/home/botuser/Discord_Bots/` ist **kein git-Checkout** (plain deploy), `VERSION=4.1.0`, Hybrid: v4.1.0-Basis + partielle Session-Deploys. Content-Manifest (sha256, CRLF-normalisiert, 237 Files) gegen `origin/main` (221) + `origin/master` (216) verglichen → 252 Pfade union.
+
+**Grundsatz:** Server ist **Deploy-Target, NIE autoritative Quelle** (Marco: lokal + GitHub = Wahrheit). Server-Dateien können daher keine "verlorene Funktion" sein, nur stale/intermediate Deploys.
+
+| Bucket | n | Inhalt | Aktion |
+|---|---|---|---|
+| `server_unique` (≠ main & ≠ master) | 13 | alle mtime ≤ 2026-05-26 < Session-Git (06-01); 12/13 existieren in BEIDEN Bäumen, nur `scripts/rcon_op.py` ist [-X] (master-only) | **kein Hotfix-Verlust** — Merge supersedet, Redeploy bringt aktuell |
+| `server_only_file` | 19 | ausschließlich `web/static/_preview/*` Design-Experimente + 1 tailwind `_demo_fragment.html` | Noise, nicht Teil der Konsolidierung; optional Server-Cleanup |
+| `server_eq_master_not_main` | 21 | Server läuft master-Ära-Code (bots/, cogs/, leveling, rcon, routes…) | Redeploy nach Merge |
+| `in_main_not_server` | 6 | `levelup_card.py`, `async_tasks.py`, `channel.py`, `mc_mod_lockfile.py`, `md_to_docx.py`, `tailwind/input.css` | Deploy-Kandidaten (Runtime: levelup_card/async_tasks/channel) |
+| `in_master_not_server_not_main` | 9 | 6 master-Test-Files + `server_detail.py` + `basecoat.css` + `build_css.py` | via Merge in Konsolidierung, dann Deploy |
+
+**Neuer Konflikt durch Server-Linse:** `web/routes/server_detail.py` (master) vs `server_detail_route.py` (main) = **reines Rename** (einzige `web/app.py`-Diff zw. Branches = Z.167 Import). Resolution: main-`server_detail_route.py` behalten, master-`server_detail.py` vor Drop auf unique-Funktionen prüfen + ggf. reinportieren, app.py-Z.167 = main.
+**Coexistenz-Check:** `health_check.py` UND `health_checker.py` existieren in beiden Bäumen — kein Rename, beide real. Beim Merge prüfen ob beide registriert/genutzt (kein toter Dup).
+
+
 
 ## Situation
 
@@ -123,7 +143,14 @@ cd "$MR" && for t in test_imports test_routes test_cogs test_env_completeness te
 
 **Phase 6 — /review auf Merge-Diff** (`git diff origin/main...consolidate`): Functional-Correctness + Data-Flow, Coverage-statt-Filtering. Pro Konflikt-Datei prüfen: main-Funktion UND master-Funktion final drin (0 gekappt).
 
-**Phase 7 — Server-Abgleich:** `git -C "$MR" diff --name-only origin/main origin/master -- modules cogs web '*.py'` → Deploy-Kandidaten-Liste (master-Module fehlen live). NICHT auto-deployen, Marco-Approval.
+**Phase 7 — Server-Konsolidierung (erweitert 2026-06-02):** Ziel = Live-Server von Hybrid-v4.1.0 auf saubere konsolidierte v4.4.0 bringen. Quelle: 3-Quellen-Analyse oben (Buckets). Vorgehen:
+1. Deploy-Set = alle .py/Templates/Static aus `consolidate` die auf Server fehlen ODER abweichen (server_eq_master_not_main 21 + in_main_not_server 6 + in_master_not_server 9 + server_unique 13 = überschreiben mit konsolidierter Version).
+2. `_preview/*` (19) NICHT deployen; optional Server-Cleanup separat.
+3. Server-Backup vor Deploy: `cp -a <file> <file>.bak.$(date +%s)` (botuser) bzw. Tarball `/home/botuser/Discord_Bots`.
+4. VERSION-File auf Server auf 4.4.0 setzen (war 4.1.0 — Drift).
+5. Bundle nach `/tmp` scp, **Marco führt `sudo cp` + Service-Restarts via PuTTY aus** (Bash kann kein sudo-TTY). Restart-Reihenfolge: monitor-bot → sleep 10 → gameserver/admin/web-dashboard.
+6. Smoke-Test: Dashboard-GET 200, Discord-Ready in journalctl, kein ERROR.
+**Approval-Gate:** Server-Deploy = Marco-Freigabe (irreversibel-nah). git-Merge+Push läuft autonom davor.
 
 **Phase 8 — VERSION 4.4.0 + CHANGELOG + Push** `git -C "$MR" push origin HEAD:main`.
 
