@@ -156,4 +156,23 @@ cd "$MR" && for t in test_imports test_routes test_cogs test_env_completeness te
 
 **Rollback:** vor Commit `git -C "$MR" merge --abort`; nach Commit/vor Push `git -C "$MR" reset --hard origin/main`. Self-Stop: 3× Fehlschlag selbe Datei → Marco melden.
 
+---
+
+## AUSFÜHRUNGS-STATUS (2026-06-02) — Phasen 0–8 git-seitig ERLEDIGT
+
+- **Merge fertig:** `consolidate` (= `origin/main` jetzt `70303eb`). Alle 15 Konflikte gelöst (beide Funktionsseiten erhalten: db_manager Pool+Retry, reaction_roles track_task+cleanup, pipeline_approval Superset, monitoring manual_stop, Frontend V5+Events-Clear). Junk (.bak/.legacy/agent-memory/docx) untracked. VERSION 4.4.0.
+- **Tests grün:** test_imports(173), test_routes(80/0), test_cogs(28/161/0), test_env(exit0, pre-existing MC_VANILLA-Doku-Drift), test_manual_stop(8/8). py_compile + Jinja 0 Fehler.
+- **Functional-Correctness verifiziert:** main-Kern-Features post-auto-merge intakt (manual_stop sat+MC, Updater apt-get -s, 0-Update-Filter, Levelcard, RedirectResponse-Fix); server_detail-Rename sauber (kein Orphan).
+- **Gepusht:** `origin/main` `70303eb`. Beide Linien weiter auf GitHub (Rollback intakt).
+
+### Phase 7 — Server-Redeploy: GESTAGED, wartet auf Marco-Freigabe (sudo)
+- **Deploy-Set:** 55 Runtime-Files (8 neu, 47 geändert) — Server v4.1.0-Hybrid → v4.4.0. Liste: `/tmp/deploy_set_lf.txt`.
+- **Bundle auf Server:** `/tmp/consolidate_v440.tar.gz` (55 Files, 240 KB, LF).
+- **Deploy-Script auf Server:** `/tmp/deploy_consolidate_v440.sh` (Backup→Extract→compileall-Check→Restart→Smoke→Auto-Rollback bei Compile-Fail). Im Repo: `scripts/deploy_consolidate_v440.sh`.
+- **Marco-Befehl (PuTTY):** `sudo bash /tmp/deploy_consolidate_v440.sh`
+- **Rollback:** `sudo -u botuser tar -xzf /home/botuser/backup_pre_v440_<TS>.tar.gz -C /home/botuser/Discord_Bots && sudo systemctl restart monitor-bot gameserver-bot admin-bot web-dashboard`
+
+### SICHERHEITS-BEFUND (offen)
+- `docs/server_snapshot/vanilla_server.properties` (von master, jetzt auf GitHub `origin/main`+`origin/master`) enthält `rcon.password` im Klartext. RCON ist 127.0.0.1-gebunden (low real-risk), aber Hygiene-Issue. Empfehlung: RCON-PW rotieren + Snapshot scrubben (oder Snapshot ganz aus git nehmen) + ggf. git-history-cleanup. NICHT blockierend für Konsolidierung.
+
 **Self-Check vor Push:** Konflikte alle weg | pro Datei beide Funktionen benannt | 5 Tests grün | py+Jinja-Compile | /review 0 gekappt | VERSION 4.4.0 | Branches auf GitHub (Rollback intakt) | Deploy-Liste erstellt.
