@@ -297,15 +297,27 @@ class UpdateChecker:
 
             logger.info(f"SteamCMD wird ausgeführt: {' '.join(cmd[3:])}")
 
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env=env,
-            )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=600)
-            output = stdout.decode("utf-8", errors="ignore")
-            err_output = stderr.decode("utf-8", errors="ignore")
+            # SteamCMD bis zu 2x versuchen: endet der erste Lauf mit Code 8
+            # (steamcmd.sh aktualisiert sich selbst und exitet dann 8 OHNE das
+            # app_update auszufuehren), nutzt der zweite Lauf das aktualisierte
+            # steamcmd und fuehrt das Update korrekt aus.
+            output = ""
+            err_output = ""
+            for _attempt in range(2):
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    env=env,
+                )
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=600)
+                output = stdout.decode("utf-8", errors="ignore")
+                err_output = stderr.decode("utf-8", errors="ignore")
+                if proc.returncode != 8:
+                    break
+                logger.warning(
+                    "SteamCMD Code 8 (vermutlich Selbstupdate-Relaunch) - erneuter Versuch"
+                )
 
             # Schritt 4: Exit-Code UND Output prüfen
             if proc.returncode != 0:
