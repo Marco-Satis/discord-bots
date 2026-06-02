@@ -1795,7 +1795,7 @@ class SchedulerCog(commands.Cog):
                 description=(
                     f"**Installiert:** Build {info.get('installed_buildid', '?')}\n"
                     f"**Verfuegbar:** Build {info.get('available_buildid', '?')}\n\n"
-                    f"Verwende `/sat update` um zu aktualisieren."
+                    f"Verwende `/update start` um zu aktualisieren."
                 ),
                 color=0xf39c12,
             )

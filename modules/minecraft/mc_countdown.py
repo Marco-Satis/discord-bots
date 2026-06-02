@@ -105,7 +105,7 @@ class MCCountdownTimer(RestartTimer):
         if self.channel:
             try:
                 if is_initial:
-                    desc = "Nutze `/mc modpack cancel` oder In-Game `!cancel` zum Abbrechen."
+                    desc = "Nutze `/modpack cancel` oder In-Game `!cancel` zum Abbrechen."
                     if self.extra_info:
                         desc = f"{self.extra_info}\n{desc}"
                     embed = discord.Embed(

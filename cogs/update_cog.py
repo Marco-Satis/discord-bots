@@ -2,12 +2,11 @@
 Update-Cog - Discord-Commands für MC-Modpack und SAT-Updates
 
 Aufgaben I7 + I8: Stellt Slash-Commands bereit für:
-  /mc modpack status|update|cancel|rollback|history|check
-  /sat update start|cancel
+  /modpack status|update|cancel|rollback|history|check
+  /update start|cancel
 
-Die Subgruppen werden zur Laufzeit in die bestehenden /mc und /sat
-Gruppen eingehaengt (MinecraftCog bzw. SatisfactoryCog besitzen die
-Top-Level-Gruppen).
+Beide Gruppen werden als Top-Level-Commands registriert
+(/modpack für MC-Modpack-Updates, /update für SAT-SteamCMD-Updates).
 """
 
 import discord
@@ -30,7 +29,7 @@ class UpdateCog(commands.Cog):
     """Discord-Commands für MC-Modpack-Updates und SAT-Updates."""
 
     # ==================================================================
-    # Subgruppen-Definitionen (werden in cog_load an /mc und /sat gehaengt)
+    # Gruppen-Definitionen (Top-Level-Commands: /modpack für MC, /update für SAT)
     # ==================================================================
 
     modpack_grp = app_commands.Group(
@@ -109,7 +108,7 @@ class UpdateCog(commands.Cog):
             logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
 
     # ╔════════════════════════════════════════════════════════════════╗
-    # ║  MC MODPACK: /mc modpack status                              ║
+    # ║  MC MODPACK: /modpack status                                 ║
     # ╚════════════════════════════════════════════════════════════════╝
 
     @modpack_grp.command(
@@ -202,7 +201,7 @@ class UpdateCog(commands.Cog):
         await interaction.followup.send(embed=embed)
 
     # ╔════════════════════════════════════════════════════════════════╗
-    # ║  MC MODPACK: /mc modpack update                              ║
+    # ║  MC MODPACK: /modpack update                                 ║
     # ╚════════════════════════════════════════════════════════════════╝
 
     @modpack_grp.command(
@@ -223,7 +222,7 @@ class UpdateCog(commands.Cog):
             await interaction.followup.send(
                 f"⚠️ UpdateManager für `{server_id}` nicht verfügbar.\n"
                 f"Updates werden über den Monitor-Bot gesteuert.\n"
-                f"Nutze `/mc modpack status` um den aktuellen Status zu prüfen.",
+                f"Nutze `/modpack status` um den aktuellen Status zu prüfen.",
                 ephemeral=True,
             )
             return
@@ -233,7 +232,7 @@ class UpdateCog(commands.Cog):
         if status.get("update_in_progress"):
             await interaction.followup.send(
                 f"\u26a0\ufe0f Auf `{server_id}` läuft bereits ein Update. "
-                f"Nutze `/mc modpack cancel` zum Abbrechen.",
+                f"Nutze `/modpack cancel` zum Abbrechen.",
                 ephemeral=True,
             )
             return
@@ -274,7 +273,7 @@ class UpdateCog(commands.Cog):
                 f"**Neue Version:** {new_ver}\n"
                 f"**Countdown:** {DEFAULT_COUNTDOWN_MINUTES} Minuten\n"
                 f"**Gestartet von:** {interaction.user.mention}\n\n"
-                f"Abbrechen mit `/mc modpack cancel`"
+                f"Abbrechen mit `/modpack cancel`"
             ),
             color=0xf39c12,
             timestamp=datetime.now(),
@@ -415,7 +414,7 @@ class UpdateCog(commands.Cog):
             )
 
     # ╔════════════════════════════════════════════════════════════════╗
-    # ║  MC MODPACK: /mc modpack cancel                              ║
+    # ║  MC MODPACK: /modpack cancel                                 ║
     # ╚════════════════════════════════════════════════════════════════╝
 
     @modpack_grp.command(
@@ -463,7 +462,7 @@ class UpdateCog(commands.Cog):
             )
 
     # ╔════════════════════════════════════════════════════════════════╗
-    # ║  MC MODPACK: /mc modpack rollback                            ║
+    # ║  MC MODPACK: /modpack rollback                               ║
     # ╚════════════════════════════════════════════════════════════════╝
 
     @modpack_grp.command(
@@ -492,7 +491,7 @@ class UpdateCog(commands.Cog):
         if status.get("update_in_progress"):
             await interaction.followup.send(
                 f"\u26a0\ufe0f Auf `{server_id}` läuft ein Update. "
-                f"Erst abbrechen mit `/mc modpack cancel`.",
+                f"Erst abbrechen mit `/modpack cancel`.",
                 ephemeral=True,
             )
             return
@@ -614,7 +613,7 @@ class UpdateCog(commands.Cog):
             await interaction.channel.send(embed=error_embed)
 
     # ╔════════════════════════════════════════════════════════════════╗
-    # ║  MC MODPACK: /mc modpack history                             ║
+    # ║  MC MODPACK: /modpack history                                ║
     # ╚════════════════════════════════════════════════════════════════╝
 
     @modpack_grp.command(
@@ -712,7 +711,7 @@ class UpdateCog(commands.Cog):
         await interaction.followup.send(embed=embed)
 
     # ╔════════════════════════════════════════════════════════════════╗
-    # ║  MC MODPACK: /mc modpack check                               ║
+    # ║  MC MODPACK: /modpack check                                  ║
     # ╚════════════════════════════════════════════════════════════════╝
 
     @modpack_grp.command(
@@ -775,7 +774,7 @@ class UpdateCog(commands.Cog):
                 )
 
             embed.set_footer(
-                text=f"Verwende /mc modpack update {server_id} zum Aktualisieren"
+                text=f"Verwende /modpack update {server_id} zum Aktualisieren"
             )
         else:
             current = info.get("current_version", "?")
@@ -789,7 +788,7 @@ class UpdateCog(commands.Cog):
         await interaction.followup.send(embed=embed)
 
     # ╔════════════════════════════════════════════════════════════════╗
-    # ║  SAT: /sat update start                                      ║
+    # ║  SAT: /update start                                          ║
     # ╚════════════════════════════════════════════════════════════════╝
 
     @sat_update_grp.command(
@@ -839,7 +838,7 @@ class UpdateCog(commands.Cog):
                 f"**Installiert:** Build {installed}\n"
                 f"**Verfuegbar:** Build {new_build}\n"
                 f"**Gestartet von:** {interaction.user.mention}\n\n"
-                f"Abbrechen mit `/sat update cancel`"
+                f"Abbrechen mit `/update cancel`"
             ),
             color=0xf39c12,
             timestamp=datetime.now(),
@@ -914,7 +913,7 @@ class UpdateCog(commands.Cog):
             await interaction.channel.send(f"\u274c SAT-Update Fehler: {e}")
 
     # ╔════════════════════════════════════════════════════════════════╗
-    # ║  SAT: /sat update cancel                                     ║
+    # ║  SAT: /update cancel                                         ║
     # ╚════════════════════════════════════════════════════════════════╝
 
     @sat_update_grp.command(

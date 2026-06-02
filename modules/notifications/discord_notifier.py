@@ -236,7 +236,7 @@ class DiscordNotifier:
         desc = (
             f"**Installiert:** Build {installed_build}\n"
             f"**Verfuegbar:** Build {available_build}\n\n"
-            f"Verwende `/sat update` um das Update durchzufuehren."
+            f"Verwende `/update start` um das Update durchzufuehren."
         )
         if extra_text:
             desc += extra_text
