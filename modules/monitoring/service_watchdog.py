@@ -268,9 +268,13 @@ class ServiceWatchdog:
         Returns:
             Tuple (success, error_message)
         """
+        # sudoers-NOPASSWD verlangt absoluten Pfad + .service-Suffix
+        # (z.B. "/usr/bin/systemctl restart satisfactory.service") — sonst
+        # schlaegt der Restart mit "sudo: a password is required" fehl.
+        svc = service_name if service_name.endswith(".service") else f"{service_name}.service"
         try:
             proc = await asyncio.create_subprocess_exec(
-                "sudo", "systemctl", "restart", service_name,
+                "sudo", "/usr/bin/systemctl", "restart", svc,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
