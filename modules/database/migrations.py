@@ -11,7 +11,7 @@ from utils.logger import get_logger
 logger = get_logger("database.migrations")
 
 # Aktuelle Schema-Version
-CURRENT_VERSION = 5
+CURRENT_VERSION = 6
 
 
 # Komplettes Schema (23 Tabellen + Indices + FTS5)
@@ -391,6 +391,13 @@ async def run_migrations(db: aiosqlite.Connection) -> None:
         await set_schema_version(db, 5)
         logger.info("Migration v4 → v5 abgeschlossen")
 
+    # Version 5 → 6: Leveling guild-scoped + voice_sessions (Anti-Cheat)
+    if current < 6:
+        logger.info("Migration v5 → v6: Leveling guild-scoped + voice_sessions")
+        await _apply_migration_v6(db)
+        await set_schema_version(db, 6)
+        logger.info("Migration v5 → v6 abgeschlossen")
+
     final = await get_schema_version(db)
     logger.info(f"Alle Migrationen abgeschlossen. Schema-Version: {final}")
 
@@ -410,11 +417,12 @@ async def _apply_schema_v1(db: aiosqlite.Connection) -> None:
 
     await db.commit()
 
-    # v2+v3+v4+v5-Tabellen auch gleich anlegen bei Fresh-Install
+    # v2+v3+v4+v5+v6-Tabellen auch gleich anlegen bei Fresh-Install
     await _apply_migration_v2(db)
     await _apply_migration_v3(db)
     await _apply_migration_v4(db)
     await _apply_migration_v5(db)
+    await _apply_migration_v6(db)
 
     # Tabellen zaehlen zur Verifikation
     cursor = await db.execute(
@@ -609,3 +617,92 @@ async def _apply_migration_v5(db: aiosqlite.Connection) -> None:
     await db.executescript(SCHEMA_V5)
     await db.commit()
     logger.info("Multi-Tenant-Tabellen erstellt (guilds, guild_config, guild_modules)")
+
+
+# =====================================================
+# Migration v6: Leveling guild-scoped + voice_sessions (Phase C Level-Rebuild)
+# =====================================================
+# Macht das Level-System multi-tenant-fähig (Cross-Guild-XP-Collision behoben:
+# UNIQUE(user_id) -> UNIQUE(guild_id, user_id)) + legt voice_sessions an für
+# echtes Voice-Anti-Cheat (statt grober 5-Min-Ticks). Leveling-CONFIG wandert
+# NICHT in eine eigene Tabelle, sondern nutzt das generische guild_config (v5).
+#
+# Rollback-Safety (Plan P18): die leveling-Tabelle wird per recreate-copy-drop
+# migriert (SQLite kann UNIQUE nicht per ALTER ändern). Bestehende XP-Daten
+# bleiben erhalten (alle Spalten kopiert), Backfill guild_id = ENV GUILD_ID
+# (Marcos Guild). Idempotent: läuft nur wenn leveling noch kein guild_id hat.
+
+SCHEMA_V6_VOICE = """
+-- =====================================================
+-- Voice-Sessions (echtes Anti-Cheat: join/leave statt 5-Min-Tick)
+-- valid=0 wenn self-deaf / allein / AFK -> kein XP
+-- =====================================================
+CREATE TABLE IF NOT EXISTS voice_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    channel_id TEXT,
+    join_time TIMESTAMP NOT NULL,
+    leave_time TIMESTAMP,
+    duration_seconds INTEGER,
+    xp_awarded INTEGER DEFAULT 0,
+    valid INTEGER DEFAULT 1
+);
+CREATE INDEX IF NOT EXISTS idx_vs_guild_user ON voice_sessions(guild_id, user_id);
+CREATE INDEX IF NOT EXISTS idx_vs_open ON voice_sessions(guild_id, user_id, leave_time);
+"""
+
+
+async def _apply_migration_v6(db: aiosqlite.Connection) -> None:
+    """Leveling guild-scoped + voice_sessions. Idempotent + datenerhaltend."""
+    # 1. voice_sessions (idempotent)
+    await db.executescript(SCHEMA_V6_VOICE)
+
+    # 2. leveling guild-scopen — nur wenn noch nicht migriert
+    cursor = await db.execute("PRAGMA table_info(leveling)")
+    columns = [row[1] for row in await cursor.fetchall()]
+    if "guild_id" not in columns:
+        # Backfill-Guild aus ENV (bestehende Daten = Marcos Haupt-Guild)
+        from utils.config import get_env
+        primary_guild = str(get_env("GUILD_ID", "0") or "0")
+
+        # recreate-copy-drop (SQLite kann UNIQUE-Constraint nicht per ALTER ändern)
+        await db.execute("ALTER TABLE leveling RENAME TO leveling_old")
+        await db.execute(
+            """
+            CREATE TABLE leveling (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                xp INTEGER DEFAULT 0,
+                level INTEGER DEFAULT 0,
+                messages INTEGER DEFAULT 0,
+                voice_minutes INTEGER DEFAULT 0,
+                last_xp_time TIMESTAMP,
+                UNIQUE(guild_id, user_id)
+            )
+            """
+        )
+        # Bestehende XP-Daten erhalten, guild_id backfillen (parametrisiert)
+        await db.execute(
+            """
+            INSERT INTO leveling
+                (guild_id, user_id, xp, level, messages, voice_minutes, last_xp_time)
+            SELECT ?, user_id, xp, level, messages, voice_minutes, last_xp_time
+            FROM leveling_old
+            """,
+            (primary_guild,),
+        )
+        await db.execute("DROP TABLE leveling_old")
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_leveling_guild_xp "
+            "ON leveling(guild_id, xp DESC)"
+        )
+        logger.info(
+            f"leveling guild-scoped migriert (Backfill guild_id={primary_guild})"
+        )
+    else:
+        logger.info("leveling bereits guild-scoped — übersprungen")
+
+    await db.commit()
+    logger.info("Migration v6: voice_sessions + leveling guild-scoped fertig")
