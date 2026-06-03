@@ -18,6 +18,7 @@ from fastapi.templating import Jinja2Templates
 from utils.config import PROJECT_ROOT, DATA_DIR, get_config, save_config
 from utils.logger import get_logger
 from web.auth import require_auth
+from web.guild_config_bridge import read_leveling_config, write_leveling_config
 
 logger = get_logger("web.routes.admin_bot")
 
@@ -486,6 +487,22 @@ TAB_TEMPLATES = {
 }
 
 
+async def _load_tab_config(tab_name: str) -> dict:
+    """
+    Tab-Config laden. Fuer Leveling die per-Guild `guild_config` ueber die
+    JSON-Defaults legen (MVP-Config), sonst nur JSON.
+    """
+    config = await asyncio.to_thread(_load_module_config, tab_name)
+    if tab_name == "leveling":
+        try:
+            per_guild = await read_leveling_config()
+            if per_guild:
+                config.update(per_guild)
+        except Exception as e:  # noqa: BLE001 — JSON-Default als Fallback
+            logger.warning(f"Leveling guild_config-Read fehlgeschlagen: {e}")
+    return config
+
+
 # --- Routen ---
 
 @router.get("/admin-bot", response_class=HTMLResponse)
@@ -536,7 +553,7 @@ async def admin_bot_tab(request: Request, tab_name: str, current_user: dict = De
             status_code=404,
         )
 
-    config = await asyncio.to_thread(_load_module_config, tab_name)
+    config = await _load_tab_config(tab_name)
     template_name = TAB_TEMPLATES[tab_name]
 
     return templates.TemplateResponse(template_name, {
@@ -575,6 +592,15 @@ async def admin_bot_save(request: Request, module_name: str, current_user: dict 
                 f"Admin-Bot Modul '{module_name}' gespeichert von "
                 f"{user.get('username', 'Unbekannt')}"
             )
+            # MVP-Config: Leveling zusaetzlich per-Guild in guild_config schreiben,
+            # damit der Bot (liest seit Phase C per-Guild) die Aenderung uebernimmt.
+            if module_name == "leveling":
+                try:
+                    await write_leveling_config(
+                        config, updated_by=user.get("username", "dashboard")
+                    )
+                except Exception as e:  # noqa: BLE001 — JSON-Save war schon erfolgreich
+                    logger.error(f"Leveling guild_config-Bridge fehlgeschlagen: {e}")
         else:
             error_msg = "Fehler beim Speichern der Einstellungen."
 
