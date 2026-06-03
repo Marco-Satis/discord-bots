@@ -74,7 +74,7 @@ async def run_tests() -> None:
     try:
         cur = await db.execute("PRAGMA user_version")
         ver = (await cur.fetchone())[0]
-        _check("upgrade_version_6", ver == 6, f"ver={ver}")
+        _check("upgrade_version_6", ver >= 6, f"ver={ver}")
 
         cols = await _columns(db, "leveling")
         _check("upgrade_guild_id_col", "guild_id" in cols)
@@ -128,7 +128,7 @@ async def run_tests() -> None:
     db2 = await db_manager.get_db()
     try:
         cur = await db2.execute("PRAGMA user_version")
-        _check("fresh_version_6", (await cur.fetchone())[0] == 6)
+        _check("fresh_version_6", (await cur.fetchone())[0] >= 6)
         cols = await _columns(db2, "leveling")
         _check("fresh_leveling_guild_id", "guild_id" in cols)
         _check("fresh_voice_sessions", await _table_exists(db2, "voice_sessions"))

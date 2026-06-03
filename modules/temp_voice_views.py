@@ -789,6 +789,53 @@ class TempVoiceControlView(discord.ui.View):
             allowed_mentions=discord.AllowedMentions.none(),
         )
 
+    @discord.ui.button(
+        label="Accounts",
+        style=discord.ButtonStyle.secondary,
+        custom_id="temp_voice:accounts",
+        emoji="\U0001f3ae",
+        row=2,
+    )
+    async def accounts_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ) -> None:
+        """Zeigt dem Klickenden seine verlinkten Spiel-Accounts (ephemeral)."""
+        from modules.linked_accounts import (
+            LinkedAccountsManager, platform_display,
+        )
+
+        if interaction.guild is None:
+            await interaction.response.send_message(
+                "Nur auf einem Server nutzbar.", ephemeral=True
+            )
+            return
+
+        links = await LinkedAccountsManager.get_links(
+            interaction.guild.id, interaction.user.id
+        )
+        if not links:
+            await interaction.response.send_message(
+                "Du hast keine verlinkten Accounts. Nutze `/link <plattform> <id>`.",
+                ephemeral=True,
+            )
+            return
+
+        embed = discord.Embed(
+            title="\U0001f3ae Deine verlinkten Accounts", color=0x5865F2
+        )
+        for platform, account_id in links.items():
+            embed.add_field(
+                name=platform_display(platform),
+                value=discord.utils.escape_markdown(str(account_id)),
+                inline=True,
+            )
+        await interaction.response.send_message(
+            embed=embed, ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+
 
 # ======================================================================
 # Ban / Unban — temporäre Select-Views (pro Interaktion, kein Persist)

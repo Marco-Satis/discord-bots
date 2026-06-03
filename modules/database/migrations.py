@@ -11,7 +11,7 @@ from utils.logger import get_logger
 logger = get_logger("database.migrations")
 
 # Aktuelle Schema-Version
-CURRENT_VERSION = 6
+CURRENT_VERSION = 7
 
 
 # Komplettes Schema (23 Tabellen + Indices + FTS5)
@@ -398,6 +398,13 @@ async def run_migrations(db: aiosqlite.Connection) -> None:
         await set_schema_version(db, 6)
         logger.info("Migration v5 → v6 abgeschlossen")
 
+    # Version 6 → 7: Verlinkte Accounts (Linked-Accounts/Profil)
+    if current < 7:
+        logger.info("Migration v6 → v7: user_linked_accounts")
+        await _apply_migration_v7(db)
+        await set_schema_version(db, 7)
+        logger.info("Migration v6 → v7 abgeschlossen")
+
     final = await get_schema_version(db)
     logger.info(f"Alle Migrationen abgeschlossen. Schema-Version: {final}")
 
@@ -423,6 +430,7 @@ async def _apply_schema_v1(db: aiosqlite.Connection) -> None:
     await _apply_migration_v4(db)
     await _apply_migration_v5(db)
     await _apply_migration_v6(db)
+    await _apply_migration_v7(db)
 
     # Tabellen zaehlen zur Verifikation
     cursor = await db.execute(
@@ -706,3 +714,29 @@ async def _apply_migration_v6(db: aiosqlite.Connection) -> None:
 
     await db.commit()
     logger.info("Migration v6: voice_sessions + leveling guild-scoped fertig")
+
+
+SCHEMA_V7_LINKED = """
+-- =====================================================
+-- Verlinkte Accounts (generisch: Activision/Steam/Epic/...)
+-- Per-Guild isoliert (kein Cross-Guild-Leak von PII).
+-- =====================================================
+CREATE TABLE IF NOT EXISTS user_linked_accounts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    platform TEXT NOT NULL,
+    account_id TEXT NOT NULL,
+    linked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(guild_id, user_id, platform)
+);
+CREATE INDEX IF NOT EXISTS idx_ula_guild_user
+    ON user_linked_accounts(guild_id, user_id);
+"""
+
+
+async def _apply_migration_v7(db: aiosqlite.Connection) -> None:
+    """Verlinkte Accounts (Linked-Accounts/Profil). Idempotent."""
+    await db.executescript(SCHEMA_V7_LINKED)
+    await db.commit()
+    logger.info("Migration v7: user_linked_accounts fertig")
