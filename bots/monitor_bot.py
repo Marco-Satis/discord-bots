@@ -1425,6 +1425,13 @@ async def mc_health_check_task():
             running = await srv.is_running()
 
             if not running:
+                # Manuell gestoppt (z.B. via Dashboard)? -> erwarteter Zustand,
+                # kein Offline-Alarm (service_watchdog respektiert das bereits).
+                from modules.monitoring import manual_stop_state
+                if manual_stop_state.is_manually_stopped(f"mc_{sid.lower()}"):
+                    _mc_consecutive_offline[sid] = 0
+                    _mc_downtime_notified[sid] = False
+                    continue
                 _mc_consecutive_offline[sid] = _mc_consecutive_offline.get(sid, 0) + 1
                 count = _mc_consecutive_offline[sid]
 
@@ -1614,7 +1621,13 @@ async def health_check_task():
 
         # -- Downtime Notification (Phase 10b) --
         if status.state != ServerState.ONLINE:
-            _consecutive_offline_checks += 1
+            # Manuell gestoppt (z.B. via Dashboard)? -> erwarteter Zustand, kein Alarm.
+            from modules.monitoring import manual_stop_state
+            if manual_stop_state.is_manually_stopped("satisfactory"):
+                _consecutive_offline_checks = 0
+                _downtime_notified = False
+            else:
+                _consecutive_offline_checks += 1
 
             # After 3 consecutive checks (6 minutes) offline and not yet notified
             if _consecutive_offline_checks >= 3 and not _downtime_notified and ADMIN_LOG_CHANNEL_ID:

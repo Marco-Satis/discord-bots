@@ -393,7 +393,7 @@ class UpdateChecker:
             from modules.monitoring import manual_stop_state
             await manual_stop_state.mark_started("satisfactory")
         except Exception as e:
-            logger.debug(f"mark_started Fehler: {e}")
+            logger.warning(f"mark_started (manual_stop-Clear) Fehler: {e}")
         if not server or not hasattr(server, "start"):
             return False
         try:
