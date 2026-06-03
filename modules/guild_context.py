@@ -153,7 +153,11 @@ class GuildConfig:
             (str(guild_id), key, json.dumps(value), updated_by),
         )
         await conn.commit()
-        _config_cache[(str(guild_id), key)] = (value, time.monotonic() + _CACHE_TTL)
+        # Cache den JSON-roundtrip-Wert (nicht das rohe Objekt) — sonst weicht ein
+        # Cache-Hit von einem frischen DB-Read ab (z.B. tuple -> list nach JSON).
+        _config_cache[(str(guild_id), key)] = (
+            _decode(json.dumps(value)), time.monotonic() + _CACHE_TTL,
+        )
 
     @staticmethod
     async def delete(guild_id: int | str, key: str) -> None:
