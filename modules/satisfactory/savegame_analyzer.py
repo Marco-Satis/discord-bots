@@ -13,6 +13,8 @@ API structure (satisfactory-save 0.9.0):
 
 import asyncio
 import json
+import multiprocessing
+import queue as _queue
 import time
 from pathlib import Path
 from typing import Dict, Optional, Tuple, Any
@@ -36,6 +38,9 @@ except ImportError:
         "Building stats will not be available. "
         "Install with: pip install satisfactory-save"
     )
+
+# Timeout fuer den isolierten Save-Parser-Kindprozess (Sekunden)
+_SAVE_PARSE_TIMEOUT = 90
 
 
 @dataclass
@@ -523,6 +528,38 @@ def _estimate_power(class_name: str) -> float:
     return 0.0
 
 
+def _extract_save_objects_worker(save_path: str, result_q) -> None:
+    """
+    Laeuft in einem ISOLIERTEN fork-Kindprozess.
+
+    Fuehrt den nativen satisfactory-save-Parse durch und gibt nur
+    serialisierbare Daten zurueck: (header_dict, [class_names]).
+    Ein SIGSEGV im nativen Parser (z.B. inkompatibles Save-Format nach
+    einem Game-Update) toetet damit NUR diesen Kindprozess, nicht den Bot.
+    Die reine Klassifikation passiert anschliessend im Parent-Prozess.
+
+    Bewusst KEIN logging und KEIN import hier — der Kindprozess nutzt das
+    bereits modul-global importierte ``SaveGame`` (vermeidet Import-/Logging-
+    Lock-Deadlocks beim fork).
+    """
+    try:
+        save = SaveGame(save_path)
+        h = save.mSaveHeader
+        header = {
+            "session_name": h.SessionName or "",
+            "build_version": h.BuildVersion or 0,
+            "play_hours": round(h.PlayDurationSeconds / 3600, 1),
+        }
+        class_names = []
+        for obj in save.allSaveObjects():
+            cn = _get_class_name(obj)
+            if cn:
+                class_names.append(cn)
+        result_q.put(("ok", (header, class_names)))
+    except Exception as e:  # noqa: BLE001 - Fehler an Parent durchreichen
+        result_q.put(("error", str(e)[:200]))
+
+
 class SavegameAnalyzer:
     """
     Deep savegame analyzer with caching.
@@ -638,24 +675,83 @@ class SavegameAnalyzer:
         start_time = time.time()
         logger.info(f"Analyzing save: {save_file.name} ({stats.save_size})")
 
+        # Nativen Parser in ISOLIERTEM Kindprozess laufen lassen, damit ein
+        # SIGSEGV (z.B. inkompatibles Save-Format nach einem Game-Update) nur
+        # den Subprozess killt und NICHT den gesamten Bot-Prozess. fork-Context
+        # vermeidet ein Re-Import des __main__-Moduls (bots/monitor_bot.py mit
+        # modul-level Bot-Setup); ein try/except kann SIGSEGV nicht fangen.
+        ctx = multiprocessing.get_context("fork")
+        result_q = ctx.Queue()
+        proc = ctx.Process(
+            target=_extract_save_objects_worker,
+            args=(str(save_file), result_q),
+            daemon=True,
+        )
+        proc.start()
+
+        # Auf Ergebnis pollen: holt Daten sobald verfuegbar (Erfolg, schnell)
+        # ODER erkennt einen toten Kindprozess ohne Daten (nativer Crash,
+        # ~0.5s) -> kein 90s-Blockieren im Crash-Fall. get() VOR join()
+        # verhindert den Queue-Pipe-Buffer-Deadlock bei grossen Ergebnissen.
+        parse_result = None
+        deadline = time.time() + _SAVE_PARSE_TIMEOUT
+        while time.time() < deadline:
+            try:
+                parse_result = result_q.get(timeout=0.5)
+                break
+            except _queue.Empty:
+                pass
+            except Exception as e:
+                logger.warning(f"Save-Parser Queue-Fehler: {e}")
+                break
+            if not proc.is_alive():
+                # Kind beendet -> letzter Drain-Versuch (Puffer-Restdaten)
+                try:
+                    parse_result = result_q.get(timeout=1.0)
+                except Exception:
+                    parse_result = None
+                break
+
+        proc.join(timeout=10)
+        if proc.is_alive():
+            proc.terminate()
+            proc.join(timeout=5)
+
+        # Kein Ergebnis -> nativer Crash (exitcode < 0 = Signal) oder Timeout
+        if parse_result is None:
+            ec = proc.exitcode
+            if ec is not None and ec < 0:
+                logger.warning(
+                    f"Save-Parser-Kindprozess durch Signal {-ec} abgestuerzt "
+                    f"(inkompatibles Save-Format?) -> Header-Fallback"
+                )
+                stats.analysis_error = f"Parser-Crash (Signal {-ec})"
+            else:
+                logger.warning(
+                    f"Save-Analyse ohne Ergebnis (exitcode={ec}) -> Header-Fallback"
+                )
+                stats.analysis_error = "Save-Analyse fehlgeschlagen/Timeout"
+            self._read_basic_header(save_file, stats)
+            return stats
+
+        status, payload = parse_result
+        if status == "error":
+            logger.error(f"Save parse error: {payload}")
+            stats.analysis_error = payload
+            self._read_basic_header(save_file, stats)
+            return stats
+
+        # Erfolg: payload = (header, [class_names]). Klassifikation ist reine
+        # Python-Logik auf Strings -> kann nicht segfaulten, laeuft im Parent.
         try:
-            save = SaveGame(str(save_file))
+            header_data, class_names = payload
+            stats.session_name = header_data.get("session_name", "")
+            stats.build_version = header_data.get("build_version", 0)
+            stats.play_hours = header_data.get("play_hours", 0.0)
 
-            # Header info
-            h = save.mSaveHeader
-            stats.session_name = h.SessionName or ""
-            stats.build_version = h.BuildVersion or 0
-            stats.play_hours = round(h.PlayDurationSeconds / 3600, 1)
-
-            # All objects
-            objs = save.allSaveObjects()
             total_power = 0.0
 
-            for obj in objs:
-                class_name = _get_class_name(obj)
-                if not class_name:
-                    continue
-
+            for class_name in class_names:
                 category, detail = _classify(class_name)
 
                 # Update aggregate counts and detailed counts
