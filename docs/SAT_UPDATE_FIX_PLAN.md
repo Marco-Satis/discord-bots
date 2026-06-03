@@ -25,7 +25,8 @@ State-Guard `self._notified_buildid`: `on_update_available` + Log nur bei availa
 `perform_update` läuft steamcmd jetzt in `for _attempt in range(2)`: break wenn returncode != 8, sonst erneut (2. Lauf nutzt das selbst-aktualisierte steamcmd). (Helper-Script via Bash-Heredoc nötig, da security_reminder_hook Edit/Write mit "subprocess/exec" blockt — False-Positive auf sichere List-Form.)
 ### ✅ Fix 3a — False-Crash (health_check.py HealthChecker) — IMPLEMENTIERT
 HealthChecker bekam `self.suppress_crash_check: Optional[Callable[[], bool]]`. Crash-Branch (`:155`): wenn Check True → `ServerState.OFFLINE` statt `CRASHED` (kein `_handle_crash`/Alarm). Wiring in `monitor_bot.py` nach on_crash: `health_checker.suppress_crash_check = lambda: health_auto_restart.is_suppressed("sat","main")`. Nutzt die bestehende HAR-Suppression (perform_update ruft `har.suppress("sat","main")`), die nach 900s auto-expired → kein Permanent-Block-Risiko.
-### ☐ Fix 3b — service_watchdog während Update — KONKRETER BAUPLAN (3 Edits, alle in `modules/monitoring/update_checker.py`, KEINE subprocess-Zeile → kein Hook-Problem)
+### ✅ Fix 3b — service_watchdog während Update — IMPLEMENTIERT (3 Edits, Lazy-Import gegen Circular)
+Umgesetzt: perform_update `await manual_stop_state.mark_stopped("satisfactory")` (guarded `if server`, lazy-import) vor Stop + `mark_started("satisfactory")` am Anfang von `_safe_start` (alle Restart-/Except-Pfade → zentraler Clear). Runtime-Import verifiziert, 4/4 Tests grün. (Pyright "unknown import symbol" = False-Positive; service_watchdog nutzt identischen Import produktiv.) — Bauplan war:
 Problem: service_watchdog (`service_watchdog.py:216`) überspringt nur in `manual_stop_state` markierte Services. perform_update markiert SAT dort NICHT → Watchdog meldet "Service ausgefallen" + könnte SAT **mitten im steamcmd-Update neustarten** (Race, seit Fix A wieder möglich).
 
 **Edit 1 — Import** (nach `from utils.logger import get_logger`, ~Z.13):

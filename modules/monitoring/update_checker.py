@@ -256,6 +256,13 @@ class UpdateChecker:
                 har.suppress("sat", "main", duration_seconds=900)  # 15 Minuten
                 logger.info("Health-Auto-Restart für 15 Min unterdrückt")
 
+            # service_watchdog/Daily-Restart blocken waehrend des Updates, damit
+            # SAT nicht mitten im steamcmd-Lauf neugestartet wird (Race).
+            # Lazy-Import gegen Circular-Import (update_checker liegt in modules.monitoring).
+            if server:
+                from modules.monitoring import manual_stop_state
+                await manual_stop_state.mark_stopped("satisfactory")
+
             # Schritt 2: Server stoppen (falls noch aktiv)
             if server and hasattr(server, "is_running"):
                 try:
@@ -379,6 +386,14 @@ class UpdateChecker:
 
     async def _safe_start(self, server: Any = None) -> bool:
         """Versucht den Server zu starten (best-effort, max 90s Timeout)."""
+        # Update-Fenster beendet -> manual_stop-Markierung loeschen. Jeder
+        # Restart-/Except-Pfad ruft _safe_start -> zentraler Clear-Punkt
+        # (verhindert haengenden "manually-stopped"-Marker).
+        try:
+            from modules.monitoring import manual_stop_state
+            await manual_stop_state.mark_started("satisfactory")
+        except Exception as e:
+            logger.debug(f"mark_started Fehler: {e}")
         if not server or not hasattr(server, "start"):
             return False
         try:
