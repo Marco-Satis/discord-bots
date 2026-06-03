@@ -11,7 +11,7 @@ from utils.logger import get_logger
 logger = get_logger("database.migrations")
 
 # Aktuelle Schema-Version
-CURRENT_VERSION = 4
+CURRENT_VERSION = 5
 
 
 # Komplettes Schema (23 Tabellen + Indices + FTS5)
@@ -384,6 +384,13 @@ async def run_migrations(db: aiosqlite.Connection) -> None:
         await set_schema_version(db, 4)
         logger.info("Migration v3 → v4 abgeschlossen")
 
+    # Version 4 → 5: Multi-Tenant-Fundament (guilds + guild_config + guild_modules)
+    if current < 5:
+        logger.info("Migration v4 → v5: Erstelle Multi-Tenant-Tabellen")
+        await _apply_migration_v5(db)
+        await set_schema_version(db, 5)
+        logger.info("Migration v4 → v5 abgeschlossen")
+
     final = await get_schema_version(db)
     logger.info(f"Alle Migrationen abgeschlossen. Schema-Version: {final}")
 
@@ -403,10 +410,11 @@ async def _apply_schema_v1(db: aiosqlite.Connection) -> None:
 
     await db.commit()
 
-    # v2+v3+v4-Tabellen auch gleich anlegen bei Fresh-Install
+    # v2+v3+v4+v5-Tabellen auch gleich anlegen bei Fresh-Install
     await _apply_migration_v2(db)
     await _apply_migration_v3(db)
     await _apply_migration_v4(db)
+    await _apply_migration_v5(db)
 
     # Tabellen zaehlen zur Verifikation
     cursor = await db.execute(
@@ -541,3 +549,63 @@ async def _apply_migration_v4(db: aiosqlite.Connection) -> None:
     await db.executescript(SCHEMA_V4)
     await db.commit()
     logger.info("Auto-Update-Tabellen erstellt (modpack_updates, server_versions)")
+
+
+# =====================================================
+# Migration v5: Multi-Tenant-Fundament (Community-Rebuild)
+# =====================================================
+# Trennt Daten/Config pro Discord-Guild. guild_id als TEXT (Snowflake,
+# konsistent mit giveaways/command_log/reaction_roles). Fundament fuer
+# per-Guild-Config + Feature-Flags (Temp-Voice-Hubs, Level-Config, ...).
+# Bestehende Community-Tabellen (z.B. leveling) werden NICHT hier guild-scoped
+# — das uebernimmt der jeweilige Feature-Rebuild (Phase C besitzt die
+# leveling-Migration), um Doppel-Migrationen zu vermeiden.
+# Game-Server-Tabellen (players/sessions/bans/stats) bleiben single-tenant
+# (Marcos privates Monitoring, kein Multi-Guild-Bezug).
+
+SCHEMA_V5 = """
+-- =====================================================
+-- Guild-Registry: jede Guild die der Bot bedient
+-- =====================================================
+CREATE TABLE IF NOT EXISTS guilds (
+    guild_id TEXT PRIMARY KEY,
+    name TEXT,
+    owner_id TEXT,
+    joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    active BOOLEAN DEFAULT 1
+);
+
+-- =====================================================
+-- Generische Per-Guild-Settings (schema-getrieben, Dashboard-editierbar)
+-- value = TEXT (JSON-encoded fuer non-str Werte)
+-- =====================================================
+CREATE TABLE IF NOT EXISTS guild_config (
+    guild_id TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_by TEXT DEFAULT 'system',
+    PRIMARY KEY (guild_id, key)
+);
+CREATE INDEX IF NOT EXISTS idx_guild_config_guild ON guild_config(guild_id);
+
+-- =====================================================
+-- Feature-Flags / Modul-Toggles pro Guild
+-- (Freund ohne Game-Server schaltet 'gameserver'-Modul aus, etc.)
+-- =====================================================
+CREATE TABLE IF NOT EXISTS guild_modules (
+    guild_id TEXT NOT NULL,
+    module TEXT NOT NULL,
+    enabled BOOLEAN DEFAULT 1,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (guild_id, module)
+);
+CREATE INDEX IF NOT EXISTS idx_guild_modules_guild ON guild_modules(guild_id);
+"""
+
+
+async def _apply_migration_v5(db: aiosqlite.Connection) -> None:
+    """Erstellt die Multi-Tenant-Fundament-Tabellen (guilds, guild_config, guild_modules)."""
+    await db.executescript(SCHEMA_V5)
+    await db.commit()
+    logger.info("Multi-Tenant-Tabellen erstellt (guilds, guild_config, guild_modules)")

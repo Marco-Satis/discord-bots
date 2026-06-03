@@ -43,13 +43,14 @@ from modules.monitoring.update_checker import UpdateChecker
 from modules.satisfactory.settings_backup import SettingsBackup
 from modules.mod_manager import ModManager
 from modules.maintenance import BotMaintenance
+from modules.guild_context import get_primary_guild_id
 
 # Load environment
 load_env()
 
 # Configuration
 TOKEN = get_env("DISCORD_TOKEN_MANAGER")
-GUILD_ID = get_env("GUILD_ID", cast=int)
+GUILD_ID = get_primary_guild_id()  # zentralisiert via Multi-Tenant-Resolver (Phase 0.5)
 
 logger = get_logger("gameserver_bot")
 

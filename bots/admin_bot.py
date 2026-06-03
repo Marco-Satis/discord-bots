@@ -27,13 +27,14 @@ from utils.logger import get_logger
 from utils.selftest import execute_selftest
 from utils.shutdown import setup_signal_handlers, register_cleanup
 from modules.database.db_manager import init_db, close_db
+from modules.guild_context import get_primary_guild_id
 
 # Umgebung laden
 load_env()
 
 # Konfiguration
 TOKEN = get_env("ADMIN_BOT_TOKEN")
-GUILD_ID = get_env("GUILD_ID", cast=int)
+GUILD_ID = get_primary_guild_id()  # zentralisiert via Multi-Tenant-Resolver (Phase 0.5)
 
 logger = get_logger("admin_bot")
 

@@ -80,6 +80,7 @@ from modules.security.ssl_monitor import SSLMonitor
 from modules.security.fail2ban import Fail2BanManager
 from modules.backup.integrity import BackupIntegrity
 from modules.database.db_manager import init_db, close_db, check_integrity, DBHelper
+from modules.guild_context import get_primary_guild_id
 from modules.database.json_importer import import_all, check_import_needed
 from modules.security.ban_manager import BanManager
 from modules.database.maintenance import DatabaseMaintenance
@@ -92,7 +93,7 @@ load_env()
 # ------------------------------------------------------------------
 
 TOKEN = get_env("DISCORD_TOKEN_WATCHDOG")
-GUILD_ID = get_env("GUILD_ID", cast=int)
+GUILD_ID = get_primary_guild_id()  # zentralisiert via Multi-Tenant-Resolver (Phase 0.5)
 ADMIN_LOG_CHANNEL_ID = get_env("ADMIN_LOG_CHANNEL_ID", cast=int, default=0)
 STATUS_EMBED_CHANNEL_ID = get_env("STATUS_EMBED_CHANNEL_ID", cast=int, default=0)
 VOICE_STATS_CATEGORY_ID = get_env("VOICE_STATS_CATEGORY_ID", cast=int, default=0)
