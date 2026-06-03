@@ -48,6 +48,14 @@ logger = get_logger("modules.temp_voice")
 DATA_FILE = ADMIN_DATA_DIR / "temp_voice.json"
 CONFIG_FILE = ADMIN_DATA_DIR / "temp_voice_config.json"
 
+# Ringpuffer-Groesse fuer Join/Leave-Events pro Channel (Panel zeigt letzte ~8)
+_EVENT_CAP = 10
+
+
+def _now_iso() -> str:
+    """Aktuellen UTC-Zeitstempel als ISO-String."""
+    return datetime.now(timezone.utc).isoformat()
+
 
 def _default_config() -> dict[str, Any]:
     """Standard-Konfiguration fuer das Temp-Voice-System zurueckgeben."""
@@ -224,12 +232,17 @@ class TempVoiceManager:
             reason=f"Temp-Voice-Channel fuer {member.display_name}",
         )
 
-        # In Daten speichern
+        # In Daten speichern (inkl. VOICEPANEL-State: private/banned/joined_at/events)
+        now = _now_iso()
         self._channels[str(channel.id)] = {
             "owner_id": member.id,
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": now,
             "name": channel_name,
             "user_limit": default_limit,
+            "private": False,              # offen by default (Spec)
+            "banned": [],                  # pro Channel, geloescht wenn Channel weg
+            "joined_at": {str(member.id): now},  # Zeit-im-Channel fuer Slot-Liste
+            "events": [{"uid": member.id, "type": "join", "ts": now}],  # Ringpuffer
         }
         self._save()
 
@@ -374,6 +387,188 @@ class TempVoiceManager:
 
         self._channels[cid]["user_limit"] = user_limit
         self._save()
+        return True
+
+    # ------------------------------------------------------------------
+    # VOICEPANEL-State — Daten-Helper (sync, kein Discord-Call)
+    # ------------------------------------------------------------------
+
+    def _ch(self, channel_id: int) -> dict[str, Any] | None:
+        """Internen Channel-Datensatz holen (oder None)."""
+        return self._channels.get(str(channel_id))
+
+    def _set_flag(self, channel_id: int, key: str, value: Any) -> None:
+        """Ein Feld im Channel-Datensatz setzen + speichern."""
+        data = self._ch(channel_id)
+        if data is not None:
+            data[key] = value
+            self._save()
+
+    def is_private(self, channel_id: int) -> bool:
+        """Ob der Channel als privat (zu + unsichtbar) markiert ist."""
+        data = self._ch(channel_id)
+        return bool(data and data.get("private", False))
+
+    def get_banned(self, channel_id: int) -> list[int]:
+        """Gebannte User-IDs dieses Channels (Kopie)."""
+        data = self._ch(channel_id)
+        return list(data.get("banned", [])) if data else []
+
+    def is_banned(self, channel_id: int, user_id: int) -> bool:
+        """Ob ein User in diesem Channel gebannt ist."""
+        return user_id in self.get_banned(channel_id)
+
+    def add_ban(self, channel_id: int, user_id: int) -> None:
+        """User zur Ban-Liste hinzufuegen (idempotent) + speichern."""
+        data = self._ch(channel_id)
+        if data is None:
+            return
+        banned = data.setdefault("banned", [])
+        if user_id not in banned:
+            banned.append(user_id)
+            self._save()
+
+    def remove_ban(self, channel_id: int, user_id: int) -> bool:
+        """User aus der Ban-Liste entfernen. True wenn entfernt."""
+        data = self._ch(channel_id)
+        if data is None:
+            return False
+        banned = data.setdefault("banned", [])
+        if user_id in banned:
+            banned.remove(user_id)
+            self._save()
+            return True
+        return False
+
+    def get_joined_at(self, channel_id: int) -> dict[str, str]:
+        """Map User-ID(str) -> Join-Zeitstempel (ISO) fuer die Slot-Liste."""
+        data = self._ch(channel_id)
+        return dict(data.get("joined_at", {})) if data else {}
+
+    def record_join(self, channel_id: int, user_id: int) -> None:
+        """Join eines Users im Channel vermerken (joined_at + Event)."""
+        data = self._ch(channel_id)
+        if data is None:
+            return
+        data.setdefault("joined_at", {})[str(user_id)] = _now_iso()
+        self.log_event(channel_id, user_id, "join")  # speichert
+
+    def record_leave(self, channel_id: int, user_id: int) -> None:
+        """Leave eines Users im Channel vermerken (joined_at-Cleanup + Event)."""
+        data = self._ch(channel_id)
+        if data is None:
+            return
+        data.setdefault("joined_at", {}).pop(str(user_id), None)
+        self.log_event(channel_id, user_id, "leave")  # speichert
+
+    def log_event(self, channel_id: int, user_id: int, event_type: str) -> None:
+        """Join/Leave/Mod-Event in den Ringpuffer schreiben (cap _EVENT_CAP)."""
+        data = self._ch(channel_id)
+        if data is None:
+            return
+        events = data.setdefault("events", [])
+        events.append({"uid": user_id, "type": event_type, "ts": _now_iso()})
+        if len(events) > _EVENT_CAP:
+            del events[: len(events) - _EVENT_CAP]
+        self._save()
+
+    def get_events(self, channel_id: int, limit: int = 8) -> list[dict[str, Any]]:
+        """Letzte `limit` Events des Channels (neueste zuletzt)."""
+        data = self._ch(channel_id)
+        if not data:
+            return []
+        events = data.get("events", [])
+        return list(events[-limit:])
+
+    # ------------------------------------------------------------------
+    # VOICEPANEL-State — Action-Helper (async, mit Discord-Call)
+    # Zentrale Logik statt in den Buttons (Buttons bleiben duenn).
+    # ------------------------------------------------------------------
+
+    async def set_private(self, channel: discord.VoiceChannel) -> None:
+        """Channel privat schalten: @everyone connect=False + unsichtbar."""
+        guild = channel.guild
+        try:
+            await channel.set_permissions(
+                guild.default_role, connect=False, view_channel=False,
+                reason="Temp-Voice: privat",
+            )
+        except discord.HTTPException as e:
+            logger.error(f"set_private fehlgeschlagen ({channel.id}): {e}")
+            return
+        self._set_flag(channel.id, "private", True)
+        owner = self.get_owner(channel.id) or 0
+        self.log_event(channel.id, owner, "private")
+
+    async def set_public(self, channel: discord.VoiceChannel) -> None:
+        """Channel oeffentlich schalten: @everyone connect=True + sichtbar."""
+        guild = channel.guild
+        try:
+            await channel.set_permissions(
+                guild.default_role, connect=True, view_channel=True,
+                reason="Temp-Voice: oeffentlich",
+            )
+        except discord.HTTPException as e:
+            logger.error(f"set_public fehlgeschlagen ({channel.id}): {e}")
+            return
+        self._set_flag(channel.id, "private", False)
+        owner = self.get_owner(channel.id) or 0
+        self.log_event(channel.id, owner, "public")
+
+    async def ban_user(
+        self, channel: discord.VoiceChannel, member: discord.Member
+    ) -> None:
+        """User bannen: aus Channel trennen + connect-deny + in Ban-Liste."""
+        # 1. Trennen falls aktuell im Channel
+        try:
+            if (member.voice and member.voice.channel
+                    and member.voice.channel.id == channel.id):
+                await member.move_to(None, reason="Temp-Voice: gebannt")
+        except discord.HTTPException as e:
+            logger.warning(f"Ban-Disconnect fehlgeschlagen ({member.id}): {e}")
+        # 2. connect verweigern (sichtbar bleibt, kann aber nicht rein)
+        try:
+            await channel.set_permissions(
+                member, connect=False, reason="Temp-Voice: gebannt",
+            )
+        except discord.HTTPException as e:
+            logger.error(f"Ban-Deny fehlgeschlagen ({member.id}): {e}")
+            return
+        # 3. State
+        self.add_ban(channel.id, member.id)
+        self.log_event(channel.id, member.id, "ban")
+
+    async def unban_user(
+        self, channel: discord.VoiceChannel, member: discord.Member
+    ) -> bool:
+        """Ban aufheben: Overwrite entfernen + aus Ban-Liste. True wenn war gebannt."""
+        try:
+            await channel.set_permissions(
+                member, overwrite=None, reason="Temp-Voice: entbannt",
+            )
+        except discord.HTTPException as e:
+            logger.error(f"Unban fehlgeschlagen ({member.id}): {e}")
+            return False
+        removed = self.remove_ban(channel.id, member.id)
+        if removed:
+            self.log_event(channel.id, member.id, "unban")
+        return removed
+
+    async def claim(
+        self, channel: discord.VoiceChannel, member: discord.Member
+    ) -> bool:
+        """Channel uebernehmen (Owner weg): Ownership + Manage-Rechte an member."""
+        if not self.transfer_ownership(channel.id, member.id):
+            return False
+        try:
+            await channel.set_permissions(
+                member, connect=True, manage_channels=True,
+                move_members=True, manage_permissions=True,
+                reason="Temp-Voice: Claim",
+            )
+        except discord.HTTPException as e:
+            logger.error(f"Claim-Perms fehlgeschlagen ({member.id}): {e}")
+        self.log_event(channel.id, member.id, "claim")
         return True
 
     # ------------------------------------------------------------------
