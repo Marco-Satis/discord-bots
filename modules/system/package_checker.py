@@ -95,7 +95,7 @@ class PackageChecker:
 
     async def check_updates(self) -> Dict[str, Any]:
         """
-        Führt 'sudo apt update -qq' und 'apt list --upgradable' aus.
+        Führt 'apt list --upgradable' aus (Listen via System-apt-daily.timer, kein sudo).
 
         Returns:
             dict mit Keys:
@@ -112,26 +112,10 @@ class PackageChecker:
             "error": None,
         }
 
-        # Schritt 1: apt update -qq (Paketlisten aktualisieren)
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "sudo", "apt", "update", "-qq",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            await asyncio.wait_for(proc.communicate(), timeout=120.0)
-        except asyncio.TimeoutError:
-            result["error"] = "apt update Timeout (120s)"
-            logger.warning(result["error"])
-            self._last_result = result
-            return result
-        except OSError as e:
-            result["error"] = f"apt update Fehler: {e}"
-            logger.warning(result["error"])
-            self._last_result = result
-            return result
-
-        # Schritt 2: apt list --upgradable
+        # Paketlisten aktualisiert das System selbst (apt-daily.timer als
+        # root). Kein 'sudo apt update' -> botuser hat dafuer kein sudo
+        # (vermied PAM-auth-fail-Logspam jeden Zyklus). 'apt list
+        # --upgradable' liest die vorhandenen Listen ohne root-Rechte.
         try:
             proc = await asyncio.create_subprocess_exec(
                 "apt", "list", "--upgradable",
