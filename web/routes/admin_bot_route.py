@@ -107,6 +107,8 @@ DEFAULT_CONFIGS = {
         "voice_xp_per_minute": 5,
         "channel_multipliers": [],
         "role_rewards": [],
+        "no_xp_channels": [],
+        "remove_lower_rewards": False,
         "leaderboard_display_count": 10,
     },
     "tickets": {
@@ -346,6 +348,14 @@ def _parse_form_leveling(form) -> dict:
                 pass
         idx += 1
 
+    # No-XP-Channels: Textarea (eine ID pro Zeile, Komma toleriert)
+    no_xp_raw = form.get("no_xp_channels", "") or ""
+    no_xp_channels = [
+        line.strip()
+        for line in no_xp_raw.replace(",", "\n").splitlines()
+        if line.strip()
+    ]
+
     return {
         "xp_per_message_min": int(form.get("xp_per_message_min", 15) or 15),
         "xp_per_message_max": int(form.get("xp_per_message_max", 25) or 25),
@@ -353,6 +363,8 @@ def _parse_form_leveling(form) -> dict:
         "voice_xp_per_minute": int(form.get("voice_xp_per_minute", 5) or 5),
         "channel_multipliers": channel_multipliers,
         "role_rewards": role_rewards,
+        "no_xp_channels": no_xp_channels,
+        "remove_lower_rewards": form.get("remove_lower_rewards") == "on",
         "leaderboard_display_count": int(form.get("leaderboard_display_count", 10) or 10),
     }
 

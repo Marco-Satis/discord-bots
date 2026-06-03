@@ -89,6 +89,26 @@
             </p>
             {% endif %}
         </div>
+
+        <!-- Rollen-Aufstieg -->
+        <h3 style="color: var(--text-primary); font-size: 1rem; margin: 1.5rem 0 0.75rem; font-weight: 600;">Rollen-Aufstieg</h3>
+        <div class="form-group">
+            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                <input type="checkbox" name="remove_lower_rewards" value="on"
+                       {% if config.remove_lower_rewards %}checked{% endif %}>
+                Nur die hoechste erreichte Belohnungs-Rolle behalten (niedrigere beim Aufstieg entfernen)
+            </label>
+        </div>
+
+        <!-- No-XP-Channels -->
+        <h3 style="color: var(--text-primary); font-size: 1rem; margin: 1.5rem 0 0.75rem; font-weight: 600;">No-XP-Channels</h3>
+        <p style="color: var(--text-secondary); font-size: 0.8rem; margin-bottom: 0.75rem;">
+            Channels in denen kein XP vergeben wird (eine Channel-ID pro Zeile).
+        </p>
+        <div class="form-group">
+            <textarea name="no_xp_channels" rows="3" placeholder="111111111111111111"
+                      style="width: 100%; font-family: monospace;">{% if config.no_xp_channels %}{{ config.no_xp_channels|join('\n') }}{% endif %}</textarea>
+        </div>
     </section>
 
     <div class="form-actions">

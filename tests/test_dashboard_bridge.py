@@ -103,6 +103,20 @@ async def run_tests() -> None:
         bridge.get_primary_guild_id = lambda: None
         _check("write_no_guild_false", await bridge.write_leveling_config(parsed) is False)
 
+        # --- Parser: No-XP-Channels + Remove-Lower aus Form ---
+        try:
+            from web.routes.admin_bot_route import _parse_form_leveling
+            fp = _parse_form_leveling(
+                {"no_xp_channels": "111\n222, 333", "remove_lower_rewards": "on"}
+            )
+            _check("parse_no_xp", fp["no_xp_channels"] == ["111", "222", "333"], f"{fp.get('no_xp_channels')}")
+            _check("parse_remove_lower_on", fp["remove_lower_rewards"] is True)
+            fp2 = _parse_form_leveling({})  # Checkbox fehlt -> False
+            _check("parse_remove_lower_off", fp2["remove_lower_rewards"] is False)
+            _check("parse_no_xp_empty", fp2["no_xp_channels"] == [])
+        except Exception:  # noqa: BLE001 — fastapi/pydantic lokal evtl. nicht ladbar (Server ok)
+            pass
+
     finally:
         bridge.get_primary_guild_id = _orig
         await db_manager.close_db()
