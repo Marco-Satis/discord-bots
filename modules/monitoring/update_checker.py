@@ -47,6 +47,10 @@ class UpdateChecker:
         # Build, fuer die zuletzt benachrichtigt wurde (Notify-Dedup gegen Spam
         # durch parallele Checker/Loops). Reset wenn kein Update mehr verfuegbar.
         self._notified_buildid: Optional[str] = None
+        # True wenn perform_update den manual_stop-Marker SELBST gesetzt hat.
+        # _safe_start cleart den Marker nur dann -> verhindert Loeschen eines
+        # manuell von Marco gesetzten Stop-Markers (L1).
+        self._update_marked_stop: bool = False
 
     async def check(self) -> Tuple[bool, Dict[str, Any]]:
         """
@@ -262,6 +266,7 @@ class UpdateChecker:
             if server:
                 from modules.monitoring import manual_stop_state
                 await manual_stop_state.mark_stopped("satisfactory")
+                self._update_marked_stop = True
 
             # Schritt 2: Server stoppen (falls noch aktiv)
             if server and hasattr(server, "is_running"):
@@ -388,12 +393,18 @@ class UpdateChecker:
         """Versucht den Server zu starten (best-effort, max 90s Timeout)."""
         # Update-Fenster beendet -> manual_stop-Markierung loeschen. Jeder
         # Restart-/Except-Pfad ruft _safe_start -> zentraler Clear-Punkt
-        # (verhindert haengenden "manually-stopped"-Marker).
-        try:
-            from modules.monitoring import manual_stop_state
-            await manual_stop_state.mark_started("satisfactory")
-        except Exception as e:
-            logger.warning(f"mark_started (manual_stop-Clear) Fehler: {e}")
+        # (verhindert haengenden "manually-stopped"-Marker). ABER nur wenn
+        # DIESES Update den Marker selbst gesetzt hat (L1): sonst wuerde ein
+        # manuell von Marco gesetzter Stop-Marker bei server=None-Except-Pfad
+        # faelschlich geloescht.
+        if self._update_marked_stop:
+            try:
+                from modules.monitoring import manual_stop_state
+                await manual_stop_state.mark_started("satisfactory")
+            except Exception as e:
+                logger.warning(f"mark_started (manual_stop-Clear) Fehler: {e}")
+            finally:
+                self._update_marked_stop = False
         if not server or not hasattr(server, "start"):
             return False
         try:

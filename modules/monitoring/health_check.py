@@ -176,12 +176,26 @@ class HealthChecker:
         # Detect recovery: was offline/crashed, now online
         if prev_state in (ServerState.OFFLINE, ServerState.CRASHED) \
                 and self.status.state == ServerState.ONLINE:
-            logger.info("Server recovery detected")
-            if self.on_recovery:
+            # Rueckkehr im unterdrueckten Fenster (geplanter Update/Restart)?
+            # -> erwartet, KEINE "Server recovery"-Notification (waere
+            # irrefuehrend nach geplantem Stop) (L3, analog Crash-Suppress).
+            recovery_suppressed = False
+            if self.suppress_crash_check is not None:
+                try:
+                    recovery_suppressed = bool(self.suppress_crash_check())
+                except Exception as e:
+                    logger.debug(f"suppress_crash_check (recovery) Fehler: {e}")
+            if recovery_suppressed:
+                logger.info("Server zurueck im unterdrueckten Fenster "
+                            "(geplanter Update/Restart) — keine Recovery-Notification")
+            elif self.on_recovery:
+                logger.info("Server recovery detected")
                 try:
                     await self.on_recovery()
                 except Exception as e:
                     logger.error(f"Recovery callback error: {e}")
+            else:
+                logger.info("Server recovery detected")
 
         self.status.last_check = datetime.now()
         return self.status
