@@ -29,6 +29,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from modules.leveling import LevelingManager
+from modules.guild_context import get_primary_guild_id
 from utils.logger import get_logger
 from utils.config import ADMIN_DATA_DIR
 from utils.permissions import admin_only
@@ -79,6 +80,14 @@ class LevelingCog(commands.Cog):
             logger.info("Leveling-Daten aus SQLite geladen")
         except Exception as e:
             logger.warning(f"SQLite-Load fehlgeschlagen: {e}")
+        # Per-Guild-Config der Haupt-Guild vorladen (Hot-Path hat sie dann sync;
+        # weitere Guilds werden bei Bedarf lazy nachgeladen, siehe _gcfg).
+        primary = get_primary_guild_id()
+        if primary is not None:
+            try:
+                await self.leveling.load_guild_config(primary)
+            except Exception as e:
+                logger.warning(f"Guild-Config-Vorladen fehlgeschlagen: {e}")
         self.voice_xp_task.start()
         logger.info("Leveling-Cog geladen, Voice-XP-Task gestartet")
 
@@ -112,17 +121,19 @@ class LevelingCog(commands.Cog):
 
         channel_id = message.channel.id if message.channel else None
         xp_gained, leveled_up = self.leveling.add_message_xp(
-            message.author.id, channel_id=channel_id
+            message.guild.id, message.author.id, channel_id=channel_id
         )
 
         if not leveled_up:
             return
 
         # Level-Up Benachrichtigung (Bild-Karte falls aktiv, sonst Embed)
-        user_data = self.leveling.get_user(message.author.id)
+        user_data = self.leveling.get_user(message.guild.id, message.author.id)
         new_level = user_data["level"]
 
-        file, embed = await self._build_levelup_message(message.author, new_level)
+        file, embed = await self._build_levelup_message(
+            message.guild.id, message.author, new_level
+        )
 
         try:
             if file is not None:
@@ -173,7 +184,7 @@ class LevelingCog(commands.Cog):
 
                 for member in active_members:
                     xp_gained, leveled_up = self.leveling.add_voice_xp(
-                        member.id, minutes=5
+                        guild.id, member.id, 5
                     )
 
                     if leveled_up:
@@ -195,11 +206,11 @@ class LevelingCog(commands.Cog):
         Versucht den System-Channel des Guilds zu verwenden.
         Falls nicht vorhanden, wird die Nachricht übersprungen.
         """
-        user_data = self.leveling.get_user(member.id)
+        user_data = self.leveling.get_user(guild.id, member.id)
         new_level = user_data["level"]
 
         file, embed = await self._build_levelup_message(
-            member, new_level, via_voice=True
+            guild.id, member, new_level, via_voice=True
         )
 
         # System-Channel oder ersten beschreibbaren Text-Channel finden
@@ -242,6 +253,7 @@ class LevelingCog(commands.Cog):
 
     async def _build_levelup_message(
         self,
+        guild_id: int,
         member: discord.Member | discord.User,
         new_level: int,
         *,
@@ -255,6 +267,7 @@ class LevelingCog(commands.Cog):
         (discord.File, Embed mit set_image) zurueck. Sonst (None, Standard-Embed).
 
         Args:
+            guild_id: Discord-Guild-ID (fuer per-Guild-User-Daten + Karten-Config)
             member: Der Member der gelevelt hat
             new_level: Das erreichte Level
             via_voice: True wenn durch Voice-Aktivitaet ausgeloest
@@ -262,18 +275,18 @@ class LevelingCog(commands.Cog):
         Returns:
             (file_or_None, embed)
         """
-        user_data = self.leveling.get_user(member.id)
+        user_data = self.leveling.get_user(guild_id, member.id)
         xp_in_level, xp_for_next = self._xp_progress(user_data, new_level)
 
         # --- Bild-Karte versuchen ---
-        if _CARD_AVAILABLE and self.leveling.is_card_enabled():
-            bg_name = self.leveling.get_card_bg()
+        if _CARD_AVAILABLE and self.leveling.is_card_enabled(guild_id):
+            bg_name = self.leveling.get_card_bg(guild_id)
             if bg_name:
                 bg_path = LEVELUP_BG_DIR / bg_name
                 if bg_path.exists():
                     try:
                         avatar_bytes = await member.display_avatar.read()
-                        accent = self.leveling.get_card_accent()
+                        accent = self.leveling.get_card_accent(guild_id)
                         png = await asyncio.to_thread(
                             render_levelup_card,
                             bg_path,
@@ -334,7 +347,7 @@ class LevelingCog(commands.Cog):
         """
         # Alle Level bis zum aktuellen prüfen
         for lvl in range(1, level + 1):
-            role_id = self.leveling.get_role_reward(lvl)
+            role_id = self.leveling.get_role_reward(guild.id, lvl)
             if role_id is None:
                 continue
 
@@ -442,13 +455,19 @@ class LevelingCog(commands.Cog):
         """Rang-Karte mit Level, XP, Fortschrittsbalken und Position anzeigen."""
         await interaction.response.defer()
 
+        if interaction.guild is None:
+            await interaction.followup.send(
+                "Dieser Befehl funktioniert nur auf einem Server.", ephemeral=True
+            )
+            return
+
         target = user or interaction.user
         # Sicherstellen dass wir ein Member-Objekt haben
-        if isinstance(target, discord.User) and interaction.guild:
+        if isinstance(target, discord.User):
             target = interaction.guild.get_member(target.id) or target
 
-        user_data = self.leveling.get_user(target.id)
-        rank = self.leveling.get_rank(target.id)
+        user_data = self.leveling.get_user(interaction.guild.id, target.id)
+        rank = self.leveling.get_rank(interaction.guild.id, target.id)
 
         embed = self._build_rank_embed(target, user_data, rank)
         await interaction.followup.send(embed=embed)
@@ -468,7 +487,13 @@ class LevelingCog(commands.Cog):
         """Top 10 Leaderboard als Embed anzeigen."""
         await interaction.response.defer()
 
-        top = self.leveling.get_leaderboard(limit=10)
+        if interaction.guild is None:
+            await interaction.followup.send(
+                "Dieser Befehl funktioniert nur auf einem Server.", ephemeral=True
+            )
+            return
+
+        top = self.leveling.get_leaderboard(interaction.guild.id, limit=10)
 
         if not top:
             await interaction.followup.send(
@@ -544,14 +569,20 @@ class LevelingCog(commands.Cog):
         """XP eines Users direkt auf einen bestimmten Wert setzen."""
         await interaction.response.defer(ephemeral=True)
 
+        if interaction.guild is None:
+            await interaction.followup.send(
+                "Nur auf einem Server nutzbar.", ephemeral=True
+            )
+            return
+
         if amount < 0:
             await interaction.followup.send(
                 "XP muessen >= 0 sein.", ephemeral=True
             )
             return
 
-        self.leveling.set_xp(user.id, amount)
-        user_data = self.leveling.get_user(user.id)
+        self.leveling.set_xp(interaction.guild.id, user.id, amount)
+        user_data = self.leveling.get_user(interaction.guild.id, user.id)
 
         await interaction.followup.send(
             f"XP für **{user.display_name}** auf **{amount:,}** gesetzt "
@@ -586,6 +617,12 @@ class LevelingCog(commands.Cog):
         """XP-Multiplikator für einen bestimmten Channel setzen."""
         await interaction.response.defer(ephemeral=True)
 
+        if interaction.guild is None:
+            await interaction.followup.send(
+                "Nur auf einem Server nutzbar.", ephemeral=True
+            )
+            return
+
         if factor < 0:
             await interaction.followup.send(
                 "Multiplikator muss >= 0 sein.", ephemeral=True
@@ -598,7 +635,9 @@ class LevelingCog(commands.Cog):
             )
             return
 
-        self.leveling.set_channel_multiplier(channel.id, factor)
+        await self.leveling.set_channel_multiplier(
+            interaction.guild.id, channel.id, factor
+        )
 
         if factor == 1.0:
             await interaction.followup.send(
@@ -633,6 +672,12 @@ class LevelingCog(commands.Cog):
         """Automatische Rollen-Belohnung für ein bestimmtes Level konfigurieren."""
         await interaction.response.defer(ephemeral=True)
 
+        if interaction.guild is None:
+            await interaction.followup.send(
+                "Nur auf einem Server nutzbar.", ephemeral=True
+            )
+            return
+
         if level < 1:
             await interaction.followup.send(
                 "Level muss mindestens 1 sein.", ephemeral=True
@@ -645,7 +690,7 @@ class LevelingCog(commands.Cog):
             )
             return
 
-        self.leveling.set_role_reward(level, rolle.id)
+        await self.leveling.set_role_reward(interaction.guild.id, level, rolle.id)
 
         await interaction.followup.send(
             f"Rollen-Belohnung gesetzt: Bei **Level {level}** wird die Rolle "
@@ -689,6 +734,13 @@ class LevelingCog(commands.Cog):
         """Level-Up-Karte (Bild-Hintergrund) ein-/ausschalten, Hintergrund + Akzent setzen."""
         await interaction.response.defer(ephemeral=True)
 
+        if interaction.guild is None:
+            await interaction.followup.send(
+                "Nur auf einem Server nutzbar.", ephemeral=True
+            )
+            return
+        guild_id = interaction.guild.id
+
         if not _CARD_AVAILABLE:
             await interaction.followup.send(
                 "Bild-Karten nicht verfuegbar — Pillow ist auf dem Server nicht "
@@ -706,7 +758,7 @@ class LevelingCog(commands.Cog):
                 h = "#" + h
             hex_part = h.lstrip("#")
             if len(hex_part) == 6 and all(c in "0123456789abcdefABCDEF" for c in hex_part):
-                self.leveling.set_card_accent(h)
+                await self.leveling.set_card_accent(guild_id, h)
                 notes.append(f"Akzent {h}")
             else:
                 await interaction.followup.send(
@@ -731,7 +783,7 @@ class LevelingCog(commands.Cog):
                 raw = await hintergrund.read()
                 dst = LEVELUP_BG_DIR / "bg.png"
                 await asyncio.to_thread(self._save_bg, raw, dst)
-                self.leveling.set_card_bg("bg.png")
+                await self.leveling.set_card_bg(guild_id, "bg.png")
                 notes.append("Hintergrund gesetzt")
             except Exception as e:  # noqa: BLE001
                 logger.error(f"Karten-Hintergrund speichern fehlgeschlagen: {e}")
@@ -741,11 +793,11 @@ class LevelingCog(commands.Cog):
                 return
 
         # Enable-Flag setzen
-        self.leveling.set_card_enabled(aktiv)
+        await self.leveling.set_card_enabled(guild_id, aktiv)
         notes.append("aktiv" if aktiv else "deaktiviert")
 
         # Aktiv aber kein Hintergrund -> Hinweis
-        if aktiv and not self.leveling.get_card_bg():
+        if aktiv and not self.leveling.get_card_bg(guild_id):
             await interaction.followup.send(
                 "Karte aktiviert, aber noch kein Hintergrund gesetzt. "
                 "Lade mit der Option `hintergrund:` ein Bild hoch.",
@@ -754,12 +806,12 @@ class LevelingCog(commands.Cog):
             return
 
         # Vorschau rendern (falls aktiv + Hintergrund vorhanden)
-        bg_name = self.leveling.get_card_bg()
+        bg_name = self.leveling.get_card_bg(guild_id)
         if aktiv and bg_name:
             bg_path = LEVELUP_BG_DIR / bg_name
             if bg_path.exists():
                 try:
-                    user_data = self.leveling.get_user(interaction.user.id)
+                    user_data = self.leveling.get_user(guild_id, interaction.user.id)
                     lvl = user_data.get("level", 0)
                     avatar_bytes = await interaction.user.display_avatar.read()
                     png = await asyncio.to_thread(
@@ -770,7 +822,7 @@ class LevelingCog(commands.Cog):
                         lvl,
                         30,
                         100,
-                        self.leveling.get_card_accent(),
+                        self.leveling.get_card_accent(guild_id),
                     )
                     file = discord.File(io.BytesIO(png), filename="preview.png")
                     await interaction.followup.send(
