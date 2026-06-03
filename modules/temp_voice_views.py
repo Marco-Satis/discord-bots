@@ -15,6 +15,7 @@ sie funktionieren auch nach einem Bot-Neustart.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 import discord
@@ -25,6 +26,86 @@ if TYPE_CHECKING:
     from modules.temp_voice import TempVoiceManager
 
 logger = get_logger("modules.temp_voice_views")
+
+
+# ======================================================================
+# Panel-Embed — Slot-Liste + Status (VOICEPANEL-Style)
+# ======================================================================
+
+def _format_duration(iso_ts: str | None) -> str:
+    """ISO-Zeitstempel -> kompakte Dauer seit dann (z.B. '5m', '1h 3m')."""
+    if not iso_ts:
+        return "?"
+    try:
+        start = datetime.fromisoformat(iso_ts)
+    except ValueError:
+        return "?"
+    secs = int((datetime.now(timezone.utc) - start).total_seconds())
+    if secs < 60:
+        return f"{secs}s"
+    mins = secs // 60
+    if mins < 60:
+        return f"{mins}m"
+    return f"{mins // 60}h {mins % 60}m"
+
+
+def build_panel_embed(
+    channel: discord.VoiceChannel, manager: "TempVoiceManager"
+) -> discord.Embed:
+    """
+    Kontrollpanel-Embed bauen: Header + Slot-Liste (Mitglieder mit 👑 Owner +
+    Zeit-im-Channel) + Status-Zeile (privat/offen · Limit · Ban-Anzahl).
+    """
+    owner_id = manager.get_owner(channel.id)
+    private = manager.is_private(channel.id)
+    banned = manager.get_banned(channel.id)
+    joined = manager.get_joined_at(channel.id)
+
+    embed = discord.Embed(
+        title=f"🎮 {channel.name}",
+        color=0xE74C3C if private else 0x5865F2,
+        timestamp=datetime.now(timezone.utc),
+    )
+
+    # Slot-Liste
+    members = [m for m in channel.members if not m.bot]
+    if members:
+        lines = []
+        for m in members:
+            crown = " 👑" if m.id == owner_id else ""
+            dur = _format_duration(joined.get(str(m.id)))
+            lines.append(f"• **{m.display_name}**{crown} · {dur}")
+        slots = "\n".join(lines)
+    else:
+        slots = "_Noch niemand hier._"
+    limit_txt = str(channel.user_limit) if channel.user_limit else "∞"
+    embed.add_field(
+        name=f"Mitglieder ({len(members)}/{limit_txt})", value=slots, inline=False
+    )
+
+    # Status-Zeile
+    status = "🔒 Privat" if private else "🔓 Öffentlich"
+    embed.add_field(
+        name="Status",
+        value=f"{status} · 👤 Limit {limit_txt} · 🚫 {len(banned)} gebannt",
+        inline=False,
+    )
+    embed.set_footer(text="Steuerung über die Buttons (nur Owner)")
+    return embed
+
+
+async def refresh_panel(
+    channel: discord.VoiceChannel, manager: "TempVoiceManager"
+) -> None:
+    """Das gespeicherte Panel-Embed mit aktuellem State neu rendern (Edit)."""
+    pmid = manager.get_panel_message(channel.id)
+    if not pmid:
+        return
+    try:
+        msg = channel.get_partial_message(pmid)
+        await msg.edit(embed=build_panel_embed(channel, manager))
+    except discord.HTTPException as e:
+        logger.debug(f"Panel-Refresh fehlgeschlagen ({channel.id}): {e}")
 
 
 # ======================================================================
@@ -334,16 +415,16 @@ class TempVoiceControlView(discord.ui.View):
             return cog.manager
         return None
 
-    async def _check_owner(
+    async def _check_in_temp(
         self,
         interaction: discord.Interaction,
     ) -> tuple[discord.Member, discord.VoiceChannel, "TempVoiceManager"] | None:
         """
-        Hilfsmethode: Prüfen ob der User Owner eines Temp-Channels ist.
+        Hilfsmethode: Prüfen ob der User in einem Temp-Channel ist (OHNE
+        Owner-Pflicht). Für Aktionen wie Claim die auch Nicht-Owner dürfen.
 
         Returns:
-            Tuple (member, channel, manager) wenn alles OK, sonst None
-            (Fehlermeldung wird automatisch gesendet)
+            Tuple (member, channel, manager) oder None (Fehlermeldung gesendet).
         """
         manager = self._get_manager(interaction)
         if not manager:
@@ -372,8 +453,27 @@ class TempVoiceControlView(discord.ui.View):
             )
             return None
 
+        return member, channel, manager
+
+    async def _check_owner(
+        self,
+        interaction: discord.Interaction,
+    ) -> tuple[discord.Member, discord.VoiceChannel, "TempVoiceManager"] | None:
+        """
+        Hilfsmethode: Prüfen ob der User Owner eines Temp-Channels ist.
+        Admin-Override: Mitglieder mit `Manage Channels` dürfen ebenfalls.
+
+        Returns:
+            Tuple (member, channel, manager) wenn OK, sonst None (Fehler gesendet).
+        """
+        result = await self._check_in_temp(interaction)
+        if result is None:
+            return None
+        member, channel, manager = result
+
         owner_id = manager.get_owner(channel.id)
-        if owner_id != member.id:
+        is_admin = member.guild_permissions.manage_channels
+        if owner_id != member.id and not is_admin:
             await interaction.response.send_message(
                 "Nur der Channel-Owner kann diese Aktion ausführen.",
                 ephemeral=True,
@@ -432,72 +532,64 @@ class TempVoiceControlView(discord.ui.View):
         await interaction.response.send_modal(modal)
 
     # ------------------------------------------------------------------
-    # Button: Sperren / Entsperren
+    # Button: Privat (zu + unsichtbar)
     # ------------------------------------------------------------------
 
     @discord.ui.button(
-        label="Sperren/Entsperren",
+        label="Privat",
         style=discord.ButtonStyle.secondary,
-        custom_id="temp_voice:lock_toggle",
+        custom_id="temp_voice:private",
         emoji="\U0001f512",
         row=0,
     )
-    async def lock_toggle_button(
+    async def private_button(
         self,
         interaction: discord.Interaction,
         button: discord.ui.Button,
     ) -> None:
-        """Button-Handler: @everyone connect-Berechtigung umschalten."""
+        """Button-Handler: Channel privat schalten (zu + unsichtbar)."""
         result = await self._check_owner(interaction)
         if result is None:
             return
-
         member, channel, manager = result
 
-        # Aktuellen Lock-Status prüfen
-        # Standard-Berechtigung für @everyone im Channel ermitteln
-        everyone_role = channel.guild.default_role
-        overwrites = channel.overwrites_for(everyone_role)
+        await manager.set_private(channel)
+        await interaction.response.send_message(
+            "Channel ist jetzt **privat** — geschlossen und unsichtbar für @everyone.",
+            ephemeral=True,
+        )
+        logger.info(f"Temp-Voice privat: {channel.id} von {member.display_name}")
+        await refresh_panel(channel, manager)
 
-        # Toggle: Wenn connect erlaubt oder nicht gesetzt -> sperren
-        # Wenn connect gesperrt -> entsperren
-        # Nur connect-Berechtigung ändern, alle anderen beibehalten
-        if overwrites.connect is False:
-            # Entsperren: connect wieder erlauben
-            try:
-                overwrites.connect = True
-                await channel.set_permissions(everyone_role, overwrite=overwrites)
-                await interaction.response.send_message(
-                    "Channel **entsperrt** — Alle können beitreten.",
-                    ephemeral=True,
-                )
-                logger.info(
-                    f"Temp-Voice entsperrt: {channel.id} "
-                    f"von {member.display_name}"
-                )
-            except (discord.Forbidden, discord.HTTPException) as e:
-                logger.error(f"Channel entsperren fehlgeschlagen: {e}")
-                await interaction.response.send_message(
-                    "Channel konnte nicht entsperrt werden.", ephemeral=True
-                )
-        else:
-            # Sperren: connect verweigern
-            try:
-                overwrites.connect = False
-                await channel.set_permissions(everyone_role, overwrite=overwrites)
-                await interaction.response.send_message(
-                    "Channel **gesperrt** — Nur aktuelle Mitglieder können bleiben.",
-                    ephemeral=True,
-                )
-                logger.info(
-                    f"Temp-Voice gesperrt: {channel.id} "
-                    f"von {member.display_name}"
-                )
-            except (discord.Forbidden, discord.HTTPException) as e:
-                logger.error(f"Channel sperren fehlgeschlagen: {e}")
-                await interaction.response.send_message(
-                    "Channel konnte nicht gesperrt werden.", ephemeral=True
-                )
+    # ------------------------------------------------------------------
+    # Button: Öffentlich (offen + sichtbar)
+    # ------------------------------------------------------------------
+
+    @discord.ui.button(
+        label="Öffentlich",
+        style=discord.ButtonStyle.secondary,
+        custom_id="temp_voice:public",
+        emoji="\U0001f513",
+        row=0,
+    )
+    async def public_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ) -> None:
+        """Button-Handler: Channel öffentlich schalten (offen + sichtbar)."""
+        result = await self._check_owner(interaction)
+        if result is None:
+            return
+        member, channel, manager = result
+
+        await manager.set_public(channel)
+        await interaction.response.send_message(
+            "Channel ist jetzt **öffentlich** — offen und sichtbar für alle.",
+            ephemeral=True,
+        )
+        logger.info(f"Temp-Voice öffentlich: {channel.id} von {member.display_name}")
+        await refresh_panel(channel, manager)
 
     # ------------------------------------------------------------------
     # Button: Ownership übertragen
@@ -539,3 +631,298 @@ class TempVoiceControlView(discord.ui.View):
             view=view,
             ephemeral=True,
         )
+
+    # ------------------------------------------------------------------
+    # Button: Bannen (User trennen + connect-deny)
+    # ------------------------------------------------------------------
+
+    @discord.ui.button(
+        label="Bannen",
+        style=discord.ButtonStyle.danger,
+        custom_id="temp_voice:ban",
+        emoji="\U0001f6ab",
+        row=1,
+    )
+    async def ban_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ) -> None:
+        """Button-Handler: User-Select zum Bannen anzeigen."""
+        result = await self._check_owner(interaction)
+        if result is None:
+            return
+        await interaction.response.send_message(
+            "Wähle den zu bannenden User:", view=BanUserView(), ephemeral=True,
+        )
+
+    # ------------------------------------------------------------------
+    # Button: Entbannen (aus Ban-Liste)
+    # ------------------------------------------------------------------
+
+    @discord.ui.button(
+        label="Entbannen",
+        style=discord.ButtonStyle.secondary,
+        custom_id="temp_voice:unban",
+        emoji="\U0001f464",
+        row=1,
+    )
+    async def unban_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ) -> None:
+        """Button-Handler: Select aus der Ban-Liste zum Entbannen anzeigen."""
+        result = await self._check_owner(interaction)
+        if result is None:
+            return
+        member, channel, manager = result
+
+        banned = manager.get_banned(channel.id)
+        if not banned:
+            await interaction.response.send_message(
+                "Niemand ist in diesem Channel gebannt.", ephemeral=True
+            )
+            return
+        await interaction.response.send_message(
+            "Wähle den zu entbannenden User:",
+            view=UnbanView(channel, banned),
+            ephemeral=True,
+        )
+
+    # ------------------------------------------------------------------
+    # Button: Claim (Owner weg -> übernehmen)
+    # ------------------------------------------------------------------
+
+    @discord.ui.button(
+        label="Übernehmen",
+        style=discord.ButtonStyle.success,
+        custom_id="temp_voice:claim",
+        emoji="\U0001f451",
+        row=1,
+    )
+    async def claim_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ) -> None:
+        """Button-Handler: Channel übernehmen wenn der Owner nicht mehr da ist."""
+        result = await self._check_in_temp(interaction)
+        if result is None:
+            return
+        member, channel, manager = result
+
+        owner_id = manager.get_owner(channel.id)
+        if owner_id == member.id:
+            await interaction.response.send_message(
+                "Du bist bereits der Owner.", ephemeral=True
+            )
+            return
+        owner_present = any(
+            m.id == owner_id for m in channel.members if not m.bot
+        )
+        if owner_present:
+            await interaction.response.send_message(
+                "Der Owner ist noch im Channel — Übernahme nur möglich wenn er weg ist.",
+                ephemeral=True,
+            )
+            return
+
+        await manager.claim(channel, member)
+        await interaction.response.send_message(
+            "Du bist jetzt der **Owner** dieses Channels.", ephemeral=True
+        )
+        logger.info(
+            f"Temp-Voice Claim: {channel.id} neuer Owner {member.display_name}"
+        )
+        await refresh_panel(channel, manager)
+
+    # ------------------------------------------------------------------
+    # Button: Logs (letzte Events)
+    # ------------------------------------------------------------------
+
+    @discord.ui.button(
+        label="Logs",
+        style=discord.ButtonStyle.secondary,
+        custom_id="temp_voice:logs",
+        emoji="\U0001f4ca",
+        row=1,
+    )
+    async def logs_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ) -> None:
+        """Button-Handler: Letzte Join/Leave/Mod-Events anzeigen (ephemeral)."""
+        result = await self._check_owner(interaction)
+        if result is None:
+            return
+        member, channel, manager = result
+
+        events = manager.get_events(channel.id, limit=8)
+        if not events:
+            await interaction.response.send_message(
+                "Noch keine Events in diesem Channel.", ephemeral=True
+            )
+            return
+
+        emoji_map = {
+            "join": "➡️", "leave": "⬅️", "ban": "\U0001f6ab",
+            "unban": "\U0001f464", "claim": "\U0001f451",
+            "private": "\U0001f512", "public": "\U0001f513",
+        }
+        lines = []
+        for ev in events:
+            em = emoji_map.get(ev.get("type", ""), "•")
+            uid = ev.get("uid")
+            target = channel.guild.get_member(uid) if uid else None
+            name = target.display_name if target else f"User {uid}"
+            lines.append(f"{em} **{name}** · vor {_format_duration(ev.get('ts'))}")
+
+        embed = discord.Embed(
+            title="\U0001f4ca Letzte Events",
+            description="\n".join(lines),
+            color=0x5865F2,
+        )
+        await interaction.response.send_message(
+            embed=embed, ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+
+
+# ======================================================================
+# Ban / Unban — temporäre Select-Views (pro Interaktion, kein Persist)
+# ======================================================================
+
+def _resolve_owner_action(
+    interaction: discord.Interaction,
+) -> tuple[discord.Member, discord.VoiceChannel, "TempVoiceManager"] | None:
+    """
+    Gemeinsame Vorprüfung für Ban/Unban-Selects: User ist Owner (oder Admin)
+    eines Temp-Channels. Gibt None zurück ohne zu antworten — Caller antwortet.
+    """
+    cog = interaction.client.get_cog("TempVoiceCog")
+    if not cog:
+        return None
+    member = interaction.user
+    if (not isinstance(member, discord.Member) or not member.voice
+            or not isinstance(member.voice.channel, discord.VoiceChannel)):
+        return None
+    channel = member.voice.channel
+    manager = cog.manager
+    if not manager.is_temp_channel(channel.id):
+        return None
+    owner_id = manager.get_owner(channel.id)
+    if owner_id != member.id and not member.guild_permissions.manage_channels:
+        return None
+    return member, channel, manager
+
+
+class BanUserSelect(discord.ui.UserSelect):
+    """User-Select zum Bannen eines Users aus dem Temp-Channel."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            placeholder="Zu bannenden User auswählen...",
+            min_values=1, max_values=1,
+        )
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        ctx = _resolve_owner_action(interaction)
+        if ctx is None:
+            await interaction.response.send_message(
+                "Nur der Owner kann bannen (oder du bist in keinem Temp-Channel).",
+                ephemeral=True,
+            )
+            return
+        member, channel, manager = ctx
+
+        target = self.values[0]
+        if target.id == member.id:
+            await interaction.response.send_message(
+                "Du kannst dich nicht selbst bannen.", ephemeral=True
+            )
+            return
+        if target.id == manager.get_owner(channel.id):
+            await interaction.response.send_message(
+                "Der Owner kann nicht gebannt werden.", ephemeral=True
+            )
+            return
+        target_member = channel.guild.get_member(target.id)
+        if target_member is None:
+            await interaction.response.send_message(
+                "User nicht auf dem Server gefunden.", ephemeral=True
+            )
+            return
+
+        await manager.ban_user(channel, target_member)
+        await interaction.response.send_message(
+            f"**{target_member.display_name}** wurde gebannt und getrennt.",
+            ephemeral=True,
+        )
+        logger.info(f"Temp-Voice Ban: {channel.id} -> {target_member.id}")
+        await refresh_panel(channel, manager)
+
+
+class BanUserView(discord.ui.View):
+    """Temporäre View mit dem Ban-User-Select (60s Timeout)."""
+
+    def __init__(self) -> None:
+        super().__init__(timeout=60)
+        self.add_item(BanUserSelect())
+
+
+class UnbanSelect(discord.ui.Select):
+    """String-Select aus der Ban-Liste zum Entbannen."""
+
+    def __init__(
+        self, channel: discord.VoiceChannel, banned_ids: list[int]
+    ) -> None:
+        options = []
+        for uid in banned_ids[:25]:  # Discord-Limit 25 Optionen
+            m = channel.guild.get_member(uid)
+            label = (m.display_name if m else f"User {uid}")[:100]
+            options.append(discord.SelectOption(label=label, value=str(uid)))
+        super().__init__(
+            placeholder="Zu entbannenden User auswählen...",
+            min_values=1, max_values=1, options=options,
+        )
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        ctx = _resolve_owner_action(interaction)
+        if ctx is None:
+            await interaction.response.send_message(
+                "Nur der Owner kann entbannen (oder du bist in keinem Temp-Channel).",
+                ephemeral=True,
+            )
+            return
+        member, channel, manager = ctx
+
+        uid = int(self.values[0])
+        target_member = channel.guild.get_member(uid)
+        if target_member is None:
+            # User nicht mehr auf dem Server — nur aus der Liste entfernen
+            manager.remove_ban(channel.id, uid)
+            await interaction.response.send_message(
+                "Aus der Ban-Liste entfernt (User nicht mehr auf dem Server).",
+                ephemeral=True,
+            )
+            await refresh_panel(channel, manager)
+            return
+
+        ok = await manager.unban_user(channel, target_member)
+        msg = (f"**{target_member.display_name}** wurde entbannt."
+               if ok else "Dieser User war nicht (mehr) gebannt.")
+        await interaction.response.send_message(msg, ephemeral=True)
+        logger.info(f"Temp-Voice Unban: {channel.id} -> {uid} (ok={ok})")
+        await refresh_panel(channel, manager)
+
+
+class UnbanView(discord.ui.View):
+    """Temporäre View mit dem Unban-Select (60s Timeout)."""
+
+    def __init__(
+        self, channel: discord.VoiceChannel, banned_ids: list[int]
+    ) -> None:
+        super().__init__(timeout=60)
+        self.add_item(UnbanSelect(channel, banned_ids))

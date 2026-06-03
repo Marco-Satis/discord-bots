@@ -446,11 +446,14 @@ class TempVoiceManager:
         return dict(data.get("joined_at", {})) if data else {}
 
     def record_join(self, channel_id: int, user_id: int) -> None:
-        """Join eines Users im Channel vermerken (joined_at + Event)."""
+        """Join eines Users im Channel vermerken (joined_at + Event, idempotent)."""
         data = self._ch(channel_id)
         if data is None:
             return
-        data.setdefault("joined_at", {})[str(user_id)] = _now_iso()
+        joined = data.setdefault("joined_at", {})
+        if str(user_id) in joined:
+            return  # schon vermerkt (z.B. Owner beim Create) — kein Doppel-Event
+        joined[str(user_id)] = _now_iso()
         self.log_event(channel_id, user_id, "join")  # speichert
 
     def record_leave(self, channel_id: int, user_id: int) -> None:
@@ -479,6 +482,15 @@ class TempVoiceManager:
             return []
         events = data.get("events", [])
         return list(events[-limit:])
+
+    def set_panel_message(self, channel_id: int, message_id: int) -> None:
+        """Message-ID des Kontrollpanels merken (fuer Slot-Liste-Refresh)."""
+        self._set_flag(channel_id, "panel_message_id", message_id)
+
+    def get_panel_message(self, channel_id: int) -> int | None:
+        """Message-ID des Kontrollpanels zurueckgeben (oder None)."""
+        data = self._ch(channel_id)
+        return data.get("panel_message_id") if data else None
 
     # ------------------------------------------------------------------
     # VOICEPANEL-State — Action-Helper (async, mit Discord-Call)

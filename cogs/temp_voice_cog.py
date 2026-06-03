@@ -31,7 +31,11 @@ from discord import app_commands
 from discord.ext import commands
 
 from modules.temp_voice import TempVoiceManager
-from modules.temp_voice_views import TempVoiceControlView
+from modules.temp_voice_views import (
+    TempVoiceControlView,
+    build_panel_embed,
+    refresh_panel,
+)
 from utils.logger import get_logger
 from utils.config import ADMIN_DATA_DIR
 from utils.permissions import admin_only
@@ -172,6 +176,16 @@ class TempVoiceCog(commands.Cog):
             await self._handle_join_to_create(member, after.channel)
             return
 
+        # --- Join in einen bestehenden Temp-Channel: Slot-Liste aktualisieren ---
+        if (
+            after.channel is not None
+            and after.channel != before.channel
+            and isinstance(after.channel, discord.VoiceChannel)
+            and self.manager.is_temp_channel(after.channel.id)
+        ):
+            self.manager.record_join(after.channel.id, member.id)
+            await refresh_panel(after.channel, self.manager)
+
         # --- Channel verlassen: Pruefen ob Temp-Channel leer geworden ist ---
         if before.channel is not None and before.channel != after.channel:
             await self._handle_channel_leave(member, before.channel)
@@ -228,31 +242,13 @@ class TempVoiceCog(commands.Cog):
             channel: Der temporaere Voice-Channel
             owner: Der Channel-Owner
         """
-        embed = discord.Embed(
-            title="Dein temporaerer Voice-Channel",
-            description=(
-                f"Willkommen in deinem Channel, {owner.mention}!\n\n"
-                f"Verwende die Buttons unten um deinen Channel zu verwalten."
-            ),
-            color=0x5865F2,
-            timestamp=datetime.now(timezone.utc),
-        )
-        embed.add_field(
-            name="Steuerung",
-            value=(
-                "**Umbenennen** — Kanalname ändern\n"
-                "**Limit setzen** — Maximale Nutzeranzahl festlegen\n"
-                "**Sperren/Entsperren** — Beitritt für andere ein/ausschalten\n"
-                "**Owner übertragen** — Ownership an jemand anderen geben"
-            ),
-            inline=False,
-        )
-        embed.set_footer(text=f"Owner: {owner.display_name}")
-
+        embed = build_panel_embed(channel, self.manager)
         view = TempVoiceControlView()
 
         try:
-            await channel.send(embed=embed, view=view)
+            msg = await channel.send(embed=embed, view=view)
+            # Panel-Message merken -> Slot-Liste kann bei Join/Leave aktualisiert werden
+            self.manager.set_panel_message(channel.id, msg.id)
         except (discord.Forbidden, discord.HTTPException) as e:
             logger.warning(f"Control-Panel senden fehlgeschlagen: {e}")
 
@@ -285,6 +281,9 @@ class TempVoiceCog(commands.Cog):
             # Channel ist leer — nach Verzoegerung löschen
             await self._schedule_channel_delete(channel)
             return
+
+        # Leave vermerken (joined_at-Cleanup + Event fuer die Slot-Liste)
+        self.manager.record_leave(channel.id, member.id)
 
         # Pruefen ob der Owner den Channel verlassen hat
         owner_id = self.manager.get_owner(channel.id)
@@ -331,6 +330,9 @@ class TempVoiceCog(commands.Cog):
                 f"Owner-Transfer: {member.display_name} hat Channel {channel.id} "
                 f"verlassen, neuer Owner: {new_owner.display_name}"
             )
+
+        # Panel aktualisieren (Slot-Liste + ggf. neuer Owner-Crown)
+        await refresh_panel(channel, self.manager)
 
     async def _schedule_channel_delete(
         self,

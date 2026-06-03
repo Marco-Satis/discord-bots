@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 try:
     import discord  # noqa: F401
     from modules.temp_voice import TempVoiceManager, _EVENT_CAP
+    from modules.temp_voice_views import build_panel_embed
     HAVE_DISCORD = True
 except ImportError:
     HAVE_DISCORD = False
@@ -154,6 +155,32 @@ async def run_tests() -> None:
     res = await mgr4.claim(ch, claimer)
     _check("claim_ok", res is True)
     _check("claim_owner", mgr4.get_owner(222) == 444)
+
+    # --- Sub-2: panel message + record_join-Idempotenz + Embed ---
+    mgr5 = _new_manager()
+    _seed(mgr5, cid=333, owner=1)
+
+    mgr5.set_panel_message(333, 98765)
+    _check("panel_message_roundtrip", mgr5.get_panel_message(333) == 98765)
+
+    # record_join idempotent: 2x gleicher User -> nur 1 Event, joined_at stabil
+    ev_before = len(mgr5.get_events(333))
+    mgr5.record_join(333, 42)
+    mgr5.record_join(333, 42)
+    _check("record_join_once", len(mgr5.get_events(333)) == ev_before + 1)
+
+    # build_panel_embed: Slot-Liste enthaelt Owner mit Crown + Status-Feld
+    pch = MagicMock()
+    pch.id = 333
+    pch.name = "Test Voice"
+    pch.user_limit = 0
+    owner_m = MagicMock(); owner_m.bot = False; owner_m.id = 1
+    owner_m.display_name = "Chef"
+    pch.members = [owner_m]
+    embed = build_panel_embed(pch, mgr5)
+    field_blob = " ".join(f.value or "" for f in embed.fields)
+    _check("embed_slot_owner", "Chef" in field_blob and "👑" in field_blob)
+    _check("embed_status_open", "Öffentlich" in field_blob)
 
 
 def main() -> int:
