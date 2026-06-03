@@ -82,6 +82,17 @@ class VoiceSessionTracker:
         if key in self._open:
             return  # bereits offen — idempotent
 
+        # Platzhalter VOR dem INSERT-await reservieren, damit der Idempotenz-Guard
+        # auch im await-Fenster greift (kein doppelter INSERT/Waisen-Row bei
+        # schnellem Re-Event, z.B. join+move binnen Millisekunden).
+        self._open[key] = {
+            "channel_id": str(channel_id),
+            "join": now,
+            "last": now,
+            "valid_seconds": 0.0,
+            "db_id": None,
+        }
+
         try:
             db = await get_db()
             cursor = await db.execute(
@@ -90,18 +101,11 @@ class VoiceSessionTracker:
                 (str(guild_id), str(user_id), str(channel_id), _iso(now)),
             )
             await db.commit()
-            db_id = cursor.lastrowid
+            # Session koennte zwischenzeitlich beendet worden sein
+            if key in self._open:
+                self._open[key]["db_id"] = cursor.lastrowid
         except Exception as e:
             logger.error(f"Voice-Session start fuer {key} fehlgeschlagen: {e}")
-            db_id = None
-
-        self._open[key] = {
-            "channel_id": str(channel_id),
-            "join": now,
-            "last": now,
-            "valid_seconds": 0.0,
-            "db_id": db_id,
-        }
 
     def sample(
         self,

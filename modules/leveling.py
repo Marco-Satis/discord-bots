@@ -35,11 +35,8 @@ from __future__ import annotations
 
 import json
 import secrets
+import time
 from datetime import datetime
-
-# secrets.SystemRandom fuer XP-Variation (Defense-in-Depth, verhindert
-# Pattern-Vorhersage durch Spieler die XP-Boost erfarmen wollen).
-_rand = secrets.SystemRandom()
 from pathlib import Path
 from typing import Any
 
@@ -49,6 +46,10 @@ from utils.async_tasks import schedule_from_sync
 from modules.database.db_manager import get_db
 from modules.guild_context import GuildConfig
 
+# secrets.SystemRandom fuer XP-Variation (Defense-in-Depth, verhindert
+# Pattern-Vorhersage durch Spieler die XP-Boost erfarmen wollen).
+_rand = secrets.SystemRandom()
+
 logger = get_logger("leveling_manager")
 
 # Standard-Pfade
@@ -56,6 +57,12 @@ LEVELING_CONFIG_FILE = ADMIN_DATA_DIR / "leveling_config.json"
 
 # Sentinel: unterscheidet "kein guild_config-Override" von gespeichertem None.
 _UNSET = object()
+
+# TTL der gemergten Per-Guild-Config im Speicher. Da 4 Prozesse sich die DB
+# teilen, sorgt der TTL dafuer dass eine Dashboard-Aenderung (anderer Prozess)
+# den Bot-Prozess spaetestens nach TTL erreicht (sonst Cross-Prozess-Drift bis
+# Neustart). Gleiches Muster wie guild_context.GuildConfig.
+_GUILD_CFG_TTL: float = 15.0
 
 
 def _default_config() -> dict[str, Any]:
@@ -98,7 +105,6 @@ class LevelingManager:
     def __init__(
         self,
         config_file: Path | None = None,
-        **kwargs,
     ) -> None:
         """
         Args:
@@ -110,8 +116,8 @@ class LevelingManager:
         self._data: dict[str, dict[str, dict[str, Any]]] = {}
         # Globaler JSON-Default (Fallback bevor guild_config geladen ist)
         self._config: dict[str, Any] = _default_config()
-        # Per-Guild gemergte Config (Default ueberlagert mit guild_config)
-        self._guild_config: dict[str, dict[str, Any]] = {}
+        # Per-Guild gemergte Config mit Ablauf: guild_id -> (config, expiry_monotonic)
+        self._guild_config: dict[str, tuple[dict[str, Any], float]] = {}
         # Guards gegen mehrfaches Lazy-Load im selben Loop-Tick
         self._config_loading: set[str] = set()
         self._load_config()
@@ -265,36 +271,47 @@ class LevelingManager:
         """
         gid = str(guild_id)
         merged = dict(self._config)
+        ttl = _GUILD_CFG_TTL
         try:
             for key in _default_config().keys():
                 val = await GuildConfig.get(gid, f"leveling.{key}", _UNSET)
                 if val is not _UNSET:
                     merged[key] = val
         except Exception as e:
+            # Bei Fehler kurzer TTL -> bald erneut versuchen (kein permanenter
+            # Default-Cache bis Neustart).
             logger.error(f"Guild-Config laden fuer {gid} fehlgeschlagen: {e}")
+            ttl = 2.0
         finally:
-            self._guild_config[gid] = merged
+            self._guild_config[gid] = (merged, time.monotonic() + ttl)
             self._config_loading.discard(gid)
         return merged
 
     async def _ensure_guild_config(self, guild_id: int | str) -> dict[str, Any]:
-        """Stellt sicher dass die gemergte Config der Guild im Cache liegt."""
+        """Stellt sicher dass die gemergte Config der Guild frisch im Cache liegt."""
         gid = str(guild_id)
-        if gid not in self._guild_config:
+        entry = self._guild_config.get(gid)
+        if entry is None or entry[1] <= time.monotonic():
             await self.load_guild_config(gid)
-        return self._guild_config[gid]
+        return self._guild_config[gid][0]
 
     def _gcfg(self, guild_id: int | str) -> dict[str, Any]:
         """
         Sync-Zugriff auf die gemergte Guild-Config (Hot-Path).
 
-        Liegt die Guild-Config noch nicht im Cache: globaler JSON-Default
-        zurueckgeben UND einmalig ein Lazy-Load anstossen (greift ab naechster
-        Nachricht). Verhindert Async im per-Message-Hot-Path.
+        - Cache-Hit (frisch): direkt zurueck.
+        - Cache-Hit (abgelaufen): stale zurueck UND Reload anstossen (greift ab
+          naechster Nachricht) -> Dashboard-Aenderung anderer Prozesse propagiert.
+        - Cache-Miss: globaler JSON-Default + Lazy-Load. Kein Async im Hot-Path.
         """
         gid = str(guild_id)
-        cfg = self._guild_config.get(gid)
-        if cfg is not None:
+        now = time.monotonic()
+        entry = self._guild_config.get(gid)
+        if entry is not None:
+            cfg, expiry = entry
+            if expiry <= now and gid not in self._config_loading:
+                self._config_loading.add(gid)
+                self._fire_and_forget(self.load_guild_config(gid))
             return cfg
         if gid not in self._config_loading:
             self._config_loading.add(gid)

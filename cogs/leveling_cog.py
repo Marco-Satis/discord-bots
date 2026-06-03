@@ -30,7 +30,7 @@ from discord.ext import commands, tasks
 
 from modules.leveling import LevelingManager
 from modules.voice_sessions import VoiceSessionTracker
-from modules.guild_context import get_primary_guild_id
+from modules.guild_context import get_primary_guild_id, GuildConfig
 from utils.logger import get_logger
 from utils.config import ADMIN_DATA_DIR
 from utils.permissions import admin_only
@@ -90,7 +90,9 @@ def build_leaderboard_embed(
             medal = f"**{rank}.**"
 
         member = guild.get_member(entry["user_id"]) if guild else None
-        name = member.display_name if member else f"User {entry['user_id']}"
+        raw_name = member.display_name if member else f"User {entry['user_id']}"
+        # Markdown-Injection-Schutz: Anzeigename im Embed-Description-Markdown escapen
+        name = discord.utils.escape_markdown(raw_name)
         marker = " ◄ **du**" if entry["user_id"] == own_id else ""
         lines.append(
             f"{medal} {name} — Level {entry['level']} ({entry['xp']:,} XP){marker}"
@@ -189,7 +191,6 @@ class LevelingCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
         self.leveling = LevelingManager(
-            data_file=ADMIN_DATA_DIR / "leveling.json",
             config_file=ADMIN_DATA_DIR / "leveling_config.json",
         )
         # Echte Voice-Sessions (Anti-Cheat) — ersetzt das 5-Min-Tick-Modell.
@@ -245,6 +246,9 @@ class LevelingCog(commands.Cog):
         if message.author.bot:
             return
         if not message.guild:
+            return
+        # Multi-Tenant: Modul kann pro Guild deaktiviert sein (15s-TTL-Cache).
+        if not await self._leveling_enabled(message.guild.id):
             return
 
         channel_id = message.channel.id if message.channel else None
@@ -305,6 +309,10 @@ class LevelingCog(commands.Cog):
         humans = [m for m in channel.members if not m.bot]
         return len(humans) >= 2
 
+    async def _leveling_enabled(self, guild_id: int) -> bool:
+        """Ob das Leveling-Modul fuer die Guild aktiv ist (15s-TTL-Cache)."""
+        return await GuildConfig.is_module_enabled(guild_id, "leveling")
+
     @commands.Cog.listener()
     async def on_voice_state_update(
         self,
@@ -346,6 +354,9 @@ class LevelingCog(commands.Cog):
         minutes = result["valid_minutes"]
         if minutes <= 0:
             return  # alleine / deaf / zu kurz -> 0 valide Minuten -> kein XP
+        # Modul deaktiviert: Session ist geschlossen (kein Waisen-Row), aber kein XP.
+        if not await self._leveling_enabled(guild.id):
+            return
 
         xp_gained, leveled_up = self.leveling.add_voice_xp(
             guild.id, member.id, minutes
@@ -360,20 +371,55 @@ class LevelingCog(commands.Cog):
         """
         Jede Minute jede offene Session bewerten: valide Sekunden akkumulieren
         (nur wenn Bedingungen erfuellt). XP wird erst bei Session-Ende vergeben.
+
+        Robustheit: pro Session in try/except, damit ein Fehler nicht den
+        ganzen @tasks.loop killt (discord.py startet ihn nicht automatisch neu).
         """
         for gid, uid in self.voice.open_keys():
-            guild = self.bot.get_guild(int(gid))
-            if guild is None:
-                continue
-            member = guild.get_member(int(uid))
-            channel = member.voice.channel if member and member.voice else None
-            valid = self._voice_valid(member, channel, guild)
-            self.voice.sample(gid, uid, valid)
+            try:
+                guild = self.bot.get_guild(int(gid))
+                member = guild.get_member(int(uid)) if guild else None
+
+                # Member nicht mehr im Voice/auffindbar (verlassen ohne Event,
+                # nicht gecacht) -> Session schliessen statt ewig offen halten.
+                if guild is None or member is None or member.voice is None:
+                    if member is not None and guild is not None:
+                        await self._end_voice_session(member, guild)
+                    else:
+                        await self._close_voice_session_silent(gid, uid)
+                    continue
+
+                valid = self._voice_valid(member, member.voice.channel, guild)
+                self.voice.sample(gid, uid, valid)
+            except Exception as e:  # noqa: BLE001 — eine Session darf den Loop nicht stoppen
+                logger.warning(f"Voice-Sample {gid}/{uid} fehlgeschlagen: {e}")
+
+    async def _close_voice_session_silent(
+        self, guild_id: str, user_id: str
+    ) -> None:
+        """Session schliessen + XP vergeben ohne Level-Up-Nachricht (Member weg)."""
+        result = await self.voice.end(guild_id, user_id, min_seconds=60)
+        if (
+            result
+            and result["valid_minutes"] > 0
+            and await self._leveling_enabled(int(guild_id))
+        ):
+            xp_gained, _ = self.leveling.add_voice_xp(
+                guild_id, user_id, result["valid_minutes"]
+            )
+            await self.voice.set_xp(result["db_id"], xp_gained)
 
     @voice_sample_task.before_loop
     async def before_voice_sample(self) -> None:
         """Warten bis Bot bereit ist."""
         await self.bot.wait_until_ready()
+
+    @voice_sample_task.error
+    async def voice_sample_error(self, error: BaseException) -> None:
+        """Loop-Fehler loggen + neu starten (sonst faellt Sampling dauerhaft aus)."""
+        logger.error(f"voice_sample_task gestoppt: {error}", exc_info=error)
+        if not self.voice_sample_task.is_running():
+            self.voice_sample_task.restart()
 
     async def _send_voice_level_up(
         self,
@@ -696,6 +742,7 @@ class LevelingCog(commands.Cog):
         description="Zeigt deinen Rang oder den eines anderen Users an",
     )
     @app_commands.describe(user="User dessen Rang angezeigt werden soll (leer = eigener)")
+    @app_commands.checks.cooldown(1, 10.0)
     async def rank_command(
         self,
         interaction: discord.Interaction,
@@ -740,6 +787,7 @@ class LevelingCog(commands.Cog):
         name="leaderboard",
         description="Zeigt das XP-Ranking (blaetterbar, mit deiner Position)",
     )
+    @app_commands.checks.cooldown(1, 10.0)
     async def leaderboard_command(
         self,
         interaction: discord.Interaction,
@@ -771,10 +819,17 @@ class LevelingCog(commands.Cog):
         )
         # Bei nur einer Seite keine Buttons noetig
         if view.max_page == 0:
-            await interaction.followup.send(embed=view.render())
+            await interaction.followup.send(
+                embed=view.render(),
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
             return
 
-        msg = await interaction.followup.send(embed=view.render(), view=view)
+        msg = await interaction.followup.send(
+            embed=view.render(),
+            view=view,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
         view.message = msg
 
     # ==================================================================
@@ -1239,6 +1294,12 @@ class LevelingCog(commands.Cog):
         error: app_commands.AppCommandError,
     ) -> None:
         """Zentrale Fehlerbehandlung für alle Commands in dieser Cog."""
+        if isinstance(error, app_commands.CommandOnCooldown):
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    f"Bitte warte noch {error.retry_after:.0f}s.", ephemeral=True
+                )
+            return
         if isinstance(error, app_commands.CheckFailure):
             if not interaction.response.is_done():
                 await interaction.response.send_message(

@@ -204,6 +204,18 @@ async def run_tests() -> None:
         _check("lb_sorted_desc", all_lb[0]["xp"] == 1500 and all_lb[-1]["xp"] == 100)
 
         # ============================================================
+        # 8b) C-Review F2: Per-Guild-Config-TTL (Cross-Prozess-Drift-Schutz)
+        # ============================================================
+        mgrT = _new_manager()
+        await mgrT.load_guild_config(GUILD_A)
+        cfg_cached, _exp = mgrT._guild_config[GUILD_A]
+        # Kuenstlich ablaufen lassen -> _gcfg liefert stale + plant Reload
+        mgrT._guild_config[GUILD_A] = (cfg_cached, 0.0)
+        got = mgrT._gcfg(GUILD_A)
+        _check("ttl_stale_served", got is cfg_cached)
+        _check("ttl_reload_scheduled", GUILD_A in mgrT._config_loading)
+
+        # ============================================================
         # 9b) C5: Role-Rewards Manager (frische Guild C)
         # ============================================================
         mgr6 = _new_manager()
