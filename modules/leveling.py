@@ -68,6 +68,7 @@ def _default_config() -> dict[str, Any]:
         "level_formula": "5 * level^2 + 50 * level + 100",
         "channel_multipliers": {},
         "role_rewards": {},
+        "no_xp_channels": [],
         # Level-Up-Karte mit Bild-Hintergrund (statt Standard-Embed)
         "levelup_card_enabled": False,
         "levelup_card_bg": None,
@@ -386,6 +387,13 @@ class LevelingManager:
             (xp_gained, leveled_up)
         """
         cfg = self._gcfg(guild_id)
+
+        # No-XP-Channel: weder XP noch Message-Count (Spam-Kanaele ausschliessen)
+        if channel_id is not None:
+            no_xp = cfg.get("no_xp_channels", [])
+            if no_xp and str(channel_id) in {str(c) for c in no_xp}:
+                return 0, False
+
         user = self._ensure_user(guild_id, user_id)
         user["total_messages"] += 1
 
@@ -598,6 +606,41 @@ class LevelingManager:
         return float(multipliers.get(str(channel_id), 1.0))
 
     # ------------------------------------------------------------------
+    # No-XP-Channels (per-Guild)
+    # ------------------------------------------------------------------
+
+    def get_no_xp_channels(self, guild_id: int | str) -> list[str]:
+        """Liste der Channel-IDs (als str) in denen keine XP vergeben wird."""
+        return [str(c) for c in self._gcfg(guild_id).get("no_xp_channels", [])]
+
+    def is_no_xp_channel(self, guild_id: int | str, channel_id: int | str) -> bool:
+        """True wenn der Channel in der No-XP-Liste der Guild steht."""
+        return str(channel_id) in set(self.get_no_xp_channels(guild_id))
+
+    async def set_no_xp_channel(
+        self, guild_id: int | str, channel_id: int, enabled: bool
+    ) -> None:
+        """
+        Channel zur No-XP-Liste hinzufuegen (enabled=True) oder entfernen
+        (enabled=False), nach guild_config + Live-Cache.
+        """
+        cfg = await self._ensure_guild_config(guild_id)
+        current = [str(c) for c in cfg.get("no_xp_channels", [])]
+        cid = str(channel_id)
+        if enabled:
+            if cid not in current:
+                current.append(cid)
+        else:
+            current = [c for c in current if c != cid]
+        cfg["no_xp_channels"] = current
+        await GuildConfig.set(
+            guild_id, "leveling.no_xp_channels", current, updated_by="command"
+        )
+        logger.info(
+            f"No-XP-Channel {'+' if enabled else '-'} Guild {guild_id} Channel {channel_id}"
+        )
+
+    # ------------------------------------------------------------------
     # Level-Up-Karte (Bild-Hintergrund, per-Guild)
     # ------------------------------------------------------------------
 
@@ -645,14 +688,15 @@ class LevelingManager:
     # ------------------------------------------------------------------
 
     def get_leaderboard(
-        self, guild_id: int | str, limit: int = 10
+        self, guild_id: int | str, limit: int | None = 10
     ) -> list[dict[str, Any]]:
         """
         Top-Spieler einer Guild nach XP sortiert (In-Memory).
 
         Args:
             guild_id: Discord-Guild-ID
-            limit: Maximale Anzahl Eintraege (Standard: 10)
+            limit: Maximale Anzahl Eintraege (Standard: 10; None = alle,
+                   z.B. fuer Pagination)
 
         Returns:
             Liste von Dicts (user_id, xp, level, total_messages, voice_minutes),
@@ -671,7 +715,7 @@ class LevelingManager:
             })
 
         entries.sort(key=lambda e: e["xp"], reverse=True)
-        return entries[:limit]
+        return entries if limit is None else entries[:limit]
 
     async def get_leaderboard_db(
         self, guild_id: int | str, limit: int = 10

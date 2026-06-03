@@ -176,6 +176,54 @@ async def run_tests() -> None:
         _check("card_accent_cache", mgr2.get_card_accent(GUILD_A) == "#ff2b6b")
         _check("card_disabled_b", mgr2.is_card_enabled(GUILD_B) is False)
 
+        # ============================================================
+        # 7) C4: No-XP-Channels
+        # ============================================================
+        mgr4 = _new_manager()
+        await mgr4.set_no_xp_channel(GUILD_A, 7777, True)
+        _check("noxp_listed", mgr4.is_no_xp_channel(GUILD_A, 7777))
+        xp_noxp, _ = mgr4.add_message_xp(GUILD_A, "5", channel_id=7777)
+        _check("noxp_zero", xp_noxp == 0)
+        _check("noxp_no_msg_count", mgr4.get_user(GUILD_A, "5")["total_messages"] == 0)
+        xp_ok, _ = mgr4.add_message_xp(GUILD_A, "5", channel_id=8888)
+        _check("noxp_other_channel_xp", xp_ok > 0, f"xp_ok={xp_ok}")
+        await mgr4.set_no_xp_channel(GUILD_A, 7777, False)
+        _check("noxp_removed", not mgr4.is_no_xp_channel(GUILD_A, 7777))
+
+        # ============================================================
+        # 8) C4: Leaderboard limit=None (alle, fuer Pagination)
+        # ============================================================
+        mgr5 = _new_manager()
+        for i in range(15):
+            mgr5.set_xp(GUILD_A, str(1000 + i), (i + 1) * 100)
+        all_lb = mgr5.get_leaderboard(GUILD_A, limit=None)
+        _check("lb_all_count", len(all_lb) == 15, f"n={len(all_lb)}")
+        _check("lb_limit_10", len(mgr5.get_leaderboard(GUILD_A, limit=10)) == 10)
+        _check("lb_sorted_desc", all_lb[0]["xp"] == 1500 and all_lb[-1]["xp"] == 100)
+
+        # ============================================================
+        # 9) C4: build_leaderboard_embed Pagination (nur wenn discord da)
+        # ============================================================
+        try:
+            import discord  # noqa: F401
+            from cogs.leveling_cog import build_leaderboard_embed
+            entries = [
+                {"user_id": 1000 + i, "xp": (15 - i) * 100, "level": i}
+                for i in range(15)
+            ]
+            emb0 = build_leaderboard_embed(entries, None, 0, 10, own_rank=3, own_id=1002)
+            ftr0 = emb0.footer.text or ""
+            _check("embed_page0_footer", "Seite 1/2" in ftr0, ftr0)
+            _check("embed_own_rank", "Dein Rang: #3" in ftr0, ftr0)
+            _check("embed_own_marker", "du" in (emb0.description or ""))
+            emb1 = build_leaderboard_embed(entries, None, 1, 10, own_rank=3, own_id=1002)
+            _check("embed_page1_footer", "Seite 2/2" in (emb1.footer.text or ""))
+            # Page-Clamp: page 99 -> letzte Seite
+            embc = build_leaderboard_embed(entries, None, 99, 10, own_rank=None, own_id=0)
+            _check("embed_page_clamp", "Seite 2/2" in (embc.footer.text or ""))
+        except ImportError:
+            pass  # discord lokal nicht installiert -> Embed-Checks uebersprungen
+
     finally:
         await db_manager.close_db()
 

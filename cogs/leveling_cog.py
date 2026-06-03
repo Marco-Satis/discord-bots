@@ -53,6 +53,129 @@ except Exception as _card_import_err:  # noqa: BLE001
 # Ablage fuer hochgeladene Level-Up-Karten-Hintergruende
 LEVELUP_BG_DIR = ADMIN_DATA_DIR / "levelup_backgrounds"
 
+# Leaderboard-Pagination
+LEADERBOARD_PER_PAGE = 10
+
+
+def build_leaderboard_embed(
+    entries: list[dict],
+    guild: Optional[discord.Guild],
+    page: int,
+    per_page: int,
+    own_rank: Optional[int],
+    own_id: int,
+) -> discord.Embed:
+    """
+    Eine Leaderboard-Seite als Embed rendern.
+
+    Markiert den anfragenden User (◄ du) und zeigt im Footer Seite + eigene
+    Position. Rang ist die absolute Position (seitenuebergreifend).
+    """
+    total = len(entries)
+    max_page = max(0, (total - 1) // per_page) if total else 0
+    page = max(0, min(page, max_page))
+    start = page * per_page
+    page_entries = entries[start:start + per_page]
+
+    lines: list[str] = []
+    for offset, entry in enumerate(page_entries):
+        rank = start + offset + 1
+        if rank == 1:
+            medal = "\U0001f947"
+        elif rank == 2:
+            medal = "\U0001f948"
+        elif rank == 3:
+            medal = "\U0001f949"
+        else:
+            medal = f"**{rank}.**"
+
+        member = guild.get_member(entry["user_id"]) if guild else None
+        name = member.display_name if member else f"User {entry['user_id']}"
+        marker = " ◄ **du**" if entry["user_id"] == own_id else ""
+        lines.append(
+            f"{medal} {name} — Level {entry['level']} ({entry['xp']:,} XP){marker}"
+        )
+
+    embed = discord.Embed(
+        title="Leaderboard",
+        color=0xF1C40F,
+        description="\n".join(lines) if lines else "Noch keine Daten.",
+    )
+    footer = f"Seite {page + 1}/{max_page + 1} · {total} Spieler"
+    if own_rank:
+        footer += f" · Dein Rang: #{own_rank}"
+    embed.set_footer(text=footer)
+    return embed
+
+
+class LeaderboardView(discord.ui.View):
+    """Blaetterbare Leaderboard-Ansicht (nur der Aufrufer darf blaettern)."""
+
+    def __init__(
+        self,
+        entries: list[dict],
+        guild: Optional[discord.Guild],
+        requester_id: int,
+        own_rank: Optional[int],
+        per_page: int = LEADERBOARD_PER_PAGE,
+        timeout: float = 120.0,
+    ) -> None:
+        super().__init__(timeout=timeout)
+        self.entries = entries
+        self.guild = guild
+        self.requester_id = requester_id
+        self.own_rank = own_rank
+        self.per_page = per_page
+        self.page = 0
+        self.max_page = max(0, (len(entries) - 1) // per_page) if entries else 0
+        self.message: Optional[discord.Message] = None
+        self._sync_buttons()
+
+    def render(self) -> discord.Embed:
+        return build_leaderboard_embed(
+            self.entries, self.guild, self.page, self.per_page,
+            self.own_rank, self.requester_id,
+        )
+
+    def _sync_buttons(self) -> None:
+        self.prev_button.disabled = self.page <= 0
+        self.next_button.disabled = self.page >= self.max_page
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.requester_id:
+            await interaction.response.send_message(
+                "Das ist nicht deine Ansicht — ruf `/leaderboard` selbst auf.",
+                ephemeral=True,
+            )
+            return False
+        return True
+
+    @discord.ui.button(emoji="◀️", style=discord.ButtonStyle.secondary)
+    async def prev_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
+        self.page = max(0, self.page - 1)
+        self._sync_buttons()
+        await interaction.response.edit_message(embed=self.render(), view=self)
+
+    @discord.ui.button(emoji="▶️", style=discord.ButtonStyle.secondary)
+    async def next_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
+        self.page = min(self.max_page, self.page + 1)
+        self._sync_buttons()
+        await interaction.response.edit_message(embed=self.render(), view=self)
+
+    async def on_timeout(self) -> None:
+        for child in self.children:
+            if isinstance(child, discord.ui.Button):
+                child.disabled = True
+        if self.message is not None:
+            try:
+                await self.message.edit(view=self)
+            except discord.HTTPException:
+                pass
+
 
 class LevelingCog(commands.Cog):
     """XP- und Level-System mit Nachrichten- und Voice-Tracking"""
@@ -535,13 +658,13 @@ class LevelingCog(commands.Cog):
 
     @app_commands.command(
         name="leaderboard",
-        description="Zeigt die Top 10 im XP-Ranking an",
+        description="Zeigt das XP-Ranking (blaetterbar, mit deiner Position)",
     )
     async def leaderboard_command(
         self,
         interaction: discord.Interaction,
     ) -> None:
-        """Top 10 Leaderboard als Embed anzeigen."""
+        """Blaetterbares Leaderboard mit eigener Position anzeigen."""
         await interaction.response.defer()
 
         if interaction.guild is None:
@@ -550,59 +673,29 @@ class LevelingCog(commands.Cog):
             )
             return
 
-        top = self.leveling.get_leaderboard(interaction.guild.id, limit=10)
+        entries = self.leveling.get_leaderboard(interaction.guild.id, limit=None)
 
-        if not top:
+        if not entries:
             await interaction.followup.send(
                 "Noch keine Leveling-Daten vorhanden.",
                 ephemeral=True,
             )
             return
 
-        embed = discord.Embed(
-            title="Leaderboard — Top 10",
-            color=0xf1c40f,
+        own_rank = self.leveling.get_rank(interaction.guild.id, interaction.user.id)
+        view = LeaderboardView(
+            entries,
+            interaction.guild,
+            requester_id=interaction.user.id,
+            own_rank=own_rank,
         )
+        # Bei nur einer Seite keine Buttons noetig
+        if view.max_page == 0:
+            await interaction.followup.send(embed=view.render())
+            return
 
-        description_lines: list[str] = []
-        for i, entry in enumerate(top, start=1):
-            user_id = entry["user_id"]
-            level = entry["level"]
-            xp = entry["xp"]
-
-            # Medaillen für Top 3
-            if i == 1:
-                medal = "\U0001f947"
-            elif i == 2:
-                medal = "\U0001f948"
-            elif i == 3:
-                medal = "\U0001f949"
-            else:
-                medal = f"**{i}.**"
-
-            # User-Mention oder Fallback
-            member = None
-            if interaction.guild:
-                member = interaction.guild.get_member(user_id)
-
-            if member:
-                name = member.display_name
-            else:
-                name = f"User {user_id}"
-
-            description_lines.append(
-                f"{medal} **{name}** — Level {level} ({xp:,} XP)"
-            )
-
-        embed.description = "\n".join(description_lines)
-
-        if interaction.guild:
-            embed.set_footer(
-                text=f"{interaction.guild.name} — Leveling",
-                icon_url=interaction.guild.icon.url if interaction.guild.icon else None,
-            )
-
-        await interaction.followup.send(embed=embed)
+        msg = await interaction.followup.send(embed=view.render(), view=view)
+        view.message = msg
 
     # ==================================================================
     # /xp set <user> <amount>
@@ -704,6 +797,47 @@ class LevelingCog(commands.Cog):
         else:
             await interaction.followup.send(
                 f"Multiplikator für {channel.mention} auf **{factor}x** gesetzt.",
+                ephemeral=True,
+            )
+
+    # ==================================================================
+    # /xp noxp <channel> <aktiv>
+    # ==================================================================
+
+    @xp_grp.command(
+        name="noxp",
+        description="Channel zur No-XP-Liste hinzufügen/entfernen (keine XP dort)",
+    )
+    @app_commands.describe(
+        channel="Der Channel der von XP ausgeschlossen werden soll",
+        aktiv="True = kein XP in diesem Channel, False = wieder erlauben",
+    )
+    @admin_only()
+    async def xp_noxp(
+        self,
+        interaction: discord.Interaction,
+        channel: discord.TextChannel,
+        aktiv: bool,
+    ) -> None:
+        """Channel von der XP-Vergabe ausschliessen (Spam-/Bot-/Command-Kanaele)."""
+        await interaction.response.defer(ephemeral=True)
+
+        if interaction.guild is None:
+            await interaction.followup.send(
+                "Nur auf einem Server nutzbar.", ephemeral=True
+            )
+            return
+
+        await self.leveling.set_no_xp_channel(interaction.guild.id, channel.id, aktiv)
+
+        if aktiv:
+            await interaction.followup.send(
+                f"In {channel.mention} wird ab jetzt **kein XP** mehr vergeben.",
+                ephemeral=True,
+            )
+        else:
+            await interaction.followup.send(
+                f"{channel.mention} ist wieder XP-berechtigt.",
                 ephemeral=True,
             )
 
