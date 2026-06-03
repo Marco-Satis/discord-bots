@@ -18,7 +18,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from modules.linked_accounts import (
-    LinkedAccountsManager, PLATFORMS, platform_display,
+    LinkedAccountsManager, PLATFORMS, platform_display, MAX_ACCOUNT_ID_LEN,
 )
 from utils.logger import get_logger
 
@@ -66,7 +66,7 @@ class LinkedAccountsCog(commands.Cog):
             interaction.guild.id, interaction.user.id, plattform.value, id
         )
         if ok:
-            safe_id = discord.utils.escape_markdown(id.strip()[:100])
+            safe_id = discord.utils.escape_markdown(id.strip()[:MAX_ACCOUNT_ID_LEN])
             await interaction.followup.send(
                 f"**{platform_display(plattform.value)}** verlinkt: `{safe_id}`",
                 ephemeral=True,

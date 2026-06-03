@@ -56,6 +56,17 @@ class VerificationView(discord.ui.View):
             )
             return
 
+        # Gate respektieren: deaktivierte Verifizierung vergibt keine Rolle
+        # (der persistente Button ueberlebt /verifizierung_aus).
+        enabled = await GuildConfig.get(
+            interaction.guild.id, "security.verification_enabled", False
+        )
+        if not enabled:
+            await interaction.response.send_message(
+                "Verifizierung ist derzeit deaktiviert.", ephemeral=True
+            )
+            return
+
         role_id = await GuildConfig.get(
             interaction.guild.id, "security.verification_role_id"
         )
@@ -65,7 +76,10 @@ class VerificationView(discord.ui.View):
             )
             return
 
-        role = interaction.guild.get_role(int(role_id))
+        try:
+            role = interaction.guild.get_role(int(role_id))
+        except (TypeError, ValueError):
+            role = None
         if role is None:
             await interaction.response.send_message(
                 "Verifizierungs-Rolle nicht gefunden — bitte Admin informieren.",
@@ -119,36 +133,49 @@ class VerificationCog(commands.Cog):
         if member.bot:
             return
         guild = member.guild
-        threshold = int(
-            await GuildConfig.get(guild.id, "security.raid_threshold", 0) or 0
-        )
+        # Korrupte Config-Werte duerfen on_member_join nicht bei jedem Join werfen.
+        try:
+            threshold = int(
+                await GuildConfig.get(guild.id, "security.raid_threshold", 0) or 0
+            )
+            window = float(
+                await GuildConfig.get(guild.id, "security.raid_window_seconds", 10) or 10
+            )
+        except (TypeError, ValueError):
+            return
         if threshold <= 0:
             return
 
-        window = float(
-            await GuildConfig.get(guild.id, "security.raid_window_seconds", 10) or 10
-        )
         now = time.time()
         is_raid = self.raid.record_join(
             guild.id, now, threshold=threshold, window_seconds=window
         )
-        if is_raid and self.raid.should_alert(guild.id, now):
-            await self._send_raid_alert(guild, threshold, window)
+        if is_raid:
+            await self._maybe_raid_alert(guild, threshold, window, now)
 
-    async def _send_raid_alert(
-        self, guild: discord.Guild, threshold: int, window: float
+    async def _maybe_raid_alert(
+        self, guild: discord.Guild, threshold: int, window: float, now: float
     ) -> None:
-        """Raid-Alert in den konfigurierten Channel senden."""
-        channel_id = await GuildConfig.get(
-            guild.id, "security.raid_alert_channel_id"
-        )
+        """Alert senden — Channel ZUERST aufloesen, dann Alarm-Cooldown buchen.
+
+        So wird das Alarm-Fenster nicht still verbraucht wenn gar kein
+        Alert-Channel existiert (Review-Finding #2).
+        """
+        channel_id = await GuildConfig.get(guild.id, "security.raid_alert_channel_id")
         channel = None
         if channel_id:
-            channel = guild.get_channel(int(channel_id))
+            try:
+                channel = guild.get_channel(int(channel_id))
+            except (TypeError, ValueError):
+                channel = None
         if channel is None:
             channel = guild.system_channel
         if channel is None or not isinstance(channel, discord.TextChannel):
-            logger.warning(f"Raid-Alert Guild {guild.id}: kein Alert-Channel")
+            logger.warning(f"Raid-Verdacht Guild {guild.id}: kein Alert-Channel")
+            return
+
+        # Cooldown erst jetzt buchen (Channel steht) -> kein verbranntes Fenster.
+        if not self.raid.should_alert(guild.id, now):
             return
 
         count = self.raid.join_count(guild.id)
@@ -162,7 +189,9 @@ class VerificationCog(commands.Cog):
             color=0xE74C3C,
         )
         try:
-            await channel.send(embed=embed)
+            await channel.send(
+                embed=embed, allowed_mentions=discord.AllowedMentions.none()
+            )
             logger.info(f"Raid-Alert gesendet Guild {guild.id}: {count} Joins")
         except (discord.Forbidden, discord.HTTPException) as e:
             logger.warning(f"Raid-Alert nicht sendbar: {e}")
@@ -331,7 +360,12 @@ class VerificationCog(commands.Cog):
         threshold = await GuildConfig.get(gid, "security.raid_threshold", 0)
         window = await GuildConfig.get(gid, "security.raid_window_seconds", 10)
 
-        role = interaction.guild.get_role(int(role_id)) if role_id else None
+        role = None
+        if role_id:
+            try:
+                role = interaction.guild.get_role(int(role_id))
+            except (TypeError, ValueError):
+                role = None
         embed = discord.Embed(title="Sicherheits-Status", color=0x5865F2)
         embed.add_field(
             name="Verifizierung",
