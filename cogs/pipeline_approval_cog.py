@@ -51,6 +51,7 @@ CATEGORY_CHOICES: list[tuple[str, str]] = [
     ("claude-code-tips", "Claude Code Tips"),
     ("tech-tools", "Tech Tools"),
     ("smart-home", "Smart Home"),
+    ("technik", "Technik"),
     ("cod-loadouts", "COD Loadouts"),
     ("cod-settings", "COD Settings"),
     ("cod-techniques", "COD Techniques"),
