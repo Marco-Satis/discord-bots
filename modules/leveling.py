@@ -68,6 +68,7 @@ def _default_config() -> dict[str, Any]:
         "level_formula": "5 * level^2 + 50 * level + 100",
         "channel_multipliers": {},
         "role_rewards": {},
+        "remove_lower_rewards": False,
         "no_xp_channels": [],
         # Level-Up-Karte mit Bild-Hintergrund (statt Standard-Embed)
         "levelup_card_enabled": False,
@@ -557,6 +558,19 @@ class LevelingManager:
             return int(role_id)
         return None
 
+    def get_role_rewards(self, guild_id: int | str) -> dict[int, int]:
+        """
+        Alle Rollen-Belohnungen der Guild als {level: role_id}, nach Level sortiert.
+        """
+        raw = self._gcfg(guild_id).get("role_rewards", {})
+        result: dict[int, int] = {}
+        for lvl, role_id in raw.items():
+            try:
+                result[int(lvl)] = int(role_id)
+            except (TypeError, ValueError):
+                continue
+        return dict(sorted(result.items()))
+
     async def set_role_reward(
         self, guild_id: int | str, level: int, role_id: int
     ) -> None:
@@ -571,6 +585,38 @@ class LevelingManager:
         logger.info(
             f"Rollen-Belohnung gesetzt: Guild {guild_id} Level {level} -> Rolle {role_id}"
         )
+
+    async def remove_role_reward(self, guild_id: int | str, level: int) -> bool:
+        """
+        Rollen-Belohnung fuer ein Level entfernen.
+
+        Returns:
+            True wenn entfernt, False wenn fuer das Level keine existierte.
+        """
+        cfg = await self._ensure_guild_config(guild_id)
+        rewards = dict(cfg.get("role_rewards", {}))
+        if str(level) not in rewards:
+            return False
+        rewards.pop(str(level), None)
+        cfg["role_rewards"] = rewards
+        await GuildConfig.set(
+            guild_id, "leveling.role_rewards", rewards, updated_by="command"
+        )
+        logger.info(f"Rollen-Belohnung entfernt: Guild {guild_id} Level {level}")
+        return True
+
+    def is_remove_lower_enabled(self, guild_id: int | str) -> bool:
+        """True wenn beim Aufstieg niedrigere Belohnungs-Rollen entfernt werden."""
+        return bool(self._gcfg(guild_id).get("remove_lower_rewards", False))
+
+    async def set_remove_lower(self, guild_id: int | str, enabled: bool) -> None:
+        """'Niedrigere Belohnungs-Rolle entfernen' an-/ausschalten (guild_config)."""
+        cfg = await self._ensure_guild_config(guild_id)
+        cfg["remove_lower_rewards"] = bool(enabled)
+        await GuildConfig.set(
+            guild_id, "leveling.remove_lower_rewards", bool(enabled), updated_by="command"
+        )
+        logger.info(f"remove_lower_rewards Guild {guild_id} = {enabled}")
 
     # ------------------------------------------------------------------
     # Channel-Multiplikatoren (per-Guild)

@@ -515,42 +515,71 @@ class LevelingCog(commands.Cog):
         guild: discord.Guild,
     ) -> None:
         """
-        Rollen-Belohnung für ein Level vergeben (falls konfiguriert).
+        Rollen-Belohnungen anwenden (falls konfiguriert).
 
-        Prueft auch alle vorherigen Level, damit nachtraeglich
-        konfigurierte Belohnungen vergeben werden.
+        Vergibt jede Belohnungs-Rolle deren Level erreicht ist (auch nachtraeglich
+        konfigurierte). Ist `remove_lower_rewards` aktiv, bleibt nur die hoechste
+        erreichte Belohnungs-Rolle — alle anderen Belohnungs-Rollen werden entfernt
+        (Rang-Aufstieg statt Rollen-Sammlung).
 
         Args:
             member: Discord-Member
             level: Das erreichte Level
             guild: Discord-Guild
         """
-        # Alle Level bis zum aktuellen prüfen
-        for lvl in range(1, level + 1):
-            role_id = self.leveling.get_role_reward(guild.id, lvl)
-            if role_id is None:
-                continue
+        rewards = self.leveling.get_role_rewards(guild.id)  # {level: role_id}
+        if not rewards:
+            return
 
-            role = guild.get_role(role_id)
-            if not role:
+        earned_levels = sorted(lvl for lvl in rewards if lvl <= level)
+        if not earned_levels:
+            return
+
+        remove_lower = self.leveling.is_remove_lower_enabled(guild.id)
+
+        if remove_lower:
+            keep_level = earned_levels[-1]
+            add_levels = [keep_level]
+            # alle ANDEREN konfigurierten Belohnungs-Rollen entfernen
+            remove_role_ids = {
+                rewards[lvl] for lvl in rewards if lvl != keep_level
+            }
+        else:
+            add_levels = earned_levels
+            remove_role_ids = set()
+
+        # --- hinzufuegen ---
+        for lvl in add_levels:
+            role = guild.get_role(rewards[lvl])
+            if role is None:
                 logger.warning(
-                    f"Belohnungs-Rolle {role_id} für Level {lvl} nicht gefunden"
+                    f"Belohnungs-Rolle {rewards[lvl]} für Level {lvl} nicht gefunden"
                 )
                 continue
-
             if role in member.roles:
-                continue  # Hat die Rolle bereits
-
+                continue
             try:
                 await member.add_roles(role, reason=f"Leveling: Level {lvl} erreicht")
                 logger.info(
-                    f"Rolle '{role.name}' an {member.display_name} vergeben "
-                    f"(Level {lvl})"
+                    f"Rolle '{role.name}' an {member.display_name} vergeben (Level {lvl})"
                 )
             except (discord.Forbidden, discord.HTTPException) as e:
-                logger.warning(
-                    f"Rolle '{role.name}' konnte nicht vergeben werden: {e}"
+                logger.warning(f"Rolle '{role.name}' nicht vergebbar: {e}")
+
+        # --- entfernen (nur bei remove_lower) ---
+        for role_id in remove_role_ids:
+            role = guild.get_role(role_id)
+            if role is None or role not in member.roles:
+                continue
+            try:
+                await member.remove_roles(
+                    role, reason="Leveling: niedrigere Belohnungs-Rolle ersetzt"
                 )
+                logger.info(
+                    f"Rolle '{role.name}' von {member.display_name} entfernt (Aufstieg)"
+                )
+            except (discord.Forbidden, discord.HTTPException) as e:
+                logger.warning(f"Rolle '{role.name}' nicht entfernbar: {e}")
 
     def _build_rank_embed(
         self,
@@ -887,6 +916,126 @@ class LevelingCog(commands.Cog):
             f"Rollen-Belohnung gesetzt: Bei **Level {level}** wird die Rolle "
             f"**{rolle.name}** vergeben.",
             ephemeral=True,
+        )
+
+    # ==================================================================
+    # /xp rewardremove <level>
+    # ==================================================================
+
+    @xp_grp.command(
+        name="rewardremove",
+        description="Rollen-Belohnung für ein Level entfernen",
+    )
+    @app_commands.describe(level="Das Level dessen Belohnung entfernt wird")
+    @admin_only()
+    async def xp_rewardremove(
+        self,
+        interaction: discord.Interaction,
+        level: int,
+    ) -> None:
+        """Konfigurierte Rollen-Belohnung eines Levels loeschen."""
+        await interaction.response.defer(ephemeral=True)
+
+        if interaction.guild is None:
+            await interaction.followup.send(
+                "Nur auf einem Server nutzbar.", ephemeral=True
+            )
+            return
+
+        removed = await self.leveling.remove_role_reward(interaction.guild.id, level)
+        if removed:
+            await interaction.followup.send(
+                f"Rollen-Belohnung für **Level {level}** entfernt.", ephemeral=True
+            )
+        else:
+            await interaction.followup.send(
+                f"Für Level {level} war keine Belohnung konfiguriert.", ephemeral=True
+            )
+
+    # ==================================================================
+    # /xp removelower <aktiv>
+    # ==================================================================
+
+    @xp_grp.command(
+        name="removelower",
+        description="Beim Aufstieg niedrigere Belohnungs-Rollen entfernen",
+    )
+    @app_commands.describe(
+        aktiv="True = nur höchste Belohnungs-Rolle behalten, False = alle behalten",
+    )
+    @admin_only()
+    async def xp_removelower(
+        self,
+        interaction: discord.Interaction,
+        aktiv: bool,
+    ) -> None:
+        """'Niedrigere Belohnungs-Rolle bei Aufstieg entfernen' umschalten."""
+        await interaction.response.defer(ephemeral=True)
+
+        if interaction.guild is None:
+            await interaction.followup.send(
+                "Nur auf einem Server nutzbar.", ephemeral=True
+            )
+            return
+
+        await self.leveling.set_remove_lower(interaction.guild.id, aktiv)
+        if aktiv:
+            await interaction.followup.send(
+                "Beim Aufstieg wird ab jetzt nur die **höchste** erreichte "
+                "Belohnungs-Rolle behalten.",
+                ephemeral=True,
+            )
+        else:
+            await interaction.followup.send(
+                "Belohnungs-Rollen werden **gesammelt** (niedrigere bleiben).",
+                ephemeral=True,
+            )
+
+    # ==================================================================
+    # /levelrewards  (öffentlich — Rang-Belohnungs-Leiter anzeigen)
+    # ==================================================================
+
+    @app_commands.command(
+        name="levelrewards",
+        description="Zeigt die konfigurierten Level-Rollen-Belohnungen",
+    )
+    async def levelrewards_command(
+        self,
+        interaction: discord.Interaction,
+    ) -> None:
+        """Konfigurierte Rollen-Belohnungen (Level -> Rolle) auflisten."""
+        await interaction.response.defer()
+
+        if interaction.guild is None:
+            await interaction.followup.send(
+                "Dieser Befehl funktioniert nur auf einem Server.", ephemeral=True
+            )
+            return
+
+        rewards = self.leveling.get_role_rewards(interaction.guild.id)
+        if not rewards:
+            await interaction.followup.send(
+                "Es sind noch keine Rollen-Belohnungen konfiguriert.",
+                ephemeral=True,
+            )
+            return
+
+        lines: list[str] = []
+        for lvl, role_id in rewards.items():
+            role = interaction.guild.get_role(role_id)
+            role_text = role.mention if role else f"(gelöschte Rolle {role_id})"
+            lines.append(f"**Level {lvl}** → {role_text}")
+
+        embed = discord.Embed(
+            title="Level-Belohnungen",
+            description="\n".join(lines),
+            color=0xF1C40F,
+        )
+        if self.leveling.is_remove_lower_enabled(interaction.guild.id):
+            embed.set_footer(text="Nur die höchste erreichte Rolle wird behalten.")
+        await interaction.followup.send(
+            embed=embed,
+            allowed_mentions=discord.AllowedMentions.none(),
         )
 
     # ==================================================================

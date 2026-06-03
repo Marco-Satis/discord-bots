@@ -32,6 +32,8 @@ _results: list[tuple[str, bool, str]] = []
 
 GUILD_A = "111111111111111111"
 GUILD_B = "222222222222222222"
+GUILD_C = "333333333333333333"
+GUILD_D = "444444444444444444"
 USER_1 = "42"
 USER_2 = "77"
 
@@ -202,7 +204,23 @@ async def run_tests() -> None:
         _check("lb_sorted_desc", all_lb[0]["xp"] == 1500 and all_lb[-1]["xp"] == 100)
 
         # ============================================================
-        # 9) C4: build_leaderboard_embed Pagination (nur wenn discord da)
+        # 9b) C5: Role-Rewards Manager (frische Guild C)
+        # ============================================================
+        mgr6 = _new_manager()
+        await mgr6.set_role_reward(GUILD_C, 10, 1010)
+        await mgr6.set_role_reward(GUILD_C, 5, 5005)
+        rr = mgr6.get_role_rewards(GUILD_C)
+        _check("rr_sorted_keys", list(rr.keys()) == [5, 10], f"keys={list(rr.keys())}")
+        _check("rr_values", rr == {5: 5005, 10: 1010}, f"rr={rr}")
+        _check("rr_lower_default_off", mgr6.is_remove_lower_enabled(GUILD_C) is False)
+        await mgr6.set_remove_lower(GUILD_C, True)
+        _check("rr_lower_on", mgr6.is_remove_lower_enabled(GUILD_C) is True)
+        rem = await mgr6.remove_role_reward(GUILD_C, 5)
+        _check("rr_removed", rem is True and 5 not in mgr6.get_role_rewards(GUILD_C))
+        _check("rr_remove_absent_false", await mgr6.remove_role_reward(GUILD_C, 99) is False)
+
+        # ============================================================
+        # 9) C4/C5: Embeds + _apply_role_reward (nur wenn discord da)
         # ============================================================
         try:
             import discord  # noqa: F401
@@ -221,8 +239,59 @@ async def run_tests() -> None:
             # Page-Clamp: page 99 -> letzte Seite
             embc = build_leaderboard_embed(entries, None, 99, 10, own_rank=None, own_id=0)
             _check("embed_page_clamp", "Seite 2/2" in (embc.footer.text or ""))
+
+            # --- C5: _apply_role_reward (Mock-Discord, frische Guild D) ---
+            from cogs.leveling_cog import LevelingCog
+            from unittest.mock import MagicMock, AsyncMock
+
+            mgr7 = _new_manager()
+            await mgr7.set_role_reward(GUILD_D, 5, 5005)
+            await mgr7.set_role_reward(GUILD_D, 10, 1010)
+
+            def _role(rid, name):
+                r = MagicMock()
+                r.id = rid
+                r.name = name
+                return r
+
+            R5 = _role(5005, "R5")
+            R10 = _role(1010, "R10")
+            roles_by_id = {5005: R5, 1010: R10}
+            guild_m = MagicMock()
+            guild_m.id = int(GUILD_D)
+            guild_m.get_role.side_effect = lambda rid: roles_by_id.get(rid)
+
+            class _Stub:
+                pass
+
+            stub = _Stub()
+            stub.leveling = mgr7
+
+            # A) remove_lower aus -> alle erreichten Rollen sammeln
+            mA = MagicMock()
+            mA.display_name = "A"
+            mA.roles = []
+            mA.add_roles = AsyncMock()
+            mA.remove_roles = AsyncMock()
+            await LevelingCog._apply_role_reward(stub, mA, 10, guild_m)
+            added_a = {c.args[0].id for c in mA.add_roles.call_args_list}
+            _check("apply_add_both", added_a == {5005, 1010}, f"added={added_a}")
+            _check("apply_no_remove", not mA.remove_roles.called)
+
+            # B) remove_lower an -> nur hoechste behalten, R5 entfernen
+            await mgr7.set_remove_lower(GUILD_D, True)
+            mB = MagicMock()
+            mB.display_name = "B"
+            mB.roles = [R5]
+            mB.add_roles = AsyncMock()
+            mB.remove_roles = AsyncMock()
+            await LevelingCog._apply_role_reward(stub, mB, 10, guild_m)
+            added_b = {c.args[0].id for c in mB.add_roles.call_args_list}
+            removed_b = {c.args[0].id for c in mB.remove_roles.call_args_list}
+            _check("apply_lower_add_top", added_b == {1010}, f"added={added_b}")
+            _check("apply_lower_remove_low", removed_b == {5005}, f"removed={removed_b}")
         except ImportError:
-            pass  # discord lokal nicht installiert -> Embed-Checks uebersprungen
+            pass  # discord lokal nicht installiert -> Discord-Checks uebersprungen
 
     finally:
         await db_manager.close_db()
