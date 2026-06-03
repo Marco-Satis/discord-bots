@@ -29,6 +29,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from modules.leveling import LevelingManager
+from modules.voice_sessions import VoiceSessionTracker
 from modules.guild_context import get_primary_guild_id
 from utils.logger import get_logger
 from utils.config import ADMIN_DATA_DIR
@@ -68,12 +69,11 @@ class LevelingCog(commands.Cog):
             data_file=ADMIN_DATA_DIR / "leveling.json",
             config_file=ADMIN_DATA_DIR / "leveling_config.json",
         )
-        # Speichert User-IDs die gerade im Voice sind (für XP-Berechnung)
-        # Format: {user_id: anzahl_5min_zyklen_im_voice}
-        self._voice_tracking: dict[int, int] = {}
+        # Echte Voice-Sessions (Anti-Cheat) — ersetzt das 5-Min-Tick-Modell.
+        self.voice = VoiceSessionTracker()
 
     async def cog_load(self) -> None:
-        """DB-Daten laden und Voice-XP-Task starten."""
+        """DB-Daten laden, verwaiste Voice-Sessions schliessen, Sampler starten."""
         # Leveling-Daten aus SQLite laden
         try:
             await self.leveling.load_from_db()
@@ -88,12 +88,17 @@ class LevelingCog(commands.Cog):
                 await self.leveling.load_guild_config(primary)
             except Exception as e:
                 logger.warning(f"Guild-Config-Vorladen fehlgeschlagen: {e}")
-        self.voice_xp_task.start()
-        logger.info("Leveling-Cog geladen, Voice-XP-Task gestartet")
+        # Sessions die einen Neustart "ueberlebt" haben (leave_time NULL) schliessen.
+        try:
+            await self.voice.close_orphans()
+        except Exception as e:
+            logger.warning(f"close_orphans fehlgeschlagen: {e}")
+        self.voice_sample_task.start()
+        logger.info("Leveling-Cog geladen, Voice-Session-Sampler gestartet")
 
     async def cog_unload(self) -> None:
-        """Voice-XP-Task stoppen wenn Cog entladen wird."""
-        self.voice_xp_task.cancel()
+        """Sampler stoppen wenn Cog entladen wird."""
+        self.voice_sample_task.cancel()
 
     # ==================================================================
     # Event: Nachrichten-XP
@@ -149,49 +154,101 @@ class LevelingCog(commands.Cog):
         await self._apply_role_reward(message.author, new_level, message.guild)
 
     # ==================================================================
-    # Background-Task: Voice-XP
+    # Event + Task: echte Voice-Sessions (Anti-Cheat)
     # ==================================================================
 
-    @tasks.loop(minutes=5)
-    async def voice_xp_task(self) -> None:
+    def _voice_valid(
+        self,
+        member: Optional[discord.Member],
+        channel: Optional[discord.VoiceChannel | discord.StageChannel],
+        guild: discord.Guild,
+    ) -> bool:
         """
-        Alle 5 Minuten Voice-Channels prüfen und XP vergeben.
-
-        Bedingungen für XP:
-        - User darf nicht gemutet sein (self_mute oder mute)
-        - Mindestens 2 User im Channel (kein Solo-Farming)
-        - Nicht im AFK-Channel
+        Ob der aktuelle Voice-Zustand XP-wuerdig ist:
+        - Member ist im genannten Channel
+        - Channel ist nicht der AFK-Channel
+        - Member ist nicht self-deafened / server-deafened
+        - mindestens 2 menschliche Teilnehmer (kein Solo-Farming)
         """
-        for guild in self.bot.guilds:
-            afk_channel = guild.afk_channel
+        if member is None or channel is None:
+            return False
+        if guild.afk_channel and channel.id == guild.afk_channel.id:
+            return False
+        vs = member.voice
+        if vs is None or vs.channel is None or vs.channel.id != channel.id:
+            return False
+        if vs.self_deaf or vs.deaf:
+            return False
+        humans = [m for m in channel.members if not m.bot]
+        return len(humans) >= 2
 
-            for vc in guild.voice_channels:
-                # AFK-Channel überspringen
-                if afk_channel and vc.id == afk_channel.id:
-                    continue
+    @commands.Cog.listener()
+    async def on_voice_state_update(
+        self,
+        member: discord.Member,
+        before: discord.VoiceState,
+        after: discord.VoiceState,
+    ) -> None:
+        """
+        Voice-Session-Lifecycle: oeffnet/schliesst Sessions bei Channel-Wechsel.
 
-                # Nur echte Teilnehmer zaehlen (nicht gemutet, nicht Bot)
-                active_members = [
-                    m for m in vc.members
-                    if not m.bot
-                    and not m.voice.self_mute
-                    and not m.voice.mute
-                ]
+        Reine mute/deaf-Aenderungen (gleicher Channel) ignoriert der Handler —
+        die werden vom Sampler (`voice_sample_task`) erfasst.
+        """
+        if member.bot:
+            return
 
-                # Mindestens 2 User im Channel
-                if len(active_members) < 2:
-                    continue
+        guild = member.guild
+        before_ch = before.channel
+        after_ch = after.channel
+        if before_ch == after_ch:
+            return  # nur State-Aenderung (mute/deaf/stream) — Sampler regelt das
 
-                for member in active_members:
-                    xp_gained, leveled_up = self.leveling.add_voice_xp(
-                        guild.id, member.id, 5
-                    )
+        # Vorherigen Channel verlassen -> Session schliessen + XP vergeben
+        if before_ch is not None and self.voice.is_open(guild.id, member.id):
+            await self._end_voice_session(member, guild)
 
-                    if leveled_up:
-                        await self._send_voice_level_up(member, guild)
+        # Neuen (nicht-AFK) Channel betreten -> Session oeffnen
+        afk = guild.afk_channel
+        if after_ch is not None and (afk is None or after_ch.id != afk.id):
+            await self.voice.start(guild.id, member.id, after_ch.id)
 
-    @voice_xp_task.before_loop
-    async def before_voice_xp(self) -> None:
+    async def _end_voice_session(
+        self, member: discord.Member, guild: discord.Guild
+    ) -> None:
+        """Session schliessen, XP aus validen Minuten vergeben, ggf. Level-Up."""
+        result = await self.voice.end(guild.id, member.id, min_seconds=60)
+        if not result:
+            return
+        minutes = result["valid_minutes"]
+        if minutes <= 0:
+            return  # alleine / deaf / zu kurz -> 0 valide Minuten -> kein XP
+
+        xp_gained, leveled_up = self.leveling.add_voice_xp(
+            guild.id, member.id, minutes
+        )
+        await self.voice.set_xp(result["db_id"], xp_gained)
+
+        if leveled_up:
+            await self._send_voice_level_up(member, guild)
+
+    @tasks.loop(minutes=1)
+    async def voice_sample_task(self) -> None:
+        """
+        Jede Minute jede offene Session bewerten: valide Sekunden akkumulieren
+        (nur wenn Bedingungen erfuellt). XP wird erst bei Session-Ende vergeben.
+        """
+        for gid, uid in self.voice.open_keys():
+            guild = self.bot.get_guild(int(gid))
+            if guild is None:
+                continue
+            member = guild.get_member(int(uid))
+            channel = member.voice.channel if member and member.voice else None
+            valid = self._voice_valid(member, channel, guild)
+            self.voice.sample(gid, uid, valid)
+
+    @voice_sample_task.before_loop
+    async def before_voice_sample(self) -> None:
         """Warten bis Bot bereit ist."""
         await self.bot.wait_until_ready()
 
