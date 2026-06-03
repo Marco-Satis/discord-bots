@@ -85,6 +85,7 @@ INITIAL_COGS: list[str] = [
     "cogs.custom_commands_cog", # F30: Custom-Commands
     "cogs.profile_cog",        # F39: Spieler-Profil + Leaderboard
     "cogs.linked_accounts_cog",  # Wave 2: Linked-Accounts (Activision/Steam/...)
+    "cogs.verification_cog",     # Wave 2 G: Verification-Gate + Raid-Schutz
     "cogs.notify_cog",         # F40: Spieler-Benachrichtigungen
     "cogs.welcome_cog",        # F41: Willkommens-System
     "cogs.command_stats_cog",  # F59: Command-Nutzungsstatistik
