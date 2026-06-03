@@ -77,18 +77,24 @@ def render_levelup_card(
     xp_in_level: int = 0,
     xp_for_next: int = 100,
     accent: str = "#f1c40f",
+    header: str = "LEVEL UP",
 ) -> bytes:
     """
-    Level-Up-Karte rendern und als PNG-Bytes zurueckgeben.
+    Karte rendern und als PNG-Bytes zurueckgeben.
+
+    Ein gemeinsames Template fuer Level-Up- UND Rang-Karte (1-Admin-Template,
+    per-Guild BG/Akzent). Nur die Kopfzeile (`header`) unterscheidet sich
+    ("LEVEL UP" vs. z.B. "RANG #3").
 
     Args:
         bg_path: Pfad zum Hintergrund-Bild
         avatar_bytes: Avatar als Bytes (PNG/JPG) oder None
         username: Anzeigename
-        level: Erreichtes Level
+        level: Aktuelles Level
         xp_in_level: XP im aktuellen Level
         xp_for_next: XP fuer das naechste Level
         accent: Akzentfarbe als Hex (#RRGGBB)
+        header: Kopfzeile (Default "LEVEL UP"; Rang-Karte z.B. "RANG #3")
 
     Returns:
         PNG-Bytes der fertigen Karte
@@ -144,7 +150,8 @@ def render_levelup_card(
     # --- Text-Block rechts vom Avatar ---
     tx = ax + av_size + 45
 
-    d.text((tx, 46), "LEVEL UP", font=_font(26, True), fill=acc + (255,))
+    head = header if len(header) <= 20 else header[:19] + "…"
+    d.text((tx, 46), head.upper(), font=_font(26, True), fill=acc + (255,))
 
     name = username if len(username) <= 18 else username[:17] + "…"
     d.text((tx, 80), name, font=_font(46, True), fill=(255, 255, 255, 255))

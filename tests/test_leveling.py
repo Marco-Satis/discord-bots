@@ -290,6 +290,33 @@ async def run_tests() -> None:
             removed_b = {c.args[0].id for c in mB.remove_roles.call_args_list}
             _check("apply_lower_add_top", added_b == {1010}, f"added={added_b}")
             _check("apply_lower_remove_low", removed_b == {5005}, f"removed={removed_b}")
+
+            # --- C6: Rank-Card Template ---
+            # _try_render_card gibt None wenn Karte deaktiviert (Embed-Fallback).
+            mgr8 = _new_manager()
+            stub_card = _Stub()
+            stub_card.leveling = mgr8
+            mC = MagicMock()
+            mC.display_name = "C"
+            res_card = await LevelingCog._try_render_card(
+                stub_card, 909090, mC, 1, 0, 100, "RANG #1"
+            )
+            _check("card_disabled_none", res_card is None)
+
+            # Renderer akzeptiert header-Param und liefert PNG (nur wenn Pillow da).
+            try:
+                from modules.levelup_card import render_levelup_card as _rlc
+                png = _rlc(
+                    bg_path=__file__,  # kein Bild -> Solid-BG-Fallback
+                    avatar_bytes=None,
+                    username="Tester",
+                    level=3,
+                    header="RANG #3",
+                )
+                _check("card_render_png", isinstance(png, bytes) and len(png) > 100,
+                       f"len={len(png) if isinstance(png, bytes) else 'n/a'}")
+            except ImportError:
+                pass  # Pillow lokal nicht installiert
         except ImportError:
             pass  # discord lokal nicht installiert -> Discord-Checks uebersprungen
 

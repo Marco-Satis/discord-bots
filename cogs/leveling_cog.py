@@ -647,6 +647,46 @@ class LevelingCog(commands.Cog):
 
         return embed
 
+    async def _try_render_card(
+        self,
+        guild_id: int,
+        member: discord.Member | discord.User,
+        level: int,
+        xp_in_level: int,
+        xp_for_next: int,
+        header: str,
+    ) -> Optional[discord.File]:
+        """
+        Karte rendern wenn die Bild-Karte der Guild aktiviert ist + ein
+        Hintergrund existiert (1-Admin-Template). Sonst None (Embed-Fallback).
+        """
+        if not (_CARD_AVAILABLE and self.leveling.is_card_enabled(guild_id)):
+            return None
+        bg_name = self.leveling.get_card_bg(guild_id)
+        if not bg_name:
+            return None
+        bg_path = LEVELUP_BG_DIR / bg_name
+        if not bg_path.exists():
+            return None
+        try:
+            avatar_bytes = await member.display_avatar.read()
+            accent = self.leveling.get_card_accent(guild_id)
+            png = await asyncio.to_thread(
+                render_levelup_card,
+                bg_path,
+                avatar_bytes,
+                member.display_name,
+                level,
+                xp_in_level,
+                xp_for_next,
+                accent,
+                header,
+            )
+            return discord.File(io.BytesIO(png), filename="card.png")
+        except Exception as e:  # noqa: BLE001 — Fallback auf Embed
+            logger.warning(f"Karten-Render fehlgeschlagen: {e}")
+            return None
+
     # ==================================================================
     # /rank [user]
     # ==================================================================
@@ -678,8 +718,19 @@ class LevelingCog(commands.Cog):
         user_data = self.leveling.get_user(interaction.guild.id, target.id)
         rank = self.leveling.get_rank(interaction.guild.id, target.id)
 
-        embed = self._build_rank_embed(target, user_data, rank)
-        await interaction.followup.send(embed=embed)
+        # Bild-Karte (gleiches 1-Admin-Template wie Level-Up) wenn aktiviert,
+        # sonst klassisches Embed.
+        level = user_data.get("level", 0)
+        xp_in_level, xp_for_next = self._xp_progress(user_data, level)
+        card = await self._try_render_card(
+            interaction.guild.id, target, level, xp_in_level, xp_for_next,
+            header=f"RANG #{rank}",
+        )
+        if card is not None:
+            await interaction.followup.send(file=card)
+        else:
+            embed = self._build_rank_embed(target, user_data, rank)
+            await interaction.followup.send(embed=embed)
 
     # ==================================================================
     # /leaderboard
