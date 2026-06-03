@@ -36,6 +36,18 @@
 
 ## Präventiv-Maßnahmen
 - [x] Parser-Isolation (commit `0365f83`).
-- [ ] **Dependency-Freshness-Check für `satisfactory-save`** — bei jedem SAT-Game-Update prüfen ob neue Lib-Version das Format kann; dann Deep-Stats wieder aktiv (kommt automatisch, sobald Parse erfolgreich).
+- [x] `package_checker`-`sudo apt update`-PAM-Logspam entfernt (commit `a9516a4`) — unabhängiger Nebenbefund.
 - [ ] Optional: systemd `StartLimitIntervalSec`/`StartLimitBurst` setzen, damit ein künftiger Crash-Loop nach N Versuchen stoppt + alarmiert statt endlos zu restarten.
 - [ ] Optional: Alert wenn `analysis_error` über mehrere Zyklen gesetzt bleibt (Frühwarnung Format-Drift).
+
+## Deep-Stats wiederherstellen — Lib-Recherche (2026-06-03)
+`satisfactory-save` (PyPI) ist bei **0.9.0** (Release 2025-04-08) **eingefroren** — KEIN neueres Release, das das Save-Format von Build 23300422 (Satisfactory 1.1.x) liest. Ein simples `pip install -U` bringt also nichts (0.9.0 ist bereits installiert + crasht).
+
+Optionen für Deep-Fabrik/Power-Stats:
+1. **Warten** auf ein `satisfactory-save`-Update (upstream, ungewiss — letztes Release Apr 2025).
+2. **Parser-Migration** zu [`GreyHak/sat_sav_parse`](https://github.com/GreyHak/sat_sav_parse) — Python-Tools, laut Beschreibung Support bis **Satisfactory v1.2.0.0**. Andere API → `_extract_save_objects_worker` müsste umgeschrieben werden (eigene Aufgabe, ~2-4h).
+3. **Degraded-Mode belassen** (aktuell): Header-only, `available:false`, Bot stabil. Deep-Stats fehlen im Dashboard, sonst kein Impact.
+
+Empfehlung: Option 3 vorerst (kein Druck, System stabil). Option 2 als separater Task wenn Deep-Stats wieder gewünscht.
+
+Quellen: [satisfactory-save PyPI](https://pypi.org/project/satisfactory-save/) · [GreyHak/sat_sav_parse](https://github.com/GreyHak/sat_sav_parse)
