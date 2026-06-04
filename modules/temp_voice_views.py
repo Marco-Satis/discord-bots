@@ -108,6 +108,30 @@ async def refresh_panel(
         logger.debug(f"Panel-Refresh fehlgeschlagen ({channel.id}): {e}")
 
 
+def build_interface_embed() -> discord.Embed:
+    """
+    Statisches Embed fuer das persistente Interface-Panel (VOICEPANEL-Style).
+
+    Channel-unabhaengig: die Buttons steuern den Temp-Channel in dem der
+    Klickende gerade ist (Resolver `member.voice.channel`), nicht einen festen
+    Channel. Daher ein generisches Embed das nur die Steuerung erklaert.
+    """
+    embed = discord.Embed(
+        title="🎛️ Temp-Voice-Steuerung",
+        description=(
+            "Erstelle deinen eigenen Voice-Channel über den **Join-to-Create**-"
+            "Kanal und steuere ihn hier.\n"
+            "**Voraussetzung:** Du bist gerade in deinem Temp-Channel.\n\n"
+            "✏️ **Umbenennen** · 🔢 **Limit** · 🔒 **Privat** · 🔓 **Öffentlich**\n"
+            "👤 **Übertragen** · 🔨 **Bannen** · ♻️ **Entbannen** · 🙋 **Übernehmen**\n"
+            "📜 **Logs** · 🎮 **Accounts**"
+        ),
+        color=0x5865F2,
+    )
+    embed.set_footer(text="Nur der Channel-Owner kann steuern (Claim wenn Owner weg).")
+    return embed
+
+
 # ======================================================================
 # Modals — Eingabedialoge
 # ======================================================================

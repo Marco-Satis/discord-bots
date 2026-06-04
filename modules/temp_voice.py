@@ -64,6 +64,11 @@ def _default_config() -> dict[str, Any]:
         "category_id": None,
         "default_limit": 0,
         "afk_timeout_minutes": 5,
+        # Interface-Kanal (VOICEPANEL-Style): ein persistentes Steuer-Panel in
+        # einem festen Text-Channel. Steuert den Temp-Channel in dem der Klickende
+        # gerade ist (Buttons resolven via member.voice.channel, nicht panel-bound).
+        "interface_channel_id": None,
+        "interface_message_id": None,
     }
 
 
@@ -650,6 +655,39 @@ class TempVoiceManager:
         self._config["afk_timeout_minutes"] = max(1, min(60, minutes))
         self._save_config()
         logger.info(f"AFK-Timeout gesetzt: {minutes} Minuten")
+
+    # ------------------------------------------------------------------
+    # Interface-Kanal (persistentes Steuer-Panel)
+    # ------------------------------------------------------------------
+
+    @property
+    def interface_channel_id(self) -> int | None:
+        """Text-Channel-ID des persistenten Interface-Panels."""
+        return self._config.get("interface_channel_id")
+
+    @property
+    def interface_message_id(self) -> int | None:
+        """Message-ID des Interface-Panels (zum Wiederfinden nach Restart)."""
+        return self._config.get("interface_message_id")
+
+    def set_interface_channel(self, channel_id: int) -> None:
+        """Interface-Kanal setzen. Loescht eine evtl. alte Message-ID."""
+        self._config["interface_channel_id"] = channel_id
+        self._config["interface_message_id"] = None
+        self._save_config()
+        logger.info(f"Temp-Voice Interface-Kanal gesetzt: {channel_id}")
+
+    def set_interface_message(self, message_id: int | None) -> None:
+        """Message-ID des geposteten Interface-Panels merken."""
+        self._config["interface_message_id"] = message_id
+        self._save_config()
+
+    def clear_interface(self) -> None:
+        """Interface-Kanal-Konfiguration entfernen."""
+        self._config["interface_channel_id"] = None
+        self._config["interface_message_id"] = None
+        self._save_config()
+        logger.info("Temp-Voice Interface-Kanal entfernt")
 
     @property
     def config(self) -> dict[str, Any]:

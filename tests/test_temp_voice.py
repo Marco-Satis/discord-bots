@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 try:
     import discord  # noqa: F401
     from modules.temp_voice import TempVoiceManager, _EVENT_CAP
-    from modules.temp_voice_views import build_panel_embed
+    from modules.temp_voice_views import build_panel_embed, build_interface_embed
     HAVE_DISCORD = True
 except ImportError:
     HAVE_DISCORD = False
@@ -181,6 +181,39 @@ async def run_tests() -> None:
     field_blob = " ".join(f.value or "" for f in embed.fields)
     _check("embed_slot_owner", "Chef" in field_blob and "👑" in field_blob)
     _check("embed_status_open", "Öffentlich" in field_blob)
+
+    # --- Sub-4: Interface-Kanal Config + Embed ---
+    mgr6 = _new_manager()
+    _check("iface_default_none",
+           mgr6.interface_channel_id is None and mgr6.interface_message_id is None)
+    mgr6.set_interface_channel(555)
+    _check("iface_set_channel", mgr6.interface_channel_id == 555)
+    _check("iface_msg_none_after_set", mgr6.interface_message_id is None)
+    mgr6.set_interface_message(777)
+    _check("iface_set_message", mgr6.interface_message_id == 777)
+
+    # Persistenz: frischer Manager liest Interface-Config aus der Datei
+    mgr6b = _new_manager()
+    mgr6b.config_file = mgr6.config_file
+    mgr6b._load_config()
+    _check("iface_persisted",
+           mgr6b.interface_channel_id == 555 and mgr6b.interface_message_id == 777)
+
+    # Channel-Wechsel loescht alte Message-ID (erzwingt Neu-Post)
+    mgr6.set_interface_channel(666)
+    _check("iface_change_resets_msg",
+           mgr6.interface_channel_id == 666 and mgr6.interface_message_id is None)
+
+    # clear entfernt beides
+    mgr6.set_interface_message(111)
+    mgr6.clear_interface()
+    _check("iface_clear",
+           mgr6.interface_channel_id is None and mgr6.interface_message_id is None)
+
+    # build_interface_embed: statisch, mit Steuerungs-Hinweisen
+    ie = build_interface_embed()
+    _check("iface_embed_static",
+           "Temp-Voice" in (ie.title or "") and "Umbenennen" in (ie.description or ""))
 
 
 def main() -> int:

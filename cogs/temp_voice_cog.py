@@ -10,6 +10,7 @@ Leere Channels werden nach einer kurzen Verzoegerung automatisch gelöscht.
 
 Commands:
   /tempvoice setup <join_channel> [kategorie]  — Join-to-Create konfigurieren (Admin)
+  /tempvoice interface <channel> [entfernen]   — Persistentes Steuer-Panel einrichten (Admin)
   /tempvoice info                              — Aktive Temp-Channels und Setup anzeigen
 
 Features:
@@ -33,6 +34,7 @@ from discord.ext import commands
 from modules.temp_voice import TempVoiceManager
 from modules.temp_voice_views import (
     TempVoiceControlView,
+    build_interface_embed,
     build_panel_embed,
     refresh_panel,
 )
@@ -95,6 +97,9 @@ class TempVoiceCog(commands.Cog):
         await self.bot.wait_until_ready()
         await asyncio.sleep(2)  # Kurz warten bis Guild-Daten geladen sind
 
+        # Interface-Panel (persistentes Steuer-Panel) sicherstellen
+        await self._ensure_interface_panel()
+
         channels = self.manager.get_all_channels()
         if not channels:
             return
@@ -144,6 +149,55 @@ class TempVoiceCog(commands.Cog):
             logger.info(
                 f"Startup-Cleanup: Alle {len(channels)} Temp-Voice-Channels sind aktiv"
             )
+
+    # ==================================================================
+    # Interface-Kanal: persistentes Steuer-Panel (VOICEPANEL-Style)
+    # ==================================================================
+
+    async def _ensure_interface_panel(self) -> None:
+        """
+        Interface-Panel beim Start sicherstellen.
+
+        Ist ein Interface-Kanal konfiguriert, pruefen ob die Panel-Message noch
+        existiert; bei geloeschter/unbekannter Message neu posten. Die Buttons
+        funktionieren nach Restart durch die in cog_load registrierte persistente
+        View — diese Methode haelt nur die Message am Leben.
+        """
+        ch_id = self.manager.interface_channel_id
+        if not ch_id:
+            return
+        channel = self.bot.get_channel(ch_id)
+        if not isinstance(channel, discord.TextChannel):
+            logger.warning(
+                f"Interface-Kanal {ch_id} nicht gefunden oder kein Text-Channel."
+            )
+            return
+
+        msg_id = self.manager.interface_message_id
+        if msg_id:
+            try:
+                await channel.fetch_message(msg_id)
+                return  # Message existiert -> persistente View greift, fertig
+            except discord.NotFound:
+                pass  # geloescht -> neu posten
+            except discord.HTTPException as e:
+                logger.debug(f"Interface-Message-Check fehlgeschlagen: {e}")
+                return
+
+        await self._post_interface_panel(channel)
+
+    async def _post_interface_panel(self, channel: discord.TextChannel) -> bool:
+        """Interface-Panel in den Channel posten + Message-ID merken."""
+        try:
+            msg = await channel.send(
+                embed=build_interface_embed(), view=TempVoiceControlView()
+            )
+            self.manager.set_interface_message(msg.id)
+            logger.info(f"Interface-Panel in #{channel.name} gepostet ({msg.id})")
+            return True
+        except (discord.Forbidden, discord.HTTPException) as e:
+            logger.warning(f"Interface-Panel posten fehlgeschlagen: {e}")
+            return False
 
     # ==================================================================
     # Event: Voice State Update
@@ -457,6 +511,70 @@ class TempVoiceCog(commands.Cog):
         )
 
     # ==================================================================
+    # /tempvoice interface
+    # ==================================================================
+
+    @tempvoice_grp.command(
+        name="interface",
+        description="Persistentes Steuer-Panel in einem Text-Channel einrichten",
+    )
+    @app_commands.describe(
+        channel="Text-Channel für das persistente Steuer-Panel",
+        entfernen="True = Interface-Kanal-Konfiguration entfernen",
+    )
+    @admin_only()
+    async def tempvoice_interface(
+        self,
+        interaction: discord.Interaction,
+        channel: Optional[discord.TextChannel] = None,
+        entfernen: bool = False,
+    ) -> None:
+        """Interface-Kanal (persistentes Steuer-Panel) setzen oder entfernen."""
+        await interaction.response.defer(ephemeral=True)
+
+        if not interaction.guild:
+            await interaction.followup.send(
+                "Dieser Befehl funktioniert nur auf einem Server.", ephemeral=True
+            )
+            return
+
+        if entfernen:
+            self.manager.clear_interface()
+            await interaction.followup.send(
+                "Interface-Kanal entfernt. Ein bereits gepostetes Panel bleibt "
+                "stehen (kann manuell gelöscht werden).",
+                ephemeral=True,
+            )
+            return
+
+        if channel is None:
+            await interaction.followup.send(
+                "Bitte einen Text-Channel angeben (oder `entfernen:True`).",
+                ephemeral=True,
+            )
+            return
+
+        self.manager.set_interface_channel(channel.id)
+        posted = await self._post_interface_panel(channel)
+        if posted:
+            await interaction.followup.send(
+                f"Interface-Panel in {channel.mention} eingerichtet. User steuern "
+                "darüber den Channel in dem sie gerade sind.",
+                ephemeral=True,
+            )
+        else:
+            await interaction.followup.send(
+                f"Interface-Kanal gesetzt, aber Posten in {channel.mention} schlug "
+                "fehl — Bot-Berechtigung (Nachrichten senden) prüfen.",
+                ephemeral=True,
+            )
+
+        logger.info(
+            f"Temp-Voice Interface-Kanal von {interaction.user.display_name}: "
+            f"#{channel.name}"
+        )
+
+    # ==================================================================
     # /tempvoice info
     # ==================================================================
 
@@ -499,6 +617,14 @@ class TempVoiceCog(commands.Cog):
             cat_ch = guild.get_channel(cat_id)
             cat_ref = cat_ch.name if cat_ch else f"ID: {cat_id} (nicht gefunden)"
 
+        iface_id = config.get("interface_channel_id")
+        iface_ref = "Nicht konfiguriert"
+        if iface_id:
+            iface_ch = guild.get_channel(iface_id)
+            iface_ref = (
+                iface_ch.mention if iface_ch else f"ID: {iface_id} (nicht gefunden)"
+            )
+
         limit_text = "Unbegrenzt" if default_limit == 0 else str(default_limit)
 
         embed = discord.Embed(
@@ -512,6 +638,7 @@ class TempVoiceCog(commands.Cog):
             value=(
                 f"**Join-to-Create:** {join_ref}\n"
                 f"**Kategorie:** {cat_ref}\n"
+                f"**Interface-Kanal:** {iface_ref}\n"
                 f"**Standard-Limit:** {limit_text}\n"
                 f"**AFK-Timeout:** {afk_timeout} Minuten"
             ),
