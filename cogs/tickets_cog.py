@@ -376,7 +376,12 @@ class TicketsCog(commands.Cog):
             try:
                 ping_msg = await channel.send(
                     f"Neues Ticket von {user.mention} — "
-                    + " ".join(support_mentions)
+                    + " ".join(support_mentions),
+                    # Gewollt: User + Support-Rollen pingen. everyone=False schuetzt
+                    # vor versehentlichem @everyone/@here (z.B. missconfig'd Rolle).
+                    allowed_mentions=discord.AllowedMentions(
+                        everyone=False, users=True, roles=True
+                    ),
                 )
                 # Ping-Nachricht nach kurzer Zeit löschen (optisch sauberer)
                 await asyncio.sleep(2)

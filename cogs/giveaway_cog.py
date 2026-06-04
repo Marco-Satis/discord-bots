@@ -511,7 +511,12 @@ class GiveawayCog(commands.Cog):
             try:
                 await channel.send(
                     f"\U0001f389 Herzlichen Glueckwunsch {winners_mentions}! "
-                    f"Ihr habt **{prize}** gewonnen!"
+                    f"Ihr habt **{prize}** gewonnen!",
+                    # Gewollt: Gewinner (User-Mentions) pingen. everyone/roles=False
+                    # schuetzt vor @everyone/@here oder Rollen-Mass-Ping.
+                    allowed_mentions=discord.AllowedMentions(
+                        everyone=False, users=True, roles=False
+                    ),
                 )
             except (discord.Forbidden, discord.HTTPException) as e:
                 logger.warning(f"Gewinner-Nachricht senden fehlgeschlagen: {e}")
