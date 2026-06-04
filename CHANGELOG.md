@@ -42,6 +42,7 @@ Alle relevanten Aenderungen am Discord Bot System werden hier dokumentiert.
 ### Sonstiges
 - **`/setup_topics`** (`cogs/channel_setup_cog.py`): Channel-Topics automatisch setzen (dry-run-Default).
 - **Embed-Helper** (`utils/embeds.py`) als Stil-Fundament.
+- **Lavalink-Prep (F1):** `docs/production/lavalink-setup.md` — Server-Vorbereitung für Phase-E-Music (Java 17+, `application.yml` mit youtube-plugin + LavaSrc/Spotify, systemd-Unit-Vorlage, ENV-Doku, localhost-Bind + Secret-Hygiene). Install = Marco-PW-Gate. ENV-Vars **noch nicht** in `.env.example` (Music-Code ungebaut → sonst `test_env_completeness`-Fehler).
 - **Tech-Debt M2:** tote `UpdateChecker`-Instanz aus gameserver-bot entfernt (SAT-Update-Check laeuft ausschliesslich im monitor-bot).
 - **Ping-Haertung:** `everyone=False`-Guard fuer gewollte Pings (Ticket-Support-Notify, Giveaway-Gewinner).
 - **Tests:** `test_guild_context` (32), `test_leveling` (86), `test_voice_sessions` (24), `test_linked_accounts` (18), `test_raid_detector` (18), `test_content_filter` (20, Caps/Zalgo), `test_migration_v7` (6), `test_migration_v8` (6, member_cache), `test_channel_topics` (11), `test_dashboard_bridge` (18), `test_leveling_web` (+B1/B2/B3/E3-Config), `test_moderation_web` (D4-Toggles) u.a.
