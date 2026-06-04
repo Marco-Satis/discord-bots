@@ -39,7 +39,6 @@ from modules.restart_timer import RestartTimerManager
 from modules.word_filter import WordFilter
 from modules.anti_spam import AntiSpam
 from modules.command_logger import CommandLogger
-from modules.monitoring.update_checker import UpdateChecker
 from modules.satisfactory.settings_backup import SettingsBackup
 from modules.mod_manager import ModManager
 from modules.maintenance import BotMaintenance
@@ -111,11 +110,9 @@ bot.anti_spam = AntiSpam(
 )
 
 bot.command_logger = CommandLogger()
-bot.update_checker = UpdateChecker(
-    steamcmd_path=get_env("STEAMCMD_PATH", "/usr/games/steamcmd"),
-    install_dir=get_env("SATISFACTORY_SERVER_PATH",
-                        "/home/satisfactory/SatisfactoryDedicatedServer"),
-)
+# M2-Konsolidierung: SAT-UpdateChecker laeuft ausschliesslich im monitor-bot
+# (scheduler_cog/monitor_cog/status_writer/selftest sind dessen Consumer).
+# Hier war die Instanz tot (kein Consumer in gameserver-bot) -> entfernt.
 
 # Phase 3: Settings Backup
 bot.settings_backup = SettingsBackup(
