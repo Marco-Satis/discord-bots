@@ -29,8 +29,10 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from modules.leveling import LevelingManager
+from modules.member_cache import upsert_member
 from modules.voice_sessions import VoiceSessionTracker
 from modules.guild_context import get_primary_guild_id, GuildConfig
+from utils.async_tasks import schedule_from_sync
 from utils.logger import get_logger
 from utils.config import ADMIN_DATA_DIR
 from utils.permissions import admin_only
@@ -263,6 +265,11 @@ class LevelingCog(commands.Cog):
             message.guild.id, message.author.id, channel_id=channel_id
         )
 
+        # E3: Member-Cache bei echter XP-Vergabe aktualisieren (60s-throttled
+        # durch den XP-Cooldown) -> Web-Leaderboard zeigt Name+Avatar statt ID.
+        if xp_gained > 0 and isinstance(message.author, discord.Member):
+            self._cache_member(message.author)
+
         if not leveled_up:
             return
 
@@ -317,6 +324,27 @@ class LevelingCog(commands.Cog):
         """Ob das Leveling-Modul fuer die Guild aktiv ist (15s-TTL-Cache)."""
         return await GuildConfig.is_module_enabled(guild_id, "leveling")
 
+    def _cache_member(self, member: discord.Member) -> None:
+        """
+        E3: Anzeigename + Avatar-URL fire-and-forget in den member_cache schreiben.
+
+        Damit zeigt das Web-Leaderboard Namen + Avatare statt roher User-IDs.
+        Best-Effort (DB-Fehler im Cache-Modul geschluckt), blockiert den Hot-Path
+        nicht (getrackter Background-Task gegen GC-Verlust).
+        """
+        try:
+            schedule_from_sync(
+                upsert_member(
+                    member.guild.id,
+                    member.id,
+                    member.display_name,
+                    str(member.display_avatar.url),
+                ),
+                name="member_cache.upsert",
+            )
+        except Exception as e:  # noqa: BLE001 — Cache nie fatal
+            logger.debug(f"member_cache schedule fehlgeschlagen: {e}")
+
     @commands.Cog.listener()
     async def on_voice_state_update(
         self,
@@ -366,6 +394,8 @@ class LevelingCog(commands.Cog):
             guild.id, member.id, minutes
         )
         await self.voice.set_xp(result["db_id"], xp_gained)
+        # E3: Voice-aktive Member ebenfalls cachen (Web-Leaderboard Name+Avatar)
+        self._cache_member(member)
 
         if leveled_up:
             await self._send_voice_level_up(member, guild)

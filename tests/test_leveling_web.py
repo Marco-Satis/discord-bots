@@ -62,6 +62,14 @@ async def run_tests() -> None:
             )
         await db.commit()
 
+        # E3: Member-Cache fuer Namen+Avatare (u1 gecacht, u2/u3 nicht)
+        await db.execute(
+            "INSERT INTO member_cache (guild_id, user_id, display_name, avatar_url) "
+            "VALUES (?, ?, ?, ?)",
+            (GA, "u1", "TopPlayer", "https://cdn/u1.png"),
+        )
+        await db.commit()
+
         lb = await _load_leaderboard(int(GA))
         _check("count_guild_a", len(lb) == 3, f"n={len(lb)}")
         _check("no_cross_guild", all(e["user_id"] != "u9" for e in lb))
@@ -69,6 +77,10 @@ async def run_tests() -> None:
         _check("ranks", [e["rank"] for e in lb] == [1, 2, 3])
         _check("top_user", lb[0]["user_id"] == "u1" and lb[0]["level"] == 27)
         _check("voice_fmt", lb[2]["voice"] == "0m" and lb[0]["voice"] == "1h 5m")
+        # E3-Anreicherung: u1 hat Name+Avatar, u2 (kein Cache) -> leer
+        _check("enrich_name", lb[0]["name"] == "TopPlayer", str(lb[0].get("name")))
+        _check("enrich_avatar", lb[0]["avatar_url"] == "https://cdn/u1.png")
+        _check("enrich_fallback_empty", lb[1]["name"] == "" and lb[1]["avatar_url"] == "")
 
         # --- B1+B2: _load_levelup_config (Dashboard liest guild_config) ---
         clear_cache()

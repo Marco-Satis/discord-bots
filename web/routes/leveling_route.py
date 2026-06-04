@@ -16,6 +16,7 @@ from fastapi.templating import Jinja2Templates
 
 from modules.database.db_manager import get_read_db
 from modules.guild_context import GuildConfig, get_primary_guild_id
+from modules.member_cache import get_members
 from utils.logger import get_logger
 from web.auth import require_auth
 
@@ -82,11 +83,24 @@ async def _load_leaderboard(guild_id: int) -> list[dict]:
         logger.error(f"Leaderboard-Query fehlgeschlagen: {e}")
         return []
 
+    # E3: Anzeigenamen + Avatare aus member_cache nachladen (Batch),
+    # damit das Leaderboard Namen statt roher User-IDs zeigt.
+    user_ids = [str(row[0]) for row in rows]
+    cache: dict = {}
+    try:
+        cache = await get_members(guild_id, user_ids)
+    except Exception as e:  # noqa: BLE001 — Anreicherung nie fatal
+        logger.error(f"member_cache-Anreicherung fehlgeschlagen: {e}")
+
     entries: list[dict] = []
     for idx, row in enumerate(rows, start=1):
+        uid = str(row[0])
+        meta = cache.get(uid, {})
         entries.append({
             "rank": idx,
-            "user_id": str(row[0]),
+            "user_id": uid,
+            "name": meta.get("display_name") or "",
+            "avatar_url": meta.get("avatar_url") or "",
             "xp": row[1] or 0,
             "level": row[2] or 0,
             "messages": row[3] or 0,

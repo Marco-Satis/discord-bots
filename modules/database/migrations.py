@@ -11,7 +11,7 @@ from utils.logger import get_logger
 logger = get_logger("database.migrations")
 
 # Aktuelle Schema-Version
-CURRENT_VERSION = 7
+CURRENT_VERSION = 8
 
 
 # Komplettes Schema (23 Tabellen + Indices + FTS5)
@@ -405,6 +405,13 @@ async def run_migrations(db: aiosqlite.Connection) -> None:
         await set_schema_version(db, 7)
         logger.info("Migration v6 → v7 abgeschlossen")
 
+    # Version 7 → 8: Member-Cache (Name+Avatar fuers Web-Leaderboard, E3)
+    if current < 8:
+        logger.info("Migration v7 → v8: member_cache")
+        await _apply_migration_v8(db)
+        await set_schema_version(db, 8)
+        logger.info("Migration v7 → v8 abgeschlossen")
+
     final = await get_schema_version(db)
     logger.info(f"Alle Migrationen abgeschlossen. Schema-Version: {final}")
 
@@ -431,6 +438,7 @@ async def _apply_schema_v1(db: aiosqlite.Connection) -> None:
     await _apply_migration_v5(db)
     await _apply_migration_v6(db)
     await _apply_migration_v7(db)
+    await _apply_migration_v8(db)
 
     # Tabellen zaehlen zur Verifikation
     cursor = await db.execute(
@@ -740,3 +748,30 @@ async def _apply_migration_v7(db: aiosqlite.Connection) -> None:
     await db.executescript(SCHEMA_V7_LINKED)
     await db.commit()
     logger.info("Migration v7: user_linked_accounts fertig")
+
+
+SCHEMA_V8_MEMBER_CACHE = """
+-- =====================================================
+-- Member-Cache (E3): Anzeigename + Avatar-URL pro Guild-Member.
+-- Der Web-Prozess kann Discord-Namen/Avatare nicht selbst aufloesen;
+-- der Bot pflegt diesen Cache bei XP-Aktivitaet, das Dashboard joint ihn.
+-- Per-Guild isoliert (kein Cross-Guild-Leak). Additiv, keine Daten-Transform.
+-- =====================================================
+CREATE TABLE IF NOT EXISTS member_cache (
+    guild_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    display_name TEXT,
+    avatar_url TEXT,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (guild_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_member_cache_guild
+    ON member_cache(guild_id);
+"""
+
+
+async def _apply_migration_v8(db: aiosqlite.Connection) -> None:
+    """Member-Cache (Name+Avatar fuers Web-Leaderboard, E3). Idempotent."""
+    await db.executescript(SCHEMA_V8_MEMBER_CACHE)
+    await db.commit()
+    logger.info("Migration v8: member_cache fertig")

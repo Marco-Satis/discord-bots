@@ -288,6 +288,31 @@ async def run_tests() -> None:
         _check("lbcard_no_leak_b", mgrLB2.is_leaderboard_card_enabled(GUILD_B) is False)
 
         # ============================================================
+        # 11) E3: Member-Cache (Name+Avatar fuers Web-Leaderboard)
+        # ============================================================
+        from modules.member_cache import upsert_member, get_members
+        await upsert_member(GUILD_A, USER_1, "Alice", "https://cdn/av1.png")
+        await upsert_member(GUILD_A, USER_2, "Bob", "https://cdn/av2.png")
+        await upsert_member(GUILD_B, USER_1, "AliceInB", "https://cdn/avb.png")
+
+        got = await get_members(GUILD_A, [USER_1, USER_2])
+        _check("mc_count", len(got) == 2, f"n={len(got)}")
+        _check("mc_name", got[str(USER_1)]["display_name"] == "Alice")
+        _check("mc_avatar", got[str(USER_1)]["avatar_url"] == "https://cdn/av1.png")
+        # Isolation: gleicher User in Guild B hat eigenen Namen (kein Leak)
+        gotB = await get_members(GUILD_B, [USER_1])
+        _check("mc_isolation", gotB[str(USER_1)]["display_name"] == "AliceInB")
+        # Upsert aktualisiert (kein Duplikat)
+        await upsert_member(GUILD_A, USER_1, "Alice2", "https://cdn/av1b.png")
+        got2 = await get_members(GUILD_A, [USER_1])
+        _check("mc_upsert", got2[str(USER_1)]["display_name"] == "Alice2")
+        # Nicht-gecachte User fehlen in der Map (Aufrufer faellt auf ID zurueck)
+        miss = await get_members(GUILD_A, ["999999"])
+        _check("mc_missing_absent", "999999" not in miss)
+        # Leere ID-Liste -> leere Map (kein SQL-Fehler)
+        _check("mc_empty_ids", await get_members(GUILD_A, []) == {})
+
+        # ============================================================
         # 9) C4/C5: Embeds + _apply_role_reward (nur wenn discord da)
         # ============================================================
         try:

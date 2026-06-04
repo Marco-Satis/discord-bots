@@ -21,10 +21,11 @@ Alle relevanten Aenderungen am Discord Bot System werden hier dokumentiert.
 - Config JSON → `guild_config` (Dashboard-editierbar), sync Hot-Path-Cache.
 - **Level-Up-Benachrichtigung (B1+B2):** Member-Ping (Toggle, Default an) + fester Announce-Kanal (Default: Auslöse-/System-Kanal) — beide per-Guild, Dashboard-editierbar (`leveling.levelup_ping`/`leveling.announce_channel`) + Slash-Fallback `/xp ping`·`/xp announce`. Ping + Announce in Nachrichten- UND Voice-Pfad konsistent (vorher nur Karten-Pfad gepingt); `AllowedMentions` pingt gezielt nur den Member (kein @everyone/Rollen).
 - **Leaderboard-Bild-Karte (B3):** `/leaderboard` rendert Top-10 als Pillow-PNG mit Wallpaper-Hintergrund + Avataren (Arcane-Stil, `render_leaderboard_card`), wenn aktiviert + Hintergrund gesetzt — sonst paginiertes Embed (Fallback). Per-Guild (`leveling.leaderboard_card_enabled`/`leaderboard_bg`, Akzent geteilt mit Level-Up-Karte), Slash `/xp leaderboardcard <aktiv> [hintergrund]`, Avatare parallel geholt (fehlend = kein Crash).
+- **Member-Cache (E3):** Migration v8 `member_cache` (`PRIMARY KEY(guild_id,user_id)`, additiv) + `modules/member_cache.py` (`upsert_member`/`get_members`). Bot pflegt Anzeigename + Avatar-URL bei XP-Aktivität (Nachricht 60s-throttled + Voice-Session-Ende, fire-and-forget, Best-Effort) → Web-Leaderboard zeigt Namen + Avatare statt roher User-IDs. Per-Guild isoliert.
 
 ### Dashboard
 - **Config-Bridge** (`web/guild_config_bridge.py`): Leveling-Dashboard ↔ per-Guild `guild_config` (Format-Konvertierung, Cross-Prozess via TTL).
-- **Web-Leaderboard** (`web/routes/leveling_route.py` + `leveling.html`): `GET /leveling`, Top-100 guild-scoped, require_auth.
+- **Web-Leaderboard** (`web/routes/leveling_route.py` + `leveling.html`): `GET /leveling`, Top-100 guild-scoped, require_auth. **E3:** Namen + runde Avatare aus `member_cache` (Batch-Join, Discord-CDN-Bilder, Fallback auf User-ID).
 - **Level-Up-Config-Seite (B2+B3):** `POST /leveling/config` + HTMX-Partial `partials/leveling_config.html` — Announce-Kanal-ID + Ping-Toggle + Leaderboard-Karten-Toggle direkt im Dashboard (CSRF via `body[hx-headers]`, Snowflake-Validierung, schreibt `guild_config`). Leaderboard-Hintergrund-Upload via Slash (`/xp leaderboardcard`).
 
 ### Linked-Accounts (Wave 2)
@@ -39,7 +40,7 @@ Alle relevanten Aenderungen am Discord Bot System werden hier dokumentiert.
 - **Embed-Helper** (`utils/embeds.py`) als Stil-Fundament.
 - **Tech-Debt M2:** tote `UpdateChecker`-Instanz aus gameserver-bot entfernt (SAT-Update-Check laeuft ausschliesslich im monitor-bot).
 - **Ping-Haertung:** `everyone=False`-Guard fuer gewollte Pings (Ticket-Support-Notify, Giveaway-Gewinner).
-- **Tests:** `test_guild_context` (32), `test_leveling` (79), `test_voice_sessions` (24), `test_linked_accounts` (18), `test_raid_detector` (18), `test_migration_v7` (6), `test_channel_topics` (11), `test_dashboard_bridge` (18), `test_leveling_web` (+B1/B2/B3-Config) u.a.
+- **Tests:** `test_guild_context` (32), `test_leveling` (86), `test_voice_sessions` (24), `test_linked_accounts` (18), `test_raid_detector` (18), `test_migration_v7` (6), `test_migration_v8` (6, member_cache), `test_channel_topics` (11), `test_dashboard_bridge` (18), `test_leveling_web` (+B1/B2/B3/E3-Config) u.a.
 
 ---
 

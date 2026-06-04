@@ -41,7 +41,19 @@
                 <td class="lvl-rank">
                     {% if e.rank == 1 %}🥇{% elif e.rank == 2 %}🥈{% elif e.rank == 3 %}🥉{% else %}{{ e.rank }}{% endif %}
                 </td>
-                <td class="lvl-user"><code>{{ e.user_id }}</code></td>
+                <td class="lvl-user">
+                    {% if e.avatar_url %}
+                        <img class="lvl-avatar" src="{{ e.avatar_url }}"
+                             alt="" loading="lazy" referrerpolicy="no-referrer">
+                    {% else %}
+                        <span class="lvl-avatar lvl-avatar-ph">?</span>
+                    {% endif %}
+                    {% if e.name %}
+                        <span class="lvl-name">{{ e.name }}</span>
+                    {% else %}
+                        <code class="lvl-id">{{ e.user_id }}</code>
+                    {% endif %}
+                </td>
                 <td>{{ e.level }}</td>
                 <td>{{ "{:,}".format(e.xp) }}</td>
                 <td>{{ "{:,}".format(e.messages) }}</td>
@@ -62,7 +74,13 @@
     .lvl-table th { color: var(--text-secondary); font-weight: 600; }
     .lvl-table tbody tr:hover { background: rgba(255,255,255,0.03); }
     .lvl-rank { width: 3rem; text-align: center; font-weight: 600; }
-    .lvl-user code { font-size: 0.82rem; color: var(--text-secondary); }
+    .lvl-user { display: flex; align-items: center; gap: 0.55rem; }
+    .lvl-avatar { width: 28px; height: 28px; border-radius: 50%;
+        object-fit: cover; flex-shrink: 0; background: rgba(255,255,255,0.06); }
+    .lvl-avatar-ph { display: inline-flex; align-items: center;
+        justify-content: center; font-size: 0.75rem; color: var(--text-muted, #8a8a9a); }
+    .lvl-name { font-weight: 500; }
+    .lvl-id { font-size: 0.82rem; color: var(--text-secondary); }
     .lvl-top td { font-weight: 600; }
 
     /* Level-Up-Config-Karte (B1+B2) */
