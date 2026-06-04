@@ -80,7 +80,7 @@ from modules.security.ssl_monitor import SSLMonitor
 from modules.security.fail2ban import Fail2BanManager
 from modules.backup.integrity import BackupIntegrity
 from modules.database.db_manager import init_db, close_db, check_integrity, DBHelper
-from modules.guild_context import get_primary_guild_id
+from modules.guild_context import get_primary_guild_id, GuildConfig
 from modules.database.json_importer import import_all, check_import_needed
 from modules.security.ban_manager import BanManager
 from modules.database.maintenance import DatabaseMaintenance
@@ -2467,6 +2467,19 @@ async def on_ready():
 
     if _first_ready:
         logger.info("All background tasks started")
+
+        # Multi-Tenant-Registry befuellen: jede Guild die der Bot bedient in die
+        # `guilds`-Tabelle (idempotenter Upsert). Fundament fuer Multi-Hub/Per-Guild.
+        try:
+            for _g in bot.guilds:
+                await GuildConfig.ensure_guild(
+                    _g.id,
+                    name=_g.name,
+                    owner_id=getattr(_g, "owner_id", None),
+                )
+            logger.info(f"Guild-Registry aktualisiert ({len(bot.guilds)} Guild(s))")
+        except Exception as e:  # noqa: BLE001 — Registry-Fehler darf Ready nicht killen
+            logger.warning(f"Guild-Registry-Update fehlgeschlagen: {e}")
 
         # Initialen Update-Check als Background-Task starten
         # (installierte + verfuegbare Build-ID fuer Dashboard)
