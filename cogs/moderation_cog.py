@@ -31,10 +31,18 @@ from modules.moderation.anti_spam import DiscordAntiSpam
 from modules.moderation.invite_filter import InviteFilter
 from modules.moderation.content_filter import ContentFilter
 from modules.guild_context import GuildConfig
+from utils.config import get_env
 from utils.logger import get_logger
 from utils.permissions import admin_only, is_admin
 
 logger = get_logger("cogs.moderation")
+
+# ADMIN_ROLE_ID einmal beim Import lesen (statt os.getenv pro Nachricht im
+# on_message-Hot-Path). 0 = nicht gesetzt -> nur Discord-Admin-Permission zaehlt.
+try:
+    _ADMIN_ROLE_ID = int(get_env("ADMIN_ROLE_ID", "0") or 0)
+except (TypeError, ValueError):
+    _ADMIN_ROLE_ID = 0
 
 # Keine Mentions in Bot-Nachrichten
 _NO_MENTIONS = discord.AllowedMentions.none()
@@ -332,11 +340,9 @@ class ModerationCog(commands.Cog):
         if message.author.guild_permissions.administrator:
             return True
 
-        # ADMIN_ROLE_ID aus Umgebungsvariable prüfen
-        import os
-        admin_role_id = int(os.getenv("ADMIN_ROLE_ID", "0"))
-        if admin_role_id:
-            return any(r.id == admin_role_id for r in message.author.roles)
+        # ADMIN_ROLE_ID (einmal beim Import gecacht, kein getenv im Hot-Path)
+        if _ADMIN_ROLE_ID:
+            return any(r.id == _ADMIN_ROLE_ID for r in message.author.roles)
 
         return False
 

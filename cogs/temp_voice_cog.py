@@ -41,6 +41,7 @@ from modules.temp_voice_views import (
 from utils.logger import get_logger
 from utils.config import ADMIN_DATA_DIR
 from utils.permissions import admin_only
+from utils.async_tasks import track_task
 
 logger = get_logger("cogs.temp_voice")
 
@@ -73,14 +74,10 @@ class TempVoiceCog(commands.Cog):
         self.bot.add_view(TempVoiceControlView())
         logger.info("Temp-Voice-Cog geladen, persistente Views registriert")
 
-        # Cleanup verwaister Channels beim Start
-        # (wird als Task gestartet, damit cog_load nicht blockiert)
-        task = asyncio.create_task(self._startup_cleanup())
-        task.add_done_callback(
-            lambda t: t.exception() and logger.error(
-                f"Startup-Cleanup fehlgeschlagen: {t.exception()}"
-            ) if not t.cancelled() and t.exception() else None
-        )
+        # Cleanup verwaister Channels beim Start (als getrackter Task, damit
+        # cog_load nicht blockiert + GC den Task nicht einsammelt; track_task
+        # loggt unbehandelte Exceptions selbst).
+        track_task(self._startup_cleanup(), name="tempvoice-startup-cleanup")
 
     # ==================================================================
     # Startup-Cleanup: Verwaiste leere Channels entfernen

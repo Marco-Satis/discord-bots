@@ -67,12 +67,11 @@ def schedule_from_sync(coro: Awaitable, *,
     Caller in Edge-Cases nicht crashen muessen. Sonst identisch zu `track_task`.
     """
     try:
-        loop = asyncio.get_event_loop()
+        # get_running_loop() statt get_event_loop() (Letzteres ist deprecated
+        # ohne laufenden Loop, Py3.12+ wirft) — liefert nur einen laufenden Loop.
+        asyncio.get_running_loop()
     except RuntimeError:
-        logger.debug(f"Kein Event-Loop fuer schedule_from_sync('{name or '?'}')")
-        return None
-    if not loop.is_running():
-        logger.debug(f"Event-Loop nicht running fuer schedule_from_sync('{name or '?'}')")
+        logger.debug(f"Kein laufender Event-Loop fuer schedule_from_sync('{name or '?'}')")
         return None
     return track_task(coro, name=name)
 

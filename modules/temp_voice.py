@@ -46,6 +46,7 @@ Laden ein einzelner Hub aus den Legacy-Feldern synthetisiert (idempotent).
 from __future__ import annotations
 
 import json
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -63,6 +64,11 @@ CONFIG_FILE = ADMIN_DATA_DIR / "temp_voice_config.json"
 
 # Ringpuffer-Groesse fuer Join/Leave-Events pro Channel (Panel zeigt letzte ~8)
 _EVENT_CAP = 10
+
+# Drossel fuer den Config-mtime-Check (Sekunden). is_hub() laeuft pro Voice-Join;
+# ohne Drossel waere das ein stat()-Call je Join. 2s = Dashboard-Aenderungen
+# greifen quasi sofort, Hot-Path bleibt billig.
+_RELOAD_CHECK_INTERVAL = 2.0
 
 
 def _now_iso() -> str:
@@ -198,6 +204,8 @@ class TempVoiceManager:
         # mtime der zuletzt geladenen Config — fuer Cross-Prozess-Live-Reload
         # (Dashboard schreibt die Datei, Bot zieht Aenderungen ohne Restart).
         self._config_mtime: float | None = None
+        # Zeitpunkt des letzten mtime-Checks (Drossel gegen stat() je Voice-Join).
+        self._last_reload_check: float = 0.0
         self._load()
         self._load_config()
 
@@ -289,8 +297,14 @@ class TempVoiceManager:
         Config neu laden wenn die Datei seit dem letzten Laden geaendert wurde.
 
         Erlaubt dem Bot, Dashboard-Aenderungen an der Hub-Liste ohne Neustart
-        zu uebernehmen. Billig: ein stat()-Call pro Aufruf.
+        zu uebernehmen. Der stat()-Check ist auf _RELOAD_CHECK_INTERVAL gedrosselt
+        (is_hub laeuft pro Voice-Join) — das eigentliche json.load passiert nur
+        wenn die Datei sich wirklich geaendert hat (selten, nach Dashboard-Write).
         """
+        now = time.monotonic()
+        if now - self._last_reload_check < _RELOAD_CHECK_INTERVAL:
+            return
+        self._last_reload_check = now
         try:
             mtime = self.config_file.stat().st_mtime
         except OSError:

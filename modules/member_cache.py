@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from modules.database.db_manager import get_db, get_read_db
+from modules.database.db_manager import DBHelper, get_db, get_read_db
 from utils.logger import get_logger
 
 logger = get_logger("member_cache")
@@ -37,8 +37,10 @@ async def upsert_member(
     XP-Vergabe / Hot-Path nie blockieren.
     """
     try:
+        # Ueber DBHelper.execute -> beinhaltet den Cross-Prozess-Write-Retry bei
+        # "database is locked" (execute+commit). Cache bleibt Best-Effort.
         db = await get_db()
-        await db.execute(
+        await DBHelper(db).execute(
             "INSERT INTO member_cache "
             "(guild_id, user_id, display_name, avatar_url, updated_at) "
             "VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP) "
@@ -48,7 +50,6 @@ async def upsert_member(
             "updated_at = CURRENT_TIMESTAMP",
             (str(guild_id), str(user_id), display_name, avatar_url),
         )
-        await db.commit()
     except Exception as e:  # noqa: BLE001 — Cache nie fatal
         logger.debug(f"member_cache Upsert {guild_id}/{user_id} fehlgeschlagen: {e}")
 
