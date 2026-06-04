@@ -189,6 +189,42 @@ async def require_auth_api(request: Request) -> dict:
     return user
 
 
+def require_perm(resource: str, action: str):
+    """
+    Dependency-Factory fuer RBAC: erzwingt das Recht (`resource`, `action`).
+
+    Server-seitig autoritativ (Spec §3). Verwendung an HTML-Routen:
+        @router.get("/rbac", dependencies=[Depends(require_perm("rbac", "edit"))])
+        # oder als Wert: current_user = Depends(require_perm("audit", "view"))
+
+    Verhalten:
+      - nicht eingeloggt  -> 303 Redirect /auth/login (HTML-Flow, Browser folgt)
+      - eingeloggt, aber kein Recht -> 403
+      - Owner -> immer erlaubt (modules.rbac.has_perm)
+
+    Die eigentliche Permission-Logik liegt in `modules.rbac` (Owner=alles,
+    Member-Default=view auf nicht-sensible Bereiche, sonst Rollen-Grants aus
+    `rbac_role_map`). Import erfolgt lazy, um die Import-Kette beim App-Start
+    schlank zu halten.
+    """
+    async def _perm_dependency(request: Request) -> dict:
+        user = get_current_user(request)
+        if user is None:
+            raise HTTPException(
+                status_code=303,
+                headers={"Location": "/auth/login"},
+            )
+        from modules.rbac import has_perm
+        if not await has_perm(user, resource, action):
+            raise HTTPException(
+                status_code=403,
+                detail="Keine Berechtigung fuer diese Aktion",
+            )
+        return user
+
+    return _perm_dependency
+
+
 def allow_anon():
     """
     Markiert eine Route bewusst als public (kein Auth).
@@ -304,31 +340,38 @@ async def discord_oauth_callback(request: Request, code: str = "", state: str = 
 
             # Guild-Mitgliedschaft und Rollen pruefen (falls GUILD_ID gesetzt)
             is_authorized = False
+            # Discord-Rollen-IDs des Users — fuer RBAC (modules/rbac.py).
+            # Werden ins JWT geschrieben, damit require_perm sie ohne erneuten
+            # Discord-Call kennt.
+            member_roles: list = []
 
             # Direkter User-ID Check
             if str(user_id) in [str(uid) for uid in WEB_ALLOWED_USER_IDS]:
                 is_authorized = True
 
-            # Guild-Mitgliedschaft pruefen
-            if GUILD_ID and not is_authorized:
+            # Guild-Mitgliedschaft + Rollen holen (immer wenn GUILD_ID gesetzt —
+            # auch fuer schon per User-ID autorisierte User, damit RBAC die
+            # Rollen kennt). Die Autorisierungs-Logik bleibt unveraendert.
+            if GUILD_ID:
                 member_resp = await client.get(
                     f"{DISCORD_API_URL}/users/@me/guilds/{GUILD_ID}/member",
                     headers=headers
                 )
                 if member_resp.status_code == 200:
                     member_data = member_resp.json()
-                    member_roles = member_data.get("roles", [])
+                    member_roles = member_data.get("roles", []) or []
 
                     # Rollen-Check: Hat der Benutzer eine erlaubte Rolle?
-                    if WEB_ALLOWED_ROLE_IDS:
-                        for role_id in member_roles:
-                            if str(role_id) in [str(r) for r in WEB_ALLOWED_ROLE_IDS]:
-                                is_authorized = True
-                                break
-                    else:
-                        # Keine Rollen konfiguriert — jedes Guild-Mitglied darf rein
-                        is_authorized = True
-                else:
+                    if not is_authorized:
+                        if WEB_ALLOWED_ROLE_IDS:
+                            for role_id in member_roles:
+                                if str(role_id) in [str(r) for r in WEB_ALLOWED_ROLE_IDS]:
+                                    is_authorized = True
+                                    break
+                        else:
+                            # Keine Rollen konfiguriert — jedes Guild-Mitglied darf rein
+                            is_authorized = True
+                elif not is_authorized:
                     logger.warning(f"Benutzer {username} ({user_id}) ist kein Mitglied der Guild {GUILD_ID}")
 
             # Fallback: Wenn keine Guild konfiguriert und keine User-IDs, erlauben
@@ -349,6 +392,8 @@ async def discord_oauth_callback(request: Request, code: str = "", state: str = 
                 "avatar": avatar_url,
                 "auth_method": "discord",
                 "is_owner": str(user_id) == str(get_env("OWNER_ID", "")),
+                # Discord-Rollen-IDs fuer RBAC (modules/rbac.py / require_perm)
+                "roles": [str(r) for r in member_roles],
             }
             token = _create_jwt(jwt_data)
 

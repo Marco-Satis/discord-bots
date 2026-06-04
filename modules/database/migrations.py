@@ -11,7 +11,7 @@ from utils.logger import get_logger
 logger = get_logger("database.migrations")
 
 # Aktuelle Schema-Version
-CURRENT_VERSION = 8
+CURRENT_VERSION = 9
 
 
 # Komplettes Schema (23 Tabellen + Indices + FTS5)
@@ -412,6 +412,13 @@ async def run_migrations(db: aiosqlite.Connection) -> None:
         await set_schema_version(db, 8)
         logger.info("Migration v7 → v8 abgeschlossen")
 
+    # Version 8 → 9: RBAC (Rollen→Permission-Mapping + Dashboard-Audit-Log)
+    if current < 9:
+        logger.info("Migration v8 → v9: rbac_role_map + dashboard_audit")
+        await _apply_migration_v9(db)
+        await set_schema_version(db, 9)
+        logger.info("Migration v8 → v9 abgeschlossen")
+
     final = await get_schema_version(db)
     logger.info(f"Alle Migrationen abgeschlossen. Schema-Version: {final}")
 
@@ -439,6 +446,7 @@ async def _apply_schema_v1(db: aiosqlite.Connection) -> None:
     await _apply_migration_v6(db)
     await _apply_migration_v7(db)
     await _apply_migration_v8(db)
+    await _apply_migration_v9(db)
 
     # Tabellen zaehlen zur Verifikation
     cursor = await db.execute(
@@ -775,3 +783,59 @@ async def _apply_migration_v8(db: aiosqlite.Connection) -> None:
     await db.executescript(SCHEMA_V8_MEMBER_CACHE)
     await db.commit()
     logger.info("Migration v8: member_cache fertig")
+
+
+# =====================================================
+# Migration v9: RBAC (Rollen→Permission-Mapping + Dashboard-Audit-Log)
+# =====================================================
+# Fundament fuer das Dashboard-RBAC (Spec docs/RBAC_SPEC_2026-06-04.md):
+#   - rbac_role_map: bildet eine Discord-Rollen-ID auf (resource, action) ab.
+#     Marco pflegt das ueber die /rbac-Seite; der eingeloggte User bekommt die
+#     Rechte aller seiner Discord-Rollen (Vereinigung) + Member-Default (view).
+#   - dashboard_audit: protokolliert wer was im Dashboard geaendert hat (B4).
+# Beide additiv + idempotent. Owner bleibt ENV-basiert (OWNER_ID), NICHT ueber
+# die Map regelbar (Selbst-Aussperr-Schutz).
+
+SCHEMA_V9_RBAC = """
+-- =====================================================
+-- RBAC: Discord-Rolle -> Dashboard-Bereich + Aktion
+-- role_id = Discord-Rollen-Snowflake (TEXT, konsistent mit dem Schema)
+-- resource = minecraft | satisfactory | leveling | ... (siehe modules/rbac.py)
+-- action   = view | edit | control
+-- PRIMARY KEY deckt Lookups "WHERE role_id IN (...)" ab (role_id ist links).
+-- =====================================================
+CREATE TABLE IF NOT EXISTS rbac_role_map (
+    role_id   TEXT NOT NULL,
+    resource  TEXT NOT NULL,
+    action    TEXT NOT NULL,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_by TEXT DEFAULT 'system',
+    PRIMARY KEY (role_id, resource, action)
+);
+CREATE INDEX IF NOT EXISTS idx_rbac_resource
+    ON rbac_role_map(resource, action);
+
+-- =====================================================
+-- Dashboard-Audit-Log: wer hat was im Dashboard geaendert (B4)
+-- detail = JSON-Text (was geaendert; KEINE Secrets), ip = Client-IP
+-- =====================================================
+CREATE TABLE IF NOT EXISTS dashboard_audit (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    discord_id TEXT,
+    username   TEXT,
+    resource   TEXT,
+    action     TEXT,
+    detail     TEXT,
+    ip         TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_audit_ts ON dashboard_audit(ts);
+CREATE INDEX IF NOT EXISTS idx_audit_discord ON dashboard_audit(discord_id);
+"""
+
+
+async def _apply_migration_v9(db: aiosqlite.Connection) -> None:
+    """RBAC-Mapping + Dashboard-Audit-Log. Additiv, idempotent."""
+    await db.executescript(SCHEMA_V9_RBAC)
+    await db.commit()
+    logger.info("Migration v9: rbac_role_map + dashboard_audit fertig")

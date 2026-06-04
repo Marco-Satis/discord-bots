@@ -1,0 +1,84 @@
+<!-- RBAC-Config-Partial (HTMX-Swap-Ziel #rbac-config) -->
+{% if success %}<div class="rbac-banner rbac-banner-ok">{{ success }}</div>{% endif %}
+{% if error %}<div class="rbac-banner rbac-banner-err">{{ error }}</div>{% endif %}
+
+<div class="rbac-card">
+    <h2 style="font-size:1rem;margin:0 0 0.6rem">Aktuelle Zuordnungen</h2>
+    {% if role_map %}
+    <table class="rbac-table">
+        <thead>
+            <tr><th>Discord-Rollen-ID</th><th>Rechte</th><th></th></tr>
+        </thead>
+        <tbody>
+        {% for role_id, grants in role_map.items() %}
+            <tr>
+                <td><code>{{ role_id }}</code></td>
+                <td>
+                    {% for resource, action in grants %}
+                        <span class="rbac-grant">{{ resource }}:{{ action }}</span>
+                    {% endfor %}
+                </td>
+                <td style="white-space:nowrap">
+                    <button type="button" class="rbac-btn rbac-btn-sm"
+                        onclick="rbacEditRole('{{ role_id }}', '{{ grants|map('join', ':')|join(',') }}')">
+                        Bearbeiten
+                    </button>
+                    <form style="display:inline" hx-post="/rbac/config"
+                          hx-target="#rbac-config" hx-swap="innerHTML"
+                          onsubmit="return confirm('Rolle {{ role_id }} aus dem Mapping entfernen?');">
+                        <input type="hidden" name="op" value="delete">
+                        <input type="hidden" name="role_id" value="{{ role_id }}">
+                        <button type="submit" class="rbac-btn rbac-btn-sm rbac-btn-danger">Entfernen</button>
+                    </form>
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="rbac-hint">Noch keine Rollen-Zuordnungen. Owner (ENV <code>OWNER_ID</code>)
+        hat ohnehin alle Rechte; Mitglieder duerfen standardmaessig alles ansehen
+        ausser den sensiblen Bereichen ({{ sensitive|join(', ') }}).</p>
+    {% endif %}
+
+    <h2 style="font-size:1rem;margin:1.2rem 0 0.4rem">Rolle zuordnen / bearbeiten</h2>
+    <form hx-post="/rbac/config" hx-target="#rbac-config" hx-swap="innerHTML">
+        <input type="hidden" name="op" value="save">
+        <div class="rbac-field">
+            <label for="rbac-role-id">Discord-Rollen-ID</label>
+            <input type="text" id="rbac-role-id" name="role_id" inputmode="numeric"
+                   placeholder="z.B. 111111111111111111" required>
+            <p class="rbac-hint">Snowflake der Discord-Rolle. „Speichern" ersetzt die
+                bisherigen Rechte dieser Rolle durch die unten angehakten.</p>
+        </div>
+
+        <table class="rbac-matrix">
+            <thead>
+                <tr>
+                    <th>Bereich</th>
+                    {% for action in actions %}<th>{{ action }}</th>{% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+            {% for resource in resources %}
+                <tr>
+                    <td class="{% if resource in sensitive %}sensitive{% endif %}">
+                        {{ resource }}{% if resource in sensitive %} ⚠{% endif %}
+                    </td>
+                    {% for action in actions %}
+                        <td>
+                            <input type="checkbox" name="grant"
+                                   value="{{ resource }}:{{ action }}"
+                                   aria-label="{{ resource }} {{ action }}">
+                        </td>
+                    {% endfor %}
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        <p class="rbac-hint">⚠ = sensibler Bereich (kein Member-Default — nur Owner
+            oder explizit hier gegrantet).</p>
+
+        <button type="submit" class="rbac-btn">Speichern</button>
+    </form>
+</div>
