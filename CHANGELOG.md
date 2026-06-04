@@ -4,6 +4,42 @@ Alle relevanten Aenderungen am Discord Bot System werden hier dokumentiert.
 
 ---
 
+## [Unreleased] — Community-Rebuild (Branch-Linie, teils live seit 2026-06-04)
+
+> Multi-Tenant-Umbau + Community-Features (MVP-first). MVP + Wave-2 seit
+> 2026-06-04 auf Prod (Migration Schema 4→7 datensicher). Version-Bump offen.
+
+### Multi-Tenant-Fundament
+- **Neu `modules/guild_context.py`:** Guild-Resolver (`get_primary_guild_id`/`get_active_guild_ids`) + `GuildConfig` (schema-getriebene Per-Guild-Settings, Feature-Flags, Guild-Registry, JSON-Roundtrip, 15s-TTL-Cache gegen Cross-Prozess-Drift). Loest verstreute `GUILD_ID`-Single-Guild-Annahme ab.
+- **Migration v5:** Tabellen `guilds`/`guild_config`/`guild_modules`. Daten-Isolation pro Guild (kein Cross-Guild-Leak) — test-bewiesen.
+- **Guild-Registry-Auto-Befuellung:** monitor-bot `on_ready` upsertet alle `bot.guilds` idempotent.
+
+### Leveling-Rebuild (Arcane-Tier, per-Guild)
+- **Migration v6:** `leveling` guild-scoped (`UNIQUE(guild_id,user_id)`, recreate-copy-drop, Daten erhalten, Backfill) + neue `voice_sessions`-Tabelle.
+- **Echte Voice-Sessions statt 5-Min-Ticks** (`modules/voice_sessions.py`): Anti-Cheat — XP nur bei ≥2 Menschen, kein self/server-deaf, nicht AFK; akkumuliert nur valide Sekunden.
+- **No-XP-Channels, Leaderboard-Pagination + eigene Position, Role-Rewards** (Sammel- vs Aufstiegs-Modus, `/levelrewards`), Rank-Card als 1-Admin-Template (BG/Akzent per-Guild).
+- Config JSON → `guild_config` (Dashboard-editierbar), sync Hot-Path-Cache.
+
+### Dashboard
+- **Config-Bridge** (`web/guild_config_bridge.py`): Leveling-Dashboard ↔ per-Guild `guild_config` (Format-Konvertierung, Cross-Prozess via TTL).
+- **Web-Leaderboard** (`web/routes/leveling_route.py` + `leveling.html`): `GET /leveling`, Top-100 guild-scoped, require_auth (noch nicht deployed).
+
+### Linked-Accounts (Wave 2)
+- **Migration v7:** `user_linked_accounts` (`UNIQUE(guild_id,user_id,platform)`). `modules/linked_accounts.py` + `/link`·`/unlink`·`/accounts` (Plattform-Whitelist, Cooldowns, escape+AllowedMentions.none).
+
+### Security (Phase G Core)
+- **Verification-Gate:** persistenter Verify-Button-Role (`cogs/verification_cog.py`), `/sicherheit`-Gruppe.
+- **Raid-Detection** (`modules/raid_detector.py`): Join-Spike-Gleitfenster pro Guild + Alarm-Cooldown.
+
+### Sonstiges
+- **`/setup_topics`** (`cogs/channel_setup_cog.py`): Channel-Topics automatisch setzen (dry-run-Default).
+- **Embed-Helper** (`utils/embeds.py`) als Stil-Fundament.
+- **Tech-Debt M2:** tote `UpdateChecker`-Instanz aus gameserver-bot entfernt (SAT-Update-Check laeuft ausschliesslich im monitor-bot).
+- **Ping-Haertung:** `everyone=False`-Guard fuer gewollte Pings (Ticket-Support-Notify, Giveaway-Gewinner).
+- **Tests:** `test_guild_context` (32), `test_leveling` (59), `test_voice_sessions` (24), `test_linked_accounts` (18), `test_raid_detector` (18), `test_migration_v7` (6), `test_channel_topics` (11), `test_dashboard_bridge` (18) u.a.
+
+---
+
 ## [4.4.0] — 2026-06-02
 
 ### Konsolidierung master ↔ main (+ Server-Quelle)
