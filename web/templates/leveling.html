@@ -1,0 +1,66 @@
+{% extends "base_v5.html" %}
+
+{% block title %}Leveling{% endblock %}
+{% block nav_leveling %}active{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Leveling — Leaderboard</h1>
+    <p class="page-subtitle">
+        Top {{ total }} Spieler nach XP
+        {% if guild_set %}
+            <span class="status-badge status-online">live</span>
+        {% else %}
+            <span class="status-badge status-offline">keine GUILD_ID</span>
+        {% endif %}
+    </p>
+</div>
+
+<div class="config-section">
+    {% if not guild_set %}
+        <p>Keine Haupt-Guild gesetzt (ENV <code>GUILD_ID</code>).</p>
+    {% elif not entries %}
+        <p>Noch keine Leveling-Daten vorhanden.</p>
+    {% else %}
+    <table class="lvl-table">
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>User</th>
+                <th>Level</th>
+                <th>XP</th>
+                <th>Nachrichten</th>
+                <th>Voice</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for e in entries %}
+            <tr{% if e.rank <= 3 %} class="lvl-top"{% endif %}>
+                <td class="lvl-rank">
+                    {% if e.rank == 1 %}🥇{% elif e.rank == 2 %}🥈{% elif e.rank == 3 %}🥉{% else %}{{ e.rank }}{% endif %}
+                </td>
+                <td class="lvl-user"><code>{{ e.user_id }}</code></td>
+                <td>{{ e.level }}</td>
+                <td>{{ "{:,}".format(e.xp) }}</td>
+                <td>{{ "{:,}".format(e.messages) }}</td>
+                <td>{{ e.voice }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
+</div>
+
+<style>
+    .lvl-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    .lvl-table th, .lvl-table td {
+        text-align: left; padding: 0.6rem 0.75rem;
+        border-bottom: 1px solid var(--border, #2a2a3a);
+    }
+    .lvl-table th { color: var(--text-secondary); font-weight: 600; }
+    .lvl-table tbody tr:hover { background: rgba(255,255,255,0.03); }
+    .lvl-rank { width: 3rem; text-align: center; font-weight: 600; }
+    .lvl-user code { font-size: 0.82rem; color: var(--text-secondary); }
+    .lvl-top td { font-weight: 600; }
+</style>
+{% endblock %}
