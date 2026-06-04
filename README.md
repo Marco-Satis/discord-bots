@@ -1,8 +1,8 @@
-# Discord Bot System v4.3.0
+# Discord Bot System v4.4.0
 
-**3-Bot-System + Web-Dashboard fuer Game-Server-Management**
+**3-Bot-System + Web-Dashboard fuer Game-Server- UND Community-Management**
 
-Satisfactory + Minecraft Server-Management mit Discord-Integration, Web-Dashboard und automatisiertem Monitoring.
+Satisfactory + Minecraft Server-Management mit Discord-Integration, Web-Dashboard und automatisiertem Monitoring — erweitert um ein Community-Toolkit (Leveling, Temp-Voice, LFG, Moderation, Verification) auf Multi-Tenant-Fundament (alles per-Guild, Daten-isoliert, Dashboard-konfigurierbar).
 
 Server: Netcup RS 4000 G12 (12 vCores, 31 GB RAM, 1 TB NVMe) | Ubuntu 22.04 LTS | Python 3.10
 
@@ -31,7 +31,7 @@ Server: Netcup RS 4000 G12 (12 vCores, 31 GB RAM, 1 TB NVMe) | Ubuntu 22.04 LTS 
                         │  Analytics + Forecasting  │
                         │  Security Dashboard       │
                         │  Config-Editor            │
-                        │  SSE Live-Updates         │
+                        │  WebSocket Live-Updates   │
                         │  Dark Mode                │
                         │  Export (CSV/JSON)         │
                         └───────────────────────────┘
@@ -39,7 +39,22 @@ Server: Netcup RS 4000 G12 (12 vCores, 31 GB RAM, 1 TB NVMe) | Ubuntu 22.04 LTS 
 
 ---
 
-## Feature-Highlights v4.0.0
+## Feature-Highlights
+
+### Community-Rebuild (v4.4.0 — Multi-Tenant + Community-Toolkit)
+
+Grossumbau zum lebendigen Community-Server auf Multi-Tenant-Fundament (alles per-Guild, Daten-isoliert, Dashboard-konfigurierbar):
+
+- **Multi-Tenant-Fundament** (`modules/guild_context.py`): per-Guild Settings + Feature-Flags + Guild-Registry, 15s-TTL-Cache. Keine `GUILD_ID`-Hardcodes mehr.
+- **Leveling-Rebuild (Arcane-Tier):** echte Voice-Sessions (Anti-Cheat: >=2 Menschen, kein self-deaf/AFK), No-XP-Channels, Leaderboard-Pagination + Pillow-Bild-Karte, Role-Rewards, Web-Leaderboard mit Namen + Avataren — komplett Dashboard-konfigurierbar.
+- **Temp-Voice Multi-Hub:** mehrere Join-to-Create-Hubs, je eigene Kategorie/Naming-Template (`{user}`/`{count}`/`{game}`)/Limit/Privat. 9-Button-Control-Panel. Dashboard + Slash.
+- **LFG** (`#spielersuche`): selbst-zuweisbare Ping-Rolle, `/lfg ping`/`an`/`aus`/`panel`.
+- **Moderation + AutoMod:** Word-Filter, Anti-Spam, Invite-Filter, Mass-Caps, Zalgo — alle per-Guild im Dashboard schaltbar.
+- **Verification-Gate + Raid-Detection** (Anti-Bot/Anti-Raid) + **Linked-Accounts** (`/link`).
+- **Dashboard-Realtime:** SSE → **WebSocket** (auth-gated Push alle 5s).
+- **In Arbeit:** RBAC (Dashboard-Rollen + Audit-Log), Music (Lavalink), neue Web-Pages (Landing/Welcome).
+
+Details: `CHANGELOG.md` -> `[Unreleased]`.
 
 ### Sicherheit + Stabilitaet (Phase 1)
 Pre-Boot Selftest, Graceful Shutdown, CSRF-Schutz, Session-Timeout, Health Auto-Restart mit UDP/TCP-Probes, Disk Guard (3-Stufen Warnung), Service Watchdog, DuckDNS Monitor, Port Monitor, Fail2Ban-Monitoring, SSL-Zertifikat-Monitor, Backup-Integritaetspruefung, Health-Route API und Rate-Limiter.
@@ -138,7 +153,7 @@ Slash-Commands: `/modpack` + `/update` (siehe `cogs/update_cog.py`).
 | Templates | Jinja2 + HTMX |
 | Datenbank | aiosqlite (SQLite WAL-Modus) |
 | Frontend | Chart.js, CSS Custom Properties |
-| Echtzeit | Server-Sent Events (SSE) |
+| Echtzeit | WebSocket (auth-gated Push) |
 | Reverse Proxy | Nginx + Let's Encrypt |
 | Prozess-Management | systemd |
 | Authentifizierung | Discord OAuth2 + JWT |
@@ -170,16 +185,18 @@ Ausfuehrliche Anleitung: siehe `docs/Projektdokumentation_v4.0.0.md`
 
 | Dokument | Beschreibung |
 |----------|-------------|
-| `docs/Projektdokumentation_v4.0.0.md` | Ausfuehrliche Projektdokumentation |
-| `docs/FEATURE_PLAN.md` | Spezifikationen aller 39 Features (F27-F65) |
-| `docs/REVIEW_v4.0.0.md` | Post-Upgrade Review-Report |
-| `CHANGELOG.md` | Versionshistorie |
-| `PROGRESS.md` | Upgrade-Fortschritt v3.2.0 → v4.0.0 |
+| `CHANGELOG.md` | Versionshistorie (inkl. `[Unreleased]` Community-Rebuild) |
+| `docs/README.md` | Index aller Doku-Dateien |
+| `docs/Projektdokumentation_v4.0.0.md` | Ausfuehrliche Basis-Projektdokumentation |
+| `docs/TEMPVOICE_UPGRADE_PLAN.md` | Temp-Voice-Spec (VOICEPANEL-Style) |
+| `docs/RBAC_SPEC_2026-06-04.md` | RBAC-Modell (Dashboard-Rollen + Audit-Log) |
+| `docs/production/` | Production-Guides (Security, Backup, Observability, Lavalink, …) |
+| `CLAUDE.md` | Claude-Code-Arbeitsanweisungen + Server-Zugang |
 
 ---
 
 ## Lizenz
 
-Privates Projekt — Kein oeffentliches Repository.
+Privates Projekt — privates GitHub-Repository (`Marco-Satis/discord-bots`). Kein Public-Release.
 
 **Autor:** Marco
