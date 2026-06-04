@@ -19,6 +19,13 @@ from utils.config import PROJECT_ROOT, DATA_DIR, get_config, save_config
 from utils.logger import get_logger
 from web.auth import require_auth
 from web.guild_config_bridge import read_leveling_config, write_leveling_config
+from web.temp_voice_bridge import (
+    hubs_to_text,
+    parse_hubs_text,
+    read_afk_timeout,
+    read_temp_voice_hubs,
+    write_temp_voice_config,
+)
 
 logger = get_logger("web.routes.admin_bot")
 
@@ -45,12 +52,9 @@ MODULE_FILE_MAP = {
 # Standard-Konfigurationen fuer jedes Modul (Fallback wenn Datei fehlt)
 DEFAULT_CONFIGS = {
     "temp_voice": {
-        "hub_channel_id": "",
-        "category_id": "",
-        "default_limit": 0,
-        "allow_owner_rename": True,
-        "allow_owner_limit_change": True,
-        "afk_auto_delete": False,
+        # Multi-Hub (C1): Hubs als editierbarer Text (eine Zeile pro Hub).
+        # Wird ueber web.temp_voice_bridge in die echte Bot-Config geschrieben.
+        "hubs_text": "",
         "afk_timeout_minutes": 5,
     },
     "teamspeak": {
@@ -194,14 +198,19 @@ def _save_module_config(module_name: str, config: dict) -> bool:
 
 
 def _parse_form_temp_voice(form) -> dict:
-    """Parst Formular-Daten fuer das Temp-Voice-Modul."""
+    """
+    Parst Formular-Daten fuer das Temp-Voice-Modul (Multi-Hub, C1).
+
+    Das Textarea `hubs_text` (eine Zeile pro Hub) wird zu einer Hub-Liste
+    geparst; `hubs_text` bleibt fuer die Wiederanzeige im Formular erhalten.
+    Die Hub-Liste landet ueber die Bruecke in der echten Bot-Config.
+    """
+    hubs_text = form.get("hubs_text", "")
+    hubs = parse_hubs_text(hubs_text)
     return {
-        "hub_channel_id": form.get("hub_channel_id", "").strip(),
-        "category_id": form.get("category_id", "").strip(),
-        "default_limit": int(form.get("default_limit", 0) or 0),
-        "allow_owner_rename": "allow_owner_rename" in form,
-        "allow_owner_limit_change": "allow_owner_limit_change" in form,
-        "afk_auto_delete": "afk_auto_delete" in form,
+        # Normalisierte Anzeige aus den geparsten Hubs (raeumt Tippfehler auf)
+        "hubs_text": hubs_to_text(hubs),
+        "hubs": hubs,
         "afk_timeout_minutes": int(form.get("afk_timeout_minutes", 5) or 5),
     }
 
@@ -512,6 +521,17 @@ async def _load_tab_config(tab_name: str) -> dict:
                 config.update(per_guild)
         except Exception as e:  # noqa: BLE001 — JSON-Default als Fallback
             logger.warning(f"Leveling guild_config-Read fehlgeschlagen: {e}")
+    elif tab_name == "temp_voice":
+        # Multi-Hub (C1): Hubs aus der echten Bot-Config laden, damit das
+        # Dashboard anzeigt was der Bot tatsaechlich nutzt (nicht die JSON-Leiche).
+        try:
+            hubs = await asyncio.to_thread(read_temp_voice_hubs)
+            config["hubs_text"] = hubs_to_text(hubs)
+            config["afk_timeout_minutes"] = await asyncio.to_thread(
+                read_afk_timeout, config.get("afk_timeout_minutes", 5)
+            )
+        except Exception as e:  # noqa: BLE001 — JSON-Default als Fallback
+            logger.warning(f"Temp-Voice Hub-Read fehlgeschlagen: {e}")
     return config
 
 
@@ -537,7 +557,7 @@ async def admin_bot_page(request: Request, current_user: dict = Depends(require_
         return "offline"
 
     config, admin_bot_status = await asyncio.gather(
-        asyncio.to_thread(_load_module_config, "temp_voice"),
+        _load_tab_config("temp_voice"),
         asyncio.to_thread(_read_admin_status),
     )
 
@@ -613,6 +633,21 @@ async def admin_bot_save(request: Request, module_name: str, current_user: dict 
                     )
                 except Exception as e:  # noqa: BLE001 — JSON-Save war schon erfolgreich
                     logger.error(f"Leveling guild_config-Bridge fehlgeschlagen: {e}")
+            # Multi-Hub (C1): Hubs in die echte Bot-Config schreiben (sonst sieht
+            # der Bot die Dashboard-Aenderung nie — getrennte JSON-Dateien).
+            elif module_name == "temp_voice":
+                try:
+                    await asyncio.to_thread(
+                        write_temp_voice_config,
+                        config.get("hubs", []),
+                        config.get("afk_timeout_minutes"),
+                    )
+                    # Anzeige aus der echten Bot-Config nachladen (Live-Wahrheit)
+                    config["hubs_text"] = hubs_to_text(
+                        await asyncio.to_thread(read_temp_voice_hubs)
+                    )
+                except Exception as e:  # noqa: BLE001 — JSON-Save war schon erfolgreich
+                    logger.error(f"Temp-Voice Hub-Bridge fehlgeschlagen: {e}")
         else:
             error_msg = "Fehler beim Speichern der Einstellungen."
 

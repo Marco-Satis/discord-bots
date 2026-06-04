@@ -1,4 +1,4 @@
-<!-- Phase 13f: Temp Voice Konfiguration -->
+<!-- Phase 13f / C1: Temp Voice Multi-Hub Konfiguration -->
 {% if success is defined and success %}
 <div class="alert alert-success">{{ success }}</div>
 {% endif %}
@@ -8,64 +8,47 @@
 
 <form hx-post="/admin-bot/save/temp_voice" hx-target="#tab-content" hx-swap="innerHTML">
     <section class="config-section">
-        <h2 class="section-title">Temp Voice Konfiguration</h2>
+        <h2 class="section-title">Temp Voice — Hubs (Join-to-Create)</h2>
         <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 1.25rem;">
-            Erstellt temporaere Voice-Channels wenn Benutzer dem Hub-Channel beitreten.
+            Jeder <strong>Hub</strong> ist ein Voice-Channel, der beim Beitreten einen
+            persoenlichen Temp-Channel erstellt. Mehrere Hubs moeglich (z.B. „COD-Voice",
+            „Chill-Voice") — je mit eigener Kategorie, Limit und Namens-Template.
         </p>
 
-        <div class="input-grid">
+        <div class="form-group">
+            <label for="hubs_text">Hubs — eine Zeile pro Hub</label>
+            <textarea id="hubs_text" name="hubs_text" rows="6"
+                      style="width:100%; font-family:monospace; font-size:0.85rem;"
+                      placeholder="hub_channel_id | category_id | limit | privat | naming">{{ config.hubs_text|default('', true) }}</textarea>
+            <p style="color: var(--text-secondary); font-size: 0.8rem; margin-top: 0.5rem;">
+                Format pro Zeile (Felder mit <code>|</code> getrennt):<br>
+                <code>hub_channel_id | category_id | limit | privat | naming</code><br>
+                Beispiel:<br>
+                <code>111111111111111111 | 444444444444444444 | 5 | nein | {user}'s COD Voice</code><br>
+                <code>333333333333333333 | | 0 | ja | {game} #{count}</code><br><br>
+                <strong>Felder:</strong> <code>category_id</code>/<code>limit</code>/<code>privat</code>/<code>naming</code>
+                sind optional (leer = Default).
+                <strong>privat:</strong> <code>ja</code> = Channel direkt geschlossen.
+                <strong>Platzhalter im Naming:</strong>
+                <code>{user}</code> = Anzeigename, <code>{count}</code> = laufende Nummer,
+                <code>{game}</code> = Spielname (6. Feld, optional).
+            </p>
+        </div>
+
+        <div class="input-grid" style="margin-top: 1rem;">
             <div class="form-group">
-                <label for="hub_channel_id">Hub Channel ID</label>
-                <input type="text" id="hub_channel_id" name="hub_channel_id"
-                       value="{{ config.hub_channel_id|default('', true) }}"
-                       placeholder="z.B. 111111111111111111">
-            </div>
-            <div class="form-group">
-                <label for="category_id">Kategorie ID</label>
-                <input type="text" id="category_id" name="category_id"
-                       value="{{ config.category_id|default('', true) }}"
-                       placeholder="z.B. 111111111111111111">
-            </div>
-            <div class="form-group">
-                <label for="default_limit">Standard-Benutzerlimit (0 = unbegrenzt)</label>
-                <input type="number" id="default_limit" name="default_limit"
-                       value="{{ config.default_limit|default(0, true) }}"
-                       min="0" max="99">
-            </div>
-            <div class="form-group">
-                <label for="afk_timeout_minutes">AFK-Timeout (Minuten)</label>
+                <label for="afk_timeout_minutes">AFK-Timeout (Minuten bis leerer Channel geloescht wird)</label>
                 <input type="number" id="afk_timeout_minutes" name="afk_timeout_minutes"
                        value="{{ config.afk_timeout_minutes|default(5, true) }}"
                        min="1" max="120">
             </div>
         </div>
 
-        <div class="toggle-grid" style="margin-top: 1.25rem;">
-            <div class="toggle-item">
-                <label class="toggle-switch">
-                    <input type="checkbox" name="allow_owner_rename"
-                           {% if config.allow_owner_rename is defined and config.allow_owner_rename %}checked{% endif %}>
-                    <span class="toggle-slider"></span>
-                </label>
-                <span class="toggle-label">Besitzer darf Channel umbenennen</span>
-            </div>
-            <div class="toggle-item">
-                <label class="toggle-switch">
-                    <input type="checkbox" name="allow_owner_limit_change"
-                           {% if config.allow_owner_limit_change is defined and config.allow_owner_limit_change %}checked{% endif %}>
-                    <span class="toggle-slider"></span>
-                </label>
-                <span class="toggle-label">Besitzer darf Limit aendern</span>
-            </div>
-            <div class="toggle-item">
-                <label class="toggle-switch">
-                    <input type="checkbox" name="afk_auto_delete"
-                           {% if config.afk_auto_delete is defined and config.afk_auto_delete %}checked{% endif %}>
-                    <span class="toggle-slider"></span>
-                </label>
-                <span class="toggle-label">AFK Auto-Loeschung</span>
-            </div>
-        </div>
+        <p style="color: var(--text-secondary); font-size: 0.8rem; margin-top: 1rem;">
+            Alternativ pro Hub via Slash-Command: <code>/tempvoice hubadd</code>,
+            <code>/tempvoice hubremove</code>, <code>/tempvoice hubs</code>.
+            Aenderungen hier uebernimmt der Bot ohne Neustart.
+        </p>
     </section>
 
     <div class="form-actions">

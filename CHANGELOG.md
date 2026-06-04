@@ -39,13 +39,20 @@ Alle relevanten Aenderungen am Discord Bot System werden hier dokumentiert.
 ### Dashboard (D4)
 - **Moderation-Seite** (`web/routes/moderation_route.py` + `moderation.html` + Partial + Nav): `GET /moderation` zeigt 5 Auto-Mod-Toggles, `POST /moderation/config` schreibt `guild_config` (HTMX, CSRF via `body[hx-headers]`). Bot liest dieselben Keys (kein Neustart nötig).
 
+### Temp-Voice Multi-Hub (Phase A / C1)
+- **Mehrere Join-to-Create-Hubs** statt nur einem: Datenmodell `hubs[]` in `modules/temp_voice.py` — jeder Hub mit eigener `category_id`, `naming`-Template, `default_limit`, `default_private`, `game`. `on_voice_state_update` erkennt jeden Hub via `is_hub()`; `create_channel(hub_id)` nutzt die Hub-Config.
+- **Namens-Templates mit Platzhaltern** (`{user}`/`{count}`/`{game}`, `_render_channel_name`) — pro Hub frei konfigurierbar (z.B. „COD #{count}"), 100-Zeichen-Clamp + Whitespace-Normalisierung. Default-Private legt neue Channels direkt geschlossen+unsichtbar an.
+- **Bugfix Dashboard-Entkopplung:** Der Temp-Voice-Dashboard-Tab schrieb bisher `data/temp_voice/config.json` (Key `hub_channel_id`), der Bot las aber `data/admin/temp_voice_config.json` (Key `join_channel_id`) — die Einstellungen erreichten den Bot **nie**. Neue Bruecke `web/temp_voice_bridge.py` schreibt die Hub-Liste in die echte Bot-Config (merge statt clobber, atomic), analog zur Leveling-Bruecke.
+- **Live-Update ohne Neustart:** Manager lädt die Config bei Änderung neu (mtime-Vergleich), Cross-Prozess-Mutatoren (`add_hub`/`remove_hub`/`set_join_channel`) reloaden vor dem Merge. Bot-eigene Keys (`interface_channel_id`/`join_channel_id`) bleiben erhalten.
+- **Dashboard-Hub-Editor** (`partials/admin_tab_temp_voice.html`): Textarea, eine Zeile pro Hub (`id | category | limit | privat | naming`), HTMX + CSRF. **Slash-Fallback:** `/tempvoice hubadd`·`hubremove`·`hubs`. `/tempvoice setup` bleibt rückwärts-kompatibel (registriert den Channel zusätzlich als Hub); Legacy-Single-Hub wird beim Laden idempotent in die Hub-Liste migriert.
+
 ### Sonstiges
 - **`/setup_topics`** (`cogs/channel_setup_cog.py`): Channel-Topics automatisch setzen (dry-run-Default).
 - **Embed-Helper** (`utils/embeds.py`) als Stil-Fundament.
 - **Lavalink-Prep (F1):** `docs/production/lavalink-setup.md` — Server-Vorbereitung für Phase-E-Music (Java 17+, `application.yml` mit youtube-plugin + LavaSrc/Spotify, systemd-Unit-Vorlage, ENV-Doku, localhost-Bind + Secret-Hygiene). Install = Marco-PW-Gate. ENV-Vars **noch nicht** in `.env.example` (Music-Code ungebaut → sonst `test_env_completeness`-Fehler).
 - **Tech-Debt M2:** tote `UpdateChecker`-Instanz aus gameserver-bot entfernt (SAT-Update-Check laeuft ausschliesslich im monitor-bot).
 - **Ping-Haertung:** `everyone=False`-Guard fuer gewollte Pings (Ticket-Support-Notify, Giveaway-Gewinner).
-- **Tests:** `test_guild_context` (32), `test_leveling` (86), `test_voice_sessions` (24), `test_linked_accounts` (18), `test_raid_detector` (18), `test_content_filter` (20, Caps/Zalgo), `test_migration_v7` (6), `test_migration_v8` (6, member_cache), `test_channel_topics` (11), `test_dashboard_bridge` (18), `test_leveling_web` (+B1/B2/B3/E3-Config), `test_moderation_web` (D4-Toggles) u.a.
+- **Tests:** `test_guild_context` (32), `test_leveling` (86), `test_voice_sessions` (24), `test_linked_accounts` (18), `test_raid_detector` (18), `test_content_filter` (20, Caps/Zalgo), `test_migration_v7` (6), `test_migration_v8` (6, member_cache), `test_channel_topics` (11), `test_dashboard_bridge` (18), `test_leveling_web` (+B1/B2/B3/E3-Config), `test_moderation_web` (D4-Toggles), `test_temp_voice` (71, +Multi-Hub C1), `test_temp_voice_web` (20, Hub-Bruecke) u.a.
 
 ---
 

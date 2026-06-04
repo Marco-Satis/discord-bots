@@ -229,12 +229,12 @@ class TempVoiceCog(commands.Cog):
         if member.bot:
             return
 
-        # --- Join-to-Create: User betritt den konfigurierten Channel ---
-        join_channel_id = self.manager.join_channel_id
+        # --- Join-to-Create: User betritt einen konfigurierten Hub-Channel ---
+        # Multi-Hub (C1): is_hub() prueft die gesamte Hub-Liste, nicht nur einen.
         if (
             after.channel is not None
-            and join_channel_id is not None
-            and after.channel.id == join_channel_id
+            and isinstance(after.channel, discord.VoiceChannel)
+            and self.manager.is_hub(after.channel.id)
         ):
             await self._handle_join_to_create(member, after.channel)
             return
@@ -272,8 +272,10 @@ class TempVoiceCog(commands.Cog):
         guild = member.guild
 
         try:
-            # Temporaeren Channel erstellen
-            temp_channel = await self.manager.create_channel(guild, member)
+            # Temporaeren Channel erstellen (Hub-Config via join_channel.id)
+            temp_channel = await self.manager.create_channel(
+                guild, member, hub_id=join_channel.id
+            )
 
             # User in den neuen Channel verschieben
             await member.move_to(temp_channel)
@@ -481,12 +483,12 @@ class TempVoiceCog(commands.Cog):
             )
             return
 
-        # Join-to-Create Channel setzen
-        self.manager.set_join_channel(join_channel.id)
-
-        # Kategorie setzen (falls angegeben)
+        # Kategorie zuerst setzen, damit der Hub-Eintrag sie uebernimmt
         if kategorie:
             self.manager.set_category(kategorie.id)
+
+        # Join-to-Create Channel setzen (registriert ihn auch als Hub)
+        self.manager.set_join_channel(join_channel.id)
 
         # Bestaetigung
         info_lines: list[str] = [
@@ -518,6 +520,158 @@ class TempVoiceCog(commands.Cog):
             f"Join-Channel={join_channel.name}"
             + (f", Kategorie={kategorie.name}" if kategorie else "")
         )
+
+    # ==================================================================
+    # /tempvoice hubadd / hubremove / hubs  (Multi-Hub, C1)
+    # ==================================================================
+
+    @tempvoice_grp.command(
+        name="hubadd",
+        description="Einen Join-to-Create-Hub hinzufuegen oder aktualisieren",
+    )
+    @app_commands.describe(
+        join_channel="Voice-Channel der als Join-to-Create-Trigger dient",
+        kategorie="Kategorie fuer neue Channels dieses Hubs (optional)",
+        naming="Namens-Template, Platzhalter: {user} {count} {game}",
+        limit="Standard-Userlimit 0-99 (0 = unbegrenzt)",
+        privat="Neue Channels direkt privat erstellen",
+        spiel="Wert fuer den {game}-Platzhalter (optional)",
+    )
+    @admin_only()
+    async def tempvoice_hubadd(
+        self,
+        interaction: discord.Interaction,
+        join_channel: discord.VoiceChannel,
+        kategorie: Optional[discord.CategoryChannel] = None,
+        naming: Optional[str] = None,
+        limit: Optional[int] = None,
+        privat: bool = False,
+        spiel: Optional[str] = None,
+    ) -> None:
+        """Multi-Hub: einen Hub mit eigener Kategorie/Naming/Limit anlegen."""
+        await interaction.response.defer(ephemeral=True)
+        if not interaction.guild:
+            await interaction.followup.send(
+                "Dieser Befehl funktioniert nur auf einem Server.", ephemeral=True
+            )
+            return
+
+        ok = self.manager.add_hub(
+            join_channel.id,
+            category_id=kategorie.id if kategorie else None,
+            naming=naming,
+            default_limit=limit if limit is not None else 0,
+            default_private=privat,
+            game=spiel or "",
+        )
+        if not ok:
+            await interaction.followup.send(
+                "Hub konnte nicht angelegt werden (ungueltige Daten).",
+                ephemeral=True,
+            )
+            return
+
+        hub = self.manager.get_hub(join_channel.id) or {}
+        cat_name = kategorie.name if kategorie else "Keine"
+        limit_txt = "Unbegrenzt" if hub.get("default_limit", 0) == 0 else str(hub.get("default_limit"))
+        embed = discord.Embed(
+            title="Temp-Voice Hub gespeichert",
+            description=(
+                f"- Hub-Channel: {join_channel.mention}\n"
+                f"- Kategorie: {cat_name}\n"
+                f"- Naming: `{discord.utils.escape_markdown(hub.get('naming', ''))}`\n"
+                f"- Limit: {limit_txt}\n"
+                f"- Privat: {'Ja' if hub.get('default_private') else 'Nein'}"
+                + (f"\n- Spiel: {discord.utils.escape_markdown(hub.get('game', ''))}"
+                   if hub.get("game") else "")
+            ),
+            color=0x2ecc71,
+            timestamp=datetime.now(timezone.utc),
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        logger.info(
+            f"Temp-Voice Hub von {interaction.user.display_name}: "
+            f"{join_channel.name} ({join_channel.id})"
+        )
+
+    @tempvoice_grp.command(
+        name="hubremove",
+        description="Einen Join-to-Create-Hub entfernen",
+    )
+    @app_commands.describe(join_channel="Hub-Channel der entfernt werden soll")
+    @admin_only()
+    async def tempvoice_hubremove(
+        self,
+        interaction: discord.Interaction,
+        join_channel: discord.VoiceChannel,
+    ) -> None:
+        """Multi-Hub: einen Hub aus der Liste entfernen."""
+        await interaction.response.defer(ephemeral=True)
+        removed = self.manager.remove_hub(join_channel.id)
+        if removed:
+            await interaction.followup.send(
+                f"Hub {join_channel.mention} entfernt. Bestehende Temp-Channels "
+                "bleiben bis sie leer sind.",
+                ephemeral=True,
+            )
+            logger.info(
+                f"Temp-Voice Hub entfernt von {interaction.user.display_name}: "
+                f"{join_channel.id}"
+            )
+        else:
+            await interaction.followup.send(
+                f"{join_channel.mention} ist kein konfigurierter Hub.",
+                ephemeral=True,
+            )
+
+    @tempvoice_grp.command(
+        name="hubs",
+        description="Alle konfigurierten Join-to-Create-Hubs anzeigen",
+    )
+    @admin_only()
+    async def tempvoice_hubs(
+        self,
+        interaction: discord.Interaction,
+    ) -> None:
+        """Multi-Hub: alle Hubs mit ihrer Config auflisten."""
+        await interaction.response.defer(ephemeral=True)
+        if not interaction.guild:
+            await interaction.followup.send(
+                "Dieser Befehl funktioniert nur auf einem Server.", ephemeral=True
+            )
+            return
+
+        guild = interaction.guild
+        hubs = self.manager.get_hubs()
+        embed = discord.Embed(
+            title="Temp-Voice Hubs",
+            color=0x5865F2,
+            timestamp=datetime.now(timezone.utc),
+        )
+        if not hubs:
+            embed.description = (
+                "Keine Hubs konfiguriert. Lege einen an mit `/tempvoice hubadd` "
+                "oder `/tempvoice setup`."
+            )
+        else:
+            for hub in hubs[:25]:  # Embed-Field-Limit
+                ch = guild.get_channel(hub["hub_id"])
+                ch_ref = ch.mention if ch else f"ID {hub['hub_id']} (nicht gefunden)"
+                cat = guild.get_channel(hub["category_id"]) if hub["category_id"] else None
+                cat_name = cat.name if cat else "Keine"
+                limit_txt = "∞" if hub["default_limit"] == 0 else str(hub["default_limit"])
+                embed.add_field(
+                    name=ch_ref,
+                    value=(
+                        f"Kategorie: {cat_name}\n"
+                        f"Naming: `{discord.utils.escape_markdown(hub['naming'])}`\n"
+                        f"Limit: {limit_txt} · Privat: {'Ja' if hub['default_private'] else 'Nein'}"
+                        + (f" · Spiel: {discord.utils.escape_markdown(hub['game'])}"
+                           if hub["game"] else "")
+                    ),
+                    inline=False,
+                )
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
     # ==================================================================
     # /tempvoice interface
@@ -635,6 +789,7 @@ class TempVoiceCog(commands.Cog):
             )
 
         limit_text = "Unbegrenzt" if default_limit == 0 else str(default_limit)
+        hub_count = len(self.manager.get_hubs())
 
         embed = discord.Embed(
             title="Temp-Voice Informationen",
@@ -645,7 +800,9 @@ class TempVoiceCog(commands.Cog):
         embed.add_field(
             name="Konfiguration",
             value=(
-                f"**Join-to-Create:** {join_ref}\n"
+                f"**Hubs (Multi-Hub):** {hub_count} konfiguriert "
+                "(Details: `/tempvoice hubs`)\n"
+                f"**Join-to-Create (Legacy):** {join_ref}\n"
                 f"**Kategorie:** {cat_ref}\n"
                 f"**Interface-Kanal:** {iface_ref}\n"
                 f"**Standard-Limit:** {limit_text}\n"

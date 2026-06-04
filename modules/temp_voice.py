@@ -23,11 +23,24 @@ Datenformat (temp_voice.json):
 
 Konfiguration (temp_voice_config.json):
 {
-  "join_channel_id": int | null,
-  "category_id": int | null,
-  "default_limit": 0,
-  "afk_timeout_minutes": 5
+  "join_channel_id": int | null,   # Legacy-Single-Hub (rueckwaerts-kompatibel)
+  "category_id": int | null,       # Legacy
+  "default_limit": 0,              # Legacy
+  "afk_timeout_minutes": 5,
+  "hubs": [                         # Multi-Hub (C1): mehrere Join-to-Create-Kanaele
+    {
+      "hub_id": int,               # Voice-Channel-ID der als Trigger dient
+      "category_id": int | null,   # Kategorie fuer neue Temp-Channels dieses Hubs
+      "naming": str,               # Namens-Template: {user} {count} {game}
+      "default_limit": int,        # 0 = unbegrenzt, 1-99
+      "default_private": bool,     # neue Channels direkt privat
+      "game": str                  # optionaler {game}-Platzhalter-Wert
+    }
+  ]
 }
+
+Multi-Hub-Migration: ist `hubs` leer aber `join_channel_id` gesetzt, wird beim
+Laden ein einzelner Hub aus den Legacy-Feldern synthetisiert (idempotent).
 """
 
 from __future__ import annotations
@@ -69,6 +82,86 @@ def _default_config() -> dict[str, Any]:
         # gerade ist (Buttons resolven via member.voice.channel, nicht panel-bound).
         "interface_channel_id": None,
         "interface_message_id": None,
+        # Multi-Hub (C1): Liste mehrerer Join-to-Create-Kanaele, jeder mit eigener
+        # Kategorie/Naming/Limit. Leer = Legacy-Single-Hub via join_channel_id.
+        "hubs": [],
+    }
+
+
+# Standard-Namens-Template wenn ein Hub keins definiert.
+_DEFAULT_NAMING = "{user}'s Channel"
+
+
+def _render_channel_name(
+    template: str | None, display_name: str, count: int, game: str = ""
+) -> str:
+    """
+    Channel-Namen aus einem Template mit Platzhaltern rendern.
+
+    Platzhalter: {user} = Anzeigename, {count} = laufende Nummer des Hubs,
+    {game} = optionaler Hub-Spielname. Whitespace wird normalisiert, das
+    Ergebnis auf Discords 100-Zeichen-Limit gekuerzt. Leeres Ergebnis faellt
+    auf den Standardnamen zurueck.
+    """
+    tmpl = template or _DEFAULT_NAMING
+    name = (
+        tmpl.replace("{user}", display_name)
+        .replace("{count}", str(count))
+        .replace("{game}", game or "")
+    )
+    name = " ".join(name.split())[:100]
+    return name or f"{display_name}'s Channel"[:100]
+
+
+def _normalize_hub(raw: Any) -> dict[str, Any] | None:
+    """
+    Einen rohen Hub-Datensatz validieren + normalisieren (oder None bei Muell).
+
+    Coerced Typen (hub_id/category_id/default_limit -> int), clamped Limit auf
+    0-99, faellt Naming auf den Standard zurueck. Tolerant gegenueber Strings
+    (Dashboard liefert Form-Strings).
+    """
+    if not isinstance(raw, dict):
+        return None
+    hub_id_raw = raw.get("hub_id")
+    if hub_id_raw is None:
+        return None
+    try:
+        hub_id = int(hub_id_raw)
+    except (TypeError, ValueError):
+        return None
+
+    cat_raw = raw.get("category_id")
+    if cat_raw in (None, "", 0, "0"):
+        category_id: int | None = None
+    else:
+        try:
+            category_id = int(cat_raw)
+        except (TypeError, ValueError):
+            category_id = None
+
+    try:
+        limit = int(raw.get("default_limit", 0) or 0)
+    except (TypeError, ValueError):
+        limit = 0
+    limit = max(0, min(99, limit))
+
+    naming = raw.get("naming") or _DEFAULT_NAMING
+    if not isinstance(naming, str) or not naming.strip():
+        naming = _DEFAULT_NAMING
+    naming = naming.strip()[:100]
+
+    game = raw.get("game") or ""
+    if not isinstance(game, str):
+        game = ""
+
+    return {
+        "hub_id": hub_id,
+        "category_id": category_id,
+        "naming": naming,
+        "default_limit": limit,
+        "default_private": bool(raw.get("default_private", False)),
+        "game": game.strip()[:50],
     }
 
 
@@ -102,6 +195,9 @@ class TempVoiceManager:
         self.config_file = config_file or CONFIG_FILE
         self._channels: dict[str, dict[str, Any]] = {}
         self._config: dict[str, Any] = _default_config()
+        # mtime der zuletzt geladenen Config — fuer Cross-Prozess-Live-Reload
+        # (Dashboard schreibt die Datei, Bot zieht Aenderungen ohne Restart).
+        self._config_mtime: float | None = None
         self._load()
         self._load_config()
 
@@ -146,6 +242,7 @@ class TempVoiceManager:
                 for key, value in defaults.items():
                     loaded.setdefault(key, value)
                 self._config = loaded
+                self._migrate_legacy_hub()
                 logger.info("Temp-Voice-Konfiguration geladen")
             else:
                 logger.info(
@@ -154,14 +251,67 @@ class TempVoiceManager:
                 self._save_config()
         except (json.JSONDecodeError, IOError) as e:
             logger.error(f"Temp-Voice-Config laden fehlgeschlagen: {e}")
+        # mtime der geladenen Datei merken (Cross-Prozess-Reload-Erkennung)
+        try:
+            self._config_mtime = self.config_file.stat().st_mtime
+        except OSError:
+            self._config_mtime = None
+
+    def _migrate_legacy_hub(self) -> None:
+        """
+        Legacy-Single-Hub (`join_channel_id`) in die `hubs`-Liste migrieren.
+
+        Idempotent: laeuft nur wenn `hubs` leer ist UND ein Legacy-Join-Channel
+        gesetzt ist. In-Memory (persistiert beim naechsten Save) — kein Write auf
+        dem Read-Pfad (Cross-Prozess-sicher).
+        """
+        if self._config.get("hubs"):
+            return
+        legacy = self._config.get("join_channel_id")
+        if not legacy:
+            return
+        try:
+            legacy_id = int(legacy)
+        except (TypeError, ValueError):
+            return
+        self._config["hubs"] = [{
+            "hub_id": legacy_id,
+            "category_id": self._config.get("category_id"),
+            "naming": _DEFAULT_NAMING,
+            "default_limit": int(self._config.get("default_limit", 0) or 0),
+            "default_private": False,
+            "game": "",
+        }]
+        logger.info("Temp-Voice: Legacy-Single-Hub nach hubs-Liste migriert")
+
+    def _maybe_reload_config(self) -> None:
+        """
+        Config neu laden wenn die Datei seit dem letzten Laden geaendert wurde.
+
+        Erlaubt dem Bot, Dashboard-Aenderungen an der Hub-Liste ohne Neustart
+        zu uebernehmen. Billig: ein stat()-Call pro Aufruf.
+        """
+        try:
+            mtime = self.config_file.stat().st_mtime
+        except OSError:
+            return
+        if self._config_mtime is None or mtime > self._config_mtime:
+            self._load_config()
 
     def _save_config(self) -> None:
-        """Temp-Voice-Konfiguration auf Disk speichern."""
+        """Temp-Voice-Konfiguration auf Disk speichern (atomic, .tmp + replace)."""
         try:
             self.config_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.config_file, "w", encoding="utf-8") as f:
+            tmp = self.config_file.with_suffix(".json.tmp")
+            with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(self._config, f, indent=2, ensure_ascii=False)
-        except IOError as e:
+            tmp.replace(self.config_file)
+            # eigene mtime merken, damit der Reload nicht sofort wieder feuert
+            try:
+                self._config_mtime = self.config_file.stat().st_mtime
+            except OSError:
+                self._config_mtime = None
+        except (IOError, OSError) as e:
             logger.error(f"Temp-Voice-Config speichern fehlgeschlagen: {e}")
 
     # ------------------------------------------------------------------
@@ -172,16 +322,19 @@ class TempVoiceManager:
         self,
         guild: discord.Guild,
         member: discord.Member,
+        hub_id: int | None = None,
     ) -> discord.VoiceChannel:
         """
         Temporaeren Voice-Channel fuer ein Mitglied erstellen.
 
-        Erstellt den Channel in der konfigurierten Kategorie mit
-        Berechtigungen, die dem Ersteller volle Kontrolle geben.
+        Nutzt die Config des angegebenen Hubs (Kategorie, Naming-Template,
+        Default-Limit, Default-Private). Ohne Hub (oder unbekannter Hub) fallen
+        die Legacy-Single-Hub-Werte und der Standardname zurueck.
 
         Args:
             guild: Discord-Server
             member: Mitglied das den Channel erstellt (wird Owner)
+            hub_id: Channel-ID des Join-to-Create-Hubs (fuer Multi-Hub-Config)
 
         Returns:
             Der erstellte Voice-Channel
@@ -190,29 +343,38 @@ class TempVoiceManager:
             discord.Forbidden: Bot hat keine Berechtigung
             discord.HTTPException: Discord-API-Fehler
         """
-        # Kategorie ermitteln
+        hub = self.get_hub(hub_id) if hub_id is not None else None
+
+        # Kategorie ermitteln (Hub > Legacy)
         category = None
-        cat_id = self._config.get("category_id")
+        cat_id = hub["category_id"] if hub else self._config.get("category_id")
         if cat_id:
             category = guild.get_channel(cat_id)
             if category and not isinstance(category, discord.CategoryChannel):
                 category = None
 
-        # Channel-Name
-        channel_name = f"{member.display_name}'s Channel"
+        # Standard-Userlimit + Private (Hub > Legacy)
+        default_limit = hub["default_limit"] if hub else self._config.get("default_limit", 0)
+        default_private = bool(hub["default_private"]) if hub else False
 
-        # Standard-Userlimit aus Config
-        default_limit = self._config.get("default_limit", 0)
+        # Channel-Name aus dem Naming-Template des Hubs rendern
+        naming = hub["naming"] if hub else None
+        game = hub["game"] if hub else ""
+        count = (self._hub_channel_count(hub_id) + 1) if hub_id is not None else 1
+        channel_name = _render_channel_name(naming, member.display_name, count, game)
 
-        # Berechtigungen: Owner bekommt Manage-Rechte
+        # Berechtigungen: Owner bekommt Manage-Rechte. Bei default_private ist der
+        # Channel fuer @everyone gesperrt + unsichtbar (Owner/Bot ausgenommen).
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(
-                connect=True,
+                connect=not default_private,
                 speak=True,
+                view_channel=not default_private,
             ),
             member: discord.PermissionOverwrite(
                 connect=True,
                 speak=True,
+                view_channel=True,
                 manage_channels=True,
                 mute_members=True,
                 deafen_members=True,
@@ -222,6 +384,7 @@ class TempVoiceManager:
             guild.me: discord.PermissionOverwrite(
                 connect=True,
                 speak=True,
+                view_channel=True,
                 manage_channels=True,
                 move_members=True,
                 manage_permissions=True,
@@ -244,7 +407,8 @@ class TempVoiceManager:
             "created_at": now,
             "name": channel_name,
             "user_limit": default_limit,
-            "private": False,              # offen by default (Spec)
+            "hub_id": hub_id,              # Herkunfts-Hub (fuer {count} + Statistik)
+            "private": default_private,    # gemaess Hub-Config (Spec: offen by default)
             "banned": [],                  # pro Channel, geloescht wenn Channel weg
             "joined_at": {str(member.id): now},  # Zeit-im-Channel fuer Slot-Liste
             "events": [{"uid": member.id, "type": "join", "ts": now}],  # Ringpuffer
@@ -322,6 +486,104 @@ class TempVoiceManager:
             Dict mit channel_id_str als Key und Channel-Daten als Value (Kopie)
         """
         return {k: dict(v) for k, v in self._channels.items()}
+
+    # ------------------------------------------------------------------
+    # Multi-Hub (C1) — mehrere Join-to-Create-Kanaele
+    # ------------------------------------------------------------------
+
+    def get_hubs(self) -> list[dict[str, Any]]:
+        """
+        Alle konfigurierten Hubs (normalisiert) zurueckgeben.
+
+        Prueft vorher per mtime ob die Config extern (Dashboard) geaendert
+        wurde und laedt sie ggf. neu. Muell-Eintraege werden uebersprungen.
+        """
+        self._maybe_reload_config()
+        hubs: list[dict[str, Any]] = []
+        for raw in self._config.get("hubs", []):
+            norm = _normalize_hub(raw)
+            if norm is not None:
+                hubs.append(norm)
+        return hubs
+
+    def get_hub(self, hub_id: int) -> dict[str, Any] | None:
+        """Konfiguration eines Hubs anhand seiner Channel-ID (oder None)."""
+        for hub in self.get_hubs():
+            if hub["hub_id"] == hub_id:
+                return hub
+        return None
+
+    def is_hub(self, channel_id: int) -> bool:
+        """Ob ein Channel ein konfigurierter Join-to-Create-Hub ist."""
+        return any(hub["hub_id"] == channel_id for hub in self.get_hubs())
+
+    def _hub_channel_count(self, hub_id: int) -> int:
+        """Anzahl aktiver Temp-Channels die aus diesem Hub erstellt wurden."""
+        return sum(
+            1 for d in self._channels.values() if d.get("hub_id") == hub_id
+        )
+
+    def _upsert_hub(self, norm: dict[str, Any]) -> None:
+        """
+        Normalisierten Hub in self._config einfuegen/ersetzen (gleiche hub_id).
+
+        Kein Reload, kein Save — die oeffentlichen Mutatoren erledigen beides.
+        """
+        hubs = [
+            h for h in self._config.get("hubs", [])
+            if (_normalize_hub(h) or {}).get("hub_id") != norm["hub_id"]
+        ]
+        hubs.append(norm)
+        self._config["hubs"] = hubs
+
+    def add_hub(
+        self,
+        hub_id: int,
+        category_id: int | None = None,
+        naming: str | None = None,
+        default_limit: int = 0,
+        default_private: bool = False,
+        game: str = "",
+    ) -> bool:
+        """
+        Einen Hub hinzufuegen oder (bei gleicher hub_id) ersetzen. Speichert.
+
+        Laedt vorher die Config neu (mtime), damit eine parallele Dashboard-
+        Aenderung nicht ueberschrieben wird (Cross-Prozess-Merge).
+
+        Returns:
+            True wenn gespeichert, False bei ungueltiger hub_id.
+        """
+        norm = _normalize_hub({
+            "hub_id": hub_id,
+            "category_id": category_id,
+            "naming": naming,
+            "default_limit": default_limit,
+            "default_private": default_private,
+            "game": game,
+        })
+        if norm is None:
+            return False
+        self._maybe_reload_config()
+        self._upsert_hub(norm)
+        self._save_config()
+        logger.info(f"Temp-Voice Hub hinzugefuegt/aktualisiert: {hub_id}")
+        return True
+
+    def remove_hub(self, hub_id: int) -> bool:
+        """Einen Hub entfernen. True wenn er existierte (Cross-Prozess-Merge)."""
+        self._maybe_reload_config()
+        hubs = self._config.get("hubs", [])
+        remaining = [
+            h for h in hubs
+            if (_normalize_hub(h) or {}).get("hub_id") != hub_id
+        ]
+        if len(remaining) == len(hubs):
+            return False
+        self._config["hubs"] = remaining
+        self._save_config()
+        logger.info(f"Temp-Voice Hub entfernt: {hub_id}")
+        return True
 
     # ------------------------------------------------------------------
     # Ownership-Transfer
@@ -594,7 +856,8 @@ class TempVoiceManager:
 
     @property
     def join_channel_id(self) -> int | None:
-        """Join-to-Create Channel-ID zurueckgeben."""
+        """Join-to-Create Channel-ID zurueckgeben (Legacy-Single-Hub)."""
+        self._maybe_reload_config()
         return self._config.get("join_channel_id")
 
     @property
@@ -614,12 +877,25 @@ class TempVoiceManager:
 
     def set_join_channel(self, channel_id: int) -> None:
         """
-        Join-to-Create Channel konfigurieren.
+        Join-to-Create Channel konfigurieren (Legacy-Single-Hub).
+
+        Registriert den Channel zusaetzlich als Hub in der Multi-Hub-Liste,
+        damit `is_hub()` ihn erkennt (Backward-Compat fuer `/tempvoice setup`).
 
         Args:
             channel_id: Discord-Voice-Channel-ID
         """
+        self._maybe_reload_config()
         self._config["join_channel_id"] = channel_id
+        # Inline als Hub registrieren (add_hub wuerde erneut reloaden und das
+        # gerade gesetzte join_channel_id verwerfen).
+        norm = _normalize_hub({
+            "hub_id": channel_id,
+            "category_id": self._config.get("category_id"),
+            "default_limit": self._config.get("default_limit", 0),
+        })
+        if norm is not None:
+            self._upsert_hub(norm)
         self._save_config()
         logger.info(f"Join-to-Create Channel gesetzt: {channel_id}")
 

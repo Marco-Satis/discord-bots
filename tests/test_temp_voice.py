@@ -19,7 +19,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
     import discord  # noqa: F401
-    from modules.temp_voice import TempVoiceManager, _EVENT_CAP
+    from modules.temp_voice import (
+        TempVoiceManager,
+        _EVENT_CAP,
+        _normalize_hub,
+        _render_channel_name,
+    )
     from modules.temp_voice_views import build_panel_embed, build_interface_embed
     HAVE_DISCORD = True
 except ImportError:
@@ -214,6 +219,94 @@ async def run_tests() -> None:
     ie = build_interface_embed()
     _check("iface_embed_static",
            "Temp-Voice" in (ie.title or "") and "Umbenennen" in (ie.description or ""))
+
+    # --- Multi-Hub (C1) ---
+    # _render_channel_name: Platzhalter + Clamp + Whitespace-Normalisierung
+    _check("render_user", _render_channel_name("{user}'s Room", "Bob", 1) == "Bob's Room")
+    _check("render_count", _render_channel_name("Voice #{count}", "Bob", 3) == "Voice #3")
+    _check("render_game", _render_channel_name("{game} Squad", "Bob", 1, "COD") == "COD Squad")
+    _check("render_default", _render_channel_name(None, "Bob", 1) == "Bob's Channel")
+    _check("render_empty_game_collapse",
+           _render_channel_name("{game} Squad", "Bob", 1, "") == "Squad")
+    _check("render_clamp_100",
+           len(_render_channel_name("{user}", "X" * 200, 1)) <= 100)
+
+    # _normalize_hub: Typ-Coercion + Clamp + Garbage-Reject
+    h = _normalize_hub({"hub_id": "123", "category_id": "456",
+                        "default_limit": "200", "naming": "",
+                        "default_private": "x"})
+    _check("normalize_id_int", h is not None and h["hub_id"] == 123)
+    _check("normalize_cat_int", h is not None and h["category_id"] == 456)
+    _check("normalize_limit_clamp", h is not None and h["default_limit"] == 99)
+    _check("normalize_naming_default", h is not None and h["naming"] == "{user}'s Channel")
+    _check("normalize_private_bool", h is not None and h["default_private"] is True)
+    _check("normalize_garbage_none", _normalize_hub({"hub_id": "abc"}) is None)
+    _check("normalize_nondict_none", _normalize_hub("nope") is None)
+    hempty = _normalize_hub({"hub_id": 1, "category_id": ""})
+    _check("normalize_cat_empty_none", hempty is not None and hempty["category_id"] is None)
+
+    # add/get/is/remove hub + Upsert
+    mgrh = _new_manager()
+    _check("hubs_empty", mgrh.get_hubs() == [])
+    _check("add_hub_ok",
+           mgrh.add_hub(111, category_id=222, naming="{user} COD", default_limit=5) is True)
+    _check("is_hub_true", mgrh.is_hub(111) is True)
+    _check("is_hub_false", mgrh.is_hub(999) is False)
+    hub111 = mgrh.get_hub(111)
+    _check("get_hub_naming", hub111 is not None and hub111["naming"] == "{user} COD")
+    _check("get_hub_limit", hub111 is not None and hub111["default_limit"] == 5)
+    mgrh.add_hub(111, naming="{user} CHILL")  # gleiche ID -> ersetzt
+    after = mgrh.get_hub(111)
+    _check("hub_upsert",
+           len(mgrh.get_hubs()) == 1 and after is not None and after["naming"] == "{user} CHILL")
+    mgrh.add_hub(333, naming="{user} 2")
+    _check("hub_two", len(mgrh.get_hubs()) == 2)
+    _check("remove_hub_ok", mgrh.remove_hub(111) is True)
+    _check("remove_hub_gone", mgrh.is_hub(111) is False)
+    _check("remove_hub_absent", mgrh.remove_hub(111) is False)
+
+    # Persistenz: frischer Manager liest die Hubs aus der Datei
+    mgrh2 = _new_manager()
+    mgrh2.config_file = mgrh.config_file
+    mgrh2._config_mtime = None
+    mgrh2._load_config()
+    _check("hub_persist", mgrh2.is_hub(333))
+
+    # Migration: legacy join_channel_id -> Hub (nur wenn hubs leer, idempotent)
+    mgrl = _new_manager()
+    mgrl._config = {"join_channel_id": 555, "category_id": 666,
+                    "default_limit": 3, "hubs": []}
+    mgrl._migrate_legacy_hub()
+    _check("migrate_hub_created", mgrl.is_hub(555))
+    mh = mgrl.get_hub(555)
+    _check("migrate_hub_cfg",
+           mh is not None and mh["category_id"] == 666 and mh["default_limit"] == 3)
+    mgrl._config["join_channel_id"] = 777
+    mgrl._migrate_legacy_hub()  # hubs nicht leer -> kein Re-Migrate
+    _check("migrate_idempotent", not mgrl.is_hub(777))
+
+    # create_channel mit Hub: Naming-Template + private + count + hub_id-Tag
+    mgrc = _new_manager()
+    mgrc.add_hub(900, naming="COD #{count}", default_private=True)
+    guildc = MagicMock()
+    guildc.get_channel.return_value = None
+    guildc.create_voice_channel = AsyncMock(return_value=_fake_channel(901))
+    guildc.default_role = "everyone"
+    guildc.me = MagicMock()
+    memberc = MagicMock()
+    memberc.id = 7
+    memberc.display_name = "Zoe"
+    await mgrc.create_channel(guildc, memberc, hub_id=900)
+    _, ckwargs = guildc.create_voice_channel.call_args
+    _check("create_hub_naming", ckwargs.get("name") == "COD #1")
+    rec = mgrc.get_all_channels().get("901", {})
+    _check("create_hub_private", rec.get("private") is True)
+    _check("create_hub_id_stored", rec.get("hub_id") == 900)
+
+    # set_join_channel (Legacy) registriert den Channel auch als Hub
+    mgrj = _new_manager()
+    mgrj.set_join_channel(1212)
+    _check("legacy_setup_is_hub", mgrj.is_hub(1212))
 
 
 def main() -> int:
