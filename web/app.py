@@ -145,16 +145,74 @@ ws_manager = ConnectionManager()
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    """WebSocket-Endpunkt fuer Echtzeit-Updates an das Dashboard."""
+    """
+    WebSocket-Endpunkt fuer Echtzeit-Dashboard-Updates (auth-gated).
+
+    Der Broadcaster (`_dashboard_broadcaster`) pusht alle DASHBOARD_PUSH_INTERVAL
+    Sekunden den Payload an alle verbundenen Clients. Auth via JWT-Cookie —
+    der Kanal streamt Server-/System-/Bot-Daten und muss wie die fruehere
+    SSE-Variante (`require_auth_api`) angemeldet sein.
+    """
+    import json as _json
+    from web.auth import get_ws_user
+    from web.dashboard_feed import gather_dashboard_payload
+
+    if get_ws_user(websocket) is None:
+        await websocket.close(code=1008)  # Policy Violation: nicht angemeldet
+        return
+
     await ws_manager.connect(websocket)
+    # Sofort ein erstes Update schicken (Client wartet nicht aufs naechste Intervall).
+    try:
+        payload = await gather_dashboard_payload()
+        await websocket.send_text(_json.dumps({"type": "dashboard_update", **payload}))
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"WS-Initial-Payload fehlgeschlagen: {e}")
+
     try:
         while True:
-            # Auf Nachrichten vom Client warten (Heartbeat/Ping)
+            # Auf Nachrichten vom Client warten (Keep-Alive-Ping)
             data = await websocket.receive_text()
             if data == "ping":
                 await websocket.send_text("pong")
     except WebSocketDisconnect:
         ws_manager.disconnect(websocket)
+
+
+# --- Dashboard-Broadcaster (WebSocket-Push, ersetzt SSE) ---
+
+# Sekunden zwischen zwei Dashboard-Pushes (analog altem SSE-DASHBOARD_INTERVAL).
+DASHBOARD_PUSH_INTERVAL = 5
+_broadcaster_task = None
+
+
+async def _dashboard_broadcaster() -> None:
+    """
+    Pusht periodisch den Dashboard-Payload an alle verbundenen WS-Clients.
+
+    Sammelt nur Daten wenn mind. ein Client verbunden ist (kein Leerlauf-IO).
+    Ein einzelner Sammel-/Sende-Fehler bricht die Schleife nicht ab.
+    """
+    import asyncio as _asyncio
+    from web.dashboard_feed import gather_dashboard_payload
+
+    logger.info("Dashboard-WS-Broadcaster gestartet")
+    try:
+        while True:
+            await _asyncio.sleep(DASHBOARD_PUSH_INTERVAL)
+            if not ws_manager.active_connections:
+                continue
+            try:
+                payload = await gather_dashboard_payload()
+                await ws_manager.broadcast({"type": "dashboard_update", **payload})
+            except _asyncio.CancelledError:
+                raise
+            except Exception as e:  # noqa: BLE001 — Broadcaster nie sterben lassen
+                logger.warning(f"Dashboard-Broadcast fehlgeschlagen: {e}")
+    except _asyncio.CancelledError:
+        logger.debug("Dashboard-WS-Broadcaster abgebrochen")
+    finally:
+        logger.info("Dashboard-WS-Broadcaster beendet")
 
 
 # --- Routen einbinden ---
@@ -169,7 +227,6 @@ from web.routes.analytics_route import router as analytics_router    # noqa: E40
 from web.routes.admin_bot_route import router as admin_bot_router    # noqa: E402
 from web.routes.health_route import router as health_router          # noqa: E402
 from web.routes.security_route import router as security_router      # noqa: E402
-from web.routes.sse_route import router as sse_router                # noqa: E402
 from web.routes.forecast_route import router as forecast_router      # noqa: E402
 from web.routes.backup_status_route import router as backup_status_router  # noqa: E402
 from web.routes.export_route import router as export_router          # noqa: E402
@@ -193,7 +250,6 @@ app.include_router(analytics_router)
 app.include_router(admin_bot_router)
 app.include_router(health_router)
 app.include_router(security_router)
-app.include_router(sse_router)
 app.include_router(forecast_router)
 app.include_router(backup_status_router)
 app.include_router(export_router)
@@ -218,18 +274,31 @@ app.include_router(lfg_router)
 @app.on_event("startup")
 async def on_startup():
     """Wird beim Start des Servers ausgefuehrt."""
+    global _broadcaster_task
     # F28: SQLite-Datenbank initialisieren
     try:
         await init_db()
         logger.info("SQLite-Datenbank fuer Dashboard initialisiert")
     except Exception as e:
         logger.error(f"Datenbank-Initialisierung fehlgeschlagen: {e}")
+    # D3: Dashboard-WS-Broadcaster starten (ersetzt SSE)
+    import asyncio as _asyncio
+    _broadcaster_task = _asyncio.create_task(_dashboard_broadcaster())
     logger.info(f"Web Dashboard gestartet auf Port {WEB_PORT}")
 
 
 @app.on_event("shutdown")
 async def on_shutdown():
     """Wird beim Herunterfahren des Servers ausgefuehrt."""
+    global _broadcaster_task
+    # D3: Broadcaster sauber beenden
+    if _broadcaster_task is not None:
+        _broadcaster_task.cancel()
+        try:
+            await _broadcaster_task
+        except Exception:  # noqa: BLE001 — CancelledError o.ae. erwartet
+            pass
+        _broadcaster_task = None
     # F28: Datenbank sauber schliessen
     await close_db()
     logger.info("Web Dashboard wird heruntergefahren")

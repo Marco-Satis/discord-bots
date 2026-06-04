@@ -142,6 +142,20 @@ def get_current_user(request: Request) -> Optional[dict]:
     return _decode_jwt(token)
 
 
+def get_ws_user(websocket) -> Optional[dict]:
+    """
+    Authentifiziert eine WebSocket-Verbindung über das JWT-Cookie.
+
+    Pendant zu require_auth_api für WebSockets (der WS-Push-Kanal des Dashboards
+    streamt Server-/System-/Bot-Daten und muss wie die alten SSE-Endpoints
+    auth-gated sein). Gibt User-Dict oder None (Caller schließt die Verbindung).
+    """
+    token = websocket.cookies.get("dashboard_token")
+    if not token:
+        return None
+    return _decode_jwt(token)
+
+
 async def require_auth(request: Request):
     """
     FastAPI-Dependency fuer HTML-Endpoints: Leitet zur Login-Seite weiter wenn nicht angemeldet.

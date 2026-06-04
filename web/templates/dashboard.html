@@ -356,36 +356,53 @@ document.addEventListener('DOMContentLoaded', function() { loadCharts('24h'); })
 //   SSE Live-Updates (Hooks unveraendert)
 // ============================================================
 (function() {
-    var sse = null;
+    // D3: WebSocket-Live-Updates (ersetzt SSE). Server pusht alle 5s
+    // {type:'dashboard_update', servers, system, bots, events}.
+    var ws = null;
     var reconnectDelay = 1000;
     var reconnectTimer = null;
+    var pingTimer = null;
 
-    function connectSSE() {
-        if (sse) { try { sse.close(); } catch(e) {} sse = null; }
+    function applyUpdate(data) {
+        updateServerTiles(data.servers || []);
+        updateSystemStats(data.system || {});
+        updateBotStatus(data.bots || []);
+        updateEvents(data.events || []);
+    }
+
+    function connectWS() {
+        if (ws) { try { ws.close(); } catch(e) {} ws = null; }
         reconnectTimer = null;
-
-        sse = new EventSource('/api/sse/dashboard');
-        sse.onopen = function() { reconnectDelay = 1000; };
-        sse.addEventListener('dashboard_update', function(e) {
+        var proto = (location.protocol === 'https:') ? 'wss://' : 'ws://';
+        ws = new WebSocket(proto + location.host + '/ws');
+        ws.onopen = function() {
+            reconnectDelay = 1000;
+            if (pingTimer) clearInterval(pingTimer);
+            pingTimer = setInterval(function() {
+                if (ws && ws.readyState === 1) { try { ws.send('ping'); } catch(e) {} }
+            }, 25000);
+        };
+        ws.onmessage = function(e) {
+            if (e.data === 'pong') return;
             try {
-                var data = JSON.parse(e.data);
-                updateServerTiles(data.servers || []);
-                updateSystemStats(data.system || {});
-                updateBotStatus(data.bots || []);
-                updateEvents(data.events || []);
-            } catch(err) { console.warn('SSE parse error:', err); }
-        });
-        sse.onerror = function() {
-            if (sse) { try { sse.close(); } catch(e) {} sse = null; }
+                var msg = JSON.parse(e.data);
+                if (msg && msg.type === 'dashboard_update') applyUpdate(msg);
+            } catch(err) { console.warn('WS parse error:', err); }
+        };
+        ws.onclose = function() {
+            if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
+            ws = null;
             if (reconnectTimer) return;
-            reconnectTimer = setTimeout(function() { reconnectTimer = null; connectSSE(); }, reconnectDelay);
+            reconnectTimer = setTimeout(function() { reconnectTimer = null; connectWS(); }, reconnectDelay);
             reconnectDelay = Math.min(reconnectDelay * 2, 30000);
         };
+        ws.onerror = function() { if (ws) { try { ws.close(); } catch(e) {} } };
     }
 
     window.addEventListener('pagehide', function() {
         if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
-        if (sse) { try { sse.close(); } catch(e) {} sse = null; }
+        if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
+        if (ws) { try { ws.close(); } catch(e) {} ws = null; }
     });
 
     function _stateClass(val, warnAt, dangerAt) {
@@ -533,7 +550,7 @@ document.addEventListener('DOMContentLoaded', function() { loadCharts('24h'); })
         });
     }
 
-    if (typeof EventSource !== 'undefined') connectSSE();
+    if (typeof WebSocket !== 'undefined') connectWS();
 })();
 </script>
 {% endblock %}

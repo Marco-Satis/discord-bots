@@ -50,6 +50,10 @@ Alle relevanten Aenderungen am Discord Bot System werden hier dokumentiert.
 - **`cogs/lfg_cog.py`** (neu): leichtgewichtig (Marco-Scope) — **selbst-zuweisbare LFG-Ping-Rolle** statt Spielkatalog/Auto-Voice. `/lfg ping [nachricht]` pingt **nur die LFG-Rolle** (kein @everyone, `AllowedMentions(roles=[role])`, Markdown-escaped) mit per-Guild-Cooldown; `/lfg an`·`/lfg aus` Self-Subscribe; `/lfg panel` persistenter An/Aus-Button; `/lfg setup`·`/lfg status` (Admin). Optionale Channel-Beschränkung. Config per-Guild in `guild_config` (`lfg.role_id`/`channel_id`/`cooldown_seconds`).
 - **Dashboard-Seite `/lfg`** (`web/routes/lfg_route.py` + `lfg.html` + Partial + Nav): Rollen-/Kanal-ID + Cooldown editierbar (HTMX, globale CSRFMiddleware, Snowflake-Validierung, schreibt `guild_config`). Tests `test_lfg_web` (9, Round-Trip + Isolation).
 
+### Dashboard-Realtime (D3: SSE → WebSocket)
+- **SSE entfernt, WebSocket als echter Push-Kanal** (Plan-Entscheid „WS behalten, SSE raus"). Bisher war `/ws` ein passiver Ping/Pong-Shell (broadcastete nie) und die Live-Updates liefen über SSE (`/api/sse/dashboard`). Jetzt: Broadcaster in `web/app.py` pusht alle 5s `{type:'dashboard_update', servers, system, bots, events}` an alle verbundenen WS-Clients (nur wenn mind. 1 verbunden — kein Leerlauf-IO). Frontend (`dashboard.html`) nutzt `WebSocket` statt `EventSource` (Reconnect-Backoff + 25s-Keep-Alive-Ping). Daten-Sammler nach `web/dashboard_feed.py` ausgelagert (`gather_dashboard_payload`). **`web/routes/sse_route.py` gelöscht** (+ Import/Registrierung in app.py raus).
+- **Security:** WS-Endpoint jetzt **auth-gated** (`get_ws_user` prüft `dashboard_token`-JWT-Cookie, schließt 1008 bei Anon) — schließt die Lücke, dass ein offener `/ws` Server-/System-Daten an Nicht-Angemeldete gestreamt hätte (SSE war via `require_auth_api` gated). nginx `location /` proxyt Upgrade-Header bereits.
+
 ### Sonstiges
 - **`/setup_topics`** (`cogs/channel_setup_cog.py`): Channel-Topics automatisch setzen (dry-run-Default).
 - **Embed-Helper** (`utils/embeds.py`) als Stil-Fundament.
