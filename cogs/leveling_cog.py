@@ -267,15 +267,12 @@ class LevelingCog(commands.Cog):
             message.guild.id, message.author, new_level
         )
 
-        try:
-            if file is not None:
-                await message.channel.send(
-                    content=message.author.mention, embed=embed, file=file
-                )
-            else:
-                await message.channel.send(embed=embed)
-        except (discord.Forbidden, discord.HTTPException) as e:
-            logger.warning(f"Level-Up Nachricht konnte nicht gesendet werden: {e}")
+        # Announce-Channel (Dashboard) bevorzugen, sonst Ausloese-Kanal.
+        target = self._resolve_levelup_channel(message.guild, message.channel)
+        if target is not None and isinstance(message.author, discord.Member):
+            await self._send_levelup(
+                target, message.author, file, embed, message.guild.id
+            )
 
         # Rollen-Belohnung vergeben
         await self._apply_role_reward(message.author, new_level, message.guild)
@@ -439,8 +436,11 @@ class LevelingCog(commands.Cog):
             guild.id, member, new_level, via_voice=True
         )
 
-        # System-Channel oder ersten beschreibbaren Text-Channel finden
-        channel = guild.system_channel
+        # Announce-Channel (Dashboard) bevorzugen, sonst System-Channel,
+        # sonst ersten beschreibbaren Text-Channel.
+        channel: Optional[discord.abc.Messageable] = self._resolve_levelup_channel(
+            guild, guild.system_channel
+        )
         if not channel:
             for tc in guild.text_channels:
                 perms = tc.permissions_for(guild.me)
@@ -449,17 +449,7 @@ class LevelingCog(commands.Cog):
                     break
 
         if channel:
-            try:
-                if file is not None:
-                    await channel.send(
-                        content=member.mention, embed=embed, file=file
-                    )
-                else:
-                    await channel.send(embed=embed)
-            except (discord.Forbidden, discord.HTTPException) as e:
-                logger.warning(
-                    f"Voice Level-Up Nachricht fehlgeschlagen: {e}"
-                )
+            await self._send_levelup(channel, member, file, embed, guild.id)
 
         # Rollen-Belohnung vergeben
         await self._apply_role_reward(member, new_level, guild)
@@ -553,6 +543,59 @@ class LevelingCog(commands.Cog):
         )
         embed.set_thumbnail(url=member.display_avatar.url)
         return None, embed
+
+    def _resolve_levelup_channel(
+        self,
+        guild: discord.Guild,
+        fallback: Optional[discord.abc.Messageable],
+    ) -> Optional[discord.abc.Messageable]:
+        """
+        Ziel-Channel fuer Level-Up-Posts ermitteln (B2, Dashboard-konfigurierbar).
+
+        Bevorzugt den im Dashboard gesetzten Announce-Channel (wenn vorhanden,
+        existent und fuer den Bot beschreibbar). Sonst den uebergebenen Fallback:
+        Ausloese-Kanal bei Nachrichten, System-Channel bei Voice.
+        """
+        cid = self.leveling.get_announce_channel(guild.id)
+        if cid:
+            ch = guild.get_channel(cid)
+            if isinstance(ch, discord.TextChannel):
+                perms = ch.permissions_for(guild.me)
+                if perms.send_messages and perms.embed_links:
+                    return ch
+        return fallback
+
+    async def _send_levelup(
+        self,
+        channel: discord.abc.Messageable,
+        member: discord.Member,
+        file: Optional[discord.File],
+        embed: discord.Embed,
+        guild_id: int,
+    ) -> None:
+        """
+        Level-Up-Nachricht senden — mit optionalem Member-Ping (B1, Dashboard-Toggle).
+
+        allowed_mentions erlaubt gezielt nur den einen User-Ping
+        (kein @everyone/@here/Rollen-Ping — Defense-in-Depth).
+        """
+        ping = self.leveling.is_levelup_ping_enabled(guild_id)
+        content = member.mention if ping else None
+        mentions = discord.AllowedMentions(
+            everyone=False, roles=False, users=[member] if ping else False
+        )
+        try:
+            if file is not None:
+                await channel.send(
+                    content=content, embed=embed, file=file,
+                    allowed_mentions=mentions,
+                )
+            else:
+                await channel.send(
+                    content=content, embed=embed, allowed_mentions=mentions,
+                )
+        except (discord.Forbidden, discord.HTTPException) as e:
+            logger.warning(f"Level-Up Nachricht konnte nicht gesendet werden: {e}")
 
     async def _apply_role_reward(
         self,
@@ -974,6 +1017,89 @@ class LevelingCog(commands.Cog):
             await interaction.followup.send(
                 f"{channel.mention} ist wieder XP-berechtigt.",
                 ephemeral=True,
+            )
+
+    # ==================================================================
+    # /xp announce <channel> [entfernen]
+    # ==================================================================
+
+    @xp_grp.command(
+        name="announce",
+        description="Festen Kanal fuer Level-Up-Nachrichten setzen (Dashboard-Fallback)",
+    )
+    @app_commands.describe(
+        channel="Kanal in dem Level-Ups gepostet werden",
+        entfernen="True = Kanal entfernen (wieder im Ausloese-Kanal posten)",
+    )
+    @admin_only()
+    async def xp_announce(
+        self,
+        interaction: discord.Interaction,
+        channel: Optional[discord.TextChannel] = None,
+        entfernen: bool = False,
+    ) -> None:
+        """Announce-Channel fuer Level-Up-Posts setzen/entfernen (auch im Dashboard)."""
+        await interaction.response.defer(ephemeral=True)
+
+        if interaction.guild is None:
+            await interaction.followup.send(
+                "Nur auf einem Server nutzbar.", ephemeral=True
+            )
+            return
+
+        if entfernen:
+            await self.leveling.set_announce_channel(interaction.guild.id, None)
+            await interaction.followup.send(
+                "Announce-Kanal entfernt — Level-Ups werden wieder im "
+                "Ausloese-Kanal gepostet.",
+                ephemeral=True,
+            )
+            return
+
+        if channel is None:
+            await interaction.followup.send(
+                "Bitte einen Kanal angeben (oder `entfernen:True`).", ephemeral=True
+            )
+            return
+
+        await self.leveling.set_announce_channel(interaction.guild.id, channel.id)
+        await interaction.followup.send(
+            f"Level-Up-Nachrichten werden ab jetzt in {channel.mention} gepostet.",
+            ephemeral=True,
+        )
+
+    # ==================================================================
+    # /xp ping <aktiv>
+    # ==================================================================
+
+    @xp_grp.command(
+        name="ping",
+        description="Member bei Level-Up anpingen an-/ausschalten (Dashboard-Fallback)",
+    )
+    @app_commands.describe(aktiv="True = Member anpingen, False = nur Nachricht")
+    @admin_only()
+    async def xp_ping(
+        self,
+        interaction: discord.Interaction,
+        aktiv: bool,
+    ) -> None:
+        """Member-Ping bei Level-Up umschalten (auch im Dashboard editierbar)."""
+        await interaction.response.defer(ephemeral=True)
+
+        if interaction.guild is None:
+            await interaction.followup.send(
+                "Nur auf einem Server nutzbar.", ephemeral=True
+            )
+            return
+
+        await self.leveling.set_levelup_ping(interaction.guild.id, aktiv)
+        if aktiv:
+            await interaction.followup.send(
+                "Member werden bei Level-Up jetzt **angepingt**.", ephemeral=True
+            )
+        else:
+            await interaction.followup.send(
+                "Level-Up-Nachrichten **ohne** Member-Ping.", ephemeral=True
             )
 
     # ==================================================================

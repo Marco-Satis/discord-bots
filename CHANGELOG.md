@@ -19,10 +19,12 @@ Alle relevanten Aenderungen am Discord Bot System werden hier dokumentiert.
 - **Echte Voice-Sessions statt 5-Min-Ticks** (`modules/voice_sessions.py`): Anti-Cheat — XP nur bei ≥2 Menschen, kein self/server-deaf, nicht AFK; akkumuliert nur valide Sekunden.
 - **No-XP-Channels, Leaderboard-Pagination + eigene Position, Role-Rewards** (Sammel- vs Aufstiegs-Modus, `/levelrewards`), Rank-Card als 1-Admin-Template (BG/Akzent per-Guild).
 - Config JSON → `guild_config` (Dashboard-editierbar), sync Hot-Path-Cache.
+- **Level-Up-Benachrichtigung (B1+B2):** Member-Ping (Toggle, Default an) + fester Announce-Kanal (Default: Auslöse-/System-Kanal) — beide per-Guild, Dashboard-editierbar (`leveling.levelup_ping`/`leveling.announce_channel`) + Slash-Fallback `/xp ping`·`/xp announce`. Ping + Announce in Nachrichten- UND Voice-Pfad konsistent (vorher nur Karten-Pfad gepingt); `AllowedMentions` pingt gezielt nur den Member (kein @everyone/Rollen).
 
 ### Dashboard
 - **Config-Bridge** (`web/guild_config_bridge.py`): Leveling-Dashboard ↔ per-Guild `guild_config` (Format-Konvertierung, Cross-Prozess via TTL).
-- **Web-Leaderboard** (`web/routes/leveling_route.py` + `leveling.html`): `GET /leveling`, Top-100 guild-scoped, require_auth (noch nicht deployed).
+- **Web-Leaderboard** (`web/routes/leveling_route.py` + `leveling.html`): `GET /leveling`, Top-100 guild-scoped, require_auth.
+- **Level-Up-Config-Seite (B2):** `POST /leveling/config` + HTMX-Partial `partials/leveling_config.html` — Announce-Kanal-ID + Ping-Toggle direkt im Dashboard (CSRF via `body[hx-headers]`, Snowflake-Validierung, schreibt `guild_config`).
 
 ### Linked-Accounts (Wave 2)
 - **Migration v7:** `user_linked_accounts` (`UNIQUE(guild_id,user_id,platform)`). `modules/linked_accounts.py` + `/link`·`/unlink`·`/accounts` (Plattform-Whitelist, Cooldowns, escape+AllowedMentions.none).
@@ -36,7 +38,7 @@ Alle relevanten Aenderungen am Discord Bot System werden hier dokumentiert.
 - **Embed-Helper** (`utils/embeds.py`) als Stil-Fundament.
 - **Tech-Debt M2:** tote `UpdateChecker`-Instanz aus gameserver-bot entfernt (SAT-Update-Check laeuft ausschliesslich im monitor-bot).
 - **Ping-Haertung:** `everyone=False`-Guard fuer gewollte Pings (Ticket-Support-Notify, Giveaway-Gewinner).
-- **Tests:** `test_guild_context` (32), `test_leveling` (59), `test_voice_sessions` (24), `test_linked_accounts` (18), `test_raid_detector` (18), `test_migration_v7` (6), `test_channel_topics` (11), `test_dashboard_bridge` (18) u.a.
+- **Tests:** `test_guild_context` (32), `test_leveling` (71), `test_voice_sessions` (24), `test_linked_accounts` (18), `test_raid_detector` (18), `test_migration_v7` (6), `test_channel_topics` (11), `test_dashboard_bridge` (18), `test_leveling_web` (+B1/B2-Config) u.a.
 
 ---
 

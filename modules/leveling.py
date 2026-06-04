@@ -81,6 +81,11 @@ def _default_config() -> dict[str, Any]:
         "levelup_card_enabled": False,
         "levelup_card_bg": None,
         "levelup_card_accent": "#f1c40f",
+        # Level-Up-Benachrichtigung: Member anpingen + fester Announce-Channel.
+        # announce_channel = None -> im Kanal posten wo das Level-Up ausgeloest
+        # wurde (Nachricht) bzw. System-Channel (Voice). Beides Dashboard-editierbar.
+        "levelup_ping": True,
+        "announce_channel": None,
     }
 
 
@@ -745,6 +750,53 @@ class LevelingManager:
             guild_id, "leveling.levelup_card_accent", hex_color, updated_by="command"
         )
         logger.info(f"Level-Up-Karten-Akzent Guild {guild_id}: {hex_color}")
+
+    # ------------------------------------------------------------------
+    # Level-Up-Benachrichtigung: Ping + Announce-Channel (per-Guild)
+    # ------------------------------------------------------------------
+
+    def is_levelup_ping_enabled(self, guild_id: int | str) -> bool:
+        """True wenn der Member bei einem Level-Up angepingt werden soll."""
+        return bool(self._gcfg(guild_id).get("levelup_ping", True))
+
+    def get_announce_channel(self, guild_id: int | str) -> int | None:
+        """
+        Channel-ID fuer Level-Up-Posts (oder None = Ausloese-/System-Channel).
+
+        Toleriert leere/ungueltige Werte (None statt Crash).
+        """
+        val = self._gcfg(guild_id).get("announce_channel")
+        if val in (None, "", 0, "0"):
+            return None
+        try:
+            return int(val)
+        except (TypeError, ValueError):
+            return None
+
+    async def set_levelup_ping(self, guild_id: int | str, enabled: bool) -> None:
+        """Member-Ping bei Level-Up an-/ausschalten (nach guild_config)."""
+        cfg = await self._ensure_guild_config(guild_id)
+        cfg["levelup_ping"] = bool(enabled)
+        await GuildConfig.set(
+            guild_id, "leveling.levelup_ping", bool(enabled), updated_by="command"
+        )
+        logger.info(f"Level-Up-Ping Guild {guild_id} = {enabled}")
+
+    async def set_announce_channel(
+        self, guild_id: int | str, channel_id: int | None
+    ) -> None:
+        """
+        Festen Announce-Channel fuer Level-Ups setzen (nach guild_config).
+
+        channel_id None/0 -> Eintrag auf None (Ausloese-/System-Channel-Fallback).
+        """
+        cfg = await self._ensure_guild_config(guild_id)
+        val = int(channel_id) if channel_id else None
+        cfg["announce_channel"] = val
+        await GuildConfig.set(
+            guild_id, "leveling.announce_channel", val, updated_by="command"
+        )
+        logger.info(f"Level-Up-Announce-Channel Guild {guild_id} = {val}")
 
     # ------------------------------------------------------------------
     # Leaderboard (guild-scoped)

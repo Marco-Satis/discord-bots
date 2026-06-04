@@ -19,7 +19,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 try:
     import aiosqlite  # noqa: F401
     from modules.database import db_manager
-    from web.routes.leveling_route import _load_leaderboard, _format_voice
+    from modules.guild_context import GuildConfig, clear_cache
+    from web.routes.leveling_route import (
+        _format_voice,
+        _load_leaderboard,
+        _load_levelup_config,
+    )
     HAVE_DEPS = True
 except Exception:  # noqa: BLE001 — fastapi/pydantic lokal evtl. nicht ladbar
     HAVE_DEPS = False
@@ -64,6 +69,21 @@ async def run_tests() -> None:
         _check("ranks", [e["rank"] for e in lb] == [1, 2, 3])
         _check("top_user", lb[0]["user_id"] == "u1" and lb[0]["level"] == 27)
         _check("voice_fmt", lb[2]["voice"] == "0m" and lb[0]["voice"] == "1h 5m")
+
+        # --- B1+B2: _load_levelup_config (Dashboard liest guild_config) ---
+        clear_cache()
+        # Default-Guild (kein Eintrag): announce leer, ping True
+        cfg_def = await _load_levelup_config(999)
+        _check("web_cfg_default_announce", cfg_def["announce_channel"] == "")
+        _check("web_cfg_default_ping", cfg_def["levelup_ping"] is True)
+
+        # Mit gesetzten Werten: announce als str (Template-tauglich), ping bool
+        await GuildConfig.set(int(GA), "leveling.announce_channel", 778899)
+        await GuildConfig.set(int(GA), "leveling.levelup_ping", False)
+        clear_cache()
+        cfg_a = await _load_levelup_config(int(GA))
+        _check("web_cfg_announce_str", cfg_a["announce_channel"] == "778899")
+        _check("web_cfg_ping_off", cfg_a["levelup_ping"] is False)
     finally:
         await db_manager.close_db()
 

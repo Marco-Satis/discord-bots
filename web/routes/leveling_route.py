@@ -15,7 +15,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from modules.database.db_manager import get_read_db
-from modules.guild_context import get_primary_guild_id
+from modules.guild_context import GuildConfig, get_primary_guild_id
 from utils.logger import get_logger
 from web.auth import require_auth
 
@@ -27,6 +27,24 @@ templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 router = APIRouter(tags=["Leveling"])
 
 LEADERBOARD_LIMIT = 100
+
+
+async def _load_levelup_config(guild_id: int) -> dict:
+    """
+    Level-Up-Benachrichtigungs-Config der Guild aus `guild_config` lesen.
+
+    Liefert announce_channel (str|"" fuer Template) + levelup_ping (bool).
+    """
+    try:
+        announce = await GuildConfig.get(guild_id, "leveling.announce_channel", None)
+        ping = await GuildConfig.get(guild_id, "leveling.levelup_ping", True)
+    except Exception as e:
+        logger.error(f"Level-Up-Config laden fehlgeschlagen: {e}")
+        return {"announce_channel": "", "levelup_ping": True}
+    return {
+        "announce_channel": str(announce) if announce else "",
+        "levelup_ping": bool(ping),
+    }
 
 
 def _format_voice(minutes: int) -> str:
@@ -68,11 +86,13 @@ async def _load_leaderboard(guild_id: int) -> list[dict]:
 
 @router.get("/leveling", response_class=HTMLResponse)
 async def leveling_page(request: Request, current_user: dict = Depends(require_auth)):
-    """Web-Leaderboard der Haupt-Guild anzeigen."""
+    """Web-Leaderboard + Level-Up-Benachrichtigungs-Config der Haupt-Guild."""
     guild_id = get_primary_guild_id()
     entries: list[dict] = []
+    cfg = {"announce_channel": "", "levelup_ping": True}
     if guild_id is not None:
         entries = await _load_leaderboard(guild_id)
+        cfg = await _load_levelup_config(guild_id)
 
     return templates.TemplateResponse("leveling.html", {
         "request": request,
@@ -80,4 +100,71 @@ async def leveling_page(request: Request, current_user: dict = Depends(require_a
         "entries": entries,
         "guild_set": guild_id is not None,
         "total": len(entries),
+        "cfg": cfg,
+        "success": "",
+        "error": "",
+    })
+
+
+@router.post("/leveling/config", response_class=HTMLResponse)
+async def leveling_config_save(
+    request: Request, current_user: dict = Depends(require_auth)
+):
+    """
+    Level-Up-Benachrichtigung speichern: Announce-Channel + Member-Ping.
+
+    Schreibt nach `guild_config` (Keys `leveling.announce_channel` /
+    `leveling.levelup_ping`). Der Bot liest sie ueber den 15s-TTL-Cache —
+    Aenderung greift spaetestens nach TTL ohne Bot-Neustart.
+    """
+    guild_id = get_primary_guild_id()
+    success = ""
+    error = ""
+
+    if guild_id is None:
+        error = "Keine Haupt-Guild gesetzt (ENV GUILD_ID)."
+        cfg = {"announce_channel": "", "levelup_ping": True}
+    else:
+        try:
+            form = await request.form()
+            raw_channel = str(form.get("announce_channel", "")).strip()
+            ping = "levelup_ping" in form
+
+            # Channel-ID validieren: leer = entfernen, sonst nur Ziffern (Snowflake)
+            channel_val: int | None = None
+            if raw_channel:
+                if raw_channel.isdigit():
+                    channel_val = int(raw_channel)
+                else:
+                    raise ValueError("Channel-ID muss eine reine Zahl sein.")
+
+            await GuildConfig.set(
+                guild_id, "leveling.announce_channel", channel_val,
+                updated_by="dashboard",
+            )
+            await GuildConfig.set(
+                guild_id, "leveling.levelup_ping", ping, updated_by="dashboard",
+            )
+            logger.info(
+                f"Level-Up-Config gespeichert von "
+                f"{current_user.get('username', 'Unbekannt')}: "
+                f"channel={channel_val} ping={ping}"
+            )
+            success = "Level-Up-Benachrichtigung gespeichert."
+        except ValueError as e:
+            error = f"Ungueltige Eingabe: {e}"
+        except Exception as e:
+            logger.error(f"Level-Up-Config speichern fehlgeschlagen: {e}")
+            error = "Fehler beim Speichern. Details im Server-Log."
+
+        cfg = await _load_levelup_config(guild_id)
+
+    # Partial zurueck (HTMX-Swap des Config-Blocks) — CSRF-Header kommt via
+    # body[hx-headers] aus base_v5.html, daher HTMX statt nativem Form-Post.
+    return templates.TemplateResponse("partials/leveling_config.html", {
+        "request": request,
+        "guild_set": guild_id is not None,
+        "cfg": cfg,
+        "success": success,
+        "error": error,
     })

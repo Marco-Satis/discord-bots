@@ -232,6 +232,47 @@ async def run_tests() -> None:
         _check("rr_remove_absent_false", await mgr6.remove_role_reward(GUILD_C, 99) is False)
 
         # ============================================================
+        # 10) B1+B2: Level-Up-Ping + Announce-Channel (per-Guild)
+        # ============================================================
+        mgrB = _new_manager()
+        await mgrB.load_guild_config(GUILD_A)
+        # Defaults: Ping AN, kein Announce-Channel
+        _check("ping_default_on", mgrB.is_levelup_ping_enabled(GUILD_A) is True)
+        _check("announce_default_none", mgrB.get_announce_channel(GUILD_A) is None)
+
+        # Setter: Announce-Channel (als int gespeichert + gelesen)
+        await mgrB.set_announce_channel(GUILD_A, 556677)
+        _check("announce_set", mgrB.get_announce_channel(GUILD_A) == 556677)
+        _check("announce_is_int", isinstance(mgrB.get_announce_channel(GUILD_A), int))
+
+        # Setter: Ping ausschalten
+        await mgrB.set_levelup_ping(GUILD_A, False)
+        _check("ping_off", mgrB.is_levelup_ping_enabled(GUILD_A) is False)
+
+        # Announce 0/None entfernt den Channel (Fallback)
+        await mgrB.set_announce_channel(GUILD_A, None)
+        _check("announce_cleared", mgrB.get_announce_channel(GUILD_A) is None)
+        await mgrB.set_announce_channel(GUILD_A, 0)
+        _check("announce_zero_none", mgrB.get_announce_channel(GUILD_A) is None)
+
+        # Persistenz: frischer Manager liest Werte aus guild_config
+        await mgrB.set_announce_channel(GUILD_A, 998877)
+        mgrB2 = _new_manager()
+        await mgrB2.load_guild_config(GUILD_A)
+        _check("announce_persisted", mgrB2.get_announce_channel(GUILD_A) == 998877)
+        _check("ping_persisted_off", mgrB2.is_levelup_ping_enabled(GUILD_A) is False)
+
+        # Isolation: Guild B unberuehrt (Default)
+        _check("announce_no_leak_b", mgrB2.get_announce_channel(GUILD_B) is None)
+        _check("ping_no_leak_b", mgrB2.is_levelup_ping_enabled(GUILD_B) is True)
+
+        # String-Wert in guild_config wird tolerant als int gelesen
+        await GuildConfig.set(GUILD_C, "leveling.announce_channel", "445566")
+        mgrB3 = _new_manager()
+        await mgrB3.load_guild_config(GUILD_C)
+        _check("announce_str_tolerant", mgrB3.get_announce_channel(GUILD_C) == 445566)
+
+        # ============================================================
         # 9) C4/C5: Embeds + _apply_role_reward (nur wenn discord da)
         # ============================================================
         try:

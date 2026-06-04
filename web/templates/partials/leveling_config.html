@@ -1,0 +1,37 @@
+{# Level-Up-Benachrichtigungs-Config (B1+B2) — HTMX-Partial.
+   Wird von leveling.html via {% include %} eingebunden UND von POST
+   /leveling/config als Swap-Ziel (#lvl-config) zurueckgegeben. CSRF-Header
+   kommt aus body[hx-headers] (base_v5.html). #}
+<div id="lvl-config" class="config-section lvl-config-card">
+    <h2 class="lvl-config-title">Level-Up-Benachrichtigung</h2>
+
+    {% if success %}<div class="lvl-banner lvl-banner-ok">{{ success }}</div>{% endif %}
+    {% if error %}<div class="lvl-banner lvl-banner-err">{{ error }}</div>{% endif %}
+
+    {% if not guild_set %}
+        <p>Keine Haupt-Guild gesetzt (ENV <code>GUILD_ID</code>) — Konfiguration nicht verfuegbar.</p>
+    {% else %}
+    <form hx-post="/leveling/config" hx-target="#lvl-config" hx-swap="outerHTML">
+        <div class="lvl-field">
+            <label for="announce_channel">Announce-Kanal (Channel-ID)</label>
+            <input type="text" id="announce_channel" name="announce_channel"
+                   inputmode="numeric" pattern="[0-9]*"
+                   value="{{ cfg.announce_channel }}"
+                   placeholder="leer = im Auslöse-Kanal posten">
+            <small>
+                Discord-Kanal-ID (Entwicklermodus → Rechtsklick auf Kanal →
+                „ID kopieren"). Leer = Level-Up erscheint im Kanal wo es
+                ausgelöst wurde (bei Voice: System-Kanal).
+            </small>
+        </div>
+        <div class="lvl-field lvl-field-check">
+            <label>
+                <input type="checkbox" name="levelup_ping"
+                       {% if cfg.levelup_ping %}checked{% endif %}>
+                Member bei Level-Up anpingen
+            </label>
+        </div>
+        <button type="submit" class="lvl-save-btn">Speichern</button>
+    </form>
+    {% endif %}
+</div>
