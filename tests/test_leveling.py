@@ -272,6 +272,21 @@ async def run_tests() -> None:
         await mgrB3.load_guild_config(GUILD_C)
         _check("announce_str_tolerant", mgrB3.get_announce_channel(GUILD_C) == 445566)
 
+        # B3: Leaderboard-Bild-Karte (per-Guild, Default AUS)
+        mgrLB = _new_manager()
+        await mgrLB.load_guild_config(GUILD_A)
+        _check("lbcard_default_off", mgrLB.is_leaderboard_card_enabled(GUILD_A) is False)
+        _check("lbbg_default_none", mgrLB.get_leaderboard_bg(GUILD_A) is None)
+        await mgrLB.set_leaderboard_card_enabled(GUILD_A, True)
+        await mgrLB.set_leaderboard_bg(GUILD_A, "leaderboard_bg.png")
+        _check("lbcard_on", mgrLB.is_leaderboard_card_enabled(GUILD_A) is True)
+        _check("lbbg_set", mgrLB.get_leaderboard_bg(GUILD_A) == "leaderboard_bg.png")
+        # Persistenz + Isolation
+        mgrLB2 = _new_manager()
+        await mgrLB2.load_guild_config(GUILD_A)
+        _check("lbcard_persisted", mgrLB2.is_leaderboard_card_enabled(GUILD_A) is True)
+        _check("lbcard_no_leak_b", mgrLB2.is_leaderboard_card_enabled(GUILD_B) is False)
+
         # ============================================================
         # 9) C4/C5: Embeds + _apply_role_reward (nur wenn discord da)
         # ============================================================
@@ -368,6 +383,21 @@ async def run_tests() -> None:
                 )
                 _check("card_render_png", isinstance(png, bytes) and len(png) > 100,
                        f"len={len(png) if isinstance(png, bytes) else 'n/a'}")
+
+                # B3: Leaderboard-Karte rendert PNG (ohne BG -> Solid-Fallback)
+                from modules.levelup_card import render_leaderboard_card as _rlb
+                lb_rows = [
+                    {"rank": i, "name": f"Player{i}", "level": 20 - i,
+                     "xp": (20 - i) * 500, "avatar": None}
+                    for i in range(1, 6)
+                ]
+                lb_png = _rlb(lb_rows, None, "#3b82f6", "LEADERBOARD", "TestGuild · 5")
+                _check("lb_card_render_png",
+                       isinstance(lb_png, bytes) and len(lb_png) > 100,
+                       f"len={len(lb_png) if isinstance(lb_png, bytes) else 'n/a'}")
+                # Leere Liste darf nicht crashen (min 1 Zeile Hoehe)
+                lb_empty = _rlb([], None, "#3b82f6")
+                _check("lb_card_empty_ok", isinstance(lb_empty, bytes))
             except ImportError:
                 pass  # Pillow lokal nicht installiert
         except ImportError:

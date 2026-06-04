@@ -80,10 +80,16 @@ async def run_tests() -> None:
         # Mit gesetzten Werten: announce als str (Template-tauglich), ping bool
         await GuildConfig.set(int(GA), "leveling.announce_channel", 778899)
         await GuildConfig.set(int(GA), "leveling.levelup_ping", False)
+        await GuildConfig.set(int(GA), "leveling.leaderboard_card_enabled", True)
+        await GuildConfig.set(int(GA), "leveling.leaderboard_bg", "leaderboard_bg.png")
         clear_cache()
         cfg_a = await _load_levelup_config(int(GA))
         _check("web_cfg_announce_str", cfg_a["announce_channel"] == "778899")
         _check("web_cfg_ping_off", cfg_a["levelup_ping"] is False)
+        _check("web_cfg_lbcard_on", cfg_a["leaderboard_card"] is True)
+        _check("web_cfg_lbbg", cfg_a["leaderboard_bg"] == "leaderboard_bg.png")
+        # Default-Guild: Leaderboard-Karte aus
+        _check("web_cfg_lbcard_default", cfg_def["leaderboard_card"] is False)
     finally:
         await db_manager.close_db()
 

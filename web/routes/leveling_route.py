@@ -31,19 +31,30 @@ LEADERBOARD_LIMIT = 100
 
 async def _load_levelup_config(guild_id: int) -> dict:
     """
-    Level-Up-Benachrichtigungs-Config der Guild aus `guild_config` lesen.
+    Level-Up-Benachrichtigungs- + Leaderboard-Config der Guild aus `guild_config`.
 
-    Liefert announce_channel (str|"" fuer Template) + levelup_ping (bool).
+    Liefert announce_channel (str|"" fuer Template), levelup_ping (bool),
+    leaderboard_card (bool) + leaderboard_bg (str|"" — Anzeige, Upload via Slash).
     """
+    default = {
+        "announce_channel": "", "levelup_ping": True,
+        "leaderboard_card": False, "leaderboard_bg": "",
+    }
     try:
         announce = await GuildConfig.get(guild_id, "leveling.announce_channel", None)
         ping = await GuildConfig.get(guild_id, "leveling.levelup_ping", True)
+        lb_card = await GuildConfig.get(
+            guild_id, "leveling.leaderboard_card_enabled", False
+        )
+        lb_bg = await GuildConfig.get(guild_id, "leveling.leaderboard_bg", None)
     except Exception as e:
         logger.error(f"Level-Up-Config laden fehlgeschlagen: {e}")
-        return {"announce_channel": "", "levelup_ping": True}
+        return default
     return {
         "announce_channel": str(announce) if announce else "",
         "levelup_ping": bool(ping),
+        "leaderboard_card": bool(lb_card),
+        "leaderboard_bg": str(lb_bg) if lb_bg else "",
     }
 
 
@@ -129,6 +140,7 @@ async def leveling_config_save(
             form = await request.form()
             raw_channel = str(form.get("announce_channel", "")).strip()
             ping = "levelup_ping" in form
+            lb_card = "leaderboard_card" in form
 
             # Channel-ID validieren: leer = entfernen, sonst nur Ziffern (Snowflake)
             channel_val: int | None = None
@@ -145,10 +157,14 @@ async def leveling_config_save(
             await GuildConfig.set(
                 guild_id, "leveling.levelup_ping", ping, updated_by="dashboard",
             )
+            await GuildConfig.set(
+                guild_id, "leveling.leaderboard_card_enabled", lb_card,
+                updated_by="dashboard",
+            )
             logger.info(
                 f"Level-Up-Config gespeichert von "
                 f"{current_user.get('username', 'Unbekannt')}: "
-                f"channel={channel_val} ping={ping}"
+                f"channel={channel_val} ping={ping} lb_card={lb_card}"
             )
             success = "Level-Up-Benachrichtigung gespeichert."
         except ValueError as e:

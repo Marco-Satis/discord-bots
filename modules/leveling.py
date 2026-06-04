@@ -86,6 +86,10 @@ def _default_config() -> dict[str, Any]:
         # wurde (Nachricht) bzw. System-Channel (Voice). Beides Dashboard-editierbar.
         "levelup_ping": True,
         "announce_channel": None,
+        # Leaderboard-Bild-Karte (B3): /leaderboard als PNG mit Hintergrund.
+        # Akzentfarbe teilt sich mit der Level-Up-Karte (levelup_card_accent).
+        "leaderboard_card_enabled": False,
+        "leaderboard_bg": None,
     }
 
 
@@ -797,6 +801,41 @@ class LevelingManager:
             guild_id, "leveling.announce_channel", val, updated_by="command"
         )
         logger.info(f"Level-Up-Announce-Channel Guild {guild_id} = {val}")
+
+    # ------------------------------------------------------------------
+    # Leaderboard-Bild-Karte (B3, per-Guild)
+    # ------------------------------------------------------------------
+
+    def is_leaderboard_card_enabled(self, guild_id: int | str) -> bool:
+        """True wenn `/leaderboard` als Bild-Karte (statt Embed) gerendert wird."""
+        return bool(self._gcfg(guild_id).get("leaderboard_card_enabled", False))
+
+    def get_leaderboard_bg(self, guild_id: int | str) -> str | None:
+        """Dateiname des Leaderboard-Hintergrunds (oder None)."""
+        return self._gcfg(guild_id).get("leaderboard_bg")
+
+    async def set_leaderboard_card_enabled(
+        self, guild_id: int | str, enabled: bool
+    ) -> None:
+        """Leaderboard-Bild-Karte an-/ausschalten (nach guild_config)."""
+        cfg = await self._ensure_guild_config(guild_id)
+        cfg["leaderboard_card_enabled"] = bool(enabled)
+        await GuildConfig.set(
+            guild_id, "leveling.leaderboard_card_enabled", bool(enabled),
+            updated_by="command",
+        )
+        logger.info(f"Leaderboard-Karte Guild {guild_id} enabled={enabled}")
+
+    async def set_leaderboard_bg(
+        self, guild_id: int | str, filename: str | None
+    ) -> None:
+        """Dateinamen des Leaderboard-Hintergrunds setzen (None = kein BG)."""
+        cfg = await self._ensure_guild_config(guild_id)
+        cfg["leaderboard_bg"] = filename
+        await GuildConfig.set(
+            guild_id, "leveling.leaderboard_bg", filename, updated_by="command"
+        )
+        logger.info(f"Leaderboard-Hintergrund Guild {guild_id}: {filename}")
 
     # ------------------------------------------------------------------
     # Leaderboard (guild-scoped)

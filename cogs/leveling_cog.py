@@ -41,10 +41,11 @@ logger = get_logger("cogs.leveling")
 # Level-Up-Karte braucht Pillow — bei fehlender Lib auf Embed zurueckfallen,
 # damit der Admin-Bot nicht crasht (Defense-in-Depth gegen fehlende Dependency).
 try:
-    from modules.levelup_card import render_levelup_card
+    from modules.levelup_card import render_levelup_card, render_leaderboard_card
     _CARD_AVAILABLE = True
 except Exception as _card_import_err:  # noqa: BLE001
     render_levelup_card = None  # type: ignore[assignment]
+    render_leaderboard_card = None  # type: ignore[assignment]
     _CARD_AVAILABLE = False
     logger.warning(
         f"Level-Up-Karte nicht verfuegbar (Pillow fehlt?): {_card_import_err}"
@@ -55,6 +56,12 @@ LEVELUP_BG_DIR = ADMIN_DATA_DIR / "levelup_backgrounds"
 
 # Leaderboard-Pagination
 LEADERBOARD_PER_PAGE = 10
+
+# Zeilen in der Leaderboard-Bild-Karte (B3)
+LEADERBOARD_CARD_ROWS = 10
+
+# Fester Dateiname des Leaderboard-Hintergrunds (1-Admin-Template)
+LEADERBOARD_BG_FILE = "leaderboard_bg.png"
 
 
 def build_leaderboard_embed(
@@ -776,6 +783,69 @@ class LevelingCog(commands.Cog):
             logger.warning(f"Karten-Render fehlgeschlagen: {e}")
             return None
 
+    async def _build_leaderboard_image(
+        self,
+        guild: discord.Guild,
+        entries: list[dict],
+    ) -> Optional[discord.File]:
+        """
+        Leaderboard als Bild-Karte rendern (B3) — Top-N mit Avataren.
+
+        Nur wenn die Leaderboard-Karte aktiviert ist + ein Hintergrund existiert,
+        sonst None (Embed-Fallback). Holt die Avatare der Top-N parallel; ein
+        fehlender Avatar fuehrt zu None statt Fehler.
+        """
+        if not (
+            _CARD_AVAILABLE
+            and self.leveling.is_leaderboard_card_enabled(guild.id)
+        ):
+            return None
+        bg_name = self.leveling.get_leaderboard_bg(guild.id)
+        if not bg_name:
+            return None
+        bg_path = LEVELUP_BG_DIR / bg_name
+        if not bg_path.exists():
+            return None
+
+        top = entries[:LEADERBOARD_CARD_ROWS]
+
+        async def _row(rank: int, entry: dict) -> dict:
+            member = guild.get_member(entry["user_id"])
+            name = member.display_name if member else f"User {entry['user_id']}"
+            avatar: bytes | None = None
+            if member is not None:
+                try:
+                    avatar = await member.display_avatar.read()
+                except (discord.HTTPException, discord.NotFound) as e:
+                    logger.debug(f"Leaderboard-Avatar-Read fehlgeschlagen: {e}")
+            return {
+                "rank": rank,
+                "name": name,
+                "level": entry.get("level", 0),
+                "xp": entry.get("xp", 0),
+                "avatar": avatar,
+            }
+
+        rows = await asyncio.gather(
+            *[_row(i, e) for i, e in enumerate(top, start=1)]
+        )
+
+        accent = self.leveling.get_card_accent(guild.id)
+        subtitle = f"{guild.name} · {len(entries)} Spieler"
+        try:
+            png = await asyncio.to_thread(
+                render_leaderboard_card,
+                list(rows),
+                bg_path,
+                accent,
+                "LEADERBOARD",
+                subtitle,
+            )
+        except Exception as e:  # noqa: BLE001 — Fallback auf Embed
+            logger.warning(f"Leaderboard-Karte fehlgeschlagen: {e}")
+            return None
+        return discord.File(io.BytesIO(png), filename="leaderboard.png")
+
     # ==================================================================
     # /rank [user]
     # ==================================================================
@@ -854,6 +924,13 @@ class LevelingCog(commands.Cog):
             return
 
         own_rank = self.leveling.get_rank(interaction.guild.id, interaction.user.id)
+
+        # B3: Bild-Karte bevorzugen (wenn aktiviert + Hintergrund), sonst Embed.
+        image = await self._build_leaderboard_image(interaction.guild, entries)
+        if image is not None:
+            await interaction.followup.send(file=image)
+            return
+
         view = LeaderboardView(
             entries,
             interaction.guild,
@@ -1408,6 +1485,89 @@ class LevelingCog(commands.Cog):
 
         await interaction.followup.send(
             "Level-Up-Karte: " + ", ".join(notes), ephemeral=True
+        )
+
+    # ==================================================================
+    # /xp leaderboardcard <aktiv> [hintergrund]
+    # ==================================================================
+
+    @xp_grp.command(
+        name="leaderboardcard",
+        description="Leaderboard als Bild-Karte mit Hintergrund (Dashboard-Fallback)",
+    )
+    @app_commands.describe(
+        aktiv="Bild-Leaderboard an- oder ausschalten (statt Text-Embed)",
+        hintergrund="Bild (PNG/JPG) als Hintergrund hochladen",
+    )
+    @admin_only()
+    async def xp_leaderboardcard(
+        self,
+        interaction: discord.Interaction,
+        aktiv: bool,
+        hintergrund: Optional[discord.Attachment] = None,
+    ) -> None:
+        """Leaderboard-Bild-Karte ein-/ausschalten + Hintergrund setzen (B3)."""
+        await interaction.response.defer(ephemeral=True)
+
+        if interaction.guild is None:
+            await interaction.followup.send(
+                "Nur auf einem Server nutzbar.", ephemeral=True
+            )
+            return
+        guild_id = interaction.guild.id
+
+        if not _CARD_AVAILABLE:
+            await interaction.followup.send(
+                "Bild-Karten nicht verfuegbar — Pillow ist auf dem Server nicht "
+                "installiert. `pip install Pillow` und Bot neu starten.",
+                ephemeral=True,
+            )
+            return
+
+        notes: list[str] = []
+
+        # Hintergrund-Upload verarbeiten (eigener Dateiname, getrennt von Level-Up)
+        if hintergrund is not None:
+            content_type = hintergrund.content_type or ""
+            if not content_type.startswith("image/"):
+                await interaction.followup.send(
+                    "Hintergrund muss ein Bild sein (PNG/JPG).", ephemeral=True
+                )
+                return
+            if hintergrund.size > 8 * 1024 * 1024:
+                await interaction.followup.send(
+                    "Bild zu gross (max 8 MB).", ephemeral=True
+                )
+                return
+            try:
+                raw = await hintergrund.read()
+                dst = LEVELUP_BG_DIR / LEADERBOARD_BG_FILE
+                await asyncio.to_thread(self._save_bg, raw, dst)
+                await self.leveling.set_leaderboard_bg(guild_id, LEADERBOARD_BG_FILE)
+                notes.append("Hintergrund gesetzt")
+            except Exception as e:  # noqa: BLE001
+                logger.error(f"Leaderboard-Hintergrund speichern fehlgeschlagen: {e}")
+                await interaction.followup.send(
+                    f"Hintergrund speichern fehlgeschlagen: {e}", ephemeral=True
+                )
+                return
+
+        await self.leveling.set_leaderboard_card_enabled(guild_id, aktiv)
+        notes.append("aktiv" if aktiv else "deaktiviert")
+
+        # Aktiv aber kein Hintergrund -> Hinweis
+        if aktiv and not self.leveling.get_leaderboard_bg(guild_id):
+            await interaction.followup.send(
+                "Leaderboard-Karte aktiviert, aber noch kein Hintergrund gesetzt. "
+                "Lade mit der Option `hintergrund:` ein Bild hoch.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.followup.send(
+            "Leaderboard-Karte: " + ", ".join(notes)
+            + " (Akzentfarbe teilt sich mit der Level-Up-Karte).",
+            ephemeral=True,
         )
 
     # ==================================================================

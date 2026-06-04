@@ -191,3 +191,145 @@ def render_levelup_card(
     card.convert("RGB").save(out, "PNG")
     out.seek(0)
     return out.getvalue()
+
+
+# --- Leaderboard-Karte (B3) ------------------------------------------------
+
+# Leaderboard-Dimensionen
+LB_W = 920
+LB_HEADER_H = 130
+LB_ROW_H = 82
+LB_PAD = 40
+
+# Medaillen-Farben fuer die Top-3-Raenge (Gold/Silber/Bronze)
+_MEDAL_COLORS = {
+    1: (255, 200, 40),
+    2: (200, 200, 210),
+    3: (205, 127, 50),
+}
+
+
+def render_leaderboard_card(
+    rows: list[dict],
+    bg_path: str | Path | None,
+    accent: str = "#f1c40f",
+    title: str = "LEADERBOARD",
+    subtitle: str | None = None,
+) -> bytes:
+    """
+    Leaderboard als PNG rendern (Wallpaper-BG + Rang-Liste, Arcane-Stil).
+
+    Reine synchrone Funktion — im Cog via ``asyncio.to_thread`` aufrufen.
+
+    Args:
+        rows: Liste von Dicts je Spieler, je: rank (int), name (str),
+              level (int), xp (int), optional avatar (bytes|None).
+        bg_path: Hintergrund-Bild oder None (dann Solid-Fallback).
+        accent: Akzentfarbe als Hex (#RRGGBB).
+        title: Kopfzeile (Default "LEADERBOARD").
+        subtitle: Optionale Unterzeile (z.B. Guild-Name + Spielerzahl).
+
+    Returns:
+        PNG-Bytes der fertigen Leaderboard-Karte.
+    """
+    acc = _hex_to_rgb(accent)
+    n = max(1, len(rows))
+    height = LB_HEADER_H + n * LB_ROW_H + 24
+
+    # --- Hintergrund (cover) ---
+    try:
+        if bg_path is None:
+            raise ValueError("kein BG")
+        bg = Image.open(bg_path).convert("RGB")
+        bg = _cover(bg, LB_W, height)
+    except Exception as e:  # noqa: BLE001 — BG nie fatal, Solid-Fallback
+        if bg_path is not None:
+            logger.warning(f"Leaderboard-BG laden fehlgeschlagen ({bg_path}): {e}")
+        bg = Image.new("RGB", (LB_W, height), (15, 13, 20))
+    card = bg.convert("RGBA")
+
+    # --- Dunkles Overlay (gleichmaessig) fuer Text-Kontrast ---
+    ov = Image.new("RGBA", (LB_W, height), (8, 6, 14, 180))
+    card = Image.alpha_composite(card, ov)
+    d = ImageDraw.Draw(card)
+
+    # --- Kopf ---
+    head = title if len(title) <= 24 else title[:23] + "…"
+    d.text((LB_PAD, 34), head.upper(), font=_font(42, True), fill=acc + (255,))
+    if subtitle:
+        sub = subtitle if len(subtitle) <= 48 else subtitle[:47] + "…"
+        d.text((LB_PAD, 88), sub, font=_font(22, False), fill=(210, 205, 225, 255))
+    d.line(
+        [(LB_PAD, LB_HEADER_H - 6), (LB_W - LB_PAD, LB_HEADER_H - 6)],
+        fill=acc + (160,), width=2,
+    )
+
+    av_size = 54
+    name_x = LB_PAD + 70 + av_size + 18
+
+    for i, row in enumerate(rows):
+        ry = LB_HEADER_H + i * LB_ROW_H
+        cy = ry + LB_ROW_H // 2
+        rank = int(row.get("rank", i + 1))
+
+        # Rang (Top-3 in Medaillen-Farbe, sonst hell)
+        rank_color = _MEDAL_COLORS.get(rank, (235, 230, 245)) + (255,)
+        rank_font = _font(32, True)
+        rank_txt = f"#{rank}"
+        rw = d.textlength(rank_txt, font=rank_font)
+        d.text(
+            (LB_PAD + 34 - rw / 2, cy - 18), rank_txt,
+            font=rank_font, fill=rank_color,
+        )
+
+        # Avatar (rund) — optional
+        avatar = row.get("avatar")
+        ax = LB_PAD + 70
+        ay = cy - av_size // 2
+        if avatar:
+            try:
+                av = (
+                    Image.open(io.BytesIO(avatar))
+                    .convert("RGBA")
+                    .resize((av_size, av_size), Image.LANCZOS)
+                )
+                mask = Image.new("L", (av_size, av_size), 0)
+                ImageDraw.Draw(mask).ellipse([0, 0, av_size, av_size], fill=255)
+                card.paste(av, (ax, ay), mask)
+                d = ImageDraw.Draw(card)
+            except Exception as e:  # noqa: BLE001 — Avatar nie fatal
+                logger.debug(f"Leaderboard-Avatar fehlgeschlagen: {e}")
+
+        # Name + Sub-Zeile (Level + XP)
+        raw_name = str(row.get("name", "?"))
+        name = raw_name if len(raw_name) <= 22 else raw_name[:21] + "…"
+        d.text((name_x, ry + 16), name, font=_font(28, True), fill=(255, 255, 255, 255))
+        level = int(row.get("level", 0))
+        xp = int(row.get("xp", 0))
+        d.text(
+            (name_x, ry + 48),
+            f"Level {level} · {xp:,} XP",
+            font=_font(19, False), fill=(195, 190, 212, 255),
+        )
+
+        # Level rechtsbuendig gross
+        lvl_txt = f"Lvl {level}"
+        lvl_font = _font(30, True)
+        lw = d.textlength(lvl_txt, font=lvl_font)
+        d.text(
+            (LB_W - LB_PAD - lw, cy - 18), lvl_txt,
+            font=lvl_font, fill=acc + (255,),
+        )
+
+        # Zeilen-Trenner (dezent)
+        if i < len(rows) - 1:
+            sy = ry + LB_ROW_H
+            d.line([(LB_PAD, sy), (LB_W - LB_PAD, sy)], fill=(255, 255, 255, 22), width=1)
+
+    # --- Akzent-Linie unten ---
+    d.rectangle([0, height - 5, LB_W, height], fill=acc + (255,))
+
+    out = io.BytesIO()
+    card.convert("RGB").save(out, "PNG")
+    out.seek(0)
+    return out.getvalue()
