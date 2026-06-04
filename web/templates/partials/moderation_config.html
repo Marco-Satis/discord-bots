@@ -1,0 +1,29 @@
+{# Auto-Mod-Toggle-Form (D4) — HTMX-Partial. Von moderation.html via {% include %}
+   eingebunden UND von POST /moderation/config als Swap-Ziel (#mod-config)
+   zurückgegeben. CSRF-Header kommt aus body[hx-headers] (base_v5.html). #}
+<div id="mod-config" class="config-section mod-config-card">
+    <h2 class="mod-config-title">Auto-Mod-Regeln</h2>
+
+    {% if success %}<div class="mod-banner mod-banner-ok">{{ success }}</div>{% endif %}
+    {% if error %}<div class="mod-banner mod-banner-err">{{ error }}</div>{% endif %}
+
+    {% if not guild_set %}
+        <p>Keine Haupt-Guild gesetzt (ENV <code>GUILD_ID</code>) — Konfiguration nicht verfügbar.</p>
+    {% else %}
+    <form hx-post="/moderation/config" hx-target="#mod-config" hx-swap="outerHTML">
+        {% for r in rules %}
+        <div class="mod-rule">
+            <label>
+                <input type="checkbox" name="{{ r.key }}" {% if r.enabled %}checked{% endif %}>
+                <span class="mod-rule-label">{{ r.label }}</span>
+            </label>
+        </div>
+        {% endfor %}
+        <p class="mod-hint">
+            Änderungen greifen spätestens nach ~15 s (kein Bot-Neustart nötig).
+            Schwellwerte (Caps-Anteil, Zalgo-Dichte) sind in der Config voreingestellt.
+        </p>
+        <button type="submit" class="mod-save-btn">Speichern</button>
+    </form>
+    {% endif %}
+</div>

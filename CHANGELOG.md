@@ -34,13 +34,17 @@ Alle relevanten Aenderungen am Discord Bot System werden hier dokumentiert.
 ### Security (Phase G Core)
 - **Verification-Gate:** persistenter Verify-Button-Role (`cogs/verification_cog.py`), `/sicherheit`-Gruppe.
 - **Raid-Detection** (`modules/raid_detector.py`): Join-Spike-Gleitfenster pro Guild + Alarm-Cooldown.
+- **Auto-Mod-Ausbau + Dashboard-Toggles (D4):** Audit Bestand (word_filter/anti_spam/invite_filter). Neu `modules/moderation/content_filter.py` — **Mass-Caps** + **Zalgo** (kombinierende Unicode-Zeichen), beide default AUS, pure Detektoren + unit-testbar. Alle 5 Auto-Mod-Regeln **per-Guild Dashboard-steuerbar** (`/moderation`-Seite + `guild_context`-Keys `moderation.<rule>`, 15s-TTL); on_message gatet jede Regel auf ihr Flag (Default = bisheriges Verhalten, nicht-breaking). Slash-Fallback `/filter caps`·`/filter zalgo`·`/filter antispam` (Lücke: Anti-Spam war vorher nicht abschaltbar); `/filter toggle`+`/filter invite` syncen jetzt guild_config. Caps/Zalgo löschen+warnen ohne Timeout.
+
+### Dashboard (D4)
+- **Moderation-Seite** (`web/routes/moderation_route.py` + `moderation.html` + Partial + Nav): `GET /moderation` zeigt 5 Auto-Mod-Toggles, `POST /moderation/config` schreibt `guild_config` (HTMX, CSRF via `body[hx-headers]`). Bot liest dieselben Keys (kein Neustart nötig).
 
 ### Sonstiges
 - **`/setup_topics`** (`cogs/channel_setup_cog.py`): Channel-Topics automatisch setzen (dry-run-Default).
 - **Embed-Helper** (`utils/embeds.py`) als Stil-Fundament.
 - **Tech-Debt M2:** tote `UpdateChecker`-Instanz aus gameserver-bot entfernt (SAT-Update-Check laeuft ausschliesslich im monitor-bot).
 - **Ping-Haertung:** `everyone=False`-Guard fuer gewollte Pings (Ticket-Support-Notify, Giveaway-Gewinner).
-- **Tests:** `test_guild_context` (32), `test_leveling` (86), `test_voice_sessions` (24), `test_linked_accounts` (18), `test_raid_detector` (18), `test_migration_v7` (6), `test_migration_v8` (6, member_cache), `test_channel_topics` (11), `test_dashboard_bridge` (18), `test_leveling_web` (+B1/B2/B3/E3-Config) u.a.
+- **Tests:** `test_guild_context` (32), `test_leveling` (86), `test_voice_sessions` (24), `test_linked_accounts` (18), `test_raid_detector` (18), `test_content_filter` (20, Caps/Zalgo), `test_migration_v7` (6), `test_migration_v8` (6, member_cache), `test_channel_topics` (11), `test_dashboard_bridge` (18), `test_leveling_web` (+B1/B2/B3/E3-Config), `test_moderation_web` (D4-Toggles) u.a.
 
 ---
 

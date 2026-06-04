@@ -29,6 +29,8 @@ from discord.ext import commands, tasks
 from modules.moderation.word_filter import DiscordWordFilter
 from modules.moderation.anti_spam import DiscordAntiSpam
 from modules.moderation.invite_filter import InviteFilter
+from modules.moderation.content_filter import ContentFilter
+from modules.guild_context import GuildConfig
 from utils.logger import get_logger
 from utils.permissions import admin_only, is_admin
 
@@ -70,6 +72,9 @@ class ModerationCog(commands.Cog):
 
         # Invite-Link-Filter (konservativ: standardmaessig AUS)
         self.invite_filter = InviteFilter(config)
+
+        # Content-Filter: Mass-Caps + Zalgo (D4, beide default AUS)
+        self.content_filter = ContentFilter(config)
 
     async def cog_load(self) -> None:
         """Persistierte Filterliste laden + Cleanup-Task starten"""
@@ -122,35 +127,58 @@ class ModerationCog(commands.Cog):
         if not message.guild:
             return
 
-        # --- Wortfilter prüfen (gilt für alle User) ---
-        is_filtered, matched_word = self.word_filter.check_message(
-            message.content
-        )
-        if is_filtered:
-            await self._handle_filtered_message(message, matched_word)
-            return
+        gid = message.guild.id
 
-        # Admins/Owner von Anti-Spam + Invite-Filter ausnehmen
+        # --- Wortfilter prüfen (gilt für alle User) ---
+        # Dashboard-Override; Default = bisheriges Verhalten (Modul-enabled).
+        if await self._rule_on(gid, "word_filter", self.word_filter.enabled):
+            is_filtered, matched_word = self.word_filter.check_message(
+                message.content
+            )
+            if is_filtered:
+                await self._handle_filtered_message(message, matched_word)
+                return
+
+        # Admins/Owner von Anti-Spam + Content-/Invite-Filter ausnehmen
         if self._is_privileged(message):
             return
 
         # --- Invite-Link-Filter (nur Nicht-Privilegierte) ---
-        is_invite, _invite_reason = self.invite_filter.check_message(message.content)
-        if is_invite:
-            await self._handle_invite_message(message)
-            return
+        if await self._rule_on(gid, "invite_filter", self.invite_filter.enabled):
+            is_invite, _invite_reason = self.invite_filter.check_message(
+                message.content
+            )
+            if is_invite:
+                await self._handle_invite_message(message)
+                return
+
+        # --- Mass-Caps (D4, default AUS) ---
+        if await self._rule_on(gid, "caps_filter", False):
+            if self.content_filter.check_caps(message.content):
+                await self._handle_content_message(
+                    message, "Bitte nicht durchgehend GROSS schreiben."
+                )
+                return
+
+        # --- Zalgo / kombinierende Zeichen (D4, default AUS) ---
+        if await self._rule_on(gid, "zalgo_filter", False):
+            if self.content_filter.check_zalgo(message.content):
+                await self._handle_content_message(
+                    message, "Nachricht mit zerfranstem Text (Zalgo) entfernt."
+                )
+                return
 
         # --- Anti-Spam prüfen ---
-        # Mention-Anzahl: User-Mentions + Role-Mentions
-        mention_count = len(message.mentions) + len(message.role_mentions)
-
-        is_spam, reason = self.anti_spam.check_message(
-            user_id=message.author.id,
-            content=message.content,
-            mention_count=mention_count,
-        )
-        if is_spam:
-            await self._handle_spam_message(message, reason)
+        if await self._rule_on(gid, "anti_spam", self.anti_spam.enabled):
+            # Mention-Anzahl: User-Mentions + Role-Mentions
+            mention_count = len(message.mentions) + len(message.role_mentions)
+            is_spam, reason = self.anti_spam.check_message(
+                user_id=message.author.id,
+                content=message.content,
+                mention_count=mention_count,
+            )
+            if is_spam:
+                await self._handle_spam_message(message, reason)
 
     # ------------------------------------------------------------------
     # Handler: Gefilterte Nachricht
@@ -263,6 +291,34 @@ class ModerationCog(commands.Cog):
         )
 
     # ------------------------------------------------------------------
+    # Handler: Content-Filter (Caps/Zalgo) — löschen + warnen, kein Timeout
+    # ------------------------------------------------------------------
+
+    async def _handle_content_message(
+        self, message: discord.Message, warn_text: str
+    ) -> None:
+        """Content-gefilterte Nachricht (Caps/Zalgo) löschen + kurz warnen."""
+        try:
+            await message.delete()
+        except (discord.Forbidden, discord.NotFound, discord.HTTPException) as e:
+            logger.warning(f"Content-Nachricht konnte nicht gelöscht werden: {e}")
+
+        try:
+            await message.channel.send(
+                f"{message.author.mention}, {warn_text}",
+                allowed_mentions=_NO_MENTIONS,
+                delete_after=8.0,
+            )
+        except (discord.Forbidden, discord.HTTPException) as e:
+            logger.debug(f"Content-Warnung senden fehlgeschlagen: {e}")
+
+        ch_name = getattr(message.channel, "name", "?")
+        logger.info(
+            f"Content-Filter: Nachricht von {message.author} "
+            f"(ID: {message.author.id}) in #{ch_name} gelöscht."
+        )
+
+    # ------------------------------------------------------------------
     # Hilfsmethoden
     # ------------------------------------------------------------------
 
@@ -283,6 +339,22 @@ class ModerationCog(commands.Cog):
             return any(r.id == admin_role_id for r in message.author.roles)
 
         return False
+
+    @staticmethod
+    async def _rule_on(guild_id: int, key: str, default: bool) -> bool:
+        """
+        Ob eine Auto-Mod-Regel fuer die Guild aktiv ist (Dashboard-Override).
+
+        Liest `guild_config`-Key `moderation.<key>` (15s-TTL-Cache, Cross-Prozess
+        propagierend). Ohne Eintrag gilt `default` = bisheriges Verhalten
+        (word_filter/anti_spam an, invite/caps/zalgo aus). So macht der Dashboard-
+        Toggle jede Regel steuerbar, ohne bestehendes Verhalten zu brechen.
+        """
+        try:
+            return bool(await GuildConfig.get(guild_id, f"moderation.{key}", default))
+        except Exception as e:  # noqa: BLE001 — Gate nie fatal, Default greift
+            logger.debug(f"moderation.{key}-Flag laden fehlgeschlagen: {e}")
+            return default
 
     # ==================================================================
     # /filter add <wort>
@@ -467,8 +539,13 @@ class ModerationCog(commands.Cog):
         interaction: discord.Interaction,
     ) -> None:
         new_state = self.word_filter.toggle()
-        # Persistieren
+        # Persistieren (Modul-JSON + per-Guild guild_config fuer Dashboard-Sync)
         await self.word_filter._save()
+        if interaction.guild is not None:
+            await GuildConfig.set(
+                interaction.guild.id, "moderation.word_filter", new_state,
+                updated_by="command",
+            )
 
         status = "aktiviert" if new_state else "deaktiviert"
         color_hex = "🟢" if new_state else "🔴"
@@ -498,6 +575,11 @@ class ModerationCog(commands.Cog):
     ) -> None:
         new_state = self.invite_filter.toggle()
         await self.invite_filter._save()
+        if interaction.guild is not None:
+            await GuildConfig.set(
+                interaction.guild.id, "moderation.invite_filter", new_state,
+                updated_by="command",
+            )
 
         status = "aktiviert" if new_state else "deaktiviert"
         emoji = "🟢" if new_state else "🔴"
@@ -512,6 +594,65 @@ class ModerationCog(commands.Cog):
             f"Invite-Filter {status} von {interaction.user} "
             f"(ID: {interaction.user.id})"
         )
+
+    # ==================================================================
+    # /filter caps · /filter zalgo · /filter antispam  (guild_config-Toggles)
+    # ==================================================================
+
+    async def _toggle_rule(
+        self,
+        interaction: discord.Interaction,
+        key: str,
+        label: str,
+        default: bool,
+    ) -> None:
+        """Eine per-Guild Auto-Mod-Regel umschalten (guild_config, Dashboard-Sync)."""
+        if interaction.guild is None:
+            await interaction.response.send_message(
+                "Nur auf einem Server nutzbar.", ephemeral=True
+            )
+            return
+        gid = interaction.guild.id
+        current = bool(await GuildConfig.get(gid, f"moderation.{key}", default))
+        new_state = not current
+        await GuildConfig.set(
+            gid, f"moderation.{key}", new_state, updated_by="command"
+        )
+        status = "aktiviert" if new_state else "deaktiviert"
+        emoji = "🟢" if new_state else "🔴"
+        await interaction.response.send_message(
+            f"{label} wurde **{status}** {emoji}",
+            ephemeral=True,
+            allowed_mentions=_NO_MENTIONS,
+        )
+        logger.info(
+            f"{label} {status} (Guild {gid}) von {interaction.user} "
+            f"(ID: {interaction.user.id})"
+        )
+
+    @filter_grp.command(
+        name="caps",
+        description="Mass-Caps-Filter ein-/ausschalten (durchgehend GROSS)",
+    )
+    @admin_only()
+    async def filter_caps(self, interaction: discord.Interaction) -> None:
+        await self._toggle_rule(interaction, "caps_filter", "Mass-Caps-Filter", False)
+
+    @filter_grp.command(
+        name="zalgo",
+        description="Zalgo-Filter ein-/ausschalten (zerfranster Unicode-Text)",
+    )
+    @admin_only()
+    async def filter_zalgo(self, interaction: discord.Interaction) -> None:
+        await self._toggle_rule(interaction, "zalgo_filter", "Zalgo-Filter", False)
+
+    @filter_grp.command(
+        name="antispam",
+        description="Anti-Spam (Flood/Mention/Duplikat) ein-/ausschalten",
+    )
+    @admin_only()
+    async def filter_antispam(self, interaction: discord.Interaction) -> None:
+        await self._toggle_rule(interaction, "anti_spam", "Anti-Spam", True)
 
     # ==================================================================
     # Fehlerbehandlung
