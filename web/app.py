@@ -181,6 +181,7 @@ from web.routes.correlation_route import router as correlation_router  # noqa: E
 from web.routes.search_route import router as search_router            # noqa: E402
 from web.routes.leveling_route import router as leveling_router        # noqa: E402
 from web.routes.moderation_route import router as moderation_router    # noqa: E402
+from web.routes.lfg_route import router as lfg_router                  # noqa: E402
 
 app.include_router(auth_router)
 app.include_router(dashboard_router)
@@ -204,6 +205,7 @@ app.include_router(correlation_router)
 app.include_router(search_router)
 app.include_router(leveling_router)
 app.include_router(moderation_router)
+app.include_router(lfg_router)
 
 
 # F64: CSRF-Token wird jetzt direkt in der CSRFMiddleware (Pure ASGI) gesetzt.

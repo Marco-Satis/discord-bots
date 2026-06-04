@@ -46,6 +46,10 @@ Alle relevanten Aenderungen am Discord Bot System werden hier dokumentiert.
 - **Live-Update ohne Neustart:** Manager lädt die Config bei Änderung neu (mtime-Vergleich), Cross-Prozess-Mutatoren (`add_hub`/`remove_hub`/`set_join_channel`) reloaden vor dem Merge. Bot-eigene Keys (`interface_channel_id`/`join_channel_id`) bleiben erhalten.
 - **Dashboard-Hub-Editor** (`partials/admin_tab_temp_voice.html`): Textarea, eine Zeile pro Hub (`id | category | limit | privat | naming`), HTMX + CSRF. **Slash-Fallback:** `/tempvoice hubadd`·`hubremove`·`hubs`. `/tempvoice setup` bleibt rückwärts-kompatibel (registriert den Channel zusätzlich als Hub); Legacy-Single-Hub wird beim Laden idempotent in die Hub-Liste migriert.
 
+### LFG (Looking for Group, #spielersuche)
+- **`cogs/lfg_cog.py`** (neu): leichtgewichtig (Marco-Scope) — **selbst-zuweisbare LFG-Ping-Rolle** statt Spielkatalog/Auto-Voice. `/lfg ping [nachricht]` pingt **nur die LFG-Rolle** (kein @everyone, `AllowedMentions(roles=[role])`, Markdown-escaped) mit per-Guild-Cooldown; `/lfg an`·`/lfg aus` Self-Subscribe; `/lfg panel` persistenter An/Aus-Button; `/lfg setup`·`/lfg status` (Admin). Optionale Channel-Beschränkung. Config per-Guild in `guild_config` (`lfg.role_id`/`channel_id`/`cooldown_seconds`).
+- **Dashboard-Seite `/lfg`** (`web/routes/lfg_route.py` + `lfg.html` + Partial + Nav): Rollen-/Kanal-ID + Cooldown editierbar (HTMX, globale CSRFMiddleware, Snowflake-Validierung, schreibt `guild_config`). Tests `test_lfg_web` (9, Round-Trip + Isolation).
+
 ### Sonstiges
 - **`/setup_topics`** (`cogs/channel_setup_cog.py`): Channel-Topics automatisch setzen (dry-run-Default).
 - **Embed-Helper** (`utils/embeds.py`) als Stil-Fundament.

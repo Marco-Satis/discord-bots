@@ -87,6 +87,7 @@ INITIAL_COGS: list[str] = [
     "cogs.linked_accounts_cog",  # Wave 2: Linked-Accounts (Activision/Steam/...)
     "cogs.verification_cog",     # Wave 2 G: Verification-Gate + Raid-Schutz
     "cogs.channel_setup_cog",    # Wave 2: /setup_topics (Channel-Topics)
+    "cogs.lfg_cog",              # Wave 2: LFG-Ping-Rolle (#spielersuche)
     "cogs.notify_cog",         # F40: Spieler-Benachrichtigungen
     "cogs.welcome_cog",        # F41: Willkommens-System
     "cogs.command_stats_cog",  # F59: Command-Nutzungsstatistik
