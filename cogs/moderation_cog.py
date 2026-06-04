@@ -253,8 +253,8 @@ class ModerationCog(commands.Cog):
                 allowed_mentions=_NO_MENTIONS,
                 delete_after=10.0,
             )
-        except (discord.Forbidden, discord.HTTPException):
-            pass
+        except (discord.Forbidden, discord.HTTPException) as e:
+            logger.debug(f"Invite-Warnung senden fehlgeschlagen: {e}")
 
         ch_name = getattr(message.channel, "name", "?")
         logger.info(

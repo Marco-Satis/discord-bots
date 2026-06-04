@@ -167,6 +167,13 @@ class TempVoiceCog(commands.Cog):
         if not ch_id:
             return
         channel = self.bot.get_channel(ch_id)
+        if channel is None:
+            # Cache evtl. noch unvollstaendig kurz nach Ready -> einmal fetchen.
+            try:
+                channel = await self.bot.fetch_channel(ch_id)
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException) as e:
+                logger.warning(f"Interface-Kanal {ch_id} nicht abrufbar: {e}")
+                return
         if not isinstance(channel, discord.TextChannel):
             logger.warning(
                 f"Interface-Kanal {ch_id} nicht gefunden oder kein Text-Channel."
@@ -181,7 +188,9 @@ class TempVoiceCog(commands.Cog):
             except discord.NotFound:
                 pass  # geloescht -> neu posten
             except discord.HTTPException as e:
-                logger.debug(f"Interface-Message-Check fehlgeschlagen: {e}")
+                # Transienter API-Fehler: konservativ nicht neu posten (Doppel-Post-
+                # Schutz), aber sichtbar loggen statt stumm.
+                logger.warning(f"Interface-Message-Check fehlgeschlagen: {e}")
                 return
 
         await self._post_interface_panel(channel)

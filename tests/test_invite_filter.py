@@ -53,6 +53,12 @@ async def run_tests() -> None:
     # case-insensitive Domain
     _check("find_case", find_invites("DISCORD.GG/AbC") == ["AbC"])
 
+    # Word-Boundary: Teil-Domains matchen NICHT (kein linkes [\w.] davor)
+    _check("no_fp_subdomain_prefix", find_invites("notdiscord.gg/abc") == [])
+    _check("no_fp_word_prefix", find_invites("mydiscord.me/foo") == [])
+    # legitimer Invite mit Text davor bleibt erkannt
+    _check("find_after_space", find_invites("komm: discord.gg/Server7") == ["Server7"])
+
     # --- InviteFilter ---
     f_off = InviteFilter({})
     _check("default_off", f_off.enabled is False)

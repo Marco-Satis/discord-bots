@@ -26,8 +26,9 @@ DEFAULT_INVITE_FILE = ADMIN_DATA_DIR / "discord_invite_filter.json"
 
 # discord.gg/<code>, discord(app).com/invite/<code>, discord.me/<code>,
 # dsc.gg/<code> — http(s):// und www. optional, Code 2-32 alphanumerisch/-.
+# Linkes (?<![\w.]) verhindert Teil-Treffer wie "notdiscord.gg" / "mydiscord.me".
 _INVITE_RE = re.compile(
-    r"(?:https?://)?(?:www\.)?"
+    r"(?<![\w.])(?:https?://)?(?:www\.)?"
     r"(?:discord(?:app)?\.com/invite|discord\.gg|discord\.me|dsc\.gg)/"
     r"([A-Za-z0-9\-]{2,32})",
     re.IGNORECASE,
