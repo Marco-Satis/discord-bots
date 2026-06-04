@@ -54,6 +54,47 @@ def run_tests() -> None:
     _check("alert_cooldown_blocks", d2.should_alert("g1", 30.0, alert_cooldown=60) is False)
     _check("alert_after_cooldown", d2.should_alert("g1", 70.0, alert_cooldown=60) is True)
 
+    # --- Edge-Cases ---
+    # Fenster-Grenze: Join exakt bei now-window bleibt drin (Prune ist strikt <)
+    d3 = RaidDetector()
+    kw2 = {"threshold": 10, "window_seconds": 10.0}
+    d3.record_join("g", 0.0, **kw2)
+    d3.record_join("g", 10.0, **kw2)       # cutoff=0.0 -> 0.0<0.0 False -> beide drin
+    _check("window_boundary_inclusive", d3.join_count("g") == 2)
+    d3.record_join("g", 10.001, **kw2)     # cutoff=0.001 -> t=0.0 faellt raus
+    _check("window_boundary_past_drops", d3.join_count("g") == 2)
+
+    # negativer threshold deaktiviert (wie 0)
+    _check("disabled_negative",
+           RaidDetector().record_join("g", 1.0, threshold=-3, window_seconds=10) is False)
+
+    # Raid haelt an: bleibt True solange Anzahl >= threshold
+    d4 = RaidDetector()
+    kw3 = {"threshold": 3, "window_seconds": 100.0}
+    seq = [d4.record_join("g", float(t), **kw3) for t in (1, 2, 3, 4)]
+    _check("raid_sustained", seq[2] is True and seq[3] is True)
+    # Raid ebbt ab: alte Joins fallen raus -> wieder False
+    later = d4.record_join("g", 500.0, **kw3)   # alle alten >100s raus -> 1 Join
+    _check("raid_subsides", later is False and d4.join_count("g") == 1)
+
+    # should_alert: exakt am Cooldown-Ende erlaubt (strikt <)
+    d5 = RaidDetector()
+    d5.should_alert("g", 0.0, alert_cooldown=60)
+    _check("alert_exact_boundary",
+           d5.should_alert("g", 60.0, alert_cooldown=60) is True)
+
+    # should_alert: Guild-Isolation (Alarm-State pro Guild getrennt)
+    d6 = RaidDetector()
+    d6.should_alert("ga", 0.0, alert_cooldown=60)
+    _check("alert_isolation", d6.should_alert("gb", 0.0, alert_cooldown=60) is True)
+
+    # reset loescht auch den Alarm-State (nicht nur Joins)
+    d7 = RaidDetector()
+    d7.should_alert("g", 0.0, alert_cooldown=60)
+    d7.reset("g")
+    _check("reset_clears_alert",
+           d7.should_alert("g", 1.0, alert_cooldown=60) is True)
+
     # reset
     d.reset("g1")
     _check("reset", d.join_count("g1") == 0)
