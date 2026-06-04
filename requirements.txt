@@ -30,6 +30,9 @@ aiosqlite>=0.19.0
 # Web Dashboard (Phase 13)
 fastapi>=0.110.0
 uvicorn>=0.27.0
+# WebSocket-Support fuer uvicorn (D3: Dashboard-Realtime ueber WebSocket statt
+# SSE). Ohne diese Lib kann uvicorn keine WS-Upgrades -> /ws gibt 404.
+websockets>=12.0
 httpx>=0.27.0
 PyJWT>=2.8.0
 bcrypt>=4.1.0
