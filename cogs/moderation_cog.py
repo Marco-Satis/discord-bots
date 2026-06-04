@@ -5,10 +5,11 @@ Command-Struktur:
   /filter add <wort>      — Wort zur Filterliste hinzufuegen (Admin)
   /filter remove <wort>   — Wort aus der Filterliste entfernen (Admin)
   /filter list             — Aktuelle Filterliste anzeigen (Admin)
-  /filter toggle           — Filter ein-/ausschalten (Admin)
+  /filter toggle           — Wortfilter ein-/ausschalten (Admin)
+  /filter invite           — Invite-Link-Filter ein-/ausschalten (Admin)
 
 on_message Listener:
-  - Prueft jede Nachricht gegen Wortfilter + Anti-Spam
+  - Prueft jede Nachricht gegen Wortfilter + Invite-Filter + Anti-Spam
   - Loescht gefilterte/Spam-Nachrichten
   - Warnung per ephemeraler Antwort (wo möglich)
   - Auto-Mute bei Spam-Erkennung
@@ -27,6 +28,7 @@ from discord.ext import commands, tasks
 
 from modules.moderation.word_filter import DiscordWordFilter
 from modules.moderation.anti_spam import DiscordAntiSpam
+from modules.moderation.invite_filter import InviteFilter
 from utils.logger import get_logger
 from utils.permissions import admin_only, is_admin
 
@@ -66,13 +68,18 @@ class ModerationCog(commands.Cog):
             cooldown_seconds=spam_config.get("cooldown_seconds", 30),
         )
 
+        # Invite-Link-Filter (konservativ: standardmaessig AUS)
+        self.invite_filter = InviteFilter(config)
+
     async def cog_load(self) -> None:
         """Persistierte Filterliste laden + Cleanup-Task starten"""
         await self.word_filter.load()
+        await self.invite_filter.load()
         self._cleanup_task.start()
         logger.info(
             f"ModerationCog geladen: {self.word_filter.count} Filterwoerter, "
-            f"Anti-Spam aktiv"
+            f"Anti-Spam aktiv, Invite-Filter "
+            f"{'aktiv' if self.invite_filter.enabled else 'aus'}"
         )
 
     async def cog_unload(self) -> None:
@@ -123,8 +130,14 @@ class ModerationCog(commands.Cog):
             await self._handle_filtered_message(message, matched_word)
             return
 
-        # Admins/Owner von Anti-Spam ausnehmen
+        # Admins/Owner von Anti-Spam + Invite-Filter ausnehmen
         if self._is_privileged(message):
+            return
+
+        # --- Invite-Link-Filter (nur Nicht-Privilegierte) ---
+        is_invite, _invite_reason = self.invite_filter.check_message(message.content)
+        if is_invite:
+            await self._handle_invite_message(message)
             return
 
         # --- Anti-Spam prüfen ---
@@ -220,6 +233,33 @@ class ModerationCog(commands.Cog):
             f"Anti-Spam: Nachricht von {message.author} "
             f"(ID: {message.author.id}) in #{message.channel.name} gelöscht. "
             f"Grund: {reason}"
+        )
+
+    # ------------------------------------------------------------------
+    # Handler: Invite-Link
+    # ------------------------------------------------------------------
+
+    async def _handle_invite_message(self, message: discord.Message) -> None:
+        """Nachricht mit fremdem Invite-Link löschen + warnen (kein Timeout)."""
+        try:
+            await message.delete()
+        except (discord.Forbidden, discord.NotFound, discord.HTTPException) as e:
+            logger.warning(f"Invite-Nachricht konnte nicht gelöscht werden: {e}")
+
+        try:
+            await message.channel.send(
+                f"{message.author.mention}, Einladungslinks zu anderen Servern "
+                f"sind hier nicht erlaubt.",
+                allowed_mentions=_NO_MENTIONS,
+                delete_after=10.0,
+            )
+        except (discord.Forbidden, discord.HTTPException):
+            pass
+
+        ch_name = getattr(message.channel, "name", "?")
+        logger.info(
+            f"Invite-Filter: Nachricht von {message.author} "
+            f"(ID: {message.author.id}) in #{ch_name} gelöscht."
         )
 
     # ------------------------------------------------------------------
@@ -440,6 +480,36 @@ class ModerationCog(commands.Cog):
         )
         logger.info(
             f"Wortfilter {status} von {interaction.user} "
+            f"(ID: {interaction.user.id})"
+        )
+
+    # ==================================================================
+    # /filter invite
+    # ==================================================================
+
+    @filter_grp.command(
+        name="invite",
+        description="Invite-Link-Filter ein-/ausschalten (fremde Discord-Einladungen)",
+    )
+    @admin_only()
+    async def filter_invite(
+        self,
+        interaction: discord.Interaction,
+    ) -> None:
+        new_state = self.invite_filter.toggle()
+        await self.invite_filter._save()
+
+        status = "aktiviert" if new_state else "deaktiviert"
+        emoji = "🟢" if new_state else "🔴"
+
+        await interaction.response.send_message(
+            f"Invite-Link-Filter wurde **{status}** {emoji}\n"
+            f"(Nicht-Admins können dann keine fremden Discord-Einladungen posten.)",
+            ephemeral=True,
+            allowed_mentions=_NO_MENTIONS,
+        )
+        logger.info(
+            f"Invite-Filter {status} von {interaction.user} "
             f"(ID: {interaction.user.id})"
         )
 
