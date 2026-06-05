@@ -22,7 +22,7 @@ from fastapi.templating import Jinja2Templates
 from modules.database.db_manager import get_db
 from utils.config import DATA_DIR
 from utils.logger import get_logger
-from web.auth import require_auth, require_auth_api
+from web.auth import require_auth, require_auth_api, require_perm
 
 logger = get_logger("web.routes.security")
 
@@ -272,7 +272,7 @@ async def _audit_log_action(user: dict, action: str, target: str, details: str) 
 
 
 @router.post("/api/security/unban")
-async def api_unban_ip(request: Request, current_user: dict = Depends(require_auth_api)) -> HTMLResponse:
+async def api_unban_ip(request: Request, current_user: dict = Depends(require_perm("system", "control"))) -> HTMLResponse:
     """
     Entsperrt eine IP aus der angegebenen Quelle.
     Gibt HTML-Partial fuer HTMX zurueck.

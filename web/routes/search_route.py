@@ -23,7 +23,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
 from utils.logger import get_logger
-from web.auth import require_auth, require_auth_api
+from web.auth import require_auth, require_auth_api, require_perm
 from modules.database.search_indexer import SearchIndexer
 
 logger = get_logger("web.routes.search")
@@ -121,7 +121,7 @@ async def api_search(
 
 
 @router.post("/api/search/reindex")
-async def api_reindex(current_user: dict = Depends(require_auth_api)):
+async def api_reindex(current_user: dict = Depends(require_perm("system", "control"))):
     """F55: Admin — Index komplett neu aufbauen."""
     result = await _indexer.full_reindex()
 
