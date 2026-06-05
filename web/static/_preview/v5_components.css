@@ -429,7 +429,11 @@ body::after {
    nowrap + overflow-x:auto → Tabs bleiben einzeilig, scrollen horizontal bei Platzmangel
    statt zu wrappen (sah uneinheitlich aus bei 8-Tab-Seiten wie server_detail). */
 .tabs, .tab-nav {
-  display: flex; gap: 6px; flex-wrap: nowrap; margin-bottom: 18px;
+  /* flex-direction:row explizit — sonst erbt .tabs (config/server_detail) das
+     flex-direction:column aus tailwind/output.css (@layer components, shadcn-Tabs)
+     -> Tabs stuenden vertikal statt horizontal wie bei admin_bot (.tab-nav).
+     Unlayered schlaegt die @layer-Regel. */
+  display: flex; flex-direction: row; gap: 6px; flex-wrap: nowrap; margin-bottom: 18px;
   border-bottom: 1px solid var(--line); padding-bottom: 4px;
   overflow-x: auto; overflow-y: visible;
   scrollbar-width: thin; scrollbar-color: var(--line) transparent;
