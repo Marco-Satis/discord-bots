@@ -47,9 +47,13 @@ gitb() { sudo -u botuser -H git -C "$DIR" "$@"; }
 cur_branch=$(gitb rev-parse --abbrev-ref HEAD 2>/dev/null || echo "?")
 [ "$cur_branch" = "$BRANCH" ] || { log "FEHLER: Clone auf '$cur_branch', erwartet '$BRANCH'"; exit 1; }
 
-if [ -n "$(gitb status --porcelain 2>/dev/null)" ]; then
-  log "FEHLER: Working-Tree nicht sauber (lokale Aenderungen) — bitte manuell reconcilen. Abbruch."
-  gitb status --short | sed 's/^/    /' | tee -a "$LOG"
+# Nur TRACKED-Aenderungen blocken (lokale Edits an versionierten Files). Untracked
+# Cruft (.bak-Files, Alt-Artefakte vom Clone-ueber-bestehendem-Dir) stoert einen
+# Fast-Forward NICHT; ein echter Pfad-Konflikt (untracked File wird vom Pull
+# ueberschrieben) wird vom ff-merge unten mit klarer Meldung abgefangen.
+if ! gitb diff --quiet 2>/dev/null || ! gitb diff --cached --quiet 2>/dev/null; then
+  log "FEHLER: Working-Tree hat TRACKED-Aenderungen (lokale Edits an versionierten Files) — manuell reconcilen. Abbruch."
+  gitb status --porcelain --untracked-files=no | sed 's/^/    /' | tee -a "$LOG"
   exit 1
 fi
 
