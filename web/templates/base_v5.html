@@ -108,6 +108,16 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M3 20v-1a5 5 0 0 1 10 0v1M14 20v-1a4 4 0 0 1 7-2.5"/></svg><span class="lbl">LFG</span>
         </a>
 
+        {% if user and user.is_owner %}
+        <div class="sb-sec">Verwaltung</div>
+        <a class="nav-i {% block nav_rbac %}{% endblock %}" href="/rbac">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="3.5"/><path d="M5 20v-1a5 5 0 0 1 10 0v1"/><path d="M17 11l1.5 1.5L21 10"/></svg><span class="lbl">RBAC</span>
+        </a>
+        <a class="nav-i {% block nav_audit %}{% endblock %}" href="/audit">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><path d="M5 4h14v16l-7-3-7 3z"/></svg><span class="lbl">Audit-Log</span>
+        </a>
+        {% endif %}
+
         <div class="sb-sec">Game-Server</div>
         <a class="nav-i {% block nav_sat %}{% endblock %}" href="/server/satisfactory">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><circle cx="7" cy="7" r="1" fill="currentColor"/><circle cx="7" cy="17" r="1" fill="currentColor"/></svg><span class="lbl">Satisfactory</span>

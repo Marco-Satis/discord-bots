@@ -114,9 +114,11 @@ class SatisfactoryAPI:
                 last_error = e
                 if attempt < 2:
                     await asyncio.sleep(1 * (attempt + 1))
-                    # Reset session on connection errors
-                    await self.close()
-                    self._session = None
+                    # Reset session on connection errors (M35-Fix: unter
+                    # _session_lock, sonst Race mit _get_session → Doppel-close)
+                    async with self._session_lock:
+                        await self.close()
+                        self._session = None
                 continue
 
         raise SatisfactoryAPIError(f"API request failed after 3 attempts: {last_error}")

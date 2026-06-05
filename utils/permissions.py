@@ -9,6 +9,14 @@ import os
 import functools
 from discord import app_commands, Interaction
 
+# M11-Fix: .env zuerst laden, BEVOR die drei int(os.getenv(...))-Reads laufen.
+# Sonst waeren die IDs dauerhaft 0 (Owner-Lock bis Neustart), falls dieses Modul
+# vor load_env() importiert wird. utils.config importiert utils.permissions nicht
+# (kein Zirkel-Import), daher ist der direkte load_env()-Aufruf sicher.
+from utils.config import load_env
+
+load_env()
+
 OWNER_ID = int(os.getenv("OWNER_ID", "0"))
 ADMIN_ROLE_ID = int(os.getenv("ADMIN_ROLE_ID", "0"))
 SATISFACTORY_ROLE_ID = int(os.getenv("SATISFACTORY_ROLE_ID", "0"))

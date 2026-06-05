@@ -227,12 +227,15 @@ class TempVoiceManager:
             logger.error(f"Temp-Voice-Daten laden fehlgeschlagen: {e}")
 
     def _save(self) -> None:
-        """Temp-Voice-Daten auf Disk speichern."""
+        """Temp-Voice-Daten auf Disk speichern (atomic, .tmp + replace)."""
         try:
+            # M10-Fix: atomic-write analog _save_config
             self.data_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.data_file, "w", encoding="utf-8") as f:
+            tmp = self.data_file.with_suffix(".json.tmp")
+            with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(self._channels, f, indent=2, ensure_ascii=False)
-        except IOError as e:
+            tmp.replace(self.data_file)
+        except (IOError, OSError) as e:
             logger.error(f"Temp-Voice-Daten speichern fehlgeschlagen: {e}")
 
     # ------------------------------------------------------------------

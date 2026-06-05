@@ -108,9 +108,16 @@ class MinecraftCog(commands.Cog):
         """Wird beim Laden des Cogs aufgerufen — startet Autosave-Tasks"""
         for server_id, minutes in self._autosave_intervals.items():
             if minutes > 0 and server_id in self.servers:
-                self._autosave_tasks[server_id] = asyncio.create_task(
+                task = asyncio.create_task(
                     self._autosave_loop(server_id, minutes)
                 )
+                # M24-Fix: done-callback analog Announcement-Task (poppt aus Dict + loggt Exception)
+                def _on_done(t: asyncio.Task, sid: str = server_id) -> None:
+                    self._autosave_tasks.pop(sid, None)
+                    if not t.cancelled() and t.exception():
+                        logger.error(f"Autosave-Task {sid} fehlgeschlagen: {t.exception()}")
+                task.add_done_callback(_on_done)
+                self._autosave_tasks[server_id] = task
                 logger.info(f"[{server_id}] Autosave-Task gestartet: alle {minutes} Min")
 
     async def cog_unload(self) -> None:

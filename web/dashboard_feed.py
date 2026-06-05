@@ -15,9 +15,9 @@ import asyncio
 import json
 from pathlib import Path
 
-from utils.config import DATA_DIR, MONITOR_DATA_DIR
+from utils.config import DATA_DIR, MONITOR_DATA_DIR, get_env
 from utils.logger import get_logger
-from modules.database.db_manager import get_db
+from modules.database.db_manager import get_read_db
 
 logger = get_logger("web.dashboard_feed")
 
@@ -73,7 +73,8 @@ def collect_system_stats() -> dict:
         stats["ram_percent"] = mem.percent
         stats["ram_used_gb"] = round(mem.used / (1024 ** 3), 1)
         stats["ram_total_gb"] = round(mem.total / (1024 ** 3), 1)
-        disk = psutil.disk_usage("/")
+        # M37-Fix: Partition konfigurierbar (Windows-Dev vs Linux-Prod-Pfad).
+        disk = psutil.disk_usage(get_env("DASHBOARD_DISK_PATH", "/"))
         stats["disk_percent"] = disk.percent
         stats["disk_used_gb"] = round(disk.used / (1024 ** 3), 1)
         stats["disk_total_gb"] = round(disk.total / (1024 ** 3), 1)
@@ -108,7 +109,7 @@ def collect_bot_status() -> list[dict]:
 async def collect_recent_events(limit: int = 20) -> list[dict]:
     """Letzte Events aus SQLite (filtert '0 Updates'-Cron-Noise)."""
     try:
-        db = await get_db()
+        db = await get_read_db()
         cursor = await db.execute(
             "SELECT timestamp, event_type, category, server_id, message, details "
             "FROM events "

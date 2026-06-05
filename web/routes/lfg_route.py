@@ -13,7 +13,7 @@ from fastapi.templating import Jinja2Templates
 
 from modules.guild_context import GuildConfig, get_primary_guild_id
 from utils.logger import get_logger
-from web.auth import require_auth
+from web.auth import require_auth, require_perm
 
 logger = get_logger("web.routes.lfg")
 
@@ -64,7 +64,7 @@ async def lfg_page(request: Request, current_user: dict = Depends(require_auth))
 
 @router.post("/lfg/config", response_class=HTMLResponse)
 async def lfg_config_save(
-    request: Request, current_user: dict = Depends(require_auth)
+    request: Request, current_user: dict = Depends(require_perm("lfg", "edit"))
 ):
     """LFG-Config speichern (role_id/channel_id/cooldown nach guild_config)."""
     guild_id = get_primary_guild_id()

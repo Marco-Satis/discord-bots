@@ -18,7 +18,7 @@ from fastapi.templating import Jinja2Templates
 
 from utils.config import get_env, MONITOR_DATA_DIR
 from utils.logger import get_logger
-from web.auth import require_auth, require_auth_api
+from web.auth import require_auth, require_auth_api, require_perm
 from modules.database.db_manager import get_db
 
 logger = get_logger("web.routes.system")
@@ -162,7 +162,7 @@ def _get_service_action_lock(service_name: str) -> asyncio.Lock:
 
 
 @router.post("/api/system/service/action")
-async def service_action(request: Request, current_user: dict = Depends(require_auth_api)):
+async def service_action(request: Request, current_user: dict = Depends(require_perm("system", "control"))):
     """
     Führt eine Service-Aktion aus (start/stop/restart).
     Nur für authentifizierte Benutzer.
@@ -475,7 +475,7 @@ async def get_package_list(current_user: dict = Depends(require_auth_api)):
 
 
 @router.post("/api/system/packages/check", response_class=HTMLResponse)
-async def check_package_updates(current_user: dict = Depends(require_auth_api)):
+async def check_package_updates(current_user: dict = Depends(require_perm("system", "control"))):
     """Fuehrt apt update aus und gibt dann die Update-Liste zurueck."""
     logger.info(f"Package-Update-Check von {current_user.get('username', 'Unbekannt')}")
 
@@ -600,14 +600,14 @@ async def _run_apt_upgrade(wrapper: str, label: str) -> HTMLResponse:
 
 
 @router.post("/api/system/packages/upgrade", response_class=HTMLResponse)
-async def upgrade_packages(current_user: dict = Depends(require_auth_api)):
+async def upgrade_packages(current_user: dict = Depends(require_perm("system", "control"))):
     """Fuehrt `apt upgrade -y` aus (ohne held-back Pakete)."""
     logger.info(f"Package-Upgrade gestartet von {current_user.get('username', 'Unbekannt')}")
     return await _run_apt_upgrade("/usr/local/sbin/dashboard-apt-upgrade", "System-Update")
 
 
 @router.post("/api/system/packages/full-upgrade", response_class=HTMLResponse)
-async def full_upgrade_packages(current_user: dict = Depends(require_auth_api)):
+async def full_upgrade_packages(current_user: dict = Depends(require_perm("system", "control"))):
     """Fuehrt `apt full-upgrade -y` aus (inkl. held-back, kann Pakete entfernen)."""
     logger.info(f"Package-Full-Upgrade gestartet von {current_user.get('username', 'Unbekannt')}")
     return await _run_apt_upgrade("/usr/local/sbin/dashboard-apt-fullupgrade", "Full-Upgrade")

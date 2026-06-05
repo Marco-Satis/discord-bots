@@ -17,7 +17,7 @@ from fastapi.templating import Jinja2Templates
 
 from utils.config import PROJECT_ROOT, DATA_DIR, MONITOR_DATA_DIR, get_config, get_env
 from utils.logger import get_logger
-from web.auth import require_auth, require_auth_api
+from web.auth import require_auth, require_auth_api, require_perm
 from modules.minecraft.rcon import MinecraftRCON
 from modules.database.db_manager import get_db
 # SatisfactoryAPI: KickPlayer funktioniert nicht ueber die API,
@@ -342,7 +342,7 @@ async def server_backups_partial(request: Request, server_id: str, current_user:
 
 
 @router.post("/api/server/{server_id}/action", response_class=HTMLResponse)
-async def server_action(request: Request, server_id: str, current_user: dict = Depends(require_auth_api)):
+async def server_action(request: Request, server_id: str, current_user: dict = Depends(require_perm("system", "control"))):
     """
     Server-Steuerung: Start, Stop, Restart, Kick, Ban.
 
@@ -737,7 +737,7 @@ async def server_mods_export(request: Request, server_id: str, current_user: dic
 
 
 @router.post("/api/server/{server_id}/mods/search", response_class=HTMLResponse)
-async def server_mods_search(request: Request, server_id: str, current_user: dict = Depends(require_auth_api)):
+async def server_mods_search(request: Request, server_id: str, current_user: dict = Depends(require_perm("system", "view"))):
     """
     Mod-Suche — Platzhalter-Endpunkt.
 
@@ -769,7 +769,7 @@ async def server_mods_search(request: Request, server_id: str, current_user: dic
 
 
 @router.post("/api/server/{server_id}/mods/check-updates", response_class=HTMLResponse)
-async def server_mods_check_updates(server_id: str, current_user: dict = Depends(require_auth_api)):
+async def server_mods_check_updates(server_id: str, current_user: dict = Depends(require_perm("system", "view"))):
     """Prueft auf verfuegbare Mod-Updates — Platzhalter."""
     logger.info(f"Mod-Update-Check fuer {server_id} (von {current_user.get('username', 'Unbekannt')})")
     return HTMLResponse(content="""
@@ -781,7 +781,7 @@ async def server_mods_check_updates(server_id: str, current_user: dict = Depends
 
 
 @router.post("/api/server/{server_id}/mods/update", response_class=HTMLResponse)
-async def server_mod_update(request: Request, server_id: str, current_user: dict = Depends(require_auth_api)):
+async def server_mod_update(request: Request, server_id: str, current_user: dict = Depends(require_perm("system", "control"))):
     """Aktualisiert einen einzelnen Mod — Platzhalter."""
     form = await request.form()
     mod_name = form.get("mod_name", "")
@@ -796,7 +796,7 @@ async def server_mod_update(request: Request, server_id: str, current_user: dict
 
 
 @router.post("/api/server/{server_id}/mods/uninstall", response_class=HTMLResponse)
-async def server_mod_uninstall(request: Request, server_id: str, current_user: dict = Depends(require_auth_api)):
+async def server_mod_uninstall(request: Request, server_id: str, current_user: dict = Depends(require_perm("system", "control"))):
     """Deinstalliert einen Mod — Platzhalter."""
     form = await request.form()
     mod_name = form.get("mod_name", "")
@@ -811,7 +811,7 @@ async def server_mod_uninstall(request: Request, server_id: str, current_user: d
 
 
 @router.post("/api/server/{server_id}/rcon", response_class=HTMLResponse)
-async def server_rcon(request: Request, server_id: str, command: str = Form(""), current_user: dict = Depends(require_auth_api)):
+async def server_rcon(request: Request, server_id: str, command: str = Form(""), current_user: dict = Depends(require_perm("system", "control"))):
     """
     RCON-Befehl senden (nur Minecraft-Server).
 

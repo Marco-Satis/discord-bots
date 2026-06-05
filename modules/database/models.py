@@ -219,6 +219,7 @@ class TicketMessage:
 @dataclass
 class LevelingUser:
     id: int = 0
+    guild_id: str = ""  # M27-Fix: leveling ist seit Migration v6 guild-scoped (UNIQUE(guild_id, user_id))
     user_id: str = ""
     xp: int = 0
     level: int = 0
@@ -230,6 +231,7 @@ class LevelingUser:
     def from_row(cls, row: Any) -> "LevelingUser":
         return cls(
             id=_get(row, "id", 0),
+            guild_id=_get(row, "guild_id", ""),  # M27-Fix: guild_id aus Row lesen
             user_id=_get(row, "user_id", ""),
             xp=_get(row, "xp", 0),
             level=_get(row, "level", 0),

@@ -22,7 +22,6 @@ import time
 from dataclasses import dataclass, field
 from typing import Dict, Tuple
 
-from starlette.requests import Request
 from starlette.responses import Response, JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -162,22 +161,13 @@ class BucketStore:
 # Hilfsfunktionen
 # ---------------------------------------------------------------------------
 def _get_client_ip(scope: Scope) -> str:
-    """
-    Ermittelt die Client-IP-Adresse aus dem ASGI Scope.
+    """Ermittelt die echte Client-IP (trust-bewusst, B3/M15-Fix).
 
-    Beruecksichtigt X-Forwarded-For Header fuer Reverse-Proxy Setups.
+    Vorher: erstes X-Forwarded-For-Element (client-faelschbar → Rate-Limit-Bypass
+    + IP-Spoofing). Jetzt: Proxy-Header nur von trusted Peer (nginx 127.0.0.1).
     """
-    # X-Forwarded-For aus Headers lesen
-    for key, value in scope.get("headers", []):
-        if key == b"x-forwarded-for":
-            # Erster Eintrag ist die urspruengliche Client-IP
-            return value.decode("utf-8", errors="replace").split(",")[0].strip()
-
-    # Fallback auf direkte Verbindung
-    client = scope.get("client")
-    if client:
-        return client[0]
-    return "unknown"
+    from utils.client_ip import client_ip_from_scope
+    return client_ip_from_scope(scope)
 
 
 def _classify_request(path: str, method: str) -> Tuple[str, float, float]:

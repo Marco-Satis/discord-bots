@@ -17,7 +17,7 @@ from fastapi.templating import Jinja2Templates
 
 from utils.config import PROJECT_ROOT, DATA_DIR, get_config, save_config
 from utils.logger import get_logger
-from web.auth import require_auth
+from web.auth import require_auth, require_perm
 from web.guild_config_bridge import read_leveling_config, write_leveling_config
 from web.temp_voice_bridge import (
     hubs_to_text,
@@ -597,7 +597,7 @@ async def admin_bot_tab(request: Request, tab_name: str, current_user: dict = De
 
 
 @router.post("/admin-bot/save/{module_name}", response_class=HTMLResponse)
-async def admin_bot_save(request: Request, module_name: str, current_user: dict = Depends(require_auth)):
+async def admin_bot_save(request: Request, module_name: str, current_user: dict = Depends(require_perm("admin_bot", "edit"))):
     """
     Speichert die Einstellungen eines Moduls.
     Liest Formular-Daten, parst sie modulspezifisch und speichert als JSON.
