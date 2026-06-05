@@ -366,13 +366,16 @@ body::after {
 .tab-list::-webkit-scrollbar { height: 4px; }
 .tab-list::-webkit-scrollbar-thumb { background: var(--line); border-radius: 99px; }
 .tab-list .tab { flex-shrink: 0; white-space: nowrap; }
-.tab {
+/* EINE Tab-Item-Definition fuer ALLE Seiten: .tab (config/server_detail) UND
+   .tab-btn (admin_bot) teilen sich exakt diesen Style -> ueberall identischer
+   Look (Sans wie der Rest des Dashboards, Pill-Gradient bei active). */
+.tab, .tab-btn {
   padding: 8px 16px; border-radius: 999px; color: var(--t2); cursor: pointer;
   font-size: 12px; border: 1px solid transparent; transition: all var(--fast);
   background: transparent; font-weight: 500;
 }
-.tab:hover { color: var(--t1); background: var(--s2); }
-.tab.active {
+.tab:hover, .tab-btn:hover { color: var(--t1); background: var(--s2); }
+.tab.active, .tab-btn.active {
   background: var(--pill-grad); color: #fff; border: 0;
   box-shadow: 0 4px 14px rgba(168, 85, 247, .4);
 }
@@ -434,17 +437,8 @@ body::after {
 .tabs::-webkit-scrollbar, .tab-nav::-webkit-scrollbar { height: 4px; }
 .tabs::-webkit-scrollbar-thumb, .tab-nav::-webkit-scrollbar-thumb { background: var(--line); border-radius: 99px; }
 .tabs .tab, .tab-nav .tab-btn { flex-shrink: 0; white-space: nowrap; }
-.tab-btn {
-  padding: 8px 16px; border-radius: 999px; color: var(--t2); cursor: pointer;
-  font-size: 12px; border: 1px solid transparent; transition: all var(--fast);
-  background: transparent; font-weight: 500;
-  font-family: ui-monospace, monospace;
-}
-.tab-btn:hover { color: var(--t1); background: var(--s2); }
-.tab-btn.active {
-  background: var(--pill-grad); color: #fff; border: 0;
-  box-shadow: 0 4px 14px rgba(168, 85, 247, .4);
-}
+/* .tab-btn-Item-Style ist mit .tab oben vereinheitlicht (Sans, kein Mono mehr)
+   -> admin_bot-Tabs sehen jetzt identisch zu config/server_detail aus. */
 
 /* Tab-Panels (config.html .panel + admin_bot Lazy-Load) */
 .panel, .tab-panel { display: none; }
