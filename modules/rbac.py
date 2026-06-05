@@ -25,7 +25,7 @@ from __future__ import annotations
 import time
 from typing import Iterable, Optional
 
-from modules.database.db_manager import get_read_db, get_db
+from modules.database.db_manager import get_read_db, transaction
 from utils.logger import get_logger
 
 logger = get_logger("rbac")
@@ -238,23 +238,21 @@ async def set_role_grants(
     if not role_id.isdigit():
         raise ValueError("Rollen-ID muss numerisch sein (Discord-Snowflake)")
     clean = validate_grants(grants)
-    conn = await get_db()
-    # ACHTUNG: KEIN try/rollback hier. get_db() liefert eine PROZESSWEIT
-    # GETEILTE Write-Connection (siehe db_manager.execute-Docstring) — ein
-    # rollback() wuerde die uncommitteten Writes anderer, gleichzeitig laufender
-    # Coroutinen auf derselben Connection mit verwerfen (Review A01/Q1, 2026-06-05).
-    # Das urspruengliche M39-Risiko (Partial-Fail laesst Rolle ohne Grants) wird
-    # erst mit der get_db-Repository-Refaktorierung (Write-Lock, C3) sauber
-    # geloest — bis dahin ist das groessere Race-Risiko der Rollback.
-    await conn.execute("DELETE FROM rbac_role_map WHERE role_id = ?", (role_id,))
-    for resource, action in clean:
-        await conn.execute(
-            "INSERT OR IGNORE INTO rbac_role_map "
-            "(role_id, resource, action, updated_at, updated_by) "
-            "VALUES (?, ?, ?, CURRENT_TIMESTAMP, ?)",
-            (role_id, resource, action, updated_by),
-        )
-    await conn.commit()
+    # C3 (M39 final): DELETE + INSERT atomar im transaction()-Context-Manager.
+    # Dieser haelt den per-Prozess Write-Lock auf einer DEDIZIERTEN Connection
+    # und macht den ROLLBACK sicher — ein Partial-Fail (Abbruch nach DELETE)
+    # verwirft jetzt die ganze Transaktion und laesst die alten Grants stehen,
+    # statt die Rolle ohne Grants zu hinterlassen. Kein Verwerfen fremder Writes
+    # mehr (frueheres shared-Connection-Risiko, Review A01/Q1 2026-06-05).
+    async with transaction() as conn:
+        await conn.execute("DELETE FROM rbac_role_map WHERE role_id = ?", (role_id,))
+        for resource, action in clean:
+            await conn.execute(
+                "INSERT OR IGNORE INTO rbac_role_map "
+                "(role_id, resource, action, updated_at, updated_by) "
+                "VALUES (?, ?, ?, CURRENT_TIMESTAMP, ?)",
+                (role_id, resource, action, updated_by),
+            )
     logger.info(
         f"RBAC: Rolle {role_id} -> {len(clean)} Grants gesetzt (von {updated_by})"
     )
@@ -265,7 +263,8 @@ async def delete_role(role_id: str) -> None:
     role_id = str(role_id).strip()
     if not role_id.isdigit():
         raise ValueError("Rollen-ID muss numerisch sein (Discord-Snowflake)")
-    conn = await get_db()
-    await conn.execute("DELETE FROM rbac_role_map WHERE role_id = ?", (role_id,))
-    await conn.commit()
+    # C3: ueber transaction() (dedizierte Connection) statt shared get_db().commit()
+    # -> kein Phantom-Commit fremder uncommitteter Writes mehr.
+    async with transaction() as conn:
+        await conn.execute("DELETE FROM rbac_role_map WHERE role_id = ?", (role_id,))
     logger.info(f"RBAC: Rolle {role_id} aus Mapping entfernt")

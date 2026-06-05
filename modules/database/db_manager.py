@@ -16,6 +16,7 @@ Architektur (audit-fix 2026-05-17, perf.md F2):
 import asyncio
 import itertools
 import sqlite3
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, Union
 
@@ -46,6 +47,17 @@ _read_pool_lock = asyncio.Lock()
 # "database is locked" wirft, statt den Fehler hart zum Caller durchzureichen.
 _WRITE_RETRIES = 2
 _WRITE_RETRY_BASE_DELAY = 0.05  # Sekunden, verdoppelt sich pro Versuch (50/100 ms)
+
+# C3: Dedizierte Write-Connection NUR fuer Multi-Statement-Transaktionen.
+# Begruendung: get_db() liefert eine prozessweit GETEILTE Connection, auf der
+# ~98 Caller (Cogs/Routes) roh schreiben (execute()+commit()) OHNE Lock. Ein
+# Lock allein auf der shared Connection wuerde Phantom-Commits durch diese rohen
+# Caller NICHT verhindern (sie umgehen jeden Lock). Eine separate Connection, die
+# AUSSCHLIESSLICH der lock-serialisierte transaction()-Context-Manager benutzt,
+# garantiert dagegen, dass keine fremden uncommitteten Writes auf ihr liegen ->
+# ROLLBACK ist sicher und atomar, ohne einen der 98 Caller anzufassen.
+_txn_connection: Optional[aiosqlite.Connection] = None
+_txn_lock = asyncio.Lock()
 
 
 def get_db_path() -> Path:
@@ -188,12 +200,97 @@ async def get_read_db() -> aiosqlite.Connection:
     return next(_read_pool_cycle)
 
 
+async def _ensure_txn_connection() -> aiosqlite.Connection:
+    """
+    Lazy-Init der dedizierten Transaktions-Connection (C3).
+
+    Muss INNERHALB von `_txn_lock` aufgerufen werden — dadurch ist der Init
+    race-frei ohne eigenen Guard. `isolation_level=None` = Autocommit, was
+    sauberes manuelles `BEGIN IMMEDIATE` / `COMMIT` / `ROLLBACK` ermoeglicht
+    (kein Konflikt mit der impliziten Transaktionsverwaltung von sqlite3).
+    """
+    global _txn_connection
+    if _txn_connection is not None:
+        return _txn_connection
+
+    # Garantiert, dass DB-Datei + Schema + Migrationen existieren.
+    await get_db()
+
+    conn = await aiosqlite.connect(str(DB_PATH), isolation_level=None)
+    # WAL ist DB-weit bereits aktiv (von der Write-Connection gesetzt, persistent).
+    # busy_timeout + foreign_keys sind per-Connection und muessen hier erneut.
+    await conn.execute("PRAGMA busy_timeout=5000")
+    await conn.execute("PRAGMA foreign_keys=ON")
+    conn.row_factory = aiosqlite.Row
+    _txn_connection = conn
+    logger.info("Transaktions-Connection initialisiert (dediziert, Autocommit + manuelles BEGIN)")
+    return _txn_connection
+
+
+async def _begin_immediate(conn: aiosqlite.Connection) -> None:
+    """`BEGIN IMMEDIATE` mit Retry bei Cross-Prozess-Write-Lock (analog DBHelper.execute)."""
+    delay = _WRITE_RETRY_BASE_DELAY
+    for attempt in range(1, _WRITE_RETRIES + 1):
+        try:
+            await conn.execute("BEGIN IMMEDIATE")
+            return
+        except sqlite3.OperationalError as e:
+            locked = "locked" in str(e).lower() or "busy" in str(e).lower()
+            if not locked or attempt == _WRITE_RETRIES:
+                raise
+            logger.warning(
+                f"transaction(): BEGIN gesperrt (Versuch {attempt}/{_WRITE_RETRIES}), "
+                f"Retry in {delay * 1000:.0f}ms: {e}"
+            )
+            await asyncio.sleep(delay)
+            delay *= 2
+
+
+@asynccontextmanager
+async def transaction():
+    """
+    Atomarer Multi-Statement-Write-Context (C3 — Write-Lock + sicherer Rollback).
+
+    Nutzung::
+
+        async with transaction() as conn:
+            await conn.execute("DELETE FROM x WHERE ...")
+            await conn.execute("INSERT INTO x ...")
+        # -> COMMIT bei Erfolg, ROLLBACK bei Exception (re-raised).
+
+    WICHTIG: Im Block NUR die geyieldete `conn` direkt benutzen
+    (`await conn.execute(...)`). KEIN `DBHelper.execute()` / `get_db()`-Write —
+    die laufen auf der SHARED Connection und waeren nicht Teil dieser Transaktion
+    (und ein verschachtelter Lock-Erwerb gibt es hier ohnehin nicht).
+
+    Garantien:
+      - Per-Prozess serialisiert via `_txn_lock` (kein Interleave mit anderer
+        `transaction()`), auf einer DEDIZIERTEN Connection -> keine fremden
+        uncommitteten Writes -> `ROLLBACK` verwirft NUR diese Transaktion.
+      - Cross-Prozess atomar via `BEGIN IMMEDIATE` + `busy_timeout`
+        (SQLite-Write-Lock ueber das gemeinsame WAL-File).
+    """
+    async with _txn_lock:
+        conn = await _ensure_txn_connection()
+        await _begin_immediate(conn)
+        try:
+            yield conn
+        except BaseException:
+            try:
+                await conn.execute("ROLLBACK")
+            except Exception as rb_err:  # noqa: BLE001 — Rollback-Fehler nicht den Original maskieren lassen
+                logger.error(f"transaction(): ROLLBACK fehlgeschlagen: {rb_err}")
+            raise
+        else:
+            await conn.execute("COMMIT")
+
+
 async def close_db() -> None:
     """
-    Schliesst die Datenbank-Verbindungen sauber (Write + Read-Pool).
+    Schliesst die Datenbank-Verbindungen sauber (Write + Read-Pool + Txn).
     Fuehrt vorher einen WAL-Checkpoint durch.
     """
-    global _connection, _read_pool, _read_pool_cycle
+    global _connection, _read_pool, _read_pool_cycle, _txn_connection
 
     # Erst Read-Pool schliessen (Read-Connections koennen WAL-Checkpoint blockieren)
     async with _read_pool_lock:
@@ -206,6 +303,19 @@ async def close_db() -> None:
             logger.info(f"Read-Pool geschlossen ({len(_read_pool)} Connections)")
         _read_pool = []
         _read_pool_cycle = None
+
+    # C3: Dedizierte Transaktions-Connection schliessen. Der _txn_lock-Erwerb
+    # wartet auf eine evtl. noch laufende transaction() (die committet/rollbackt
+    # vor Lock-Freigabe) -> Conn hat keine offene Transaktion beim Close.
+    async with _txn_lock:
+        if _txn_connection is not None:
+            try:
+                await _txn_connection.close()
+                logger.info("Transaktions-Connection geschlossen")
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"Fehler beim Schliessen der Transaktions-Connection: {e}")
+            finally:
+                _txn_connection = None
 
     async with _lock:
         if _connection is None:

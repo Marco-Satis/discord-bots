@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 from typing import Any, Optional
 
-from modules.database.db_manager import get_db, get_read_db
+from modules.database.db_manager import get_read_db, transaction
 from utils.logger import get_logger
 
 logger = get_logger("dashboard_audit")
@@ -72,21 +72,24 @@ async def log_action(
         ip:         Client-IP.
     """
     try:
-        conn = await get_db()
-        await conn.execute(
-            "INSERT INTO dashboard_audit "
-            "(discord_id, username, resource, action, detail, ip) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (
-                str(discord_id) if discord_id is not None else None,
-                str(username) if username is not None else None,
-                str(resource),
-                str(action),
-                _sanitize_detail(detail),
-                str(ip) if ip is not None else None,
-            ),
-        )
-        await conn.commit()
+        # C3: ueber transaction() (dedizierte Connection) statt shared get_db().commit().
+        # Behebt M29: das frueher auf der shared Connection abgesetzte commit() konnte
+        # den uncommitteten Write einer anderen Coroutine vorzeitig committen (Phantom-
+        # Commit). Auf der dedizierten, lock-serialisierten Connection ist das ausgeschlossen.
+        async with transaction() as conn:
+            await conn.execute(
+                "INSERT INTO dashboard_audit "
+                "(discord_id, username, resource, action, detail, ip) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    str(discord_id) if discord_id is not None else None,
+                    str(username) if username is not None else None,
+                    str(resource),
+                    str(action),
+                    _sanitize_detail(detail),
+                    str(ip) if ip is not None else None,
+                ),
+            )
     except Exception as e:  # noqa: BLE001 — Audit darf nie die Aktion kippen
         logger.error(f"Audit-Write fehlgeschlagen ({resource}/{action}): {e}")
 
