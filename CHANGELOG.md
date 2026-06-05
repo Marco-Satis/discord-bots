@@ -9,6 +9,10 @@ Alle relevanten Aenderungen am Discord Bot System werden hier dokumentiert.
 > Multi-Tenant-Umbau + Community-Features (MVP-first). MVP + Wave-2 seit
 > 2026-06-04 auf Prod (Migration Schema 4→7 datensicher). Version-Bump offen.
 
+### Web-Pages + RBAC + Dashboard-Audit (live seit 2026-06-05)
+- **Öffentliche Landing-Page (`/`)** mit Live-Status (Server/Bots/Spieler, 30s-HTMX-Poll, ohne Event-Log = Privacy-Schnitt), **Post-Login-Startseite (`/home`)** und **Login-Reskin** (V5-Design). Dashboard-Übersicht von `/` nach `/dashboard` verschoben, Nav „Start"/„Dashboard".
+- **RBAC (R1–R3):** Discord-Rollen → Dashboard-Berechtigungen (`(Resource, Action)`-Modell, server-seitig via `require_perm`), Owner-only `/rbac`-Mapping-UI + `/audit`-Log. Migration v9 (`rbac_role_map`, `dashboard_audit`).
+
 ### Multi-Tenant-Fundament
 - **Neu `modules/guild_context.py`:** Guild-Resolver (`get_primary_guild_id`/`get_active_guild_ids`) + `GuildConfig` (schema-getriebene Per-Guild-Settings, Feature-Flags, Guild-Registry, JSON-Roundtrip, 15s-TTL-Cache gegen Cross-Prozess-Drift). Loest verstreute `GUILD_ID`-Single-Guild-Annahme ab.
 - **Migration v5:** Tabellen `guilds`/`guild_config`/`guild_modules`. Daten-Isolation pro Guild (kein Cross-Guild-Leak) — test-bewiesen.
