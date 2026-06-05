@@ -36,7 +36,10 @@ KEEP_SNAPSHOTS=5
 TS=$(date +%s)
 
 log() { echo "[$(date '+%F %T')] git-deploy: $*" | tee -a "$LOG"; }
-gitb() { sudo -u botuser git -C "$DIR" "$@"; }   # git als botuser im Bot-Clone
+# git als botuser im Bot-Clone. -H setzt HOME=/home/botuser, damit git+ssh den
+# Deploy-Key (~botuser/.ssh) und ~botuser/.gitconfig findet (sonst schlaegt der
+# SSH-Fetch von git@github.com fehl).
+gitb() { sudo -u botuser -H git -C "$DIR" "$@"; }
 
 # --- Vorbedingungen -------------------------------------------------------
 [ -d "$DIR/.git" ] || { log "FEHLER: $DIR ist kein git-Clone"; exit 1; }
