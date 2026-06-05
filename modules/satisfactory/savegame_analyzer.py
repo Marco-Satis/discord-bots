@@ -573,6 +573,11 @@ class SavegameAnalyzer:
         self._cached_mtime: float = 0
         self._analyzing: bool = False
         self._lock: asyncio.Lock = asyncio.Lock()
+        # Save-Builds, bei denen der native Parser mit SIGSEGV (Signal 11) crasht.
+        # Fuer diese Versionen wird der Deep-Parse-Subprozess kuenftig uebersprungen
+        # (Header-Fallback) -> kein 5-Min-Crash-Spam bei inkompatiblem Save-Format.
+        # In-Memory: ein Bot-Neustart / Lib-Update / Versionswechsel re-checkt 1x.
+        self._incompatible_versions: set[int] = set()
 
     def _get_latest_save(self) -> Optional[Path]:
         """Find the most recent .sav file"""
@@ -672,6 +677,19 @@ class SavegameAnalyzer:
             self._read_basic_header(save_file, stats)
             return stats
 
+        # Build-Version vorab aus dem Header lesen (billig, kann NICHT segfaulten).
+        # Hat der native Parser dieses Save-Build schon mit SIGSEGV gekillt, den
+        # Deep-Parse-Subprozess ueberspringen — sonst crasht er bei jeder neuen
+        # Autosave (alle ~5 Min) erneut und spammt das Log.
+        self._read_basic_header(save_file, stats)
+        build_ver = stats.build_version
+        if build_ver and build_ver in self._incompatible_versions:
+            stats.analysis_error = (
+                f"Deep-Parse uebersprungen — Save-Build {build_ver} ist mit dem "
+                f"nativen Parser inkompatibel (Header-Fallback)"
+            )
+            return stats
+
         start_time = time.time()
         logger.info(f"Analyzing save: {save_file.name} ({stats.save_size})")
 
@@ -721,17 +739,25 @@ class SavegameAnalyzer:
         if parse_result is None:
             ec = proc.exitcode
             if ec is not None and ec < 0:
-                logger.warning(
-                    f"Save-Parser-Kindprozess durch Signal {-ec} abgestuerzt "
-                    f"(inkompatibles Save-Format?) -> Header-Fallback"
-                )
+                # Inkompatibles Save-Build merken -> kuenftige Autosaves derselben
+                # Version ueberspringen den Subprozess (kein 5-Min-Crash-Spam mehr).
+                # WARNING nur beim ersten Crash je Version (sonst still gecacht).
+                first_seen = bool(build_ver) and build_ver not in self._incompatible_versions
+                if build_ver:
+                    self._incompatible_versions.add(build_ver)
+                if first_seen or not build_ver:
+                    logger.warning(
+                        f"Save-Parser-Kindprozess durch Signal {-ec} abgestuerzt "
+                        f"(Save-Build {build_ver or '?'} inkompatibel) -> Header-Fallback; "
+                        f"Deep-Parse fuer diese Version wird kuenftig uebersprungen"
+                    )
                 stats.analysis_error = f"Parser-Crash (Signal {-ec})"
             else:
                 logger.warning(
                     f"Save-Analyse ohne Ergebnis (exitcode={ec}) -> Header-Fallback"
                 )
                 stats.analysis_error = "Save-Analyse fehlgeschlagen/Timeout"
-            self._read_basic_header(save_file, stats)
+            # Header bereits oben gelesen (Inkompatibel-Vorab-Check) — kein Re-Read.
             return stats
 
         status, payload = parse_result
