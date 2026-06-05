@@ -18,6 +18,7 @@ from fastapi.templating import Jinja2Templates
 
 import modules.rbac as rbac
 from modules.dashboard_audit import log_from_user
+from utils.client_ip import client_ip_from_scope
 from utils.logger import get_logger
 from web.auth import require_perm
 
@@ -84,7 +85,7 @@ async def rbac_config_save(
     """
     success = ""
     error = ""
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = client_ip_from_scope(request.scope)  # B3: einheitliche trust-bewusste IP
 
     try:
         form = await request.form()
