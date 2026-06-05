@@ -1,0 +1,111 @@
+{% extends "base_v5.html" %}
+{#
+  Welcome-Home — Post-Login-Startseite (Route GET /home via home_route.py, require_auth).
+  Begrüßung + Status-Snapshot + Quick-Links. Server-Liste lebt getrennt unter /dashboard.
+
+  Erwarteter Kontext (vom Route-Handler):
+    user     — dict (username, avatar)   [via require_auth]
+    servers  — list[dict]  (gather_dashboard_payload()['servers'])
+    system   — dict        (gather_dashboard_payload()['system'])
+    bots     — list[dict]  (gather_dashboard_payload()['bots'])
+
+  Hinweis (nach RBAC-Merge): Quick-Link-Kacheln je nach Rolle ein-/ausblenden
+  (z.B. {% if can_view('moderation') %}…). Jetzt alle sichtbar (Owner-Default).
+#}
+{% block title %}Start{% endblock %}
+{% block crumb %}Start{% endblock %}
+
+{% block content %}
+{% set ns = namespace(bots_active=0, servers_online=0, players=0) %}
+{% for b in bots %}{% if b.status in ['online', 'connected', 'ready', 'ok'] %}{% set ns.bots_active = ns.bots_active + 1 %}{% endif %}{% endfor %}
+{% for s in servers %}{% if s.status in ['online', 'running'] %}{% set ns.servers_online = ns.servers_online + 1 %}{% endif %}{% set ns.players = ns.players + (s.players | int) %}{% endfor %}
+{% set all_bots = bots and ns.bots_active == (bots | length) %}
+{% set sys_ok = (system.cpu_percent | default(0)) < 85 and (system.ram_percent | default(0)) < 90 and (system.disk_percent | default(0)) < 90 %}
+{% if all_bots and sys_ok %}{% set ns.h_label = 'Gesund' %}{% set ns.h_color = 'var(--ok)' %}
+{% elif (not all_bots) or (system.disk_percent | default(0)) >= 95 %}{% set ns.h_label = 'Achtung' %}{% set ns.h_color = 'var(--bad)' %}
+{% else %}{% set ns.h_label = 'Erhöht' %}{% set ns.h_color = 'var(--warn)' %}{% endif %}
+
+<!-- Begrüßung -->
+<div style="margin-bottom:22px">
+  <h1 class="display" style="font-size:clamp(24px,3.4vw,34px);margin:0">Willkommen zurück, <span class="grad-text">{{ (user.username if user else 'Marco') }}</span>.</h1>
+  <p style="color:var(--t2);margin:8px 0 0;font-size:15px">Hier ist der schnelle Überblick. Spring direkt dahin, wo du hin willst.</p>
+</div>
+
+<!-- Status-Snapshot -->
+<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:var(--gap-card);margin-bottom:26px">
+  <div class="card" style="padding:18px">
+    <div class="cap">Bots aktiv</div>
+    <div class="grad-text tnum" style="font-size:30px;font-weight:700;margin-top:5px">{{ ns.bots_active }}<span style="font-size:16px;color:var(--t3);-webkit-text-fill-color:var(--t3)">/{{ bots | length }}</span></div>
+  </div>
+  <div class="card" style="padding:18px">
+    <div class="cap">Server online</div>
+    <div class="tnum" style="font-size:30px;font-weight:700;margin-top:5px;{% if ns.servers_online > 0 %}color:var(--ok){% endif %}">{{ ns.servers_online }}<span style="font-size:16px;color:var(--t3)">/{{ servers | length }}</span></div>
+  </div>
+  <div class="card" style="padding:18px">
+    <div class="cap">Spieler online</div>
+    <div class="tnum" style="font-size:30px;font-weight:700;margin-top:5px;{% if ns.players > 0 %}color:var(--ok){% endif %}">{{ ns.players }}</div>
+  </div>
+  <div class="card" style="padding:18px">
+    <div class="cap">System</div>
+    <div style="display:flex;align-items:center;gap:9px;margin-top:10px">
+      <span class="dot" style="width:11px;height:11px;border-radius:99px;background:{{ ns.h_color }};box-shadow:0 0 10px {{ ns.h_color }}"></span>
+      <span style="font-size:18px;font-weight:600;color:{{ ns.h_color }}">{{ ns.h_label }}</span>
+    </div>
+    <div style="color:var(--t3);font-size:12px;margin-top:6px">CPU {{ system.cpu_percent | default(0) | round | int }}% · RAM {{ system.ram_percent | default(0) | round | int }}%</div>
+  </div>
+</div>
+
+<!-- Quick-Links -->
+<div class="cap" style="margin:0 0 12px">Schnellzugriff</div>
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:var(--gap-card)">
+
+  <a class="card" href="/dashboard" style="padding:20px;display:block;text-decoration:none">
+    <div style="display:flex;align-items:center;gap:11px;margin-bottom:8px">
+      <span style="color:#b8a2f8"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg></span>
+      <span style="font-weight:600;font-size:15px">Server-Übersicht</span>
+    </div>
+    <p style="margin:0;color:var(--t2);font-size:13px">Status & Steuerung aller Game-Server und Bots.</p>
+  </a>
+
+  <a class="card" href="/leveling" style="padding:20px;display:block;text-decoration:none">
+    <div style="display:flex;align-items:center;gap:11px;margin-bottom:8px">
+      <span style="color:#f5b13d"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19h16M7 19V9M12 19V5M17 19v-7"/></svg></span>
+      <span style="font-weight:600;font-size:15px">Leveling</span>
+    </div>
+    <p style="margin:0;color:var(--t2);font-size:13px">Leaderboard, Role-Rewards und XP-Konfiguration.</p>
+  </a>
+
+  <a class="card" href="/moderation" style="padding:20px;display:block;text-decoration:none">
+    <div style="display:flex;align-items:center;gap:11px;margin-bottom:8px">
+      <span style="color:#67e8f9"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 4v6c0 5-3.5 7.5-8 10-4.5-2.5-8-5-8-10V6z"/><path d="M9 12l2 2 4-4"/></svg></span>
+      <span style="font-weight:600;font-size:15px">Moderation</span>
+    </div>
+    <p style="margin:0;color:var(--t2);font-size:13px">AutoMod-Regeln, Warn-System und Tickets.</p>
+  </a>
+
+  <a class="card" href="/lfg" style="padding:20px;display:block;text-decoration:none">
+    <div style="display:flex;align-items:center;gap:11px;margin-bottom:8px">
+      <span style="color:#f0a3e6"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M3 20v-1a5 5 0 0 1 10 0v1M14 20v-1a4 4 0 0 1 7-2.5"/></svg></span>
+      <span style="font-weight:600;font-size:15px">LFG</span>
+    </div>
+    <p style="margin:0;color:var(--t2);font-size:13px">Spielersuche-Rolle und Ping-Konfiguration.</p>
+  </a>
+
+  <a class="card" href="/config" style="padding:20px;display:block;text-decoration:none">
+    <div style="display:flex;align-items:center;gap:11px;margin-bottom:8px">
+      <span style="color:#34e0a1"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l1.5 4.5L18 5l-1.5 4.5L21 11l-4.5 1.5L18 17l-4.5-1.5L12 20l-1.5-4.5L6 17l1.5-4.5L3 11l4.5-1.5L6 5l4.5 1.5z"/></svg></span>
+      <span style="font-weight:600;font-size:15px">Konfiguration</span>
+    </div>
+    <p style="margin:0;color:var(--t2);font-size:13px">Feature-Flags, Kanäle und Bot-Einstellungen.</p>
+  </a>
+
+  <a class="card" href="/security" style="padding:20px;display:block;text-decoration:none">
+    <div style="display:flex;align-items:center;gap:11px;margin-bottom:8px">
+      <span style="color:#b8a2f8"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 4v6c0 5-3.5 7.5-8 10-4.5-2.5-8-5-8-10V6z"/></svg></span>
+      <span style="font-weight:600;font-size:15px">Sicherheit</span>
+    </div>
+    <p style="margin:0;color:var(--t2);font-size:13px">Verification, Anti-Raid und Audit-Übersicht.</p>
+  </a>
+
+</div>
+{% endblock %}

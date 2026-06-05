@@ -1,0 +1,28 @@
+{#
+  Partial — Live-Stat-Strip der öffentlichen Landing.
+  Wird (a) von landing.html eingebunden (Server-Render beim ersten Laden) und
+  (b) vom Partial-Endpoint GET /partials/landing-stats für den 30s-HTMX-Poll
+  gerendert. Beide Pfade liefern identisches Markup (DRY).
+
+  Erwarteter Kontext: servers (list), system (dict), bots (list).
+  KEIN events — Privacy-Schnitt (öffentliche Seite, keine Admin-/Spieler-Logs).
+#}
+{% set ns = namespace(bots_active=0, servers_online=0, players=0) %}
+{% for b in bots %}{% if b.status in ['online', 'connected', 'ready', 'ok'] %}{% set ns.bots_active = ns.bots_active + 1 %}{% endif %}{% endfor %}
+{% for s in servers %}{% if s.status in ['online', 'running'] %}{% set ns.servers_online = ns.servers_online + 1 %}{% endif %}{% set ns.players = ns.players + (s.players | int) %}{% endfor %}
+<div class="card stat">
+  <div class="cap">Bots aktiv</div>
+  <div class="v grad-text tnum">{{ ns.bots_active }}<span style="font-size:18px;color:var(--t3);-webkit-text-fill-color:var(--t3)">/{{ bots | length }}</span></div>
+</div>
+<div class="card stat">
+  <div class="cap">Game-Server online</div>
+  <div class="v tnum"{% if ns.servers_online > 0 %} style="color:var(--ok)"{% endif %}>{{ ns.servers_online }}<span style="font-size:18px;color:var(--t3)">/{{ servers | length }}</span></div>
+</div>
+<div class="card stat">
+  <div class="cap">Spieler online</div>
+  <div class="v tnum"{% if ns.players > 0 %} style="color:var(--ok)"{% endif %}>{{ ns.players }}</div>
+</div>
+<div class="card stat">
+  <div class="cap">CPU-Last</div>
+  <div class="v tnum">{{ system.cpu_percent | round | int }}<span style="font-size:18px;color:var(--t3)">%</span></div>
+</div>
