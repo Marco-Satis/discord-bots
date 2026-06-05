@@ -1,31 +1,35 @@
 <!DOCTYPE html>
 <html lang="de" data-theme="dark">
 <!--
-  MOCKUP v2 — Warzone Meta-Loadouts (oeffentlich, pre-login). ALLE Patterns aus der
-  Provider-Research (WZStats/CODMunity/WZHub/WZRanked/WarzoneLoadout/TrueGameData).
-  Wird spaeter Jinja-Template `meta.html` (GET /meta, allow_anon) + Discord /meta.
+  MOCKUP v3 — CoD Meta-Loadouts (oeffentlich, pre-login). Modi Warzone/Multiplayer/
+  Zombies · 4 Tier-Sektionen · Waffen- + Perk-Bilder. Wird Jinja `meta.html`
+  (GET /meta, allow_anon) + Discord /meta.
 
-  ===== DATEN-CONTRACT (was Template/Command pro Loadout erwarten) =====
+  ===== DATEN-CONTRACT =====
   loadout = {
-    "weapon":"XM4", "category":"Sturmgewehr", "tier":"S",        # S|A|B|C|D
-    "range":"long",            # long | close | sniper   -> Filter + Hero
-    "archetype":"recon",       # recon | stalker | heavy | viper  -> Filter (WZRanked)
-    "role":"Long Range",       # Preset-/Playstyle-Name (mehrere Presets = mehrere Zeilen, gleicher weapon)
-    "status":"buff",           # buff | nerf | new | stable   -> Badge (WZStats)
-    "source_game":"BO6",       # BO6 | MW3 | MW2   -> Quell-Badge (WZ-Pool gemischt)
-    "code":"A05-34FBS-SSSND",  # optionaler Loadout-Code zum Kopieren (CODMunity/WZHub)
-    "attachments":[ {"slot":"Optik","name":"..."}, ... ],   # geordnet, i.d.R. 5
-    "perks":["...","...","..."],                            # Voll
-    "equipment":{"lethal":"...","tactical":"...","field":"..."},  # Voll
-    "updated_at":"2026-06-05", "notes":""                   # PRO Loadout (Frische-Granularitaet)
+    "mode":"warzone",          # warzone | multiplayer | zombies
+    "weapon":"XM4", "category":"Sturmgewehr",
+    "weapon_image":"/static/cod/weapons/xm4.png",   # Render-Bild (DB-URL oder Assets-Ordner)
+    "tier":"absolute",         # absolute | contender | good | other  -> Sektion
+    "range":"long",            # long | close | sniper
+    "archetype":"recon",       # recon | stalker | heavy | viper (v.a. Warzone)
+    "role":"Long Range",       # Preset-Name (mehrere Presets = mehrere Zeilen, gleicher weapon)
+    "status":"buff",           # buff | nerf | new | stable
+    "source_game":"BO6",       # BO6 | MW3 | MW2
+    "code":"A05-34FBS-SSSND",
+    "attachments":[ {"slot":"Optik","name":"..."}, ... ],
+    "perks":[ {"name":"Schnellhand","icon":"/static/cod/perks/quickdraw.png"}, ... ],
+    "equipment":{"lethal":"...","tactical":"...","field":"..."},
+    "updated_at":"2026-06-05"
   }
-  meta_page = { "game":"warzone","season":"S2","updated_at":"2026-06-05","loadouts":[...] }
-  ====================================================================
+  page = { "updated_at":"...","season":"S2","modes":{ "warzone":[...], "multiplayer":[...], "zombies":[...] } }
+  Bilder: entweder URL in der DB ODER Assets-Ordner web/static/cod/{weapons,perks}/<slug>.png
+  =========================
 -->
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Warzone Meta-Loadouts — Bot Control</title>
+  <title>CoD Meta-Loadouts — Bot Control</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='%233b82f6'/><stop offset='1' stop-color='%236d5cf6'/></linearGradient></defs><rect width='32' height='32' rx='7' fill='url(%23g)'/><text x='16' y='22' font-family='sans-serif' font-size='18' font-weight='700' text-anchor='middle' fill='white'>B</text></svg>">
   <link rel="stylesheet" href="/static/fonts/geist/geist.css">
   <link rel="stylesheet" href="/static/tailwind/output.css">
@@ -36,23 +40,17 @@
     .nav{ display:flex; align-items:center; justify-content:space-between; padding:20px 0 }
     .brand{ display:flex; align-items:center; gap:11px; font-weight:600; letter-spacing:-.01em }
     .nav-right{ display:flex; align-items:center; gap:10px }
-    .hero{ text-align:center; padding:46px 0 18px }
-    .lead{ color:var(--t2); font-size:clamp(14px,1.9vw,17px); line-height:1.6; max-width:640px; margin:16px auto 0 }
+    .hero{ text-align:center; padding:40px 0 14px }
+    .lead{ color:var(--t2); font-size:clamp(14px,1.9vw,17px); line-height:1.6; max-width:640px; margin:14px auto 0 }
 
-    /* Absolute-Meta-Strip (Top-Picks, sofort sichtbar) */
-    .ameta-cap{ display:flex; align-items:center; gap:10px; margin:30px 0 12px }
-    .ameta-cap .t{ font-size:12px; text-transform:uppercase; letter-spacing:.14em; color:var(--t3) }
-    .ameta-cap .ln{ flex:1; height:1px; background:var(--line) }
-    .ameta{ display:grid; grid-template-columns:repeat(3,1fr); gap:var(--gap-card); margin-bottom:14px }
-    @media(max-width:820px){ .ameta{ grid-template-columns:1fr } }
-    .ameta .ac{ padding:18px; position:relative; overflow:hidden;
-      border-top-color:rgba(245,177,61,.45); box-shadow:0 -8px 40px rgba(245,177,61,.10) }
-    .ameta .ac .rank{ position:absolute; top:12px; right:14px; font:800 13px ui-monospace,monospace; color:var(--t3) }
-    .ameta .ac .w{ font-size:20px; font-weight:800; letter-spacing:-.01em }
-    .ameta .ac .c{ color:var(--t3); font-size:12px; margin-top:2px }
-    .ameta .ac .d{ color:var(--t2); font-size:12.5px; margin-top:10px }
+    /* Mode-Switch (Warzone/Multiplayer/Zombies) */
+    .modes{ display:inline-flex; gap:4px; background:var(--s1); border:1px solid var(--line); border-radius:13px; padding:5px; margin:22px 0 4px }
+    .modes button{ border:0; background:transparent; color:var(--t2); font:inherit; font-size:14px; font-weight:600;
+      padding:9px 22px; border-radius:9px; cursor:pointer; transition:all var(--fast) }
+    .modes button:hover{ color:var(--t1) }
+    .modes button.on{ background:var(--pill-grad); color:#fff; box-shadow:0 4px 14px rgba(168,85,247,.35) }
 
-    .controls{ display:flex; gap:12px; justify-content:center; flex-wrap:wrap; margin:8px 0 8px }
+    .controls{ display:flex; gap:12px; justify-content:center; flex-wrap:wrap; margin:14px 0 6px }
     .seg{ display:inline-flex; background:var(--s1); border:1px solid var(--line); border-radius:11px; padding:4px; gap:2px }
     .seg button{ border:0; background:transparent; color:var(--t2); font:inherit; font-size:12.5px; font-weight:500;
       padding:7px 13px; border-radius:8px; cursor:pointer; transition:all var(--fast); white-space:nowrap }
@@ -60,27 +58,38 @@
     .seg button.on{ background:var(--acc-soft); color:#fff }
     .seg .lbl{ align-self:center; color:var(--t3); font-size:10.5px; text-transform:uppercase; letter-spacing:.1em; padding:0 6px 0 9px }
 
-    .lo-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:var(--gap-card); margin:18px 0 40px }
+    /* Tier-Sektionen */
+    .tier-head{ display:flex; align-items:center; gap:12px; margin:30px 0 12px }
+    .th-badge{ font-size:13px; font-weight:800; letter-spacing:.02em; padding:6px 14px; border-radius:9px; display:inline-flex; align-items:center; gap:7px }
+    .th-absolute{ background:linear-gradient(135deg,#f5b13d,#ef4444); color:#fff; box-shadow:0 0 16px rgba(245,177,61,.35) }
+    .th-contender{ background:linear-gradient(135deg,#a855f7,#6d5cf6); color:#fff }
+    .th-good{ background:linear-gradient(135deg,#3b82f6,#22d3ee); color:#fff }
+    .th-other{ background:var(--s3); color:var(--t2); border:1px solid var(--line) }
+    .tier-head .ln{ flex:1; height:1px; background:var(--line) }
+    .tier-head .cnt{ color:var(--t3); font-size:12px }
+
+    .lo-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:var(--gap-card); margin:0 0 14px }
     @media(max-width:1000px){ .lo-grid{ grid-template-columns:repeat(2,1fr) } }
     @media(max-width:660px){ .lo-grid{ grid-template-columns:1fr } }
-    .lo-card{ padding:17px; display:flex; flex-direction:column; gap:11px }
+    .lo-card{ padding:0; display:flex; flex-direction:column; overflow:hidden }
+
+    /* Waffen-Bild (Platzhalter -> echtes <img src=weapon_image>) */
+    .lo-img{ position:relative; height:120px; display:grid; place-items:center;
+      background:linear-gradient(135deg,var(--s2),var(--s1)); border-bottom:1px solid var(--line) }
+    .lo-img svg{ width:88px; height:auto; color:var(--t3); opacity:.5 }
+    .lo-img .ph{ position:absolute; bottom:7px; right:9px; font-size:9.5px; color:var(--t3); letter-spacing:.08em; text-transform:uppercase; opacity:.6 }
+    .lo-img img{ width:100%; height:100%; object-fit:contain }
+
+    .lo-body{ padding:15px 17px 17px; display:flex; flex-direction:column; gap:10px }
     .lo-head{ display:flex; align-items:flex-start; justify-content:space-between; gap:10px }
     .lo-weapon{ font-size:17px; font-weight:700; letter-spacing:-.01em }
     .lo-cat{ color:var(--t3); font-size:12px; margin-top:2px }
     .lo-badges{ display:flex; flex-wrap:wrap; gap:5px; align-items:center; justify-content:flex-end }
-    .tier{ width:28px; height:28px; border-radius:8px; display:grid; place-items:center;
-      font-weight:800; font-size:14px; font-family:ui-monospace,monospace; color:#fff; flex-shrink:0 }
-    .tier-s{ background:linear-gradient(135deg,#f5b13d,#ef4444); box-shadow:0 0 12px rgba(245,177,61,.4) }
-    .tier-a{ background:linear-gradient(135deg,#a855f7,#6d5cf6) }
-    .tier-b{ background:linear-gradient(135deg,#3b82f6,#22d3ee) }
-    .tier-c{ background:var(--s3); color:var(--t2) }
-    .badge{ font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
-      padding:3px 7px; border-radius:6px; border:1px solid var(--line) }
+    .badge{ font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; padding:3px 7px; border-radius:6px; border:1px solid var(--line) }
     .b-buff{ background:rgba(52,224,161,.14); color:#34e0a1; border-color:rgba(52,224,161,.35) }
     .b-nerf{ background:rgba(251,111,120,.14); color:#fb6f78; border-color:rgba(251,111,120,.35) }
     .b-new{ background:rgba(59,130,246,.16); color:#7cb0ff; border-color:rgba(59,130,246,.4) }
-    .src{ font-size:10px; font-weight:600; color:var(--t3); background:var(--s2); border:1px solid var(--line);
-      border-radius:6px; padding:3px 6px; letter-spacing:.04em }
+    .src{ font-size:10px; font-weight:600; color:var(--t3); background:var(--s2); border:1px solid var(--line); border-radius:6px; padding:3px 6px; letter-spacing:.04em }
     .lo-sub{ display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:-3px }
     .lo-role{ color:var(--t2); font-size:12.5px; font-weight:500 }
     .lo-stamp{ color:var(--t3); font-size:11px }
@@ -90,22 +99,27 @@
     .att .slot{ color:var(--t3); text-transform:uppercase; letter-spacing:.06em; font-size:10.5px; flex-shrink:0 }
     .att .aname{ color:var(--t1); text-align:right; font-weight:500 }
 
-    .lo-code{ display:flex; align-items:center; gap:8px; margin-top:2px }
-    .lo-code code{ flex:1; font-family:ui-monospace,monospace; font-size:11.5px; color:var(--t2);
-      background:var(--s2); border:1px solid var(--line); border-radius:7px; padding:6px 9px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
-    .lo-code button{ flex-shrink:0; border:1px solid var(--line); background:var(--s1); color:var(--t2);
-      border-radius:7px; padding:6px 10px; font:inherit; font-size:11.5px; cursor:pointer; transition:all var(--fast) }
+    .lo-code{ display:flex; align-items:center; gap:8px }
+    .lo-code code{ flex:1; font-family:ui-monospace,monospace; font-size:11.5px; color:var(--t2); background:var(--s2); border:1px solid var(--line); border-radius:7px; padding:6px 9px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+    .lo-code button{ flex-shrink:0; border:1px solid var(--line); background:var(--s1); color:var(--t2); border-radius:7px; padding:6px 10px; font:inherit; font-size:11.5px; cursor:pointer; transition:all var(--fast) }
     .lo-code button:hover{ color:#fff; border-color:var(--line-accent) }
 
-    .lo-extra{ display:none; border-top:1px solid var(--line); padding-top:11px; flex-direction:column; gap:8px }
+    /* Voll-Extras inkl. Perk-Bilder */
+    .lo-extra{ display:none; border-top:1px solid var(--line); padding-top:11px; flex-direction:column; gap:10px }
     body.detail-full .lo-extra{ display:flex }
-    .ex-row b{ color:var(--t3); text-transform:uppercase; letter-spacing:.06em; font-size:10.5px; display:block; margin-bottom:3px }
-    .chip{ display:inline-block; background:var(--s2); border:1px solid var(--line); border-radius:7px;
-      padding:3px 8px; font-size:11.5px; color:var(--t2); margin:2px 3px 0 0 }
+    .ex-row b{ color:var(--t3); text-transform:uppercase; letter-spacing:.06em; font-size:10.5px; display:block; margin-bottom:6px }
+    .perks{ display:flex; gap:10px; flex-wrap:wrap }
+    .perk{ display:flex; flex-direction:column; align-items:center; gap:4px; width:56px; text-align:center }
+    .perk .pic{ width:38px; height:38px; border-radius:9px; background:var(--s2); border:1px solid var(--line); display:grid; place-items:center }
+    .perk .pic svg{ width:20px; height:20px; color:var(--t3) }
+    .perk .pic img{ width:100%; height:100%; object-fit:cover; border-radius:9px }
+    .perk span{ font-size:10.5px; color:var(--t2); line-height:1.2 }
+    .chip{ display:inline-block; background:var(--s2); border:1px solid var(--line); border-radius:7px; padding:3px 8px; font-size:11.5px; color:var(--t2); margin:2px 3px 0 0 }
 
     footer{ text-align:center; color:var(--t3); font-size:13px; padding:26px 0 44px; border-top:1px solid var(--line) }
     .stamp{ color:var(--t3); font-size:12px; margin-top:8px }
     .hide{ display:none !important }
+    .mode-pane{ display:none } .mode-pane.on{ display:block }
   </style>
 </head>
 <body class="detail-compact">
@@ -114,229 +128,357 @@
   <div class="wrap">
     <nav class="nav">
       <div class="brand"><span class="mark">B</span> Bot Control</div>
-      <div class="nav-right">
-        <a class="btn" href="/">Start</a>
-        <a class="btn btn--primary" href="/auth/login">Anmelden</a>
-      </div>
+      <div class="nav-right"><a class="btn" href="/">Start</a><a class="btn btn--primary" href="/auth/login">Anmelden</a></div>
     </nav>
 
     <header class="hero">
-      <span class="pill"><span class="live"></span> Warzone · Season 2 · Stand 05.06.2026</span>
-      <h1 class="display" style="margin:18px 0 0;font-size:clamp(26px,5vw,44px)">Warzone <span class="grad-text">Meta-Loadouts</span></h1>
-      <p class="lead">Die aktuell stärksten Builds — kuratiert, werbefrei, immer frisch.
-        Kompakt für den Quick-Look, Voll mit Perks &amp; Ausrüstung. Auch per Discord: <code>/meta</code>.</p>
+      <span class="pill"><span class="live"></span> Season 2 · Stand 05.06.2026</span>
+      <h1 class="display" style="margin:16px 0 0;font-size:clamp(26px,5vw,44px)">CoD <span class="grad-text">Meta-Loadouts</span></h1>
+      <p class="lead">Kuratiert, werbefrei, immer frisch. Wähle Modus, filtere, schalte Kompakt/Voll. Auch per Discord: <code>/meta</code>.</p>
+      <div class="modes" id="mode-switch">
+        <button class="on" data-mode="warzone">Warzone</button>
+        <button data-mode="multiplayer">Multiplayer</button>
+        <button data-mode="zombies">Zombies</button>
+      </div>
     </header>
 
-    <!-- ABSOLUTE META (Top-Picks sofort sichtbar) -->
-    <div class="ameta-cap"><span class="t">🔥 Absolute Meta</span><span class="ln"></span></div>
-    <section class="ameta">
-      <article class="card ac"><span class="rank">#1</span>
-        <div class="w">XM4</div><div class="c">Sturmgewehr · Long Range</div>
-        <div class="d">Der konsequenteste Allrounder — niedriger Recoil, top TTK auf mittlere Distanz.</div>
-      </article>
-      <article class="card ac"><span class="rank">#2</span>
-        <div class="w">Superi 46</div><div class="c">SMG · Close Range</div>
-        <div class="d">Schnellste Close-TTK im Meta. Aggressives Pushen, Resurgence-Liebling.</div>
-      </article>
-      <article class="card ac"><span class="rank">#3</span>
-        <div class="w">SVA 545</div><div class="c">Sturmgewehr · Sniper Support</div>
-        <div class="d">Burst-AR mit Laser-Beam-Recoil für lange Lanes.</div>
-      </article>
-    </section>
-
-    <!-- Filter / Toggles -->
+    <!-- globale Controls -->
     <div class="controls">
-      <div class="seg" id="detail-seg">
-        <span class="lbl">Ansicht</span>
-        <button class="on" data-detail="compact">Kompakt</button>
-        <button data-detail="full">Voll</button>
-      </div>
-      <div class="seg" id="tier-seg">
-        <span class="lbl">Tier</span>
-        <button class="on" data-f="tier" data-v="all">Alle</button>
-        <button data-f="tier" data-v="S">S</button>
-        <button data-f="tier" data-v="A">A</button>
-        <button data-f="tier" data-v="B">B</button>
-      </div>
-      <div class="seg" id="range-seg">
-        <span class="lbl">Range</span>
-        <button class="on" data-f="range" data-v="all">Alle</button>
-        <button data-f="range" data-v="long">Long</button>
-        <button data-f="range" data-v="close">Close</button>
-        <button data-f="range" data-v="sniper">Sniper</button>
-      </div>
-      <div class="seg" id="arch-seg">
-        <span class="lbl">Archetyp</span>
-        <button class="on" data-f="arch" data-v="all">Alle</button>
-        <button data-f="arch" data-v="recon">Recon</button>
-        <button data-f="arch" data-v="stalker">Stalker</button>
-        <button data-f="arch" data-v="heavy">Heavy</button>
-        <button data-f="arch" data-v="viper">Viper</button>
-      </div>
+      <div class="seg" id="detail-seg"><span class="lbl">Ansicht</span>
+        <button class="on" data-detail="compact">Kompakt</button><button data-detail="full">Voll</button></div>
+      <div class="seg" id="range-seg"><span class="lbl">Range</span>
+        <button class="on" data-f="range" data-v="all">Alle</button><button data-f="range" data-v="long">Long</button>
+        <button data-f="range" data-v="close">Close</button><button data-f="range" data-v="sniper">Sniper</button></div>
+      <div class="seg" id="arch-seg"><span class="lbl">Archetyp</span>
+        <button class="on" data-f="arch" data-v="all">Alle</button><button data-f="arch" data-v="recon">Recon</button>
+        <button data-f="arch" data-v="stalker">Stalker</button><button data-f="arch" data-v="heavy">Heavy</button>
+        <button data-f="arch" data-v="viper">Viper</button></div>
     </div>
 
-    <!-- PLATZHALTER-Loadouts (echte Daten aus der DB) -->
-    <section class="lo-grid" id="lo-grid">
+    <!-- ===================== WARZONE ===================== -->
+    <div class="mode-pane on" data-mode="warzone">
 
-      <article class="card lo-card" data-tier="S" data-range="long" data-arch="recon">
-        <div class="lo-head">
-          <div><div class="lo-weapon">XM4</div><div class="lo-cat">Sturmgewehr</div></div>
-          <div class="lo-badges"><span class="badge b-buff">▲ Buff</span><span class="src">BO6</span><span class="tier tier-s">S</span></div>
-        </div>
-        <div class="lo-sub"><span class="lo-role">Long Range</span><span class="lo-stamp">Akt. 05.06.</span></div>
-        <div class="lo-atts">
-          <div class="att"><span class="slot">Optik</span><span class="aname">Kepler Microflex</span></div>
-          <div class="att"><span class="slot">Mündung</span><span class="aname">Compensator</span></div>
-          <div class="att"><span class="slot">Lauf</span><span class="aname">Gainsborough Long</span></div>
-          <div class="att"><span class="slot">Unterlauf</span><span class="aname">Vertikalgriff</span></div>
-          <div class="att"><span class="slot">Magazin</span><span class="aname">40-Schuss</span></div>
-        </div>
-        <div class="lo-code"><code>A05-34FBS-SSSND-11</code><button onclick="copyCode(this)">Kopieren</button></div>
-        <div class="lo-extra">
-          <div class="ex-row"><b>Perks</b><span class="chip">Doppelläufig</span><span class="chip">Schnellhand</span><span class="chip">Ghost</span></div>
-          <div class="ex-row"><b>Ausrüstung</b><span class="chip">Lethal: Splitter</span><span class="chip">Tactical: Stim</span><span class="chip">Field: Trophy</span></div>
-        </div>
-      </article>
+      <div class="tier-head"><span class="th-badge th-absolute">🔥 Absolute Meta</span><span class="ln"></span></div>
+      <section class="lo-grid">
+        <article class="card lo-card" data-range="long" data-arch="recon">
+          <div class="lo-img"><svg viewBox="0 0 64 24" fill="currentColor"><rect x="2" y="9" width="40" height="6" rx="1"/><rect x="42" y="7" width="18" height="4" rx="1"/><rect x="10" y="15" width="6" height="6" rx="1"/><rect x="20" y="5" width="10" height="4" rx="1"/></svg><span class="ph">Bild folgt</span></div>
+          <div class="lo-body">
+            <div class="lo-head"><div><div class="lo-weapon">XM4</div><div class="lo-cat">Sturmgewehr</div></div>
+              <div class="lo-badges"><span class="badge b-buff">▲ Buff</span><span class="src">BO6</span></div></div>
+            <div class="lo-sub"><span class="lo-role">Long Range</span><span class="lo-stamp">Akt. 05.06.</span></div>
+            <div class="lo-atts">
+              <div class="att"><span class="slot">Optik</span><span class="aname">Kepler Microflex</span></div>
+              <div class="att"><span class="slot">Mündung</span><span class="aname">Compensator</span></div>
+              <div class="att"><span class="slot">Lauf</span><span class="aname">Gainsborough Long</span></div>
+              <div class="att"><span class="slot">Unterlauf</span><span class="aname">Vertikalgriff</span></div>
+              <div class="att"><span class="slot">Magazin</span><span class="aname">40-Schuss</span></div>
+            </div>
+            <div class="lo-code"><code>A05-34FBS-SSSND-11</code><button onclick="copyCode(this)">Kopieren</button></div>
+            <div class="lo-extra">
+              <div class="ex-row"><b>Perks</b><div class="perks">
+                <div class="perk"><div class="pic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2 3 14h7l-1 8 10-12h-7z"/></svg></div><span>Schnellhand</span></div>
+                <div class="perk"><div class="pic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M7 12h10"/></svg></div><span>Doppelläufig</span></div>
+                <div class="perk"><div class="pic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l8 4v5c0 5-3.5 7.5-8 9-4.5-1.5-8-4-8-9V7z"/></svg></div><span>Ghost</span></div>
+              </div></div>
+              <div class="ex-row"><b>Ausrüstung</b><span class="chip">Lethal: Splitter</span><span class="chip">Tactical: Stim</span><span class="chip">Field: Trophy</span></div>
+            </div>
+          </div>
+        </article>
 
-      <article class="card lo-card" data-tier="S" data-range="sniper" data-arch="recon">
-        <div class="lo-head">
-          <div><div class="lo-weapon">SVA 545</div><div class="lo-cat">Sturmgewehr</div></div>
-          <div class="lo-badges"><span class="src">MW3</span><span class="tier tier-s">S</span></div>
-        </div>
-        <div class="lo-sub"><span class="lo-role">Sniper Support</span><span class="lo-stamp">Akt. 04.06.</span></div>
-        <div class="lo-atts">
-          <div class="att"><span class="slot">Optik</span><span class="aname">Corio Eagleseye</span></div>
-          <div class="att"><span class="slot">Mündung</span><span class="aname">Schalldämpfer</span></div>
-          <div class="att"><span class="slot">Lauf</span><span class="aname">Recon Long</span></div>
-          <div class="att"><span class="slot">Hinterteil</span><span class="aname">Heavy Stock</span></div>
-          <div class="att"><span class="slot">Magazin</span><span class="aname">60-Schuss</span></div>
-        </div>
-        <div class="lo-code"><code>S12-99AAB-RECON-04</code><button onclick="copyCode(this)">Kopieren</button></div>
-        <div class="lo-extra">
-          <div class="ex-row"><b>Perks</b><span class="chip">E.O.D.</span><span class="chip">Tracker</span><span class="chip">Ghost</span></div>
-          <div class="ex-row"><b>Ausrüstung</b><span class="chip">Lethal: Semtex</span><span class="chip">Tactical: Blend</span><span class="chip">Field: Dead Silence</span></div>
-        </div>
-      </article>
+        <article class="card lo-card" data-range="close" data-arch="stalker">
+          <div class="lo-img"><svg viewBox="0 0 64 24" fill="currentColor"><rect x="6" y="9" width="28" height="6" rx="1"/><rect x="34" y="8" width="10" height="3" rx="1"/><rect x="12" y="15" width="5" height="5" rx="1"/></svg><span class="ph">Bild folgt</span></div>
+          <div class="lo-body">
+            <div class="lo-head"><div><div class="lo-weapon">Superi 46</div><div class="lo-cat">SMG</div></div>
+              <div class="lo-badges"><span class="badge b-new">✦ New</span><span class="src">BO6</span></div></div>
+            <div class="lo-sub"><span class="lo-role">Close · Aggressiv</span><span class="lo-stamp">Akt. 05.06.</span></div>
+            <div class="lo-atts">
+              <div class="att"><span class="slot">Optik</span><span class="aname">Reflexvisier</span></div>
+              <div class="att"><span class="slot">Mündung</span><span class="aname">Muzzle Brake</span></div>
+              <div class="att"><span class="slot">Lauf</span><span class="aname">Short Barrel</span></div>
+              <div class="att"><span class="slot">Laser</span><span class="aname">Tac Laser</span></div>
+              <div class="att"><span class="slot">Magazin</span><span class="aname">50-Schuss</span></div>
+            </div>
+            <div class="lo-code"><code>C34-77SMG-STK-09</code><button onclick="copyCode(this)">Kopieren</button></div>
+            <div class="lo-extra">
+              <div class="ex-row"><b>Perks</b><div class="perks">
+                <div class="perk"><div class="pic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2 3 14h7l-1 8 10-12h-7z"/></svg></div><span>Schnellhand</span></div>
+                <div class="perk"><div class="pic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div><span>Ninja</span></div>
+                <div class="perk"><div class="pic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M7 12h10"/></svg></div><span>Doppelläufig</span></div>
+              </div></div>
+              <div class="ex-row"><b>Ausrüstung</b><span class="chip">Lethal: Wurfmesser</span><span class="chip">Tactical: Stim</span><span class="chip">Field: Trophy</span></div>
+            </div>
+          </div>
+        </article>
+      </section>
 
-      <article class="card lo-card" data-tier="S" data-range="close" data-arch="stalker">
-        <div class="lo-head">
-          <div><div class="lo-weapon">Superi 46</div><div class="lo-cat">SMG</div></div>
-          <div class="lo-badges"><span class="badge b-new">✦ New</span><span class="src">BO6</span><span class="tier tier-s">S</span></div>
-        </div>
-        <div class="lo-sub"><span class="lo-role">Close · Aggressiv</span><span class="lo-stamp">Akt. 05.06.</span></div>
-        <div class="lo-atts">
-          <div class="att"><span class="slot">Optik</span><span class="aname">Reflexvisier</span></div>
-          <div class="att"><span class="slot">Mündung</span><span class="aname">Muzzle Brake</span></div>
-          <div class="att"><span class="slot">Lauf</span><span class="aname">Short Barrel</span></div>
-          <div class="att"><span class="slot">Laser</span><span class="aname">Tac Laser</span></div>
-          <div class="att"><span class="slot">Magazin</span><span class="aname">50-Schuss</span></div>
-        </div>
-        <div class="lo-code"><code>C34-77SMG-STK-09</code><button onclick="copyCode(this)">Kopieren</button></div>
-        <div class="lo-extra">
-          <div class="ex-row"><b>Perks</b><span class="chip">Doppelläufig</span><span class="chip">Schnellhand</span><span class="chip">Ninja</span></div>
-          <div class="ex-row"><b>Ausrüstung</b><span class="chip">Lethal: Wurfmesser</span><span class="chip">Tactical: Stim</span><span class="chip">Field: Trophy</span></div>
-        </div>
-      </article>
+      <div class="tier-head"><span class="th-badge th-contender">Meta Contender</span><span class="ln"></span></div>
+      <section class="lo-grid">
+        <article class="card lo-card" data-range="sniper" data-arch="recon">
+          <div class="lo-img"><svg viewBox="0 0 64 24" fill="currentColor"><rect x="2" y="10" width="46" height="4" rx="1"/><rect x="48" y="9" width="14" height="3" rx="1"/><rect x="22" y="4" width="12" height="4" rx="1"/></svg><span class="ph">Bild folgt</span></div>
+          <div class="lo-body">
+            <div class="lo-head"><div><div class="lo-weapon">SVA 545</div><div class="lo-cat">Sturmgewehr</div></div>
+              <div class="lo-badges"><span class="src">MW3</span></div></div>
+            <div class="lo-sub"><span class="lo-role">Sniper Support</span><span class="lo-stamp">Akt. 04.06.</span></div>
+            <div class="lo-atts">
+              <div class="att"><span class="slot">Optik</span><span class="aname">Corio Eagleseye</span></div>
+              <div class="att"><span class="slot">Mündung</span><span class="aname">Schalldämpfer</span></div>
+              <div class="att"><span class="slot">Lauf</span><span class="aname">Recon Long</span></div>
+              <div class="att"><span class="slot">Hinterteil</span><span class="aname">Heavy Stock</span></div>
+              <div class="att"><span class="slot">Magazin</span><span class="aname">60-Schuss</span></div>
+            </div>
+            <div class="lo-code"><code>S12-99AAB-RECON-04</code><button onclick="copyCode(this)">Kopieren</button></div>
+            <div class="lo-extra">
+              <div class="ex-row"><b>Perks</b><div class="perks">
+                <div class="perk"><div class="pic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l3-9 4 18 3-9h4"/></svg></div><span>E.O.D.</span></div>
+                <div class="perk"><div class="pic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8-9 8z"/></svg></div><span>Tracker</span></div>
+                <div class="perk"><div class="pic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l8 4v5c0 5-3.5 7.5-8 9-4.5-1.5-8-4-8-9V7z"/></svg></div><span>Ghost</span></div>
+              </div></div>
+              <div class="ex-row"><b>Ausrüstung</b><span class="chip">Lethal: Semtex</span><span class="chip">Tactical: Blend</span><span class="chip">Field: Dead Silence</span></div>
+            </div>
+          </div>
+        </article>
+        <article class="card lo-card" data-range="long" data-arch="heavy">
+          <div class="lo-img"><svg viewBox="0 0 64 24" fill="currentColor"><rect x="2" y="8" width="44" height="8" rx="1"/><rect x="46" y="9" width="16" height="4" rx="1"/><rect x="14" y="16" width="8" height="6" rx="1"/></svg><span class="ph">Bild folgt</span></div>
+          <div class="lo-body">
+            <div class="lo-head"><div><div class="lo-weapon">Pulemyot 762</div><div class="lo-cat">LMG</div></div>
+              <div class="lo-badges"><span class="badge b-nerf">▼ Nerf</span><span class="src">MW3</span></div></div>
+            <div class="lo-sub"><span class="lo-role">Suppression</span><span class="lo-stamp">Akt. 02.06.</span></div>
+            <div class="lo-atts">
+              <div class="att"><span class="slot">Optik</span><span class="aname">Corio Eagleseye</span></div>
+              <div class="att"><span class="slot">Mündung</span><span class="aname">Compensator</span></div>
+              <div class="att"><span class="slot">Lauf</span><span class="aname">Long Barrel</span></div>
+              <div class="att"><span class="slot">Unterlauf</span><span class="aname">Bipod</span></div>
+              <div class="att"><span class="slot">Magazin</span><span class="aname">100-Schuss</span></div>
+            </div>
+            <div class="lo-code"><code>L08-55LMG-HVY-02</code><button onclick="copyCode(this)">Kopieren</button></div>
+            <div class="lo-extra">
+              <div class="ex-row"><b>Perks</b><div class="perks">
+                <div class="perk"><div class="pic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l3-9 4 18 3-9h4"/></svg></div><span>E.O.D.</span></div>
+                <div class="perk"><div class="pic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-3-6.7M21 3v5h-5"/></svg></div><span>Scavenger</span></div>
+                <div class="perk"><div class="pic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg></div><span>Hardline</span></div>
+              </div></div>
+              <div class="ex-row"><b>Ausrüstung</b><span class="chip">Lethal: C4</span><span class="chip">Tactical: Rauch</span><span class="chip">Field: Muni-Kiste</span></div>
+            </div>
+          </div>
+        </article>
+      </section>
 
-      <article class="card lo-card" data-tier="A" data-range="long" data-arch="heavy">
-        <div class="lo-head">
-          <div><div class="lo-weapon">Pulemyot 762</div><div class="lo-cat">LMG</div></div>
-          <div class="lo-badges"><span class="badge b-nerf">▼ Nerf</span><span class="src">MW3</span><span class="tier tier-a">A</span></div>
-        </div>
-        <div class="lo-sub"><span class="lo-role">Suppression</span><span class="lo-stamp">Akt. 02.06.</span></div>
-        <div class="lo-atts">
-          <div class="att"><span class="slot">Optik</span><span class="aname">Corio Eagleseye</span></div>
-          <div class="att"><span class="slot">Mündung</span><span class="aname">Compensator</span></div>
-          <div class="att"><span class="slot">Lauf</span><span class="aname">Long Barrel</span></div>
-          <div class="att"><span class="slot">Unterlauf</span><span class="aname">Bipod</span></div>
-          <div class="att"><span class="slot">Magazin</span><span class="aname">100-Schuss</span></div>
-        </div>
-        <div class="lo-code"><code>L08-55LMG-HVY-02</code><button onclick="copyCode(this)">Kopieren</button></div>
-        <div class="lo-extra">
-          <div class="ex-row"><b>Perks</b><span class="chip">E.O.D.</span><span class="chip">Scavenger</span><span class="chip">Hardline</span></div>
-          <div class="ex-row"><b>Ausrüstung</b><span class="chip">Lethal: C4</span><span class="chip">Tactical: Rauch</span><span class="chip">Field: Munitionskiste</span></div>
-        </div>
-      </article>
+      <div class="tier-head"><span class="th-badge th-good">Good</span><span class="ln"></span></div>
+      <section class="lo-grid">
+        <article class="card lo-card" data-range="sniper" data-arch="viper">
+          <div class="lo-img"><svg viewBox="0 0 64 24" fill="currentColor"><rect x="2" y="10" width="48" height="3" rx="1"/><rect x="50" y="9" width="12" height="3" rx="1"/><rect x="20" y="5" width="14" height="3" rx="1"/></svg><span class="ph">Bild folgt</span></div>
+          <div class="lo-body">
+            <div class="lo-head"><div><div class="lo-weapon">LR 7.62</div><div class="lo-cat">Scharfschütze</div></div>
+              <div class="lo-badges"><span class="src">BO6</span></div></div>
+            <div class="lo-sub"><span class="lo-role">One-Shot · Long</span><span class="lo-stamp">Akt. 03.06.</span></div>
+            <div class="lo-atts">
+              <div class="att"><span class="slot">Optik</span><span class="aname">Variabel 4-8x</span></div>
+              <div class="att"><span class="slot">Mündung</span><span class="aname">Schalldämpfer</span></div>
+              <div class="att"><span class="slot">Lauf</span><span class="aname">Sniper Long</span></div>
+              <div class="att"><span class="slot">Munition</span><span class="aname">Spitzgeschoss</span></div>
+              <div class="att"><span class="slot">Hinterteil</span><span class="aname">Quickdraw Stock</span></div>
+            </div>
+            <div class="lo-code"><code>V01-22SNP-VIP-07</code><button onclick="copyCode(this)">Kopieren</button></div>
+            <div class="lo-extra">
+              <div class="ex-row"><b>Perks</b><div class="perks">
+                <div class="perk"><div class="pic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h7v7H4zM13 13h7v7h-7z"/></svg></div><span>Overkill</span></div>
+                <div class="perk"><div class="pic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8-9 8z"/></svg></div><span>Tracker</span></div>
+                <div class="perk"><div class="pic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l8 4v5c0 5-3.5 7.5-8 9-4.5-1.5-8-4-8-9V7z"/></svg></div><span>Ghost</span></div>
+              </div></div>
+              <div class="ex-row"><b>Ausrüstung</b><span class="chip">Lethal: Splitter</span><span class="chip">Tactical: Stim</span><span class="chip">Field: Recon Drone</span></div>
+            </div>
+          </div>
+        </article>
+      </section>
 
-      <article class="card lo-card" data-tier="A" data-range="sniper" data-arch="viper">
-        <div class="lo-head">
-          <div><div class="lo-weapon">LR 7.62</div><div class="lo-cat">Scharfschütze</div></div>
-          <div class="lo-badges"><span class="src">BO6</span><span class="tier tier-a">A</span></div>
-        </div>
-        <div class="lo-sub"><span class="lo-role">One-Shot · Long</span><span class="lo-stamp">Akt. 03.06.</span></div>
-        <div class="lo-atts">
-          <div class="att"><span class="slot">Optik</span><span class="aname">Variabel 4-8x</span></div>
-          <div class="att"><span class="slot">Mündung</span><span class="aname">Schalldämpfer</span></div>
-          <div class="att"><span class="slot">Lauf</span><span class="aname">Sniper Long</span></div>
-          <div class="att"><span class="slot">Munition</span><span class="aname">Spitzgeschoss</span></div>
-          <div class="att"><span class="slot">Hinterteil</span><span class="aname">Quickdraw Stock</span></div>
-        </div>
-        <div class="lo-code"><code>V01-22SNP-VIP-07</code><button onclick="copyCode(this)">Kopieren</button></div>
-        <div class="lo-extra">
-          <div class="ex-row"><b>Perks</b><span class="chip">Overkill</span><span class="chip">Tracker</span><span class="chip">Ghost</span></div>
-          <div class="ex-row"><b>Ausrüstung</b><span class="chip">Lethal: Splitter</span><span class="chip">Tactical: Stim</span><span class="chip">Field: Recon Drone</span></div>
-        </div>
-      </article>
+      <div class="tier-head"><span class="th-badge th-other">Other</span><span class="ln"></span><span class="cnt">spielbar, nicht Meta</span></div>
+      <section class="lo-grid">
+        <article class="card lo-card" data-range="close" data-arch="stalker">
+          <div class="lo-img"><svg viewBox="0 0 64 24" fill="currentColor"><rect x="14" y="8" width="20" height="8" rx="1"/><rect x="34" y="9" width="8" height="3" rx="1"/></svg><span class="ph">Bild folgt</span></div>
+          <div class="lo-body">
+            <div class="lo-head"><div><div class="lo-weapon">Kompakt 92</div><div class="lo-cat">Pistole</div></div>
+              <div class="lo-badges"><span class="src">MW3</span></div></div>
+            <div class="lo-sub"><span class="lo-role">Sekundär · Akimbo</span><span class="lo-stamp">Akt. 01.06.</span></div>
+            <div class="lo-atts">
+              <div class="att"><span class="slot">Mündung</span><span class="aname">Akimbo</span></div>
+              <div class="att"><span class="slot">Lauf</span><span class="aname">Long Barrel</span></div>
+              <div class="att"><span class="slot">Trigger</span><span class="aname">Schnellfeuer</span></div>
+              <div class="att"><span class="slot">Magazin</span><span class="aname">33-Schuss</span></div>
+              <div class="att"><span class="slot">Griff</span><span class="aname">Speed Tape</span></div>
+            </div>
+            <div class="lo-code"><code>P55-11PST-STK-03</code><button onclick="copyCode(this)">Kopieren</button></div>
+            <div class="lo-extra">
+              <div class="ex-row"><b>Perks</b><div class="perks">
+                <div class="perk"><div class="pic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2 3 14h7l-1 8 10-12h-7z"/></svg></div><span>Schnellhand</span></div>
+                <div class="perk"><div class="pic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg></div><span>Dexterity</span></div>
+              </div></div>
+              <div class="ex-row"><b>Ausrüstung</b><span class="chip">Lethal: Splitter</span><span class="chip">Tactical: Blend</span><span class="chip">Field: Trophy</span></div>
+            </div>
+          </div>
+        </article>
+      </section>
+    </div>
 
-      <article class="card lo-card" data-tier="B" data-range="close" data-arch="stalker">
-        <div class="lo-head">
-          <div><div class="lo-weapon">Kompakt 92</div><div class="lo-cat">Pistole</div></div>
-          <div class="lo-badges"><span class="src">MW3</span><span class="tier tier-b">B</span></div>
-        </div>
-        <div class="lo-sub"><span class="lo-role">Sekundär · Akimbo</span><span class="lo-stamp">Akt. 01.06.</span></div>
-        <div class="lo-atts">
-          <div class="att"><span class="slot">Mündung</span><span class="aname">Akimbo</span></div>
-          <div class="att"><span class="slot">Lauf</span><span class="aname">Long Barrel</span></div>
-          <div class="att"><span class="slot">Trigger</span><span class="aname">Schnellfeuer</span></div>
-          <div class="att"><span class="slot">Magazin</span><span class="aname">33-Schuss</span></div>
-          <div class="att"><span class="slot">Griff</span><span class="aname">Speed Tape</span></div>
-        </div>
-        <div class="lo-code"><code>P55-11PST-STK-03</code><button onclick="copyCode(this)">Kopieren</button></div>
-        <div class="lo-extra">
-          <div class="ex-row"><b>Perks</b><span class="chip">Schnellhand</span><span class="chip">Doppelläufig</span><span class="chip">Dexterity</span></div>
-          <div class="ex-row"><b>Ausrüstung</b><span class="chip">Lethal: Splitter</span><span class="chip">Tactical: Blend</span><span class="chip">Field: Trophy</span></div>
-        </div>
-      </article>
+    <!-- ===================== MULTIPLAYER ===================== -->
+    <div class="mode-pane" data-mode="multiplayer">
+      <div class="tier-head"><span class="th-badge th-absolute">🔥 Absolute Meta</span><span class="ln"></span></div>
+      <section class="lo-grid">
+        <article class="card lo-card" data-range="close" data-arch="stalker">
+          <div class="lo-img"><svg viewBox="0 0 64 24" fill="currentColor"><rect x="6" y="9" width="28" height="6" rx="1"/><rect x="34" y="8" width="10" height="3" rx="1"/></svg><span class="ph">Bild folgt</span></div>
+          <div class="lo-body">
+            <div class="lo-head"><div><div class="lo-weapon">Jackal PDW</div><div class="lo-cat">SMG</div></div>
+              <div class="lo-badges"><span class="badge b-buff">▲ Buff</span><span class="src">BO6</span></div></div>
+            <div class="lo-sub"><span class="lo-role">Slayer · 6v6</span><span class="lo-stamp">Akt. 05.06.</span></div>
+            <div class="lo-atts">
+              <div class="att"><span class="slot">Optik</span><span class="aname">Reflex</span></div>
+              <div class="att"><span class="slot">Mündung</span><span class="aname">Compensator</span></div>
+              <div class="att"><span class="slot">Lauf</span><span class="aname">Reinforced</span></div>
+              <div class="att"><span class="slot">Magazin</span><span class="aname">40-Schuss</span></div>
+              <div class="att"><span class="slot">Griff</span><span class="aname">Quickdraw</span></div>
+            </div>
+            <div class="lo-code"><code>MP-44JCK-SLAY-01</code><button onclick="copyCode(this)">Kopieren</button></div>
+            <div class="lo-extra">
+              <div class="ex-row"><b>Perks</b><div class="perks">
+                <div class="perk"><div class="pic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2 3 14h7l-1 8 10-12h-7z"/></svg></div><span>Ninja</span></div>
+                <div class="perk"><div class="pic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8-9 8z"/></svg></div><span>Dexterity</span></div>
+                <div class="perk"><div class="pic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l8 4v5c0 5-3.5 7.5-8 9-4.5-1.5-8-4-8-9V7z"/></svg></div><span>Tac Mask</span></div>
+              </div></div>
+              <div class="ex-row"><b>Ausrüstung</b><span class="chip">Lethal: Semtex</span><span class="chip">Tactical: Stun</span><span class="chip">Field: Trophy</span></div>
+            </div>
+          </div>
+        </article>
+      </section>
+      <div class="tier-head"><span class="th-badge th-contender">Meta Contender</span><span class="ln"></span></div>
+      <section class="lo-grid">
+        <article class="card lo-card" data-range="long" data-arch="recon">
+          <div class="lo-img"><svg viewBox="0 0 64 24" fill="currentColor"><rect x="2" y="9" width="40" height="6" rx="1"/><rect x="42" y="7" width="18" height="4" rx="1"/></svg><span class="ph">Bild folgt</span></div>
+          <div class="lo-body">
+            <div class="lo-head"><div><div class="lo-weapon">AK-74</div><div class="lo-cat">Sturmgewehr</div></div>
+              <div class="lo-badges"><span class="src">BO6</span></div></div>
+            <div class="lo-sub"><span class="lo-role">Mid · Objective</span><span class="lo-stamp">Akt. 04.06.</span></div>
+            <div class="lo-atts">
+              <div class="att"><span class="slot">Optik</span><span class="aname">Holo</span></div>
+              <div class="att"><span class="slot">Mündung</span><span class="aname">Muzzle Brake</span></div>
+              <div class="att"><span class="slot">Lauf</span><span class="aname">Long</span></div>
+              <div class="att"><span class="slot">Unterlauf</span><span class="aname">Vertikalgriff</span></div>
+              <div class="att"><span class="slot">Magazin</span><span class="aname">40-Schuss</span></div>
+            </div>
+            <div class="lo-code"><code>MP-22AK7-OBJ-05</code><button onclick="copyCode(this)">Kopieren</button></div>
+            <div class="lo-extra">
+              <div class="ex-row"><b>Perks</b><div class="perks">
+                <div class="perk"><div class="pic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l3-9 4 18 3-9h4"/></svg></div><span>Flak Jacket</span></div>
+                <div class="perk"><div class="pic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8-9 8z"/></svg></div><span>Assassin</span></div>
+                <div class="perk"><div class="pic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg></div><span>Gung-Ho</span></div>
+              </div></div>
+              <div class="ex-row"><b>Ausrüstung</b><span class="chip">Lethal: Frag</span><span class="chip">Tactical: Smoke</span><span class="chip">Field: Trophy</span></div>
+            </div>
+          </div>
+        </article>
+      </section>
+      <div class="tier-head"><span class="th-badge th-other">Other</span><span class="ln"></span></div>
+      <section class="lo-grid"></section>
+    </div>
 
-    </section>
+    <!-- ===================== ZOMBIES ===================== -->
+    <div class="mode-pane" data-mode="zombies">
+      <div class="tier-head"><span class="th-badge th-absolute">🔥 Absolute Meta</span><span class="ln"></span><span class="cnt">High-Round-tauglich</span></div>
+      <section class="lo-grid">
+        <article class="card lo-card" data-range="close" data-arch="heavy">
+          <div class="lo-img"><svg viewBox="0 0 64 24" fill="currentColor"><rect x="6" y="8" width="34" height="8" rx="1"/><rect x="40" y="9" width="12" height="4" rx="1"/><rect x="14" y="16" width="8" height="6" rx="1"/></svg><span class="ph">Bild folgt</span></div>
+          <div class="lo-body">
+            <div class="lo-head"><div><div class="lo-weapon">PPSh-41</div><div class="lo-cat">SMG · Pack-a-Punch III</div></div>
+              <div class="lo-badges"><span class="badge b-new">✦ New</span><span class="src">BO6</span></div></div>
+            <div class="lo-sub"><span class="lo-role">High-Round · Ammo-Mod: Brain Rot</span><span class="lo-stamp">Akt. 05.06.</span></div>
+            <div class="lo-atts">
+              <div class="att"><span class="slot">Optik</span><span class="aname">Reflex</span></div>
+              <div class="att"><span class="slot">Mündung</span><span class="aname">Recoil Booster</span></div>
+              <div class="att"><span class="slot">Magazin</span><span class="aname">Drum 72</span></div>
+              <div class="att"><span class="slot">Munition</span><span class="aname">Brain Rot</span></div>
+              <div class="att"><span class="slot">Schaft</span><span class="aname">No Stock</span></div>
+            </div>
+            <div class="lo-code"><code>ZM-71PPS-BR-01</code><button onclick="copyCode(this)">Kopieren</button></div>
+            <div class="lo-extra">
+              <div class="ex-row"><b>Augments / Perks</b><div class="perks">
+                <div class="perk"><div class="pic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5v14"/></svg></div><span>Jugger-Nog</span></div>
+                <div class="perk"><div class="pic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2 3 14h7l-1 8 10-12h-7z"/></svg></div><span>Speed Cola</span></div>
+                <div class="perk"><div class="pic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l3-9 4 18 3-9h4"/></svg></div><span>Stamin-Up</span></div>
+              </div></div>
+              <div class="ex-row"><b>Field / GobbleGum</b><span class="chip">Field: Aether Shroud</span><span class="chip">Gum: Phoenix Up</span><span class="chip">Wonder: Ray Gun</span></div>
+            </div>
+          </div>
+        </article>
+      </section>
+      <div class="tier-head"><span class="th-badge th-contender">Meta Contender</span><span class="ln"></span></div>
+      <section class="lo-grid">
+        <article class="card lo-card" data-range="long" data-arch="recon">
+          <div class="lo-img"><svg viewBox="0 0 64 24" fill="currentColor"><rect x="2" y="9" width="40" height="6" rx="1"/><rect x="42" y="7" width="18" height="4" rx="1"/></svg><span class="ph">Bild folgt</span></div>
+          <div class="lo-body">
+            <div class="lo-head"><div><div class="lo-weapon">AS Val</div><div class="lo-cat">Sturmgewehr · PaP III</div></div>
+              <div class="lo-badges"><span class="src">BO6</span></div></div>
+            <div class="lo-sub"><span class="lo-role">Round 50+ · Napalm Burst</span><span class="lo-stamp">Akt. 03.06.</span></div>
+            <div class="lo-atts">
+              <div class="att"><span class="slot">Optik</span><span class="aname">3x Tac</span></div>
+              <div class="att"><span class="slot">Mündung</span><span class="aname">Suppressor</span></div>
+              <div class="att"><span class="slot">Lauf</span><span class="aname">Long</span></div>
+              <div class="att"><span class="slot">Magazin</span><span class="aname">Fast Mag</span></div>
+              <div class="att"><span class="slot">Munition</span><span class="aname">Napalm Burst</span></div>
+            </div>
+            <div class="lo-code"><code>ZM-30VAL-NB-04</code><button onclick="copyCode(this)">Kopieren</button></div>
+            <div class="lo-extra">
+              <div class="ex-row"><b>Augments / Perks</b><div class="perks">
+                <div class="perk"><div class="pic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5v14"/></svg></div><span>Jugger-Nog</span></div>
+                <div class="perk"><div class="pic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l3-9 4 18 3-9h4"/></svg></div><span>Deadshot</span></div>
+                <div class="perk"><div class="pic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l8 4v5c0 5-3.5 7.5-8 9-4.5-1.5-8-4-8-9V7z"/></svg></div><span>PHD</span></div>
+              </div></div>
+              <div class="ex-row"><b>Field / GobbleGum</b><span class="chip">Field: Energy Mine</span><span class="chip">Gum: Near Death</span></div>
+            </div>
+          </div>
+        </article>
+      </section>
+      <div class="tier-head"><span class="th-badge th-other">Other</span><span class="ln"></span></div>
+      <section class="lo-grid"></section>
+    </div>
 
     <footer>
-      Bot Control · Warzone Meta-Loadouts · werbefrei
-      <div class="stamp">⚠ Platzhalter-Daten — echte Loadouts kommen aus der Dashboard-DB (in Arbeit). Discord: <code>/meta</code> · <code>/meta waffe:XM4</code></div>
+      Bot Control · CoD Meta-Loadouts · werbefrei
+      <div class="stamp">⚠ Platzhalter-Daten + Bild-Platzhalter — echte Loadouts &amp; Bilder kommen aus der DB/Assets (in Arbeit). Discord: <code>/meta</code></div>
     </footer>
   </div>
 
   <script>
-    // Detail-Toggle (Kompakt/Voll)
+    // Mode-Switch (Warzone/Multiplayer/Zombies)
+    document.getElementById('mode-switch').addEventListener('click', function(e){
+      var b=e.target.closest('button'); if(!b) return;
+      this.querySelectorAll('button').forEach(x=>x.classList.remove('on')); b.classList.add('on');
+      document.querySelectorAll('.mode-pane').forEach(function(p){ p.classList.toggle('on', p.dataset.mode===b.dataset.mode); });
+      applyFilters();
+    });
+    // Detail-Toggle
     document.getElementById('detail-seg').addEventListener('click', function(e){
       var b=e.target.closest('button'); if(!b) return;
       this.querySelectorAll('button').forEach(x=>x.classList.remove('on')); b.classList.add('on');
       document.body.classList.toggle('detail-full', b.dataset.detail==='full');
       document.body.classList.toggle('detail-compact', b.dataset.detail==='compact');
     });
-    // Kombinierte Filter (Tier + Range + Archetyp)
-    var F={tier:'all', range:'all', arch:'all'};
+    // Filter (Range + Archetyp) im aktiven Mode
+    var F={range:'all', arch:'all'};
     function applyFilters(){
-      document.querySelectorAll('#lo-grid .lo-card').forEach(function(c){
-        var ok=(F.tier==='all'||c.dataset.tier===F.tier)
-             &&(F.range==='all'||c.dataset.range===F.range)
-             &&(F.arch==='all'||c.dataset.arch===F.arch);
+      var pane=document.querySelector('.mode-pane.on'); if(!pane) return;
+      pane.querySelectorAll('.lo-card').forEach(function(c){
+        var ok=(F.range==='all'||c.dataset.range===F.range)&&(F.arch==='all'||c.dataset.arch===F.arch);
         c.classList.toggle('hide', !ok);
       });
     }
-    ['tier-seg','range-seg','arch-seg'].forEach(function(id){
+    ['range-seg','arch-seg'].forEach(function(id){
       document.getElementById(id).addEventListener('click', function(e){
         var b=e.target.closest('button'); if(!b) return;
         this.querySelectorAll('button').forEach(x=>x.classList.remove('on')); b.classList.add('on');
         F[b.dataset.f]=b.dataset.v; applyFilters();
       });
     });
-    // Loadout-Code kopieren
     function copyCode(btn){
       var code=btn.parentElement.querySelector('code').textContent.trim();
-      navigator.clipboard.writeText(code).then(function(){
-        var o=btn.textContent; btn.textContent='✓ Kopiert'; setTimeout(function(){btn.textContent=o;},1200);
-      });
+      navigator.clipboard.writeText(code).then(function(){ var o=btn.textContent; btn.textContent='✓ Kopiert'; setTimeout(function(){btn.textContent=o;},1200); });
     }
   </script>
 </body>
