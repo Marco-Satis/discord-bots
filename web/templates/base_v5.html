@@ -78,7 +78,10 @@
       <div class="sb-head"><span class="mark">B</span><span class="sb-title" style="font-weight:600">Bot Control</span></div>
       <nav class="sb-nav" aria-label="Hauptnavigation">
         <div class="sb-sec">Übersicht</div>
-        <a class="nav-i {% block nav_dashboard %}{% endblock %}" href="/">
+        <a class="nav-i {% block nav_home %}{% endblock %}" href="/home">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8"/><path d="M5 10v10a1 1 0 0 0 1 1h3v-6h6v6h3a1 1 0 0 0 1-1V10"/></svg><span class="lbl">Start</span>
+        </a>
+        <a class="nav-i {% block nav_dashboard %}{% endblock %}" href="/dashboard">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg><span class="lbl">Dashboard</span>
         </a>
         <a class="nav-i {% block nav_errors %}{% endblock %}" href="/errors">

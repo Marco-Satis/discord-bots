@@ -189,11 +189,11 @@ async def _collect_recent_events_db() -> list[dict]:
         return _collect_recent_events_json()
 
 
-@router.get("/", response_class=HTMLResponse)
+@router.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_overview(request: Request, current_user: dict = Depends(require_auth)):
     """
-    Hauptseite des Dashboards mit Uebersicht aller Server,
-    Bots und System-Performance.
+    Server/System-Übersicht (D9: von `/` nach `/dashboard` verschoben — `/` ist
+    jetzt die öffentliche Landing-Page). Zeigt alle Server, Bots und System-Stats.
     """
     # File-I/O-Collector parallel via to_thread → kein Event-Loop-Block.
     # Bei 3-5 _status.json-Files spart das ~10-50ms pro Request gegenueber sequentiell-sync.

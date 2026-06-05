@@ -260,12 +260,13 @@ def allow_anon():
 # --- Login-Seite ---
 
 @auth_router.get("/login", response_class=HTMLResponse)
-async def login_page(request: Request, error: str = ""):
-    """Zeigt die Login-Seite an."""
+async def login_page(request: Request, error: str = "", reason: str = ""):
+    """Zeigt die Login-Seite an. `reason` (inactive/timeout) → Sitzungs-Ablauf-Hinweis."""
     oauth_configured = bool(DISCORD_CLIENT_ID and DISCORD_CLIENT_SECRET)
     return templates.TemplateResponse("login.html", {
         "request": request,
         "error": error,
+        "reason": reason,
         "oauth_configured": oauth_configured,
     })
 
@@ -417,7 +418,7 @@ async def discord_oauth_callback(request: Request, code: str = "", state: str = 
 
             logger.info(f"Discord-Login erfolgreich: {username} ({user_id})")
 
-            response = RedirectResponse(url="/", status_code=302)
+            response = RedirectResponse(url="/home", status_code=302)
             response.set_cookie(
                 key="dashboard_token",
                 value=token,
