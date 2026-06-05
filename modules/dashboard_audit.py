@@ -31,6 +31,10 @@ def _sanitize_detail(detail: Optional[dict]) -> Optional[str]:
     """
     Wandelt `detail` in JSON-Text um und redigiert verdaechtige Secret-Felder.
     Gibt None zurueck wenn detail leer ist. Nie fatal.
+
+    M42-Hinweis: Der Substring-Match auf `_SECRET_KEYS` ist bewusst konservativ
+    — ein Feld wie "token_id" wird mit-redigiert (False-Positive). Lieber zu viel
+    redigieren als ein Secret durchlassen; es geht kein Datenwert verloren.
     """
     if not detail:
         return None

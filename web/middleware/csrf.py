@@ -10,6 +10,8 @@ BaseHTTPMiddleware kann den Request-Body konsumieren, sodass
 nachfolgende Route-Handler leere Form-Daten erhalten.
 """
 
+import hashlib
+import hmac
 import secrets
 from starlette.datastructures import State
 from starlette.requests import Request
@@ -32,8 +34,37 @@ EXEMPT_PATHS = {
 }
 
 
+def _identity_csrf_token(request: Request) -> str | None:
+    """C2/M17-Fix: CSRF-Token an die authentifizierte Identitaet binden.
+
+    Token = HMAC(WEB_SECRET_KEY, jwt['sub']). Stateless Double-Submit: ein
+    fremder Origin kann den Token ohne den Server-Secret nicht berechnen, und
+    er ist an genau diesen User gebunden. Gibt None zurueck wenn nicht
+    eingeloggt (dann Session-Fallback fuer z.B. die Login-Form).
+    """
+    token = request.cookies.get("dashboard_token")
+    if not token:
+        return None
+    try:
+        from web.auth import WEB_SECRET_KEY, _decode_jwt
+        payload = _decode_jwt(token)
+        if not payload:
+            return None
+        sub = str(payload.get("sub", ""))
+        if not sub:
+            return None
+        return hmac.new(WEB_SECRET_KEY.encode("utf-8"), sub.encode("utf-8"),
+                        hashlib.sha256).hexdigest()
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def generate_csrf_token(request: Request) -> str:
-    """Generiert oder liest CSRF-Token aus der Session."""
+    """Liefert das CSRF-Token: identitaets-gebunden (HMAC ueber JWT-sub) wenn
+    eingeloggt, sonst Session-basiert (z.B. Login-Form vor Auth)."""
+    identity_token = _identity_csrf_token(request)
+    if identity_token:
+        return identity_token
     session = request.session
     token = session.get("csrf_token")
     if not token:
@@ -43,7 +74,12 @@ def generate_csrf_token(request: Request) -> str:
 
 
 def validate_csrf_token(request: Request, token: str) -> bool:
-    """Validiert ein CSRF-Token gegen die Session."""
+    """Validiert ein CSRF-Token. Eingeloggt → gegen HMAC(JWT-sub); sonst Session."""
+    if not token:
+        return False
+    identity_token = _identity_csrf_token(request)
+    if identity_token is not None:
+        return hmac.compare_digest(identity_token, token)
     session_token = request.session.get("csrf_token")
     if not session_token:
         return False

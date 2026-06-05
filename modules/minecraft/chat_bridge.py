@@ -234,21 +234,29 @@ SERVER_MSG_RE = re.compile(
 )
 
 
+# M50-Fix: Mob-Ersetzungen einmalig vorkompilieren (vorher: sort + re.compile
+# pro Aufruf, Death-Messages bei 5s-Poll). Laengste Namen zuerst, damit z.B.
+# "Elder Guardian" vor "Guardian" und "Cave Spider" vor "Spider" greift.
+_MOB_REPLACEMENTS: list = [
+    (eng, re.compile(rf'\b{re.escape(eng)}\b'), de)
+    for eng, de in sorted(MOB_DISPLAY_NAMES.items(), key=lambda x: len(x[0]), reverse=True)
+    if eng != de
+]
+
+
 def translate_mob_names(message: str) -> str:
     """
     Ersetzt englische Mob-Namen in einer Nachricht durch deutsche Anzeigenamen.
     Wird auf Death-Messages angewandt fuer bessere Lesbarkeit.
 
-    Verwendet Word-Boundaries und sortiert nach Laenge (laengste zuerst),
-    damit z.B. "Elder Guardian" vor "Guardian" und "Cave Spider" vor "Spider"
+    Nutzt vorkompilierte Word-Boundary-Patterns (`_MOB_REPLACEMENTS`), sortiert
+    nach Laenge (laengste zuerst), damit z.B. "Elder Guardian" vor "Guardian"
     ersetzt wird.
     """
     result = message
-    # Laengste Namen zuerst ersetzen, um Teilwort-Matches zu vermeiden
-    for eng_name, de_name in sorted(MOB_DISPLAY_NAMES.items(), key=lambda x: len(x[0]), reverse=True):
-        if eng_name in result and eng_name != de_name:
-            # Word-Boundary regex statt einfachem replace
-            result = re.sub(rf'\b{re.escape(eng_name)}\b', de_name, result)
+    for eng_name, pattern, de_name in _MOB_REPLACEMENTS:
+        if eng_name in result:  # billiger Pre-Check vor Regex
+            result = pattern.sub(de_name, result)
     return result
 
 

@@ -16,7 +16,7 @@ from fastapi.templating import Jinja2Templates
 from utils.config import PROJECT_ROOT, DATA_DIR, MONITOR_DATA_DIR
 from utils.logger import get_logger
 from web.auth import require_auth, require_auth_api
-from modules.database.db_manager import get_db
+from modules.database.db_manager import get_db, get_read_db
 
 EVENTS_FILE = MONITOR_DATA_DIR / "events.json"
 
@@ -164,7 +164,7 @@ async def _collect_recent_events_db() -> list[dict]:
     Faellt auf JSON-Datei zurueck wenn die DB nicht erreichbar ist.
     """
     try:
-        db = await get_db()
+        db = await get_read_db()
         # Filter '0 Updates verfuegbar'-Noise vom Daily-Cron (sind keine echten Events).
         cursor = await db.execute(
             "SELECT timestamp, event_type, category, server_id, message, details "
@@ -228,10 +228,14 @@ async def clear_events(current_user: dict = Depends(require_auth_api)):
         except Exception as db_err:
             logger.warning(f"SQLite DELETE fehlgeschlagen: {db_err}")
 
-        # JSON: Ebenfalls leeren (Rueckwaertskompatibilitaet)
-        EVENTS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with open(EVENTS_FILE, "w", encoding="utf-8") as f:
-            json.dump({"events": [], "last_update": ""}, f)
+        # JSON: Ebenfalls leeren (Rueckwaertskompatibilitaet).
+        # M49-Fix: blockierendes File-IO in einen Thread auslagern (nicht im Event-Loop).
+        def _write_empty_events() -> None:
+            EVENTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+            with open(EVENTS_FILE, "w", encoding="utf-8") as f:
+                json.dump({"events": [], "last_update": ""}, f)
+
+        await asyncio.to_thread(_write_empty_events)
 
         logger.info(f"Ereignis-Log geleert von {user.get('username', 'Unbekannt')}")
         return HTMLResponse(

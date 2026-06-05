@@ -18,7 +18,7 @@ from modules.database.db_manager import get_read_db
 from modules.guild_context import GuildConfig, get_primary_guild_id
 from modules.member_cache import get_members
 from utils.logger import get_logger
-from web.auth import require_auth
+from web.auth import require_auth, require_perm
 
 logger = get_logger("web.routes.leveling")
 
@@ -133,7 +133,7 @@ async def leveling_page(request: Request, current_user: dict = Depends(require_a
 
 @router.post("/leveling/config", response_class=HTMLResponse)
 async def leveling_config_save(
-    request: Request, current_user: dict = Depends(require_auth)
+    request: Request, current_user: dict = Depends(require_perm("leveling", "edit"))
 ):
     """
     Level-Up-Benachrichtigung speichern: Announce-Channel + Member-Ping.

@@ -20,6 +20,7 @@ from fastapi.templating import Jinja2Templates
 
 from utils.config import load_env, get_env, get_config
 from utils.logger import get_logger
+from utils.client_ip import client_ip_from_scope
 
 logger = get_logger("web.auth")
 
@@ -36,13 +37,24 @@ DISCORD_CLIENT_SECRET = get_env("DISCORD_CLIENT_SECRET", "")
 DISCORD_REDIRECT_URI = get_env("DISCORD_REDIRECT_URI", "http://localhost:8080/auth/discord/callback")
 WEB_SECRET_KEY = get_env("WEB_SECRET_KEY", "")
 if not WEB_SECRET_KEY:
+    # M34-Fix: im Prod (WEB_HTTPS=true) ist ein fester Key Pflicht — sonst
+    # divergieren Session-/JWT-Keys ueber Worker/Neustarts (alle Sessions brechen,
+    # Multi-Worker-JWT-Verify schlaegt fehl). Fail-closed statt stiller Zufalls-Key.
+    if get_env("WEB_HTTPS", "true", cast=bool):
+        raise RuntimeError(
+            "WEB_SECRET_KEY fehlt in config/.env — Pflicht im Prod-Betrieb "
+            "(WEB_HTTPS=true). Setze einen festen WEB_SECRET_KEY."
+        )
     import secrets as _secrets
     WEB_SECRET_KEY = _secrets.token_hex(32)
-    logger.warning("WEB_SECRET_KEY nicht in .env gesetzt — temporaerer Key generiert.")
+    logger.warning("WEB_SECRET_KEY nicht gesetzt — temporaerer Dev-Key generiert (nur ohne WEB_HTTPS).")
 WEB_ADMIN_USER = get_env("WEB_ADMIN_USER", "admin")
 WEB_ADMIN_PASS_HASH = get_env("WEB_ADMIN_PASS_HASH", "")
 GUILD_ID = get_env("GUILD_ID", "")
 WEB_HTTPS = get_env("WEB_HTTPS", "true", cast=bool)
+# B2/M13-Fix: Fallback-Passwort-Login (Owner-Rechte) standardmaessig AUS.
+# Nur aktiv wenn WEB_FALLBACK_LOGIN=true gesetzt ist.
+WEB_FALLBACK_LOGIN = get_env("WEB_FALLBACK_LOGIN", "false", cast=bool)
 
 # Discord OAuth2 Endpunkte
 DISCORD_AUTH_URL = "https://discord.com/api/oauth2/authorize"
@@ -65,6 +77,10 @@ WEB_ALLOWED_USER_IDS = _config.get("web_allowed_user_ids", [])
 _login_attempts: dict[str, list[float]] = {}
 RATE_LIMIT_MAX = 5           # Maximal 5 Versuche
 RATE_LIMIT_WINDOW = 900      # innerhalb von 15 Minuten (900 Sekunden)
+# M36-Fix: zeitbasiertes Cleanup-Intervall — leere/abgelaufene IP-Keys nicht
+# erst bei >1000 Eintraegen aufraeumen (Slow-Leak ueber lange Laufzeit).
+_RL_CLEANUP_INTERVAL = 300   # alle 5 Minuten
+_last_rl_cleanup = 0.0
 
 
 def _cleanup_rate_limit_dict() -> None:
@@ -85,9 +101,11 @@ def _check_rate_limit(ip: str) -> bool:
     now = time.time()
     cutoff = now - RATE_LIMIT_WINDOW
 
-    # Periodisch alte IPs aufraeumen (alle 100 Aufrufe oder bei >1000 Eintraegen)
-    if len(_login_attempts) > 1000:
+    # Periodisch alte IPs aufraeumen — bei >1000 Eintraegen ODER alle 5 Min (M36).
+    global _last_rl_cleanup
+    if len(_login_attempts) > 1000 or (now - _last_rl_cleanup) > _RL_CLEANUP_INTERVAL:
         _cleanup_rate_limit_dict()
+        _last_rl_cleanup = now
 
     if ip not in _login_attempts:
         _login_attempts[ip] = []
@@ -420,7 +438,7 @@ async def discord_oauth_callback(request: Request, code: str = "", state: str = 
 @auth_router.post("/login")
 async def login_post(request: Request, username: str = Form(""), password: str = Form("")):
     """Verarbeitet den Fallback-Login mit Benutzername und Passwort (bcrypt)."""
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = client_ip_from_scope(request.scope)  # B3/M15-Fix: trust-bewusst
 
     # Rate-Limit pruefen
     if not _check_rate_limit(client_ip):
@@ -432,6 +450,15 @@ async def login_post(request: Request, username: str = Form(""), password: str =
         }, status_code=429)
 
     _record_attempt(client_ip)
+
+    # B2/M13-Fix: Fallback-Login nur bei explizit gesetztem Flag (Owner-Total-Compromise-Schutz)
+    if not WEB_FALLBACK_LOGIN:
+        logger.warning(f"[AUDIT] Fallback-Login-Versuch bei deaktiviertem Flag von {client_ip}")
+        return templates.TemplateResponse("login.html", {
+            "request": request,
+            "error": "Passwort-Login ist deaktiviert. Bitte ueber Discord anmelden.",
+            "oauth_configured": bool(DISCORD_CLIENT_ID and DISCORD_CLIENT_SECRET),
+        }, status_code=403)
 
     if not username or not password:
         return templates.TemplateResponse("login.html", {
@@ -485,7 +512,17 @@ async def login_post(request: Request, username: str = Form(""), password: str =
     }
     token = _create_jwt(jwt_data)
 
-    logger.info(f"Passwort-Login erfolgreich: {username} von {client_ip}")
+    # B2/M13-Fix: Fallback-Login (Owner-Rechte) prominent auditieren
+    logger.warning(f"[AUDIT] Fallback-Passwort-Login mit Owner-Rechten: {username} von {client_ip}")
+    try:
+        from modules.dashboard_audit import log_action
+        await log_action(
+            discord_id=f"local:{username}", username=username,
+            resource="system", action="control",
+            detail={"event": "fallback_login"}, ip=client_ip,
+        )
+    except Exception as e:  # noqa: BLE001 — Audit darf den Login nicht kippen
+        logger.debug(f"Audit-Log Fallback-Login fehlgeschlagen: {e}")
 
     response = RedirectResponse(url="/", status_code=302)
     response.set_cookie(

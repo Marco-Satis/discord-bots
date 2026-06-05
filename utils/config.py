@@ -4,8 +4,12 @@ Configuration loader - reads .env and config.json
 
 import os
 import json
+import logging
 from pathlib import Path
 from dotenv import load_dotenv
+
+# M30-Fix: Logger fuer Fallback-Warnung bei korrupter/fehlender config.json
+logger = logging.getLogger(__name__)
 
 # Project root is two levels up from utils/
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -35,8 +39,18 @@ def get_config():
     """Load config.json with feature toggles and intervals"""
     config_path = CONFIG_DIR / "config.json"
     if config_path.exists():
-        with open(config_path, "r", encoding="utf-8") as f:
-            return json.load(f)
+        # M30-Fix: JSON-Load in try/except wrappen — bei korrupter config.json
+        # (JSONDecodeError) oder Lese-Fehler (OSError) auf Default-Struktur
+        # zurueckfallen statt mit Exception abzustuerzen.
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.warning(
+                "config.json konnte nicht geladen werden (%s) — Fallback auf Defaults",
+                exc,
+            )
+            return _default_config()
     return _default_config()
 
 
@@ -84,11 +98,16 @@ def save_config(config):
     """Save config.json"""
     config_path = CONFIG_DIR / "config.json"
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    with open(config_path, "w", encoding="utf-8") as f:
+    # M30-Fix: Atomar schreiben — erst in .tmp, dann os.replace (atomic rename).
+    # Verhindert eine halb geschriebene/korrupte config.json bei Crash/Abbruch
+    # waehrend des Schreibens.
+    tmp_path = config_path.with_suffix(config_path.suffix + ".tmp")
+    with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(config, f, indent=2, ensure_ascii=False)
+    os.replace(tmp_path, config_path)
 
 
-def get_env(key: str, default=None, cast=None):
+def get_env(key: str, default=None, cast=None) -> str | int | float | bool | None:
     """Get environment variable with optional type casting.
 
     Args:

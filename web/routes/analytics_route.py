@@ -14,7 +14,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 
-from modules.database.db_manager import get_db, get_read_db
+from modules.database.db_manager import get_read_db
 from utils.logger import get_logger
 from web.auth import require_auth_api
 
@@ -53,7 +53,7 @@ async def _load_stats_from_db(period: str) -> list[dict]:
     cutoff_iso = cutoff.isoformat()
 
     try:
-        db = await get_db()
+        db = await get_read_db()
         cursor = await db.execute(
             "SELECT timestamp, cpu_percent, ram_percent, disk_percent, server_data "
             "FROM stats_history "
@@ -462,7 +462,7 @@ async def analytics_heatmap(request: Request):
         JSON mit 'heatmap' (7x24 Matrix), 'max_value' (hoechster Durchschnitt)
     """
     try:
-        db = await get_db()
+        db = await get_read_db()
         cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
         cursor = await db.execute(
             "SELECT timestamp, server_data FROM stats_history "
@@ -608,7 +608,7 @@ async def analytics_trends(request: Request):
     last_week_end = this_week_start  # Ende letzte Woche = Anfang diese Woche
 
     try:
-        db = await get_db()
+        db = await get_read_db()
 
         # Stats fuer diese Woche laden
         cursor = await db.execute(
@@ -742,7 +742,7 @@ async def analytics_server_comparison(request: Request):
         JSON mit 'servers' — Liste aller Server mit Vergleichs-Metriken
     """
     try:
-        db = await get_db()
+        db = await get_read_db()
         cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
         cursor = await db.execute(
             "SELECT timestamp, server_data FROM stats_history "

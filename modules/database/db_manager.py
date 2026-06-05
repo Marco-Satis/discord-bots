@@ -125,7 +125,12 @@ async def _init_read_pool() -> None:
                 conn.row_factory = aiosqlite.Row
                 _read_pool.append(conn)
             except Exception as e:
-                logger.error(f"Read-Pool-Connection #{i} init fehlgeschlagen: {e}")
+                # M43-Fix: WARNING statt ERROR — bei Fresh-Install fehlt die
+                # DB-Datei noch, der ro-Connect schlaegt dann erwartbar fehl.
+                logger.warning(
+                    f"Read-Pool-Connection #{i} nicht initialisierbar "
+                    f"(z.B. DB-Datei fehlt bei Fresh-Install): {e}"
+                )
 
         if _read_pool:
             _read_pool_cycle = itertools.cycle(_read_pool)
@@ -341,6 +346,7 @@ class DBHelper:
             lastrowid bei INSERT, sonst None
         """
         delay = _WRITE_RETRY_BASE_DELAY
+        cursor = None  # M40-Fix: explizit init (pyright: moeglicherweise ungebunden)
         for attempt in range(1, _WRITE_RETRIES + 1):
             try:
                 cursor = await self._conn.execute(sql, params)
@@ -356,5 +362,7 @@ class DBHelper:
                 await asyncio.sleep(delay)
                 delay *= 2
 
+        # Schleife verlaesst man nur via break (cursor gesetzt) oder raise.
+        assert cursor is not None  # noqa: S101 — Typ-Narrowing fuer pyright
         await self._conn.commit()
         return cursor.lastrowid

@@ -18,10 +18,10 @@ from utils.logger import get_logger
 
 logger = get_logger("web.session_timeout")
 
-# Timeout-Werte in Sekunden
-INACTIVITY_TIMEOUT = 3600       # 60 Minuten
-ABSOLUTE_TIMEOUT = 86400        # 24 Stunden
-REMEMBER_ME_TIMEOUT = 604800    # 7 Tage
+# Idle-Timeout in Sekunden (C1/M06-Fix: 10 Minuten Inaktivitaet).
+# Absolutes Timeout deckt das JWT selbst ab (exp = 24h) — abgelaufene Tokens
+# dekodieren zu None und werden von der Route-Auth abgefangen.
+INACTIVITY_TIMEOUT = 600  # 10 Minuten
 
 # Pfade die kein Login erfordern
 PUBLIC_PATHS = {
@@ -32,10 +32,13 @@ PUBLIC_PATHS = {
 
 class SessionTimeoutMiddleware:
     """
-    Pure ASGI Middleware fuer Session-Timeout-Pruefung.
+    Pure ASGI Middleware fuer Idle-Session-Timeout.
 
-    - Aktualisiert last_activity Timestamp
-    - Leitet zu Login weiter wenn Timeout ueberschritten
+    C1/M06-Fix: Auth laeuft ueber den JWT-Cookie `dashboard_token` (NICHT
+    request.session). Vorher pruefte die Middleware `session["user"]`, das nie
+    gesetzt wurde → Idle-Timeout griff nie. Jetzt: dashboard_token dekodieren,
+    `last_seen` in der signierten Session fuehren, bei >10min Idle ausloggen.
+    Das absolute Timeout (24h) kommt aus dem JWT-`exp`.
     """
 
     def __init__(self, app: ASGIApp) -> None:
@@ -47,8 +50,6 @@ class SessionTimeoutMiddleware:
             return
 
         path = scope.get("path", "")
-
-        # Oeffentliche Pfade ueberspringen
         for public in PUBLIC_PATHS:
             if path.startswith(public):
                 await self.app(scope, receive, send)
@@ -56,45 +57,37 @@ class SessionTimeoutMiddleware:
 
         request = Request(scope)
 
+        # Auth via JWT-Cookie. Kein Token → nicht eingeloggt, Route-Auth uebernimmt.
+        token = request.cookies.get("dashboard_token")
+        if not token:
+            await self.app(scope, receive, send)
+            return
+
+        from web.auth import _decode_jwt
+        payload = _decode_jwt(token)
+        if payload is None:
+            # Abgelaufen/ungueltig (24h-exp = absolutes Timeout) → Route-Auth faengt es ab.
+            await self.app(scope, receive, send)
+            return
+
         try:
             session = request.session
         except Exception:
             await self.app(scope, receive, send)
             return
 
-        user = session.get("user")
-
-        if not user:
-            # Kein Login, kein Timeout-Check noetig
-            await self.app(scope, receive, send)
-            return
-
         now = time.time()
-        last_activity = session.get("last_activity", 0)
-        login_time = session.get("login_time", 0)
-        remember_me = session.get("remember_me", False)
+        last_seen = session.get("last_seen")
 
-        # Absolutes Timeout pruefen
-        max_session = REMEMBER_ME_TIMEOUT if remember_me else ABSOLUTE_TIMEOUT
-        if login_time and (now - login_time) > max_session:
-            logger.info(f"Absolutes Timeout fuer {user.get('username', '?')} "
-                        f"({(now - login_time) / 3600:.1f}h)")
-            session.clear()
-            response = RedirectResponse(url="/auth/login?reason=session_expired", status_code=302)
-            await response(scope, receive, send)
-            return
-
-        # Inaktivitaets-Timeout pruefen
-        inactivity_limit = REMEMBER_ME_TIMEOUT if remember_me else INACTIVITY_TIMEOUT
-        if last_activity and (now - last_activity) > inactivity_limit:
-            logger.info(f"Inaktivitaets-Timeout fuer {user.get('username', '?')} "
-                        f"({(now - last_activity) / 60:.0f}min)")
+        if last_seen and (now - last_seen) > INACTIVITY_TIMEOUT:
+            logger.info(f"Idle-Timeout ({(now - last_seen) / 60:.0f}min) fuer "
+                        f"{payload.get('username', '?')}")
             session.clear()
             response = RedirectResponse(url="/auth/login?reason=inactive", status_code=302)
+            response.delete_cookie("dashboard_token")
             await response(scope, receive, send)
             return
 
-        # Aktivitaet aktualisieren
-        session["last_activity"] = now
-
+        # Aktivitaet aktualisieren (sliding window)
+        session["last_seen"] = now
         await self.app(scope, receive, send)

@@ -15,7 +15,7 @@ from fastapi.templating import Jinja2Templates
 
 from modules.guild_context import GuildConfig, get_primary_guild_id
 from utils.logger import get_logger
-from web.auth import require_auth
+from web.auth import require_auth, require_perm
 
 logger = get_logger("web.routes.moderation")
 
@@ -67,7 +67,7 @@ async def moderation_page(request: Request, current_user: dict = Depends(require
 
 @router.post("/moderation/config", response_class=HTMLResponse)
 async def moderation_config_save(
-    request: Request, current_user: dict = Depends(require_auth)
+    request: Request, current_user: dict = Depends(require_perm("moderation", "edit"))
 ):
     """
     Auto-Mod-Toggles speichern (Checkbox vorhanden = an).

@@ -22,12 +22,34 @@ ruft `has_perm` auf. UI-Hide (R5) ist nur Komfort, kein Schutz.
 """
 from __future__ import annotations
 
+import time
 from typing import Iterable, Optional
 
 from modules.database.db_manager import get_read_db, get_db
 from utils.logger import get_logger
 
 logger = get_logger("rbac")
+
+# M28-Fix: Error-Log-Cooldown gegen Flood bei Dauer-DB-Fehler
+# Bei dauerhaftem DB-Ausfall wuerde jeder Auth-Check eine ERROR-Zeile loggen.
+# Pro Log-Site wird ERROR hoechstens 1x pro Cooldown-Fenster (default 60s)
+# emittiert; dazwischen still uebersprungen. Fail-Closed-Verhalten (deny/return)
+# bleibt UNVERAENDERT.
+_LAST_ERR_LOG: dict[str, float] = {}
+
+
+def _err_cooldown(key: str, cooldown: float = 60.0) -> bool:
+    """True wenn fuer `key` seit dem letzten Log >= `cooldown`s vergangen sind.
+
+    Bei True wird der Timestamp aktualisiert (Caller soll dann loggen). Bei False
+    liegt der letzte Log innerhalb des Fensters → Caller ueberspringt das ERROR.
+    """
+    now = time.monotonic()
+    last = _LAST_ERR_LOG.get(key)
+    if last is None or (now - last) >= cooldown:
+        _LAST_ERR_LOG[key] = now
+        return True
+    return False
 
 # --- Ressourcen (Bereiche) + Aktionen — zentrale Whitelist --------------------
 # Bereichs-Schnitt offen (Spec §8.1): MC vorerst als 1 Bereich `minecraft`.
@@ -120,7 +142,8 @@ async def _has_grant(roles: list[str], resource: str, action: str) -> bool:
         cursor = await conn.execute(sql, (resource, action, *roles))
         return await cursor.fetchone() is not None
     except Exception as e:  # noqa: BLE001 — DB-Fehler => deny (fail-closed)
-        logger.error(f"_has_grant fehlgeschlagen ({resource}/{action}): {e}")
+        if _err_cooldown("has_grant"):  # M28-Fix: Error-Log-Cooldown gegen Flood bei Dauer-DB-Fehler
+            logger.error(f"_has_grant fehlgeschlagen ({resource}/{action}): {e}")
         return False
 
 
@@ -157,7 +180,8 @@ async def _grants_for_roles(roles: list[str]) -> set[tuple[str, str]]:
             if row[0] in RESOURCES and row[1] in ACTIONS
         }
     except Exception as e:  # noqa: BLE001
-        logger.error(f"_grants_for_roles fehlgeschlagen: {e}")
+        if _err_cooldown("grants_for_roles"):  # M28-Fix: Error-Log-Cooldown gegen Flood bei Dauer-DB-Fehler
+            logger.error(f"_grants_for_roles fehlgeschlagen: {e}")
         return set()
 
 
@@ -181,7 +205,8 @@ async def get_role_map() -> dict[str, set[tuple[str, str]]]:
         for role_id, resource, action in rows:
             out.setdefault(str(role_id), set()).add((resource, action))
     except Exception as e:  # noqa: BLE001
-        logger.error(f"get_role_map fehlgeschlagen: {e}")
+        if _err_cooldown("get_role_map"):  # M28-Fix: Error-Log-Cooldown gegen Flood bei Dauer-DB-Fehler
+            logger.error(f"get_role_map fehlgeschlagen: {e}")
     return out
 
 
@@ -214,6 +239,13 @@ async def set_role_grants(
         raise ValueError("Rollen-ID muss numerisch sein (Discord-Snowflake)")
     clean = validate_grants(grants)
     conn = await get_db()
+    # ACHTUNG: KEIN try/rollback hier. get_db() liefert eine PROZESSWEIT
+    # GETEILTE Write-Connection (siehe db_manager.execute-Docstring) — ein
+    # rollback() wuerde die uncommitteten Writes anderer, gleichzeitig laufender
+    # Coroutinen auf derselben Connection mit verwerfen (Review A01/Q1, 2026-06-05).
+    # Das urspruengliche M39-Risiko (Partial-Fail laesst Rolle ohne Grants) wird
+    # erst mit der get_db-Repository-Refaktorierung (Write-Lock, C3) sauber
+    # geloest — bis dahin ist das groessere Race-Risiko der Rollback.
     await conn.execute("DELETE FROM rbac_role_map WHERE role_id = ?", (role_id,))
     for resource, action in clean:
         await conn.execute(

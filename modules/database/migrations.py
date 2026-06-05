@@ -340,7 +340,7 @@ async def get_schema_version(db: aiosqlite.Connection) -> int:
 
 async def set_schema_version(db: aiosqlite.Connection, version: int) -> None:
     """Setzt die Schema-Version via PRAGMA user_version."""
-    await db.execute(f"PRAGMA user_version = {version}")
+    await db.execute(f"PRAGMA user_version = {int(version)}")  # M09-Fix: int-Guard (PRAGMA nimmt keine ?-Params)
     await db.commit()
 
 
@@ -360,8 +360,14 @@ async def run_migrations(db: aiosqlite.Connection) -> None:
     if current < 1:
         logger.info("Migration v0 → v1: Erstelle komplettes Schema (23 Tabellen)")
         await _apply_schema_v1(db)
-        await set_schema_version(db, 1)
-        logger.info("Migration v0 → v1 abgeschlossen")
+        # M07-Fix: _apply_schema_v1 chained bei Fresh-Install v2..v9 mit (erreicht
+        # also Schema-Version CURRENT_VERSION=9). Ohne diese lokale Korrektur bleibt
+        # current=0 und die folgenden `if current < N`-Guards lassen v2..v9 ein
+        # ZWEITES Mal laufen. user_version wird daher direkt auf die erreichte
+        # Version gesetzt (nicht auf 1 — sonst Doppel-/Falsch-Write).
+        current = CURRENT_VERSION
+        await set_schema_version(db, current)
+        logger.info(f"Migration v0 → v{current} (Fresh-Install) abgeschlossen")
 
     # Version 1 → 2: Server-Stats-Tracker Tabelle
     if current < 2:
@@ -689,6 +695,15 @@ async def _apply_migration_v6(db: aiosqlite.Connection) -> None:
         # Backfill-Guild aus ENV (bestehende Daten = Marcos Haupt-Guild)
         from utils.config import get_env
         primary_guild = str(get_env("GUILD_ID", "0") or "0")
+        # M38-Fix: stiller "0"-Fallback explizit warnen — sonst landen alle alten
+        # XP-Daten unbemerkt in einer Default-Guild (guild_id="0") und sind im
+        # guild-scoped Leaderboard nicht mehr der echten Guild zugeordnet.
+        if primary_guild == "0":
+            logger.warning(
+                "v6-Backfill: GUILD_ID-ENV fehlt/leer — bestehende XP-Daten werden "
+                "der Default-Guild (guild_id='0') zugeordnet. Setze GUILD_ID vor der "
+                "Migration, damit alte XP-Daten der korrekten Guild zugeordnet werden."
+            )
 
         # recreate-copy-drop (SQLite kann UNIQUE-Constraint nicht per ALTER ändern)
         await db.execute("ALTER TABLE leveling RENAME TO leveling_old")

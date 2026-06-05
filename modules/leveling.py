@@ -55,9 +55,6 @@ logger = get_logger("leveling_manager")
 # Standard-Pfade
 LEVELING_CONFIG_FILE = ADMIN_DATA_DIR / "leveling_config.json"
 
-# Sentinel: unterscheidet "kein guild_config-Override" von gespeichertem None.
-_UNSET = object()
-
 # TTL der gemergten Per-Guild-Config im Speicher. Da 4 Prozesse sich die DB
 # teilen, sorgt der TTL dafuer dass eine Dashboard-Aenderung (anderer Prozess)
 # den Bot-Prozess spaetestens nach TTL erreicht (sonst Cross-Prozess-Drift bis
@@ -282,10 +279,16 @@ class LevelingManager:
         merged = dict(self._config)
         ttl = _GUILD_CFG_TTL
         try:
+            # Ein einziger Read aller Guild-Config-Keys statt ~17 serieller
+            # GuildConfig.get()-Roundtrips (Audit-Fix M31, Message-Hot-Path).
+            # get_all() liefert nur GESETZTE Keys (volle `leveling.<key>`-Namen),
+            # daher Override nur bei vorhandenem Key -> fehlende behalten den
+            # JSON-Default (identisch zum alten _UNSET-Verhalten).
+            all_cfg = await GuildConfig.get_all(gid)
             for key in _default_config().keys():
-                val = await GuildConfig.get(gid, f"leveling.{key}", _UNSET)
-                if val is not _UNSET:
-                    merged[key] = val
+                full_key = f"leveling.{key}"
+                if full_key in all_cfg:
+                    merged[key] = all_cfg[full_key]
         except Exception as e:
             # Bei Fehler kurzer TTL -> bald erneut versuchen (kein permanenter
             # Default-Cache bis Neustart).

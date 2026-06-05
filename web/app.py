@@ -5,6 +5,7 @@ Startet den Web-Dashboard-Server mit Jinja2-Templates,
 statischen Dateien und WebSocket-Unterstuetzung.
 """
 
+import asyncio
 import sys
 from pathlib import Path
 
@@ -36,10 +37,15 @@ WEB_ENABLED = get_env("WEB_ENABLED", "false", cast=bool)
 WEB_PORT = get_env("WEB_PORT", 8080, cast=int)
 WEB_SECRET_KEY = get_env("WEB_SECRET_KEY", "")
 if not WEB_SECRET_KEY:
+    # M34-Fix: Prod (WEB_HTTPS=true) verlangt einen festen Key — siehe web/auth.py.
+    if get_env("WEB_HTTPS", "true", cast=bool):
+        raise RuntimeError(
+            "WEB_SECRET_KEY fehlt in config/.env — Pflicht im Prod-Betrieb "
+            "(WEB_HTTPS=true). Setze einen festen WEB_SECRET_KEY."
+        )
     import secrets as _secrets
     WEB_SECRET_KEY = _secrets.token_hex(32)
-    logger.warning("WEB_SECRET_KEY nicht in .env gesetzt! Generiere temporaeren Key. "
-                    "Setze WEB_SECRET_KEY in config/.env fuer persistente Sessions.")
+    logger.warning("WEB_SECRET_KEY nicht gesetzt — temporaerer Dev-Key generiert (nur ohne WEB_HTTPS).")
 
 if not WEB_ENABLED:
     logger.warning("WEB_ENABLED ist nicht 'true'. Dashboard ist deaktiviert.")
@@ -113,31 +119,45 @@ templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 # --- WebSocket-Verbindungsverwaltung ---
 
 class ConnectionManager:
-    """Verwaltet aktive WebSocket-Verbindungen fuer Echtzeit-Updates."""
+    """Verwaltet aktive WebSocket-Verbindungen fuer Echtzeit-Updates.
+
+    M01-Fix (Audit 2026-06-04): `set` statt `list` (O(1)-discard, kein ValueError
+    bei Doppel-Remove) + `asyncio.Lock` um alle Mutationen, da broadcast/register/
+    disconnect ueber await-Punkte hinweg nebenlaeufig laufen. Der Handshake-`accept()`
+    + Auth-Check passiert im Endpoint VOR `register()` — daher kein `accept()` mehr hier.
+    """
 
     def __init__(self):
-        self.active_connections: list[WebSocket] = []
+        self.active_connections: set[WebSocket] = set()
+        self._lock = asyncio.Lock()
 
-    async def connect(self, websocket: WebSocket):
-        """Neue WebSocket-Verbindung akzeptieren und registrieren."""
-        await websocket.accept()
-        self.active_connections.append(websocket)
+    async def register(self, websocket: WebSocket):
+        """Bereits akzeptierte+authentifizierte WS-Verbindung registrieren."""
+        async with self._lock:
+            self.active_connections.add(websocket)
         logger.debug(f"WebSocket verbunden. Aktive Verbindungen: {len(self.active_connections)}")
 
-    def disconnect(self, websocket: WebSocket):
-        """WebSocket-Verbindung entfernen."""
-        self.active_connections.remove(websocket)
+    async def disconnect(self, websocket: WebSocket):
+        """WS-Verbindung idempotent entfernen (discard wirft nicht bei Doppel-Remove)."""
+        async with self._lock:
+            self.active_connections.discard(websocket)
         logger.debug(f"WebSocket getrennt. Aktive Verbindungen: {len(self.active_connections)}")
 
     async def broadcast(self, message: dict):
-        """Nachricht an alle verbundenen Clients senden."""
+        """Nachricht an alle verbundenen Clients senden. Tote Sockets gesammelt entfernen."""
         import json
         data = json.dumps(message)
-        for connection in self.active_connections[:]:
+        async with self._lock:
+            targets = list(self.active_connections)
+        dead = []
+        for connection in targets:
             try:
                 await connection.send_text(data)
-            except Exception:
-                self.active_connections.remove(connection)
+            except Exception:  # noqa: BLE001
+                dead.append(connection)
+        if dead:
+            async with self._lock:
+                self.active_connections.difference_update(dead)
 
 
 ws_manager = ConnectionManager()
@@ -157,26 +177,40 @@ async def websocket_endpoint(websocket: WebSocket):
     from web.auth import get_ws_user
     from web.dashboard_feed import gather_dashboard_payload
 
+    # Handshake annehmen, DANN Auth pruefen (accept-first ist version-robust;
+    # close-before-accept liefert je nach uvicorn 403/404). Es werden keine Daten
+    # vor dem Auth-Check gesendet -> kein Leak.
+    await websocket.accept()
     if get_ws_user(websocket) is None:
         await websocket.close(code=1008)  # Policy Violation: nicht angemeldet
         return
+    # M12-Fix (CSWSH): fremde Origins ablehnen. Browser senden Origin beim
+    # WS-Handshake; non-Browser-Clients (ohne Origin-Header) bleiben erlaubt.
+    origin = websocket.headers.get("origin")
+    if origin is not None and origin not in ALLOWED_ORIGINS:
+        await websocket.close(code=1008)  # Policy Violation: fremder Origin
+        return
 
-    await ws_manager.connect(websocket)
-    # Sofort ein erstes Update schicken (Client wartet nicht aufs naechste Intervall).
-    try:
-        payload = await gather_dashboard_payload()
-        await websocket.send_text(_json.dumps({"type": "dashboard_update", **payload}))
-    except Exception as e:  # noqa: BLE001
-        logger.debug(f"WS-Initial-Payload fehlgeschlagen: {e}")
+    await ws_manager.register(websocket)
 
     try:
+        # Sofort ein erstes Update schicken (Client wartet nicht aufs naechste Intervall).
+        try:
+            payload = await gather_dashboard_payload()
+            await websocket.send_text(_json.dumps({"type": "dashboard_update", **payload}))
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"WS-Initial-Payload fehlgeschlagen: {e}")
+
         while True:
             # Auf Nachrichten vom Client warten (Keep-Alive-Ping)
             data = await websocket.receive_text()
             if data == "ping":
                 await websocket.send_text("pong")
     except WebSocketDisconnect:
-        ws_manager.disconnect(websocket)
+        pass
+    finally:
+        # M01-Fix: idempotenter Cleanup auf ALLEN Exit-Pfaden (nicht nur WebSocketDisconnect)
+        await ws_manager.disconnect(websocket)
 
 
 # --- Dashboard-Broadcaster (WebSocket-Push, ersetzt SSE) ---

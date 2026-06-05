@@ -32,6 +32,32 @@ ALLOWED_DAYS = {7, 30, 90}
 
 # --- Hilfsfunktionen ---
 
+# M33-Fix: CSV-Formula-Injection-Escaping
+# Zeichen, die am Zellanfang eine Formel-Interpretation in
+# Excel/LibreOffice ausloesen koennen (CWE-1236).
+_CSV_INJECTION_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _sanitize_cell(value):
+    """
+    Neutralisiert CSV-Formula-Injection in einer einzelnen Zelle.
+
+    Beginnt ein String-Wert mit einem gefaehrlichen Zeichen
+    (=, +, -, @, Tab, CR), wird ein fuehrender Apostroph
+    vorangestellt, damit Tabellenkalkulationen den Wert als
+    Text statt als Formel behandeln. Nicht-Strings (Zahlen,
+    None) bleiben unveraendert.
+
+    Args:
+        value: Roher Zellwert aus der Datenbank
+
+    Returns:
+        Neutralisierter Wert (String) oder das Original
+    """
+    if isinstance(value, str) and value.startswith(_CSV_INJECTION_PREFIXES):
+        return "'" + value
+    return value
+
 
 def _rows_to_csv(headers: list[str], rows: list) -> str:
     """
@@ -49,9 +75,10 @@ def _rows_to_csv(headers: list[str], rows: list) -> str:
     """
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(headers)
+    # M33-Fix: CSV-Formula-Injection-Escaping auf alle Zellen anwenden
+    writer.writerow([_sanitize_cell(h) for h in headers])
     for row in rows:
-        writer.writerow(row)
+        writer.writerow([_sanitize_cell(cell) for cell in row])
     return output.getvalue()
 
 
