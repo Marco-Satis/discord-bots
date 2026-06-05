@@ -57,6 +57,7 @@
     .seg button:hover{ color:var(--t1) }
     .seg button.on{ background:var(--acc-soft); color:#fff }
     .seg .lbl{ align-self:center; color:var(--t3); font-size:10.5px; text-transform:uppercase; letter-spacing:.1em; padding:0 6px 0 9px }
+    .seg.lang{ padding:3px } .seg.lang button{ padding:6px 11px; font-size:12px; font-weight:700 }
 
     /* Tier-Sektionen */
     .tier-head{ display:flex; align-items:center; gap:12px; margin:30px 0 12px }
@@ -128,13 +129,16 @@
   <div class="wrap">
     <nav class="nav">
       <div class="brand"><span class="mark">B</span> Bot Control</div>
-      <div class="nav-right"><a class="btn" href="/">Start</a><a class="btn btn--primary" href="/auth/login">Anmelden</a></div>
+      <div class="nav-right">
+        <div class="seg lang" id="lang-switch"><button class="on" data-lang="de">DE</button><button data-lang="en">EN</button></div>
+        <a class="btn" href="/">Start</a><a class="btn btn--primary" href="/auth/login">Anmelden</a>
+      </div>
     </nav>
 
     <header class="hero">
       <span class="pill"><span class="live"></span> Season 2 · Stand 05.06.2026</span>
       <h1 class="display" style="margin:16px 0 0;font-size:clamp(26px,5vw,44px)">CoD <span class="grad-text">Meta-Loadouts</span></h1>
-      <p class="lead">Kuratiert, werbefrei, immer frisch. Wähle Modus, filtere, schalte Kompakt/Voll. Auch per Discord: <code>/meta</code>.</p>
+      <p class="lead" data-i18n="lead">Kuratiert, werbefrei, immer frisch. Wähle Modus, filtere, schalte Kompakt/Voll. Auch per Discord: <code>/meta</code>.</p>
       <div class="modes" id="mode-switch">
         <button class="on" data-mode="warzone">Warzone</button>
         <button data-mode="multiplayer">Multiplayer</button>
@@ -440,8 +444,8 @@
     </div>
 
     <footer>
-      Bot Control · CoD Meta-Loadouts · werbefrei
-      <div class="stamp">⚠ Platzhalter-Daten + Bild-Platzhalter — echte Loadouts &amp; Bilder kommen aus der DB/Assets (in Arbeit). Discord: <code>/meta</code></div>
+      <span data-i18n="foot">Bot Control · CoD Meta-Loadouts · werbefrei</span>
+      <div class="stamp" data-i18n="stamp">⚠ Platzhalter-Daten + Bild-Platzhalter — echte Loadouts &amp; Bilder kommen aus der DB/Assets (in Arbeit). Discord: <code>/meta</code></div>
     </footer>
   </div>
 
@@ -478,8 +482,57 @@
     });
     function copyCode(btn){
       var code=btn.parentElement.querySelector('code').textContent.trim();
-      navigator.clipboard.writeText(code).then(function(){ var o=btn.textContent; btn.textContent='✓ Kopiert'; setTimeout(function(){btn.textContent=o;},1200); });
+      var done = (curLang==='en') ? '✓ Copied' : '✓ Kopiert';
+      navigator.clipboard.writeText(code).then(function(){ var o=btn.textContent; btn.textContent=done; setTimeout(function(){btn.textContent=o;},1200); });
     }
+
+    /* ---- i18n DE/EN (Mockup) ----
+       Echtes Feature: serverseitig (Template-Strings je lang + DB liefert lokalisierte
+       Datenfelder). Hier: ganze-Textknoten-Wort-Map ueber den Content (kein innerHTML). */
+    var DE2EN = {
+      // Langtexte (ganze Leaf-Textknoten vor dem <code>)
+      "Kuratiert, werbefrei, immer frisch. Wähle Modus, filtere, schalte Kompakt/Voll. Auch per Discord:":
+        "Curated, ad-free, always fresh. Pick a mode, filter, toggle Compact/Full. Also on Discord:",
+      "Bot Control · CoD Meta-Loadouts · werbefrei":"Bot Control · CoD Meta-Loadouts · ad-free",
+      "⚠ Platzhalter-Daten + Bild-Platzhalter — echte Loadouts & Bilder kommen aus der DB/Assets (in Arbeit). Discord:":
+        "⚠ Placeholder data + image placeholders — real loadouts & images come from the DB/assets (WIP). Discord:",
+      // UI
+      "Anmelden":"Sign in","Season 2 · Stand 05.06.2026":"Season 2 · Updated 06/05/2026",
+      "Ansicht":"View","Archetyp":"Archetype","Kompakt":"Compact","Voll":"Full","Alle":"All",
+      "spielbar, nicht Meta":"playable, off-meta","High-Round-tauglich":"High-round viable",
+      // Kategorien
+      "Sturmgewehr":"Assault Rifle","Pistole":"Pistol","Scharfschütze":"Sniper",
+      "Sturmgewehr · PaP III":"Assault Rifle · PaP III",
+      // Rollen
+      "Close · Aggressiv":"Close · Aggressive","Sekundär · Akimbo":"Secondary · Akimbo",
+      "High-Round · Ammo-Mod: Brain Rot":"High-round · Ammo Mod: Brain Rot",
+      // Stamps
+      "Akt. 05.06.":"Upd. 06/05","Akt. 04.06.":"Upd. 06/04","Akt. 02.06.":"Upd. 06/02","Akt. 03.06.":"Upd. 06/03","Akt. 01.06.":"Upd. 06/01",
+      // Slots
+      "Optik":"Optic","Mündung":"Muzzle","Lauf":"Barrel","Unterlauf":"Underbarrel","Magazin":"Magazine","Hinterteil":"Stock","Munition":"Ammo","Griff":"Grip","Schaft":"Buttstock",
+      // Perks / Labels / Equipment
+      "Schnellhand":"Sleight of Hand","Doppelläufig":"Double Time","Ausrüstung":"Equipment",
+      "Lethal: Splitter":"Lethal: Frag","Lethal: Wurfmesser":"Lethal: Throwing Knife","Tactical: Blend":"Tactical: Flash","Tactical: Rauch":"Tactical: Smoke","Field: Muni-Kiste":"Field: Ammo Box",
+      "Kopieren":"Copy","Bild folgt":"Image soon"
+    };
+    var EN2DE = {}; Object.keys(DE2EN).forEach(function(k){ EN2DE[DE2EN[k]] = k; });
+    var curLang='de';
+    function setLang(lang){
+      if(lang===curLang) return;
+      var map = (lang==='en') ? DE2EN : EN2DE;
+      var walker = document.createTreeWalker(document.querySelector('.wrap'), NodeFilter.SHOW_TEXT, null);
+      var nodes=[], n; while(n=walker.nextNode()) nodes.push(n);
+      nodes.forEach(function(t){
+        var s=t.nodeValue.trim(); if(!s) return;
+        if(map[s]!==undefined) t.nodeValue = t.nodeValue.replace(s, map[s]);
+      });
+      curLang=lang; document.documentElement.lang=lang;
+    }
+    document.getElementById('lang-switch').addEventListener('click', function(e){
+      var b=e.target.closest('button'); if(!b) return;
+      this.querySelectorAll('button').forEach(x=>x.classList.remove('on')); b.classList.add('on');
+      setLang(b.dataset.lang);
+    });
   </script>
 </body>
 </html>
