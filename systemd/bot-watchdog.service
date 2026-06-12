@@ -1,6 +1,6 @@
 [Unit]
 Description=Bot Watchdog Service
-After=network.target gameserver-bot.service monitor-bot.service
+After=network.target operator-bot.service recon-bot.service
 
 [Service]
 Type=oneshot

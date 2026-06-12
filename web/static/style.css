@@ -840,7 +840,7 @@ input:focus, textarea:focus, select:focus {
 textarea { min-height: 80px; resize: vertical; }
 
 /* ============================================================
- *  Tabs (fuer admin_bot.html 15-Tab-Layout)
+ *  Tabs (fuer marshal_bot.html 15-Tab-Layout)
  * ============================================================ */
 
 .tabs {
@@ -1136,7 +1136,7 @@ tr:hover td { background: var(--bg-hover); }
 
 /* ============================================================
  *  Legacy-Klassen-Migration (2026-05-17, Review F05+F06)
- *  Klassen die von errors/admin_bot/changelog/config referenziert
+ *  Klassen die von errors/marshal_bot/changelog/config referenziert
  *  werden und in style.css definiert sein muessen.
  * ============================================================ */
 
@@ -1227,7 +1227,7 @@ tr:hover td { background: var(--bg-hover); }
     font-style: italic;
 }
 
-/* --- admin_bot.html: tab-btn / tab-nav / tab-content (alternative zu .tab/.tabs) --- */
+/* --- marshal_bot.html: tab-btn / tab-nav / tab-content (alternative zu .tab/.tabs) --- */
 .tab-nav {
     display: flex;
     gap: var(--s-1);

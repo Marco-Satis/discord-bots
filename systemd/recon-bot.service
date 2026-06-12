@@ -1,7 +1,7 @@
 [Unit]
-Description=Discord Monitor Bot (Health Check, Dashboard, Scheduler)
+Description=Discord Recon (Health Check, Dashboard, Scheduler)
 Documentation=https://github.com/your-repo/discord-bots
-After=network-online.target gameserver-bot.service
+After=network-online.target operator-bot.service
 Wants=network-online.target
 
 [Service]
@@ -9,7 +9,7 @@ Type=simple
 User=botuser
 Group=botuser
 WorkingDirectory=/home/botuser/Discord_Bots
-ExecStart=/home/botuser/Discord_Bots/venv/bin/python -u bots/monitor_bot.py
+ExecStart=/home/botuser/Discord_Bots/venv/bin/python -u bots/recon_bot.py
 Restart=on-failure
 RestartSec=15
 StartLimitIntervalSec=300
@@ -37,7 +37,7 @@ CPUQuota=50%
 # Logging
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=monitor-bot
+SyslogIdentifier=recon-bot
 
 [Install]
 WantedBy=multi-user.target

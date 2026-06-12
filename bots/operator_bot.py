@@ -1,5 +1,6 @@
 """
-GameServer Bot - Satisfactory Server Control & Management
+Vormals gameserver_bot.py / Service gameserver-bot. Rolle: Satisfactory-Control (RCON, Player-Tracking).
+Operator - Satisfactory Server Control & Management
 Bot 1 of 2 - handles all /sat commands, /help, /server, /timeout
 
 Architecture:
@@ -51,7 +52,7 @@ load_env()
 TOKEN = get_env("DISCORD_TOKEN_MANAGER")
 GUILD_ID = get_primary_guild_id()  # zentralisiert via Multi-Tenant-Resolver (Phase 0.5)
 
-logger = get_logger("gameserver_bot")
+logger = get_logger("operator_bot")
 
 
 # ------------------------------------------------------------------
@@ -110,9 +111,9 @@ bot.anti_spam = AntiSpam(
 )
 
 bot.command_logger = CommandLogger()
-# M2-Konsolidierung: SAT-UpdateChecker laeuft ausschliesslich im monitor-bot
+# M2-Konsolidierung: SAT-UpdateChecker laeuft ausschliesslich im recon-bot
 # (scheduler_cog/monitor_cog/status_writer/selftest sind dessen Consumer).
-# Hier war die Instanz tot (kein Consumer in gameserver-bot) -> entfernt.
+# Hier war die Instanz tot (kein Consumer in operator-bot) -> entfernt.
 
 # Phase 3: Settings Backup
 bot.settings_backup = SettingsBackup(
@@ -221,7 +222,7 @@ _GS_STATUS_DIR = DATA_DIR / "gameserver"
 
 
 def _write_gs_bot_status():
-    """Schreibt GameServer Bot Status (Ping, Uptime) als JSON fuer Dashboard."""
+    """Schreibt Operator Status (Ping, Uptime) als JSON fuer Dashboard."""
     try:
         _GS_STATUS_DIR.mkdir(parents=True, exist_ok=True)
         uptime_secs = int(time.time() - _gs_bot_start_time)
@@ -268,7 +269,7 @@ async def on_ready():
     # Schutz gegen None-Zustand bei fehlgeschlagener Verbindung
     if not bot.user:
         return
-    logger.info(f"GameServer Bot online: {bot.user} (ID: {bot.user.id})")
+    logger.info(f"Operator online: {bot.user} (ID: {bot.user.id})")
     logger.info(f"Guilds: {[g.name for g in bot.guilds]}")
 
     # Idempotent operations only (safe to re-run on reconnect)
@@ -393,6 +394,12 @@ async def setup_hook():
         synced = await bot.tree.sync()
         logger.info(f"Synced {len(synced)} commands globally")
 
+    # Review-Fix 2026-06-12 (HIGH): Signal-Handler HIER registrieren, nicht in
+    # main() — setup_hook laeuft im Event-Loop den bot.run() via asyncio.run()
+    # erstellt. Ein Aufruf vor bot.run() wuerde auf einem anderen, nie
+    # laufenden Loop landen und SIGTERM-Cleanups (register_cleanup) verfehlen.
+    setup_signal_handlers(bot, "Operator")
+
     bot._first_ready = True
     logger.info("Setup hook complete")
 
@@ -404,14 +411,14 @@ def main():
 
     # F62: Startup Selftest — pruefen ob alles konfiguriert ist
     selftest_ok = execute_selftest(
-        "GameServer Bot",
+        "Operator",
         required_env=["DISCORD_TOKEN_MANAGER", "GUILD_ID"],
     )
     if not selftest_ok:
         logger.error("Selftest fehlgeschlagen — Bot wird nicht gestartet!")
         sys.exit(1)
 
-    logger.info("Starting GameServer Bot...")
+    logger.info("Starting Operator...")
     logger.info(f"Server: {bot.sat_server.service_name}")
     logger.info(f"API: {bot.sat_api.host}:{bot.sat_api.port}")
 

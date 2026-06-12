@@ -77,17 +77,17 @@ echo "Bots neustarten? (j/n)"
 read -r answer
 if [ "$answer" = "j" ]; then
     echo "Starte Bots neu..."
-    sudo systemctl restart gameserver-bot.service
-    sudo systemctl restart monitor-bot.service
+    sudo systemctl restart operator-bot.service
+    sudo systemctl restart recon-bot.service
     sleep 3
     echo "Status:"
-    sudo systemctl is-active gameserver-bot.service
-    sudo systemctl is-active monitor-bot.service
+    sudo systemctl is-active operator-bot.service
+    sudo systemctl is-active recon-bot.service
     echo "✅ Bots neugestartet"
 else
     echo "Bots NICHT neugestartet. Manuell mit:"
-    echo "  sudo systemctl restart gameserver-bot.service"
-    echo "  sudo systemctl restart monitor-bot.service"
+    echo "  sudo systemctl restart operator-bot.service"
+    echo "  sudo systemctl restart recon-bot.service"
 fi
 
 echo ""

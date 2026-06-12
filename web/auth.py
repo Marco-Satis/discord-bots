@@ -73,6 +73,10 @@ WEB_ALLOWED_USER_IDS = _config.get("web_allowed_user_ids", [])
 
 # --- Rate Limiting (einfach, dict-basiert) ---
 
+# INVARIANTE (Review 2026-06-12): prozess-lokaler RAM-Store — Login-Bruteforce-
+# Limit gilt nur korrekt bei uvicorn --workers 1 (so in
+# systemd/web-dashboard.service konfiguriert). Bei >1 Worker verwaessert das
+# Limit auf N x RATE_LIMIT_MAX → vorher gemeinsamen Store einfuehren.
 # Struktur: { ip: [timestamp, timestamp, ...] }
 _login_attempts: dict[str, list[float]] = {}
 RATE_LIMIT_MAX = 5           # Maximal 5 Versuche
@@ -179,7 +183,7 @@ async def require_auth(request: Request):
     FastAPI-Dependency fuer HTML-Endpoints: Leitet zur Login-Seite weiter wenn nicht angemeldet.
     Gibt den User-Dict zurueck wenn angemeldet.
 
-    Verwendung: HTML-Seiten (z. B. /config, /admin-bot, /dashboard).
+    Verwendung: HTML-Seiten (z. B. /config, /marshal-bot, /dashboard).
     Browser folgt der 303-Redirect-Header automatisch zur Login-Seite.
     """
     user = get_current_user(request)

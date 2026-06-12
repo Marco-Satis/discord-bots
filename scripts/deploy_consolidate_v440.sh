@@ -28,15 +28,15 @@ if ! sudo -u botuser bash -c "cd '$DIR' && ./venv/bin/python -m compileall -q bo
   exit 1
 fi
 
-echo "[5/6] Service-Restart (monitor-bot zuerst)"
-sudo systemctl restart monitor-bot
+echo "[5/6] Service-Restart (recon-bot zuerst)"
+sudo systemctl restart recon-bot
 sleep 10
-sudo systemctl restart gameserver-bot admin-bot web-dashboard
+sudo systemctl restart operator-bot marshal-bot web-dashboard
 
 echo "[6/6] Status + Smoke-Test"
 sleep 5
 FAIL=0
-for s in monitor-bot gameserver-bot admin-bot web-dashboard; do
+for s in recon-bot operator-bot marshal-bot web-dashboard; do
   st=$(systemctl is-active "$s" || true)
   echo "  $s: $st"
   [ "$st" = "active" ] || FAIL=1
@@ -47,11 +47,11 @@ if [ "$FAIL" -ne 0 ]; then
   echo ""
   echo "!! Mindestens ein Service NICHT active. Logs pruefen:"
   echo "   sudo journalctl -u <service> --since '2 min ago' --no-pager"
-  echo "   Rollback: sudo -u botuser tar -xzf $BACKUP -C $DIR && sudo systemctl restart monitor-bot gameserver-bot admin-bot web-dashboard"
+  echo "   Rollback: sudo -u botuser tar -xzf $BACKUP -C $DIR && sudo systemctl restart recon-bot operator-bot marshal-bot web-dashboard"
   exit 1
 fi
 
 echo ""
 echo "OK: Server auf v4.4.0 konsolidiert. Alle Services active."
 echo "Backup: $BACKUP (nach 24h Verifikation loeschbar)"
-echo "Rollback bei Bedarf: sudo -u botuser tar -xzf $BACKUP -C $DIR && sudo systemctl restart monitor-bot gameserver-bot admin-bot web-dashboard"
+echo "Rollback bei Bedarf: sudo -u botuser tar -xzf $BACKUP -C $DIR && sudo systemctl restart recon-bot operator-bot marshal-bot web-dashboard"

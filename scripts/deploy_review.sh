@@ -24,15 +24,15 @@ sudo rm -f $BOTDIR/modules/monitoring/status_writer.py.tmp.5.1773603060648
 
 echo "=== Restart ==="
 sudo systemctl restart web-dashboard
-sudo systemctl restart monitor-bot
+sudo systemctl restart recon-bot
 sleep 10
 
 echo "=== Logs pruefen ==="
 sudo journalctl -u web-dashboard --since '30 sec ago' --no-pager | grep -iE 'error|exception|traceback' || echo "web-dashboard: 0 Fehler"
-sudo journalctl -u monitor-bot --since '30 sec ago' --no-pager | grep -iE 'error|exception|traceback' || echo "monitor-bot: 0 Fehler"
+sudo journalctl -u recon-bot --since '30 sec ago' --no-pager | grep -iE 'error|exception|traceback' || echo "recon-bot: 0 Fehler"
 
 echo "=== Services ==="
-for s in monitor-bot gameserver-bot admin-bot web-dashboard satisfactory minecraft-bmc; do
+for s in recon-bot operator-bot marshal-bot web-dashboard satisfactory minecraft-bmc; do
     echo "$s: $(systemctl is-active $s)"
 done
 

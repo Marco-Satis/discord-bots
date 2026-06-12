@@ -1,5 +1,5 @@
 [Unit]
-Description=Discord GameServer Bot (Satisfactory Management)
+Description=Discord Marshal (Moderation & Community)
 Documentation=https://github.com/your-repo/discord-bots
 After=network-online.target
 Wants=network-online.target
@@ -9,7 +9,7 @@ Type=simple
 User=botuser
 Group=botuser
 WorkingDirectory=/home/botuser/Discord_Bots
-ExecStart=/home/botuser/Discord_Bots/venv/bin/python -u bots/gameserver_bot.py
+ExecStart=/home/botuser/Discord_Bots/venv/bin/python -u bots/marshal_bot.py
 Restart=on-failure
 RestartSec=10
 StartLimitIntervalSec=300
@@ -32,12 +32,12 @@ ProtectControlGroups=yes
 
 # Resource limits
 MemoryMax=512M
-CPUQuota=50%
+CPUQuota=30%
 
 # Logging
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=gameserver-bot
+SyslogIdentifier=marshal-bot
 
 [Install]
 WantedBy=multi-user.target

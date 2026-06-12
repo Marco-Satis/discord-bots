@@ -1,5 +1,5 @@
 [Unit]
-Description=Discord Admin Bot (Moderation & Community)
+Description=Discord Operator (Satisfactory Management)
 Documentation=https://github.com/your-repo/discord-bots
 After=network-online.target
 Wants=network-online.target
@@ -9,7 +9,7 @@ Type=simple
 User=botuser
 Group=botuser
 WorkingDirectory=/home/botuser/Discord_Bots
-ExecStart=/home/botuser/Discord_Bots/venv/bin/python -u bots/admin_bot.py
+ExecStart=/home/botuser/Discord_Bots/venv/bin/python -u bots/operator_bot.py
 Restart=on-failure
 RestartSec=10
 StartLimitIntervalSec=300
@@ -32,12 +32,12 @@ ProtectControlGroups=yes
 
 # Resource limits
 MemoryMax=512M
-CPUQuota=30%
+CPUQuota=50%
 
 # Logging
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=admin-bot
+SyslogIdentifier=operator-bot
 
 [Install]
 WantedBy=multi-user.target

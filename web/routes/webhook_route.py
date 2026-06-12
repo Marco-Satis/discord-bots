@@ -36,7 +36,7 @@ DEPLOY_COMMANDS = [
 ]
 
 # Services, die nach dem Deploy neugestartet werden
-RESTART_SERVICES = ["admin-bot", "monitor-bot", "gameserver-bot", "web-dashboard"]
+RESTART_SERVICES = ["marshal-bot", "recon-bot", "operator-bot", "web-dashboard"]
 
 
 # ================================================================

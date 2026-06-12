@@ -1,5 +1,6 @@
 """
-Monitor Bot - Health Monitoring, Dashboard & Auto-Tasks
+Vormals monitor_bot.py / Service monitor-bot. Rolle: Health/Monitoring, Scheduler, Notifications, MC-Server-Watch.
+Recon - Health Monitoring, Dashboard & Auto-Tasks
 Bot 2 of 2 - Background monitoring and scheduled tasks
 
 Features:
@@ -70,7 +71,7 @@ from modules.minecraft.modpack_updater import ModpackUpdater
 from modules.minecraft.update_manager import UpdateManager
 from modules.monitoring.stats_collector import StatsCollector
 from utils.selftest import execute_selftest
-from utils.shutdown import register_cleanup
+from utils.shutdown import register_cleanup, setup_signal_handlers
 from modules.monitoring.health_checker import HealthAutoRestart
 from modules.monitoring.service_watchdog import ServiceWatchdog
 from modules.system.disk_guard import DiskGuard
@@ -114,7 +115,7 @@ ONEDRIVE_REMOTE = get_env("ONEDRIVE_REMOTE", "onedrive")
 ONEDRIVE_PATH = get_env("ONEDRIVE_PATH", "SatisfactoryBackups")
 ONEDRIVE_ENABLED = get_env("ONEDRIVE_ENABLED", False, cast=bool)
 
-logger = get_logger("monitor_bot")
+logger = get_logger("recon_bot")
 config = get_config()
 
 # ------------------------------------------------------------------
@@ -1753,8 +1754,9 @@ async def _update_status_embed_impl():
         return
 
     # Load persisted message ID on first run
+    # Review-Fix 2026-06-12 (LOW): File-IO via to_thread statt blocking im Loop
     if _status_message_id is None:
-        _status_message_id = _load_status_message_id()
+        _status_message_id = await asyncio.to_thread(_load_status_message_id)
 
     status = health_checker.status
     running = status.process_running
@@ -1965,7 +1967,8 @@ async def _update_status_embed_impl():
             # Post new message and persist ID
             msg = await channel.send(embed=embed)
             _status_message_id = msg.id
-            _save_status_message_id(msg.id)
+            # Review-Fix 2026-06-12 (LOW): File-IO via to_thread
+            await asyncio.to_thread(_save_status_message_id, msg.id)
         except Exception as e:
             logger.error(f"Status embed error: {e}")
 
@@ -2309,6 +2312,14 @@ async def setup_hook():
         synced = await bot.tree.sync(guild=guild)
         logger.info(f"Synced {len(synced)} commands to guild {GUILD_ID}")
 
+    # Review-Fix 2026-06-12 (HIGH): Signal-Handler HIER registrieren, nicht in
+    # main() — setup_hook laeuft im Event-Loop den bot.run() via asyncio.run()
+    # erstellt. Ein Aufruf vor bot.run() wuerde auf einem anderen, nie
+    # laufenden Loop landen. Damit feuert _graceful_shutdown (inkl.
+    # register_cleanup-Callbacks: WAL-Checkpoint, sat_api.close, Watchdog-Stop)
+    # auch bei SIGTERM/systemctl stop — nicht nur bei KeyboardInterrupt.
+    setup_signal_handlers(bot, "Recon")
+
     logger.info("Setup hook complete")
 
 
@@ -2319,10 +2330,11 @@ async def on_ready():
     # Schutz gegen None-Zustand bei fehlgeschlagener Verbindung
     if not bot.user:
         return
-    logger.info(f"Monitor Bot online: {bot.user} (ID: {bot.user.id})")
+    logger.info(f"Recon online: {bot.user} (ID: {bot.user.id})")
 
     # Load persisted status message ID
-    _status_message_id = _load_status_message_id()
+    # Review-Fix 2026-06-12 (LOW): File-IO via to_thread statt blocking im Loop
+    _status_message_id = await asyncio.to_thread(_load_status_message_id)
     if _status_message_id:
         logger.info(f"Loaded persisted status message ID: {_status_message_id}")
 
@@ -2505,7 +2517,7 @@ async def on_ready():
             except Exception as e:
                 logger.warning(f"Initialer Update-Check fehlgeschlagen: {e}")
 
-        track_task(_initial_update_check(), name="monitor_bot.initial_update_check")
+        track_task(_initial_update_check(), name="recon_bot.initial_update_check")
 
         # Initialen MC-Version-Check starten (Paper-basierte Server)
         async def _initial_mc_version_check():
@@ -2523,11 +2535,11 @@ async def on_ready():
                 logger.debug(f"Initialer MC-Version-Check fehlgeschlagen: {e}")
 
         if mc_update_checkers:
-            track_task(_initial_mc_version_check(), name="monitor_bot.initial_mc_version_check")
+            track_task(_initial_mc_version_check(), name="recon_bot.initial_mc_version_check")
 
         # Send startup notification only on first connect
         await notifier.send_admin(
-            "Monitor Bot gestartet",
+            "Recon gestartet",
             "Alle Monitoring-Tasks aktiv.",
             NotifyLevel.SUCCESS,
         )
@@ -2611,14 +2623,14 @@ def main():
 
     # F62: Startup Selftest
     selftest_ok = execute_selftest(
-        "Monitor Bot",
+        "Recon",
         required_env=["DISCORD_TOKEN_WATCHDOG", "GUILD_ID"],
     )
     if not selftest_ok:
         logger.error("Selftest fehlgeschlagen — Bot wird nicht gestartet!")
         sys.exit(1)
 
-    logger.info("Starting Monitor Bot...")
+    logger.info("Starting Recon...")
 
     # F61: Cleanup-Callbacks registrieren
     async def _cleanup_monitor():

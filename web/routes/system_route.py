@@ -33,9 +33,9 @@ WEBMIN_URL = get_env("WEB_WEBMIN_URL", "https://203.0.113.10:9090")
 
 # Bekannte Services mit Anzeigenamen
 KNOWN_SERVICES = [
-    {"service_name": "gameserver-bot.service", "display_name": "GameServer Bot"},
-    {"service_name": "monitor-bot.service", "display_name": "Monitor Bot"},
-    {"service_name": "admin-bot.service", "display_name": "Admin Bot"},
+    {"service_name": "operator-bot.service", "display_name": "Operator"},
+    {"service_name": "recon-bot.service", "display_name": "Recon"},
+    {"service_name": "marshal-bot.service", "display_name": "Marshal"},
     {"service_name": "web-dashboard.service", "display_name": "Web Dashboard"},
     {"service_name": "satisfactory.service", "display_name": "Satisfactory Server"},
     {"service_name": "minecraft-bmc.service", "display_name": "MC Better MC"},

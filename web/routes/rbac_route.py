@@ -32,7 +32,7 @@ router = APIRouter(tags=["RBAC"])
 # Anzeige-Reihenfolge der Bereiche/Aktionen in der Checkbox-Matrix
 _RESOURCE_ORDER = [
     "minecraft", "satisfactory", "leveling", "moderation", "lfg",
-    "temp_voice", "admin_bot", "system", "rbac", "audit",
+    "temp_voice", "marshal_bot", "system", "rbac", "audit",
 ]
 _ACTION_ORDER = ["view", "edit", "control"]
 

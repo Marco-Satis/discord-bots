@@ -3,7 +3,7 @@
 # Checks if Discord bots are running and sends email alert if not.
 # Runs via systemd timer every 5 minutes, independent of bots.
 
-SERVICES=("gameserver-bot.service" "monitor-bot.service")
+SERVICES=("operator-bot.service" "recon-bot.service")
 EMAIL_TO="${BOT_WATCHDOG_EMAIL:-}"
 HOSTNAME=$(hostname)
 LOG_FILE="/var/log/bot-watchdog.log"

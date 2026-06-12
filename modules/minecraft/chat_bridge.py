@@ -294,7 +294,7 @@ class MinecraftChatBridge:
         self.on_advancement = on_advancement
         self.on_death = on_death
 
-        # Externe Referenzen (werden von monitor_bot.py gesetzt)
+        # Externe Referenzen (werden von recon_bot.py gesetzt)
         self.mc_server: Any = None       # MinecraftServer-Instanz
         self.update_manager: Any = None  # UpdateManager-Instanz
 
@@ -466,7 +466,14 @@ class MinecraftChatBridge:
         await self.mc_server.rcon_command(f"tellraw @a {payload}")
 
     async def _say(self, message: str) -> None:
-        """Sendet eine einfache /say-Nachricht via RCON."""
+        """Sendet eine einfache /say-Nachricht via RCON.
+
+        INVARIANTE (Review 2026-06-12): NUR fuer interne/bot-generierte
+        Strings — `message` wird unsanitisiert in `say {message}`
+        interpoliert (im Gegensatz zur sanitisierten send_to_minecraft-
+        Route). MC-Spielernamen ([A-Za-z0-9_]{3,16}) sind als Bestandteil
+        ok; freie User-Inhalte vorher sanitizen (Newline/Quote/Selector).
+        """
         if not self.mc_server:
             return
         await self.mc_server.rcon_command(f"say {message}")

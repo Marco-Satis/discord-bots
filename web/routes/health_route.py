@@ -196,7 +196,7 @@ async def health_check() -> JSONResponse:
         _build_server_entry(config, data)
         for config, data in zip(SERVER_STATUS_FILES, server_data_list)
     ]
-    gameserver_bot_status, monitor_bot_status = bot_data_list
+    operator_bot_status, recon_bot_status = bot_data_list
 
     # Gesamtstatus bestimmen
     overall_status = _determine_overall_status(servers)
@@ -205,8 +205,8 @@ async def health_check() -> JSONResponse:
         "status": overall_status,
         "servers": servers,
         "bots": {
-            "gameserver": gameserver_bot_status.get("status", "unknown") if gameserver_bot_status else "unknown",
-            "monitor": monitor_bot_status.get("status", "unknown") if monitor_bot_status else "unknown",
+            "gameserver": operator_bot_status.get("status", "unknown") if operator_bot_status else "unknown",
+            "monitor": recon_bot_status.get("status", "unknown") if recon_bot_status else "unknown",
         },
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }

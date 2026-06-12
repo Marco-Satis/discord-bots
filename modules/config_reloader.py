@@ -95,7 +95,7 @@ class ConfigReloader:
         das neue Config-Dict als einzigen Parameter.
 
         Args:
-            name: Eindeutiger Name fuer den Callback (z.B. "gameserver_bot").
+            name: Eindeutiger Name fuer den Callback (z.B. "operator_bot").
             callback: Async-Funktion mit Signatur ``async def cb(new_config: dict)``.
         """
         if name in self._callbacks:

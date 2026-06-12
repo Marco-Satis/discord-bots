@@ -62,7 +62,7 @@ RESOURCES: frozenset[str] = frozenset({
     "moderation",
     "lfg",
     "temp_voice",
-    "admin_bot",
+    "marshal_bot",
     "system",
     "rbac",
     "audit",

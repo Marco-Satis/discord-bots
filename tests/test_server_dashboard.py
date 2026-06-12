@@ -27,7 +27,7 @@ async def test_routes():
         ]
         # Geschuetzt (sollte redirect 302/303/307)
         protected_pages = ["/", "/system", "/security", "/config", "/search",
-                          "/errors", "/changelog", "/admin-bot", "/server/satisfactory"]
+                          "/errors", "/changelog", "/marshal-bot", "/server/satisfactory"]
         for route in protected_pages:
             tests.append((route, [302, 303, 307]))
 
@@ -91,7 +91,7 @@ async def test_auth():
             ("/search", [200]),
             ("/errors", [200]),
             ("/changelog", [200]),
-            ("/admin-bot", [200]),
+            ("/marshal-bot", [200]),
             ("/server/satisfactory", [200]),
             ("/server/mc_bmc", [200]),
             ("/server/mc_vanilla", [200]),

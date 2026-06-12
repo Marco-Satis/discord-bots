@@ -28,8 +28,8 @@ CONFIG_BACKUP_ITEMS = [
     ("{project_root}/data/", "data/", False),
     ("/home/botuser/.config/rclone/rclone.conf", "rclone/rclone.conf", False),
     ("/etc/sudoers.d/botuser", "systemd/botuser-sudoers", True),
-    ("/etc/systemd/system/gameserver-bot.service", "systemd/gameserver-bot.service", True),
-    ("/etc/systemd/system/monitor-bot.service", "systemd/monitor-bot.service", True),
+    ("/etc/systemd/system/operator-bot.service", "systemd/operator-bot.service", True),
+    ("/etc/systemd/system/recon-bot.service", "systemd/recon-bot.service", True),
     ("/etc/systemd/system/satisfactory.service", "systemd/satisfactory.service", True),
 ]
 

@@ -6,7 +6,7 @@
 set -euo pipefail
 
 BOT_DIR="/home/botuser/Discord_Bots"
-SERVICES=("gameserver-bot" "monitor-bot")
+SERVICES=("operator-bot" "recon-bot")
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -95,18 +95,18 @@ do_logs() {
     local lines="${3:-50}"
 
     if [ "$service" = "all" ]; then
-        echo "=== GameServer Bot (letzte $lines Zeilen) ==="
-        journalctl -u gameserver-bot -n "$lines" --no-pager
+        echo "=== Operator (letzte $lines Zeilen) ==="
+        journalctl -u operator-bot -n "$lines" --no-pager
         echo ""
-        echo "=== Monitor Bot (letzte $lines Zeilen) ==="
-        journalctl -u monitor-bot -n "$lines" --no-pager
+        echo "=== Recon (letzte $lines Zeilen) ==="
+        journalctl -u recon-bot -n "$lines" --no-pager
     elif [ "$service" = "gameserver" ] || [ "$service" = "gs" ]; then
-        journalctl -u gameserver-bot -n "$lines" --no-pager
+        journalctl -u operator-bot -n "$lines" --no-pager
     elif [ "$service" = "monitor" ] || [ "$service" = "mon" ]; then
-        journalctl -u monitor-bot -n "$lines" --no-pager
+        journalctl -u recon-bot -n "$lines" --no-pager
     elif [ "$service" = "follow" ] || [ "$service" = "f" ]; then
         info "Live-Logs (Ctrl+C zum Beenden)..."
-        journalctl -u gameserver-bot -u monitor-bot -f
+        journalctl -u operator-bot -u recon-bot -f
     else
         warn "Unbekannter Service: $service"
         echo "Optionen: all, gameserver|gs, monitor|mon, follow|f"

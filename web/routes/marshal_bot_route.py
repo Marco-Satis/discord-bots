@@ -1,7 +1,7 @@
 """
-Phase 13f: Admin Bot Setup — Konfigurationsseite fuer alle Admin-Bot-Module.
+Phase 13f: Marshal Setup — Konfigurationsseite fuer alle Marshal-Module.
 
-10 Tabs fuer die Verwaltung aller Admin-Bot-Features:
+10 Tabs fuer die Verwaltung aller Marshal-Features:
 Temp Voice, TeamSpeak, WordFilter, AntiSpam, Warn-System,
 Reaction Roles, Leveling, Tickets, Audit-Logging, Giveaways.
 """
@@ -27,12 +27,12 @@ from web.temp_voice_bridge import (
     write_temp_voice_config,
 )
 
-logger = get_logger("web.routes.admin_bot")
+logger = get_logger("web.routes.marshal_bot")
 
 TEMPLATE_DIR = Path(__file__).parent.parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 
-router = APIRouter(tags=["Admin Bot Setup"], dependencies=[Depends(require_auth)])
+router = APIRouter(tags=["Marshal Setup"], dependencies=[Depends(require_auth)])
 
 # Zuordnung Tab-Name → Datenverzeichnis und Dateiname
 MODULE_FILE_MAP = {
@@ -424,7 +424,7 @@ def _parse_form_embeds(form) -> dict:
     """
     Parst Formular-Daten fuer den Embed-Builder.
     Speichert die Embed-Daten als Queue-Eintrag,
-    den der Admin Bot abholt und sendet.
+    den der Marshal abholt und sendet.
     """
     # Farbe bestimmen
     color_val = form.get("embed_color", "#5865F2")
@@ -459,7 +459,7 @@ def _parse_form_embeds(form) -> dict:
         "status": "pending",
     }
 
-    # Queue-Datei fuer den Admin Bot schreiben
+    # Queue-Datei fuer den Marshal schreiben
     queue_dir = DATA_DIR / "admin" / "embed_queue"
     queue_dir.mkdir(parents=True, exist_ok=True)
     queue_file = queue_dir / f"embed_{int(datetime.now().timestamp())}.json"
@@ -537,14 +537,14 @@ async def _load_tab_config(tab_name: str) -> dict:
 
 # --- Routen ---
 
-@router.get("/admin-bot", response_class=HTMLResponse)
-async def admin_bot_page(request: Request, current_user: dict = Depends(require_auth)):
+@router.get("/marshal-bot", response_class=HTMLResponse)
+async def marshal_bot_page(request: Request, current_user: dict = Depends(require_auth)):
     """
-    Hauptseite des Admin Bot Setup mit 10 Tabs.
+    Hauptseite des Marshal Setup mit 10 Tabs.
     Laedt standardmaessig den ersten Tab (Temp Voice).
     """
     user = current_user
-    # Standard-Tab + Admin-Bot-Status parallel via to_thread (kein Event-Loop-Block)
+    # Standard-Tab + Marshal-Status parallel via to_thread (kein Event-Loop-Block)
     admin_status_file = DATA_DIR / "admin" / "bot_status.json"
 
     def _read_admin_status() -> str:
@@ -556,25 +556,25 @@ async def admin_bot_page(request: Request, current_user: dict = Depends(require_
             pass
         return "offline"
 
-    config, admin_bot_status = await asyncio.gather(
+    config, marshal_bot_status = await asyncio.gather(
         _load_tab_config("temp_voice"),
         asyncio.to_thread(_read_admin_status),
     )
 
-    return templates.TemplateResponse("admin_bot.html", {
+    return templates.TemplateResponse("marshal_bot.html", {
         "request": request,
         "user": user,
         "active_tab": "temp_voice",
         "config": config,
-        "admin_bot_status": admin_bot_status,
+        "marshal_bot_status": marshal_bot_status,
         "guild_name": "",
         "success": "",
         "error": "",
     })
 
 
-@router.get("/admin-bot/tab/{tab_name}", response_class=HTMLResponse)
-async def admin_bot_tab(request: Request, tab_name: str, current_user: dict = Depends(require_auth)):
+@router.get("/marshal-bot/tab/{tab_name}", response_class=HTMLResponse)
+async def marshal_bot_tab(request: Request, tab_name: str, current_user: dict = Depends(require_auth)):
     """
     HTMX-Partial: Laedt den Inhalt eines einzelnen Tabs.
     Wird per HTMX-Request in den Tab-Content-Bereich geladen.
@@ -596,8 +596,8 @@ async def admin_bot_tab(request: Request, tab_name: str, current_user: dict = De
     })
 
 
-@router.post("/admin-bot/save/{module_name}", response_class=HTMLResponse)
-async def admin_bot_save(request: Request, module_name: str, current_user: dict = Depends(require_perm("admin_bot", "edit"))):
+@router.post("/marshal-bot/save/{module_name}", response_class=HTMLResponse)
+async def marshal_bot_save(request: Request, module_name: str, current_user: dict = Depends(require_perm("marshal_bot", "edit"))):
     """
     Speichert die Einstellungen eines Moduls.
     Liest Formular-Daten, parst sie modulspezifisch und speichert als JSON.
@@ -621,7 +621,7 @@ async def admin_bot_save(request: Request, module_name: str, current_user: dict 
         if await asyncio.to_thread(_save_module_config, module_name, config):
             success_msg = "Einstellungen erfolgreich gespeichert."
             logger.info(
-                f"Admin-Bot Modul '{module_name}' gespeichert von "
+                f"Marshal Modul '{module_name}' gespeichert von "
                 f"{user.get('username', 'Unbekannt')}"
             )
             # MVP-Config: Leveling zusaetzlich per-Guild in guild_config schreiben,

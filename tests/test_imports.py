@@ -264,7 +264,7 @@ def _filepath_to_module(filepath: Path) -> str:
     Python-Modulnamen um.
 
     Beispiel:
-        bots/admin_bot.py  -> bots.admin_bot
+        bots/marshal_bot.py  -> bots.marshal_bot
         modules/a/b.py     -> modules.a.b
         utils/__init__.py  -> utils
     """

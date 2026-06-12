@@ -75,9 +75,9 @@ Netcup RS 4000 G12: 12 vCores, 31 GB RAM, 1 TB NVMe, Ubuntu 22.04 LTS
 ```
 Discord_Bots/
 |-- bots/                          # Bot-Einstiegspunkte (3 Bots)
-|   |-- admin_bot.py               # Bot 3: Moderation, Community, TeamSpeak
-|   |-- gameserver_bot.py          # Bot 1: Satisfactory + Minecraft Steuerung
-|   |-- monitor_bot.py             # Bot 2: Health Monitoring, Scheduler, Alerts
+|   |-- marshal_bot.py             # Bot 3: Moderation, Community, TeamSpeak
+|   |-- operator_bot.py            # Bot 1: Satisfactory + Minecraft Steuerung
+|   |-- recon_bot.py               # Bot 2: Health Monitoring, Scheduler, Alerts
 |
 |-- cogs/                          # Discord Slash-Command Module (28 Cogs)
 |   |-- __init__.py
@@ -230,7 +230,7 @@ Discord_Bots/
 |   |   |-- rate_limiter.py        # IP-basiertes Rate-Limiting
 |   |   |-- session_timeout.py     # Session-Ablauf-Verwaltung
 |   |-- routes/                    # 19 Route-Module
-|   |   |-- admin_bot_route.py     # Admin-Bot Konfiguration
+|   |   |-- marshal_bot_route.py   # Marshal Konfiguration
 |   |   |-- analytics_route.py     # Heatmaps + Analytics
 |   |   |-- backup_status_route.py # Backup-Status-Anzeige
 |   |   |-- changelog_route.py     # CHANGELOG.md-Anzeige
@@ -281,9 +281,9 @@ Discord_Bots/
 |   |-- setup_nginx.sh             # Nginx + SSL Setup
 |
 |-- systemd/                       # Service-Definitionen
-|   |-- admin-bot.service
-|   |-- gameserver-bot.service
-|   |-- monitor-bot.service
+|   |-- marshal-bot.service
+|   |-- operator-bot.service
+|   |-- recon-bot.service
 |   |-- web-dashboard.service
 |   |-- bot-watchdog.service
 |   |-- bot-watchdog.timer
@@ -300,9 +300,9 @@ Discord_Bots/
 |   |-- test_server_update.py
 |
 |-- data/                          # Laufzeitdaten (pro Bot)
-|   |-- admin/                     # Admin-Bot-Daten
-|   |-- gameserver/                # GameServer-Bot-Daten
-|   |-- monitor/                   # Monitor-Bot-Daten
+|   |-- admin/                     # Marshal-Daten
+|   |-- gameserver/                # Operator-Daten
+|   |-- monitor/                   # Recon-Daten
 |
 |-- backups/                       # Lokale Backup-Ablage
 |-- logs/                          # Log-Dateien (rotierend)
@@ -320,7 +320,7 @@ Discord_Bots/
 
 ## 3. Die drei Bots — Einstiegspunkte
 
-### 3.1 GameServer Bot (`bots/gameserver_bot.py`)
+### 3.1 Operator (`bots/operator_bot.py`)
 
 **Rolle:** Bot 1 — Satisfactory + Minecraft Server-Steuerung
 
@@ -348,7 +348,7 @@ Discord_Bots/
 - Presence: "Watching Satisfactory Server"
 - Slash Command Sync: Sowohl Guild als auch Global
 
-### 3.2 Monitor Bot (`bots/monitor_bot.py`)
+### 3.2 Recon (`bots/recon_bot.py`)
 
 **Rolle:** Bot 2 — Hintergrund-Ueberwachung und Automatisierung
 
@@ -384,7 +384,7 @@ Discord_Bots/
 - `EmailNotifier`: SMTP-Alerts (optional)
 - Alert-Deduplizierung mit Cooldown
 
-### 3.3 Admin Bot (`bots/admin_bot.py`)
+### 3.3 Marshal (`bots/marshal_bot.py`)
 
 **Rolle:** Bot 3 — Discord-Moderation, Community-Features, TeamSpeak
 
@@ -945,7 +945,7 @@ Siehe [Abschnitt 8: Datenbank](#8-datenbank-sqlite) fuer Details.
 |-------|------|-------------|
 | `dashboard.py` | `/` | Hauptuebersicht: Server/Bot-Status, Performance, Events |
 | `server_detail.py` | `/server/<name>` | Server-Detail mit Spieler, Backups, Mods |
-| `admin_bot_route.py` | `/admin-bot` | Admin-Bot Konfiguration (Tabs: AntiSpam, Audit, Embeds, etc.) |
+| `marshal_bot_route.py` | `/marshal-bot` | Marshal Konfiguration (Tabs: AntiSpam, Audit, Embeds, etc.) |
 | `analytics_route.py` | `/analytics` | Heatmaps + Analytics-Dashboard |
 | `backup_status_route.py` | `/backup-status` | Backup-Status aller Server |
 | `changelog_route.py` | `/changelog` | CHANGELOG.md Rendering |
@@ -1194,9 +1194,9 @@ Jede Klasse hat `from_row()` Classmethod fuer Row -> Dataclass Konvertierung.
 
 #### Bot-Tokens (ERFORDERLICH)
 ```
-DISCORD_TOKEN_MANAGER=    # GameServer Bot Token
-DISCORD_TOKEN_WATCHDOG=   # Monitor Bot Token
-ADMIN_BOT_TOKEN=          # Admin Bot Token
+DISCORD_TOKEN_MANAGER=    # Operator Token
+DISCORD_TOKEN_WATCHDOG=   # Recon Token
+ADMIN_BOT_TOKEN=          # Marshal Token
 ```
 
 #### Discord IDs (ERFORDERLICH)
@@ -1340,10 +1340,10 @@ Standalone-Script fuer RCON-Befehle (ausserhalb des Bot-Kontexts).
 
 ## 11. Systemd-Services
 
-### admin-bot.service
+### marshal-bot.service
 ```ini
 [Unit]
-Description=Discord Admin Bot
+Description=Discord Marshal Bot
 After=network-online.target
 Wants=network-online.target
 
@@ -1351,22 +1351,22 @@ Wants=network-online.target
 Type=simple
 User=botuser
 WorkingDirectory=/home/botuser/Discord_Bots
-ExecStart=/usr/bin/python3 bots/admin_bot.py
+ExecStart=/usr/bin/python3 bots/marshal_bot.py
 Restart=on-failure
 RestartSec=10
 ```
 
-### gameserver-bot.service
+### operator-bot.service
 ```ini
 [Service]
-ExecStart=/usr/bin/python3 bots/gameserver_bot.py
-# Gleiche Struktur wie admin-bot
+ExecStart=/usr/bin/python3 bots/operator_bot.py
+# Gleiche Struktur wie marshal-bot
 ```
 
-### monitor-bot.service
+### recon-bot.service
 ```ini
 [Service]
-ExecStart=/usr/bin/python3 bots/monitor_bot.py
+ExecStart=/usr/bin/python3 bots/recon_bot.py
 # Gleiche Struktur
 ```
 
@@ -1493,7 +1493,7 @@ Token in Session, Validierung bei POST/PUT/DELETE. OAuth State-Token gegen CSRF.
 ### 14.3 Fehlerbehandlung
 
 **Graceful Degradation:**
-Module pruefen optionale Dependencies (`try: import ts3`) und deaktivieren Features statt abzustuerzen. Monitor-Bot laeuft weiter auch wenn einzelne Checks fehlschlagen.
+Module pruefen optionale Dependencies (`try: import ts3`) und deaktivieren Features statt abzustuerzen. Recon laeuft weiter auch wenn einzelne Checks fehlschlagen.
 
 **Selftest System:**
 Pre-Boot-Verifikation prueft: Config-Dateien, ENV-Variablen, Pfad-Berechtigungen, Dependencies, DNS-Aufloesung, Daten-Verzeichnisse. Bot startet nur wenn kritische Checks bestehen.

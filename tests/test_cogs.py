@@ -26,9 +26,9 @@ COGS_DIR = PROJECT_ROOT / "cogs"
 BOTS_DIR = PROJECT_ROOT / "bots"
 
 BOT_FILES = {
-    "gameserver_bot": BOTS_DIR / "gameserver_bot.py",
-    "monitor_bot":    BOTS_DIR / "monitor_bot.py",
-    "admin_bot":      BOTS_DIR / "admin_bot.py",
+    "operator_bot": BOTS_DIR / "operator_bot.py",
+    "recon_bot":    BOTS_DIR / "recon_bot.py",
+    "marshal_bot":  BOTS_DIR / "marshal_bot.py",
 }
 
 # ---------------------------------------------------------------------------
@@ -118,7 +118,7 @@ def find_loaded_cogs_per_bot() -> dict[str, list[str]]:
     Fuer jede Bot-Datei alle load_extension- bzw. INITIAL_COGS-Eintraege
     finden und zurueckgeben.
 
-    Return: { "gameserver_bot": ["satisfactory_cog", "general_cog", ...], ... }
+    Return: { "operator_bot": ["satisfactory_cog", "general_cog", ...], ... }
     """
     loaded = {}
     for bot_name, bot_path in BOT_FILES.items():

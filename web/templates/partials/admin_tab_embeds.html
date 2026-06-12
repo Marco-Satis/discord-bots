@@ -1,4 +1,4 @@
-<!-- HTMX-Partial: Embed-Builder fuer Admin Bot -->
+<!-- HTMX-Partial: Embed-Builder fuer Marshal -->
 {% if success %}
 <div class="alert alert-success">{{ success }}</div>
 {% endif %}
@@ -12,7 +12,7 @@
         Erstelle ein benutzerdefiniertes Embed und sende es in einen Discord-Kanal.
     </p>
 
-    <form hx-post="/admin-bot/save/embeds"
+    <form hx-post="/marshal-bot/save/embeds"
           hx-target="#tab-content"
           hx-swap="innerHTML">
 

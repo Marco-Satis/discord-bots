@@ -697,7 +697,7 @@ class SavegameAnalyzer:
         # Nativen Parser in ISOLIERTEM Kindprozess laufen lassen, damit ein
         # SIGSEGV (z.B. inkompatibles Save-Format nach einem Game-Update) nur
         # den Subprozess killt und NICHT den gesamten Bot-Prozess. fork-Context
-        # vermeidet ein Re-Import des __main__-Moduls (bots/monitor_bot.py mit
+        # vermeidet ein Re-Import des __main__-Moduls (bots/recon_bot.py mit
         # modul-level Bot-Setup); ein try/except kann SIGSEGV nicht fangen.
         ctx = multiprocessing.get_context("fork")
         result_q = ctx.Queue()

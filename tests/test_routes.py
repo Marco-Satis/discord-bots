@@ -241,8 +241,8 @@ def route_matches_url(route_path: str, htmx_url: str) -> bool:
         - Konkrete Werte in HTMX-URLs gegen Route-Parameter
 
     Beispiel:
-        Route:    /admin-bot/tab/{tab_name}
-        HTMX-URL: /admin-bot/tab/temp_voice
+        Route:    /marshal-bot/tab/{tab_name}
+        HTMX-URL: /marshal-bot/tab/temp_voice
         -> True
     """
     norm_url = normalize_route_path(htmx_url)

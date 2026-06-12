@@ -1,5 +1,6 @@
 """
-Admin Bot — Discord-Moderation, Community-Features & TeamSpeak-Steuerung
+Vormals admin_bot.py / Service admin-bot. Rolle: Moderation/Admin (Warns, Timeouts, Tickets, Giveaways).
+Marshal — Discord-Moderation, Community-Features & TeamSpeak-Steuerung
 Bot 3 of 3 — unabhaengig von Gameservern
 
 Architektur:
@@ -36,14 +37,14 @@ load_env()
 TOKEN = get_env("ADMIN_BOT_TOKEN")
 GUILD_ID = get_primary_guild_id()  # zentralisiert via Multi-Tenant-Resolver (Phase 0.5)
 
-logger = get_logger("admin_bot")
+logger = get_logger("marshal_bot")
 
 # ------------------------------------------------------------------
 # Token-Pruefung — ohne Token wird der Bot nicht gestartet
 # ------------------------------------------------------------------
 
 if not TOKEN:
-    logger.info("ADMIN_BOT_TOKEN nicht gesetzt — Admin Bot deaktiviert")
+    logger.info("ADMIN_BOT_TOKEN nicht gesetzt — Marshal deaktiviert")
     sys.exit(0)
 
 # ------------------------------------------------------------------
@@ -91,7 +92,9 @@ INITIAL_COGS: list[str] = [
     "cogs.notify_cog",         # F40: Spieler-Benachrichtigungen
     "cogs.welcome_cog",        # F41: Willkommens-System
     "cogs.command_stats_cog",  # F59: Command-Nutzungsstatistik
-    "cogs.pipeline_approval_cog",  # Phase E: n8n-Pipeline Approve/Dismiss-Buttons
+    # 2026-06-13: Pipeline-Approval ausgekoppelt -> eigener 24/7-Bot (bots/pipeline_bot.py).
+    # NICHT mehr hier laden (Button-Interactions routen jetzt ueber die Pipeline-Bot-App).
+    # "cogs.pipeline_approval_cog",  # -> bots/pipeline_bot.py
 ]
 
 
@@ -99,14 +102,14 @@ INITIAL_COGS: list[str] = [
 # Bot-Status-Writer (Ping + Uptime fuer Dashboard)
 # ------------------------------------------------------------------
 
-_admin_bot_start_time = time.time()
+_marshal_bot_start_time = time.time()
 
 
-def _write_admin_bot_status():
-    """Schreibt Admin Bot Status (Ping, Uptime) als JSON fuer Dashboard."""
+def _write_marshal_bot_status():
+    """Schreibt Marshal Status (Ping, Uptime) als JSON fuer Dashboard."""
     try:
         ADMIN_DATA_DIR.mkdir(parents=True, exist_ok=True)
-        uptime_secs = int(time.time() - _admin_bot_start_time)
+        uptime_secs = int(time.time() - _marshal_bot_start_time)
         hours = uptime_secs // 3600
         mins = (uptime_secs % 3600) // 60
         if hours > 0:
@@ -132,7 +135,7 @@ def _write_admin_bot_status():
 @tasks.loop(seconds=30)
 async def admin_status_writer_task():
     """Schreibt Bot-Status alle 30 Sekunden."""
-    await asyncio.to_thread(_write_admin_bot_status)
+    await asyncio.to_thread(_write_marshal_bot_status)
 
 
 @admin_status_writer_task.before_loop
@@ -150,7 +153,7 @@ async def on_ready():
     # Schutz gegen None-Zustand bei fehlgeschlagener Verbindung
     if not bot.user:
         return
-    logger.info(f"Admin Bot online: {bot.user} (ID: {bot.user.id})")
+    logger.info(f"Marshal online: {bot.user} (ID: {bot.user.id})")
     logger.info(f"Guilds: {[g.name for g in bot.guilds]}")
 
     # Bot-Status-Writer starten (Ping fuer Dashboard)
@@ -222,20 +225,26 @@ async def setup_hook():
         synced = await bot.tree.sync()
         logger.info(f"Synced {len(synced)} commands globally")
 
+    # Review-Fix 2026-06-12 (HIGH): Signal-Handler HIER registrieren, nicht in
+    # main() — setup_hook laeuft im Event-Loop den bot.run() via asyncio.run()
+    # erstellt. Ein Aufruf vor bot.run() wuerde auf einem anderen, nie
+    # laufenden Loop landen und SIGTERM-Cleanups (register_cleanup) verfehlen.
+    setup_signal_handlers(bot, "Marshal")
+
     logger.info("Setup hook complete")
 
 
 def main():
     # F62: Startup Selftest
     selftest_ok = execute_selftest(
-        "Admin Bot",
+        "Marshal",
         required_env=["ADMIN_BOT_TOKEN", "GUILD_ID"],
     )
     if not selftest_ok:
         logger.error("Selftest fehlgeschlagen — Bot wird nicht gestartet!")
         sys.exit(1)
 
-    logger.info("Starting Admin Bot...")
+    logger.info("Starting Marshal...")
 
     # F28/F61: DB-Close bei Shutdown registrieren
     async def _cleanup_admin_db():

@@ -42,18 +42,18 @@ echo ""
 # ------------------------------------------------------------------
 log "1/6 Bots stoppen..."
 
-if systemctl is-active --quiet gameserver-bot.service 2>/dev/null; then
-    systemctl stop gameserver-bot.service
-    log "GameServer Bot gestoppt"
+if systemctl is-active --quiet operator-bot.service 2>/dev/null; then
+    systemctl stop operator-bot.service
+    log "Operator gestoppt"
 else
-    info "GameServer Bot war nicht aktiv"
+    info "Operator war nicht aktiv"
 fi
 
-if systemctl is-active --quiet monitor-bot.service 2>/dev/null; then
-    systemctl stop monitor-bot.service
-    log "Monitor Bot gestoppt"
+if systemctl is-active --quiet recon-bot.service 2>/dev/null; then
+    systemctl stop recon-bot.service
+    log "Recon gestoppt"
 else
-    info "Monitor Bot war nicht aktiv"
+    info "Recon war nicht aktiv"
 fi
 
 sleep 2
@@ -178,9 +178,9 @@ if [ ! -f "$BOT_DIR/config/.env" ]; then
 fi
 
 systemctl daemon-reload
-systemctl start gameserver-bot.service
+systemctl start operator-bot.service
 sleep 3
-systemctl start monitor-bot.service
+systemctl start recon-bot.service
 sleep 2
 
 # ------------------------------------------------------------------
@@ -189,19 +189,19 @@ sleep 2
 echo ""
 log "=== Deployment Status ==="
 
-GS_STATUS=$(systemctl is-active gameserver-bot.service 2>/dev/null || echo "inactive")
-MON_STATUS=$(systemctl is-active monitor-bot.service 2>/dev/null || echo "inactive")
+GS_STATUS=$(systemctl is-active operator-bot.service 2>/dev/null || echo "inactive")
+MON_STATUS=$(systemctl is-active recon-bot.service 2>/dev/null || echo "inactive")
 
 if [ "$GS_STATUS" = "active" ]; then
-    echo -e "  GameServer Bot: ${GREEN}● aktiv${NC}"
+    echo -e "  Operator: ${GREEN}● aktiv${NC}"
 else
-    echo -e "  GameServer Bot: ${RED}● $GS_STATUS${NC}"
+    echo -e "  Operator: ${RED}● $GS_STATUS${NC}"
 fi
 
 if [ "$MON_STATUS" = "active" ]; then
-    echo -e "  Monitor Bot:    ${GREEN}● aktiv${NC}"
+    echo -e "  Recon:    ${GREEN}● aktiv${NC}"
 else
-    echo -e "  Monitor Bot:    ${RED}● $MON_STATUS${NC}"
+    echo -e "  Recon:    ${RED}● $MON_STATUS${NC}"
 fi
 
 echo ""
@@ -210,8 +210,8 @@ if [ "$GS_STATUS" = "active" ] && [ "$MON_STATUS" = "active" ]; then
     log "Deployment erfolgreich! ✓"
 else
     warn "Mindestens ein Bot nicht aktiv. Logs pruefen:"
-    echo "  journalctl -u gameserver-bot -n 20 --no-pager"
-    echo "  journalctl -u monitor-bot -n 20 --no-pager"
+    echo "  journalctl -u operator-bot -n 20 --no-pager"
+    echo "  journalctl -u recon-bot -n 20 --no-pager"
 fi
 
 echo ""

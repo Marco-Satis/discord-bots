@@ -258,7 +258,7 @@ from web.routes.config_route import router as config_router      # noqa: E402
 from web.routes.system_route import router as system_router      # noqa: E402
 from web.routes.server_detail_route import router as server_detail_router  # noqa: E402
 from web.routes.analytics_route import router as analytics_router    # noqa: E402
-from web.routes.admin_bot_route import router as admin_bot_router    # noqa: E402
+from web.routes.marshal_bot_route import router as marshal_bot_router    # noqa: E402
 from web.routes.health_route import router as health_router          # noqa: E402
 from web.routes.security_route import router as security_router      # noqa: E402
 from web.routes.forecast_route import router as forecast_router      # noqa: E402
@@ -289,7 +289,7 @@ app.include_router(config_router)
 app.include_router(system_router)
 app.include_router(server_detail_router)
 app.include_router(analytics_router)
-app.include_router(admin_bot_router)
+app.include_router(marshal_bot_router)
 app.include_router(health_router)
 app.include_router(security_router)
 app.include_router(forecast_router)

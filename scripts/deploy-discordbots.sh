@@ -20,7 +20,7 @@ STAGING=/home/marco/dbots_staging
 DIR=/home/botuser/Discord_Bots
 LOG=/var/log/discordbots-deploy.log
 ALLOWED_TOPDIRS="bots cogs modules utils web"
-ALLOWED_SERVICES="monitor-bot gameserver-bot admin-bot web-dashboard"
+ALLOWED_SERVICES="recon-bot operator-bot marshal-bot web-dashboard"
 TS=$(date +%s)
 
 log() { echo "[$(date '+%F %T')] $*" | tee -a "$LOG"; }
@@ -60,7 +60,7 @@ if [ -f "$STAGING/SERVICES" ]; then
     SVC+=("$s")
   done < "$STAGING/SERVICES"
 fi
-[ "${#SVC[@]}" -gt 0 ] || SVC=(monitor-bot)
+[ "${#SVC[@]}" -gt 0 ] || SVC=(recon-bot)
 
 log "=== Deploy start: ${#TARGETS[@]} File(s), Services: ${SVC[*]} ==="
 
@@ -86,10 +86,10 @@ if [ "${#PYFILES[@]}" -gt 0 ]; then
   fi
 fi
 
-# --- Restart (monitor-bot zuerst) ----------------------------------------
+# --- Restart (recon-bot zuerst) ----------------------------------------
 ordered=()
-for s in "${SVC[@]}"; do [ "$s" = "monitor-bot" ] && ordered+=("$s"); done
-for s in "${SVC[@]}"; do [ "$s" != "monitor-bot" ] && ordered+=("$s"); done
+for s in "${SVC[@]}"; do [ "$s" = "recon-bot" ] && ordered+=("$s"); done
+for s in "${SVC[@]}"; do [ "$s" != "recon-bot" ] && ordered+=("$s"); done
 first=1
 for s in "${ordered[@]}"; do
   systemctl restart "$s"

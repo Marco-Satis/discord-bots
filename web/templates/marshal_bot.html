@@ -1,20 +1,20 @@
 {% extends "base_v5.html" %}
-{% block title %}Admin Bot Setup{% endblock %}
-{% block nav_admin_bot %}active{% endblock %}
+{% block title %}Marshal Setup{% endblock %}
+{% block nav_marshal_bot %}active{% endblock %}
 
 {% block content %}
 <div class="page-header">
-    <h1>Admin Bot Setup</h1>
-    <p class="page-subtitle">Konfiguration aller Admin-Bot-Module</p>
+    <h1>Marshal Setup</h1>
+    <p class="page-subtitle">Konfiguration aller Marshal-Module</p>
 </div>
 
 <!-- Bot-Status Anzeige -->
 <div class="stats-grid" style="margin-bottom: 1.5rem;">
     <div class="stat-card">
-        <div class="stat-label">Admin Bot Status</div>
+        <div class="stat-label">Marshal Status</div>
         <div style="display: flex; align-items: center; gap: 0.75rem; margin-top: 0.5rem;">
-            <span class="bot-indicator {% if admin_bot_status == 'online' %}indicator-online{% else %}indicator-offline{% endif %}"></span>
-            <span class="stat-value">{{ 'Online' if admin_bot_status == 'online' else 'Offline' }}</span>
+            <span class="bot-indicator {% if marshal_bot_status == 'online' %}indicator-online{% else %}indicator-offline{% endif %}"></span>
+            <span class="stat-value">{{ 'Online' if marshal_bot_status == 'online' else 'Offline' }}</span>
         </div>
     </div>
     <div class="stat-card">
@@ -30,57 +30,57 @@
 <!-- Tab Navigation -->
 <div class="tab-nav">
     <button class="tab-btn active"
-            hx-get="/admin-bot/tab/temp_voice"
+            hx-get="/marshal-bot/tab/temp_voice"
             hx-target="#tab-content"
             hx-swap="innerHTML"
             onclick="switchTab(this)">Temp Voice</button>
     <button class="tab-btn"
-            hx-get="/admin-bot/tab/teamspeak"
+            hx-get="/marshal-bot/tab/teamspeak"
             hx-target="#tab-content"
             hx-swap="innerHTML"
             onclick="switchTab(this)">TeamSpeak</button>
     <button class="tab-btn"
-            hx-get="/admin-bot/tab/wordfilter"
+            hx-get="/marshal-bot/tab/wordfilter"
             hx-target="#tab-content"
             hx-swap="innerHTML"
             onclick="switchTab(this)">WordFilter</button>
     <button class="tab-btn"
-            hx-get="/admin-bot/tab/antispam"
+            hx-get="/marshal-bot/tab/antispam"
             hx-target="#tab-content"
             hx-swap="innerHTML"
             onclick="switchTab(this)">AntiSpam</button>
     <button class="tab-btn"
-            hx-get="/admin-bot/tab/warn"
+            hx-get="/marshal-bot/tab/warn"
             hx-target="#tab-content"
             hx-swap="innerHTML"
             onclick="switchTab(this)">Warn-System</button>
     <button class="tab-btn"
-            hx-get="/admin-bot/tab/reaction_roles"
+            hx-get="/marshal-bot/tab/reaction_roles"
             hx-target="#tab-content"
             hx-swap="innerHTML"
             onclick="switchTab(this)">Reaction Roles</button>
     <button class="tab-btn"
-            hx-get="/admin-bot/tab/leveling"
+            hx-get="/marshal-bot/tab/leveling"
             hx-target="#tab-content"
             hx-swap="innerHTML"
             onclick="switchTab(this)">Leveling</button>
     <button class="tab-btn"
-            hx-get="/admin-bot/tab/tickets"
+            hx-get="/marshal-bot/tab/tickets"
             hx-target="#tab-content"
             hx-swap="innerHTML"
             onclick="switchTab(this)">Tickets</button>
     <button class="tab-btn"
-            hx-get="/admin-bot/tab/audit"
+            hx-get="/marshal-bot/tab/audit"
             hx-target="#tab-content"
             hx-swap="innerHTML"
             onclick="switchTab(this)">Audit</button>
     <button class="tab-btn"
-            hx-get="/admin-bot/tab/giveaways"
+            hx-get="/marshal-bot/tab/giveaways"
             hx-target="#tab-content"
             hx-swap="innerHTML"
             onclick="switchTab(this)">Giveaways</button>
     <button class="tab-btn"
-            hx-get="/admin-bot/tab/embeds"
+            hx-get="/marshal-bot/tab/embeds"
             hx-target="#tab-content"
             hx-swap="innerHTML"
             onclick="switchTab(this)">Embeds</button>

@@ -105,7 +105,7 @@ async def run_tests() -> None:
 
         # --- Parser: No-XP-Channels + Remove-Lower aus Form ---
         try:
-            from web.routes.admin_bot_route import _parse_form_leveling
+            from web.routes.marshal_bot_route import _parse_form_leveling
             fp = _parse_form_leveling(
                 {"no_xp_channels": "111\n222, 333", "remove_lower_rewards": "on"}
             )

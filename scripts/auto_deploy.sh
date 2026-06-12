@@ -12,7 +12,7 @@ set -euo pipefail
 
 BOT_DIR="/home/botuser/Discord_Bots"
 VENV_DIR="${BOT_DIR}/venv"
-SERVICES="admin-bot monitor-bot gameserver-bot web-dashboard"
+SERVICES="marshal-bot recon-bot operator-bot web-dashboard"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'

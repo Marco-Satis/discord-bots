@@ -1,7 +1,7 @@
 """
 StatusWriter — Schreibt periodisch Server- und Bot-Status als JSON-Dateien.
 
-Wird als Hintergrund-Task im Monitor Bot gestartet und erzeugt die
+Wird als Hintergrund-Task im Recon gestartet und erzeugt die
 Status-Dateien, die das Web-Dashboard zum Anzeigen der Übersicht liest.
 
 Erzeugte Dateien (JSON-Bridge fuer Dashboard):
@@ -75,7 +75,7 @@ class StatusWriter:
     def __init__(self, bot: Any, interval: int = 30) -> None:
         """
         Args:
-            bot: Der Monitor Bot mit angehängten Services
+            bot: Der Recon mit angehängten Services
             interval: Schreib-Intervall in Sekunden (Standard: 30)
         """
         self.bot = bot
@@ -221,7 +221,7 @@ class StatusWriter:
         mc_player_trackers = getattr(self.bot, "mc_player_trackers", {})
         mc_update_checkers = getattr(self.bot, "mc_update_checkers", {})
 
-        # Offline-Counter aus dem Monitor Bot holen (globale Variable)
+        # Offline-Counter aus dem Recon holen (globale Variable)
         mc_consecutive_offline = getattr(self.bot, "_mc_consecutive_offline", {})
 
         for sid, srv in mc_servers.items():
@@ -401,7 +401,7 @@ class StatusWriter:
         """Schreibt den Bot-Status (Ping, Uptime) fuer alle Bots (async fuer systemctl)."""
         now = time.time()
 
-        # Monitor Bot Status — direkt vom eigenen Bot-Objekt
+        # Recon Status — direkt vom eigenen Bot-Objekt
         monitor_data = {
             "status": "online" if self.bot.is_ready() else "offline",
             "ping_ms": round(self.bot.latency * 1000) if self.bot.latency and self.bot.latency != float("inf") else 0,
@@ -412,11 +412,11 @@ class StatusWriter:
         }
         _write_json_safe(MONITOR_DATA_DIR / "bot_status.json", monitor_data)
 
-        # GameServer + Admin Bot: Nur schreiben wenn der Bot nicht selbst schreibt
+        # Operator + Marshal: Nur schreiben wenn der Bot nicht selbst schreibt
         # (d.h. die Datei ist älter als 60s oder existiert nicht)
         for svc_name, data_dir, display in [
-            ("gameserver-bot.service", GAMESERVER_DATA_DIR, "GameServer"),
-            ("admin-bot.service", ADMIN_DATA_DIR, "Admin"),
+            ("operator-bot.service", GAMESERVER_DATA_DIR, "GameServer"),
+            ("marshal-bot.service", ADMIN_DATA_DIR, "Admin"),
         ]:
             status_file = data_dir / "bot_status.json"
             # Prüfen ob der Bot selbst kürzlich geschrieben hat
