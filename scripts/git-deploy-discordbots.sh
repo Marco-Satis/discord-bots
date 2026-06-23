@@ -31,7 +31,7 @@ LOG=/var/log/discordbots-deploy.log
 DB="$DIR/data/botdata.db"
 SNAPDIR="$DIR/data/predeploy_backups"
 ALLOWED_TOPDIRS="bots cogs modules utils web"
-SERVICES="monitor-bot gameserver-bot admin-bot web-dashboard"
+SERVICES="recon-bot operator-bot marshal-bot web-dashboard"
 KEEP_SNAPSHOTS=5
 TS=$(date +%s)
 
@@ -124,10 +124,10 @@ if [ -f "$DB" ]; then
   ls -1t "$SNAPDIR"/botdata.*.db 2>/dev/null | tail -n +$((KEEP_SNAPSHOTS + 1)) | xargs -r rm -f
 fi
 
-# --- Restart (monitor-bot zuerst) -----------------------------------------
+# --- Restart (recon-bot zuerst) -------------------------------------------
 ordered=()
-for s in $SERVICES; do [ "$s" = "monitor-bot" ] && ordered+=("$s"); done
-for s in $SERVICES; do [ "$s" != "monitor-bot" ] && ordered+=("$s"); done
+for s in $SERVICES; do [ "$s" = "recon-bot" ] && ordered+=("$s"); done
+for s in $SERVICES; do [ "$s" != "recon-bot" ] && ordered+=("$s"); done
 first=1
 for s in "${ordered[@]}"; do
   systemctl restart "$s"
