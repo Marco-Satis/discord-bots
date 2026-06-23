@@ -12,6 +12,7 @@ gelesen. Ist diese leer, ist der Webhook deaktiviert.
 import asyncio
 import hashlib
 import hmac
+import ipaddress
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Request
@@ -20,6 +21,7 @@ from fastapi.responses import JSONResponse
 from modules.database.db_manager import get_db
 from utils.config import get_env, PROJECT_ROOT
 from utils.logger import get_logger
+from utils.client_ip import client_ip_from_scope
 from web.auth import require_auth_api
 
 logger = get_logger("web.routes.webhook")
@@ -27,7 +29,64 @@ logger = get_logger("web.routes.webhook")
 router = APIRouter(tags=["Webhook"])
 
 # Webhook-Secret aus Umgebungsvariable — leer = deaktiviert
-WEBHOOK_SECRET = get_env("GITHUB_WEBHOOK_SECRET", "")
+WEBHOOK_SECRET = str(get_env("GITHUB_WEBHOOK_SECRET", "") or "")
+
+# Secret-Staerke pruefen: ein Deploy-Trigger ist RCE-aequivalent (git pull + pip
+# install + Restart). Kurzes Secret -> Warnung, lang + rotieren empfohlen.
+if WEBHOOK_SECRET and len(WEBHOOK_SECRET) < 32:
+    logger.warning(
+        "GITHUB_WEBHOOK_SECRET ist kurz (<32 Zeichen) — fuer einen Deploy-Trigger "
+        "ein langes Zufalls-Secret verwenden und regelmaessig rotieren."
+    )
+
+# --- Quell-IP-Allowlist (Defense-in-Depth, opt-in) -----------------------------
+# Aktivierung via Env GITHUB_WEBHOOK_IP_ALLOWLIST: kommagetrennte CIDRs/IPs ODER
+# der Wert "github" fuer die eingebauten GitHub-Hook-Ranges. Leer = aus (nur HMAC).
+# GitHub rotiert seine Ranges selten — Stand via https://api.github.com/meta ("hooks").
+_GITHUB_HOOK_CIDRS = [
+    "192.30.252.0/22", "185.199.108.0/22",
+    "140.82.112.0/20", "143.55.64.0/20",
+    "2a0a:a440::/29", "2606:50c0::/32",
+]
+
+
+def _parse_ip_allowlist(raw: str) -> list:
+    """Parst die Env in ip_network-Objekte. Token 'github' -> GitHub-Hook-Ranges."""
+    nets: list = []
+    for token in raw.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        if token.lower() == "github":
+            nets.extend(ipaddress.ip_network(c) for c in _GITHUB_HOOK_CIDRS)
+            continue
+        try:
+            nets.append(ipaddress.ip_network(token, strict=False))
+        except ValueError:
+            logger.warning(
+                f"Ungueltiger Eintrag in GITHUB_WEBHOOK_IP_ALLOWLIST: {token!r} — uebersprungen"
+            )
+    return nets
+
+
+WEBHOOK_IP_ALLOWLIST = _parse_ip_allowlist(str(get_env("GITHUB_WEBHOOK_IP_ALLOWLIST", "") or ""))
+if not WEBHOOK_IP_ALLOWLIST and WEBHOOK_SECRET:
+    logger.info(
+        "GITHUB_WEBHOOK_IP_ALLOWLIST nicht gesetzt — Webhook nur per HMAC-Secret "
+        "abgesichert. Empfehlung: GITHUB_WEBHOOK_IP_ALLOWLIST=github (Defense-in-Depth)."
+    )
+
+
+def _ip_allowed(client_ip: str) -> bool:
+    """True wenn keine Allowlist konfiguriert (opt-in aus) ODER client_ip enthalten ist."""
+    if not WEBHOOK_IP_ALLOWLIST:
+        return True
+    try:
+        addr = ipaddress.ip_address(client_ip)
+    except ValueError:
+        return False
+    return any(addr in net for net in WEBHOOK_IP_ALLOWLIST)
+
 
 # Deploy-Befehle: werden nacheinander via asyncio subprocess ausgeführt
 DEPLOY_COMMANDS = [
@@ -202,6 +261,15 @@ async def github_webhook(request: Request) -> JSONResponse:
         return JSONResponse(
             status_code=403,
             content={"error": "Webhook ist deaktiviert (kein Secret konfiguriert)"},
+        )
+
+    # --- Quell-IP-Allowlist (Defense-in-Depth, opt-in via GITHUB_WEBHOOK_IP_ALLOWLIST) ---
+    client_ip = client_ip_from_scope(request.scope)
+    if not _ip_allowed(client_ip):
+        logger.warning(f"GitHub-Webhook von nicht-erlaubter Quell-IP abgewiesen: {client_ip}")
+        return JSONResponse(
+            status_code=403,
+            content={"error": "Quell-IP nicht erlaubt"},
         )
 
     # --- Signatur-Verifizierung ---

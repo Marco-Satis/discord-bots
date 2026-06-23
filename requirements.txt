@@ -28,7 +28,8 @@ aiosqlite>=0.19.0
 # Uses stdlib smtplib - no extra packages needed
 
 # Web Dashboard (Phase 13)
-fastapi>=0.110.0
+# fastapi>=0.136.3: zieht starlette>=1.0.1 (Host-Header-Injection-Fix, p-126b7c9087)
+fastapi>=0.136.3
 uvicorn>=0.27.0
 # WebSocket-Support fuer uvicorn (D3: Dashboard-Realtime ueber WebSocket statt
 # SSE). Ohne diese Lib kann uvicorn keine WS-Upgrades -> /ws gibt 404.

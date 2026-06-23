@@ -190,6 +190,12 @@ class GuildConfig:
         """
         Ob ein Modul fuer die Guild aktiv ist. `default` wenn kein Eintrag
         existiert (Module sind standardmaessig an, ausser explizit deaktiviert).
+
+        WICHTIG (kein Sofort-Kill-Switch ueber Prozessgrenzen): Das Ergebnis wird
+        bis zu `_CACHE_TTL` (15 s) gecached. `set_module` invalidiert nur den
+        Cache des EIGENEN Prozesses — die anderen Bot-Prozesse (4 teilen die DB)
+        sehen ein Toggle erst nach Ablauf der TTL. Fuer einen sofortigen Stopp
+        einer Funktion daher nicht allein auf diesen Flag verlassen.
         """
         ck = (str(guild_id), module)
         cached = _module_cache.get(ck)

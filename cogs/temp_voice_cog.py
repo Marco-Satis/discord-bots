@@ -67,6 +67,9 @@ class TempVoiceCog(commands.Cog):
         # Set zum Tracken von Channels die gerade gelöscht werden
         # (verhindert Race Conditions bei mehreren Leave-Events)
         self._deleting: set[int] = set()
+        # Race-Guard analog _deleting: verhindert dass zwei schnell aufeinander
+        # folgende Join-Events fuer denselben User zwei Temp-Channels erzeugen.
+        self._creating: set[int] = set()
 
     async def cog_load(self) -> None:
         """Persistente Views beim Laden registrieren und Cleanup ausführen."""
@@ -268,6 +271,14 @@ class TempVoiceCog(commands.Cog):
         """
         guild = member.guild
 
+        # Race-Guard: ein zweites Join-Event fuer denselben User waehrend der
+        # (langsamen) Channel-Erstellung wuerde sonst einen zweiten Temp-Channel
+        # anlegen. Check+Add sind synchron (kein await dazwischen) -> im
+        # Single-Thread-Event-Loop atomar, kein Lock noetig (Idiom wie _deleting).
+        if member.id in self._creating:
+            return
+        self._creating.add(member.id)
+
         try:
             # Temporaeren Channel erstellen (Hub-Config via join_channel.id)
             temp_channel = await self.manager.create_channel(
@@ -291,6 +302,8 @@ class TempVoiceCog(commands.Cog):
             )
         except discord.HTTPException as e:
             logger.error(f"Join-to-Create fehlgeschlagen (HTTP-Fehler): {e}")
+        finally:
+            self._creating.discard(member.id)
 
     async def _send_control_panel(
         self,

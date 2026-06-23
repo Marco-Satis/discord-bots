@@ -28,6 +28,13 @@ from modules.restart_timer import TimerResult
 logger = get_logger("cogs.satisfactory")
 
 
+def _md(text) -> str:
+    """escape_markdown fuer user-kontrollierte Strings (Spielernamen, Session-/
+    Save-/Ban-Namen, Grund) in Embeds — verhindert dass *, _, ~, `, | das
+    Embed-Format brechen oder Markdown-Injection erlauben."""
+    return discord.utils.escape_markdown(str(text))
+
+
 class SatisfactoryCog(commands.Cog):
     """All Satisfactory server commands unified under /sat"""
 
@@ -98,7 +105,7 @@ class SatisfactoryCog(commands.Cog):
                 )
                 if state.active_session:
                     embed.add_field(
-                        name="Session", value=state.active_session, inline=True
+                        name="Session", value=_md(state.active_session), inline=True
                     )
                 if state.tech_tier > 0:
                     embed.add_field(
@@ -166,7 +173,7 @@ class SatisfactoryCog(commands.Cog):
                     )
 
             embed.add_field(
-                name="Session", value=state.active_session or "\u2014", inline=True
+                name="Session", value=_md(state.active_session) if state.active_session else "\u2014", inline=True
             )
             embed.add_field(
                 name="Tick Rate",
@@ -193,12 +200,21 @@ class SatisfactoryCog(commands.Cog):
             await interaction.followup.send("❌ IP-Tracker nicht verfügbar.")
             return
 
-        # Phase 1b: SaveGame vor Ban
+        # Phase 1b: SaveGame vor Ban — Returnwert auswerten. save_game() faengt
+        # Fehler intern ab und gibt bei Timeout/Fehler False zurueck (raised nicht),
+        # darum reicht das try/except allein nicht. Ban wird NICHT blockiert, aber
+        # bei fehlgeschlagenem Save im Embed sichtbar markiert (sonst Ban evtl.
+        # nicht im aktuellen Save persistiert).
+        save_ok = False
         try:
-            await self.api.save_game()
+            save_ok = await self.api.save_game()
             await asyncio.sleep(3)
         except Exception as e:
             logger.warning(f"Save before ban failed (continuing): {e}")
+        if not save_ok:
+            logger.warning(
+                f"SaveGame vor Ban von {player} fehlgeschlagen/Timeout — Ban laeuft trotzdem"
+            )
 
         success, msg = await ip_tracker.ban_player(
             player, reason, interaction.user.display_name
@@ -216,6 +232,12 @@ class SatisfactoryCog(commands.Cog):
                 description=msg,
                 color=0xe74c3c,
             )
+            if not save_ok:
+                embed.add_field(
+                    name="⚠️ Hinweis",
+                    value="Server-Save vor dem Ban schlug fehl/Timeout — Ban evtl. nicht im aktuellen Save.",
+                    inline=False,
+                )
             embed.set_footer(text=f"von {interaction.user.display_name}")
             await interaction.followup.send(embed=embed)
             logger.info(f"Player banned: {player} by {interaction.user} - {reason}")
@@ -307,9 +329,9 @@ class SatisfactoryCog(commands.Cog):
                 date = ban.get("date", "?")
                 banned_by = ban.get("banned_by", "?")
                 entries.append(
-                    f"\u2022 **{name}** ({ip})\n"
-                    f"   Grund: {reason}\n"
-                    f"   Datum: {date} | gebannt von: {banned_by}"
+                    f"\u2022 **{_md(name)}** ({ip})\n"
+                    f"   Grund: {_md(reason)}\n"
+                    f"   Datum: {date} | gebannt von: {_md(banned_by)}"
                 )
             embed.description = "\n".join(entries)
 
@@ -367,7 +389,7 @@ class SatisfactoryCog(commands.Cog):
             file = discord.File(save_path, filename=save_path.name)
             embed = discord.Embed(
                 title="Savegame Download",
-                description=f"**{latest['name']}**",
+                description=f"**{_md(latest['name'])}**",
                 color=0x3498db,
             )
             embed.add_field(
@@ -405,7 +427,7 @@ class SatisfactoryCog(commands.Cog):
             created = bp.get("created_at", "?")[:16].replace("T", " ")
             typ = "Auto" if bp.get("type") == "auto" else "Manuell"
             entries.append(
-                f"`{i}.` **{bp['name']}**\n"
+                f"`{i}.` **{_md(bp['name'])}**\n"
                 f"   {bp.get('size_human', '?')} | {created} | {typ} | {bp.get('created_by', '?')}"
             )
 
@@ -497,7 +519,7 @@ class SatisfactoryCog(commands.Cog):
             state = await self.api.query_server_state()
 
             embed.add_field(
-                name="Session", value=state.active_session or "\u2014", inline=True
+                name="Session", value=_md(state.active_session) if state.active_session else "\u2014", inline=True
             )
             embed.add_field(
                 name="Spielerlimit",
@@ -611,7 +633,7 @@ class SatisfactoryCog(commands.Cog):
                 return
 
             embed = discord.Embed(
-                title=f"Savegame: {stats.get('name', 'Unbekannt')}",
+                title=f"Savegame: {_md(stats.get('name', 'Unbekannt'))}",
                 color=0x3498db,
             )
             embed.add_field(
@@ -625,7 +647,7 @@ class SatisfactoryCog(commands.Cog):
 
             if stats.get("session_name"):
                 embed.add_field(
-                    name="Session", value=stats["session_name"], inline=True
+                    name="Session", value=_md(stats["session_name"]), inline=True
                 )
             if stats.get("play_hours"):
                 embed.add_field(
@@ -786,7 +808,7 @@ class SatisfactoryCog(commands.Cog):
 
             embed = discord.Embed(
                 title=f"{count} Blueprint(s) hochgeladen",
-                description="\n".join(f"\u2022 {n}" for n in added),
+                description="\n".join(f"\u2022 {_md(n)}" for n in added),
                 color=0x2ecc71,
             )
             embed.add_field(name="Kategorie", value=kategorie, inline=True)
@@ -831,7 +853,7 @@ class SatisfactoryCog(commands.Cog):
 
         embed = discord.Embed(
             title="Blueprint hochgeladen",
-            description="\n".join(f"\u2022 **{n}**" for n in added_names),
+            description="\n".join(f"\u2022 **{_md(n)}**" for n in added_names),
             color=0x2ecc71,
         )
         embed.add_field(name="Kategorie", value=kategorie, inline=True)
@@ -1135,7 +1157,7 @@ class SatisfactoryCog(commands.Cog):
             if success:
                 embed = discord.Embed(
                     title="Blueprint gelöscht",
-                    description=f"**{name}** wurde gelöscht (.sbp + .sbpcfg).",
+                    description=f"**{_md(name)}** wurde gelöscht (.sbp + .sbpcfg).",
                     color=0xe74c3c,
                 )
                 embed.set_footer(text=f"von {interaction.user.display_name}")
@@ -1378,7 +1400,7 @@ class SatisfactoryCog(commands.Cog):
         if players:
             entries = []
             for p in players[:25]:
-                entries.append(f"\u2022 **{p['name']}** \u2014 von {p['added_by']}")
+                entries.append(f"\u2022 **{_md(p['name'])}** \u2014 von {_md(p['added_by'])}")
             embed.description = "\n".join(entries)
         else:
             embed.description = "Whitelist ist leer."
@@ -1410,8 +1432,8 @@ class SatisfactoryCog(commands.Cog):
             embed = discord.Embed(
                 title="Spieler zur Blacklist hinzugefuegt", color=0xe74c3c
             )
-            embed.add_field(name="Spieler", value=player, inline=True)
-            embed.add_field(name="Grund", value=reason, inline=True)
+            embed.add_field(name="Spieler", value=_md(player), inline=True)
+            embed.add_field(name="Grund", value=_md(reason), inline=True)
             await interaction.response.send_message(embed=embed)
         else:
             await interaction.response.send_message(
@@ -1453,8 +1475,8 @@ class SatisfactoryCog(commands.Cog):
             entries = []
             for p in players[:25]:
                 entries.append(
-                    f"\u2022 **{p['name']}** \u2014 {p.get('reason', 'N/A')} "
-                    f"(von {p['banned_by']})"
+                    f"\u2022 **{_md(p['name'])}** \u2014 {_md(p.get('reason', 'N/A'))} "
+                    f"(von {_md(p['banned_by'])})"
                 )
             embed.description = "\n".join(entries)
         else:
@@ -1584,7 +1606,7 @@ class LoadConfirmView(discord.ui.View):
             embed = discord.Embed(
                 title="Savegame wird geladen",
                 description=(
-                    f"**{self.savename}** wird geladen.\n"
+                    f"**{_md(self.savename)}** wird geladen.\n"
                     f"Spieler werden kurzzeitig getrennt."
                 ),
                 color=0x2ecc71,
