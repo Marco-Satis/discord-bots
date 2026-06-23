@@ -28,7 +28,10 @@ aiosqlite>=0.19.0
 # Uses stdlib smtplib - no extra packages needed
 
 # Web Dashboard (Phase 13)
-# fastapi>=0.136.3: zieht starlette>=1.0.1 (Host-Header-Injection-Fix, p-126b7c9087)
+# fastapi-Floor fuer Aktualitaet. ACHTUNG p-126b7c9087 / CVE-2026-48710 (BadHost):
+# Fix = starlette>=1.0.1, aber fastapi (bis 0.138.0) pinnt starlette<1.0 -> real laeuft
+# starlette 0.52.1. NICHT exploitierbar bei uns (Auth/Middleware nutzen scope["path"],
+# kein request.url.path). starlette>=1.0.1 nachziehen sobald eine fastapi-Version es zulaesst.
 fastapi>=0.136.3
 uvicorn>=0.27.0
 # WebSocket-Support fuer uvicorn (D3: Dashboard-Realtime ueber WebSocket statt

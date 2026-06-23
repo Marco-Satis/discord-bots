@@ -1,6 +1,14 @@
-# HINWEIS (2026-06-14, p-126b7c9087): fastapi/starlette auf Host-Header-Injection-Fix
-# gebumpt (starlette>=1.0.1). Transitive Pins ggf. via `pip-compile` / `pip freeze`
-# beim naechsten Deploy voll regenerieren. Operativer Constraint steht in requirements.txt.
+# Lock-File — exakte Server-venv-Stände (pip freeze, 2026-06-23, Server 203.0.113.10).
+#
+# STARLETTE / CVE-2026-48710 (BadHost, Host-Header-Auth-Bypass), Korrektur 2026-06-23:
+#   Fix ist starlette>=1.0.1 (Release 2026-05-21). ABER fastapi 0.138.0 (neueste) pinnt
+#   starlette<1.0 -> aufloesbar ist nur starlette==0.52.1. Es gibt derzeit KEINE fastapi-
+#   Version, die starlette 1.0.1 zulaesst. Ein voriger Lock-Eintrag "starlette==1.0.1" +
+#   "fastapi==0.136.3" war daher INKOMPATIBEL/uninstallierbar — hier korrigiert.
+#   NICHT exploitierbar bei uns: Auth + alle Middleware (csrf/rate_limiter/session_timeout)
+#   nutzen `scope["path"]` (rohe ASGI-Path), KEIN `request.url.path`; in web/ gibt es null
+#   `request.url`-Nutzung fuer Security-Entscheidungen. Auf starlette 1.0.1 bumpen sobald
+#   fastapi es zulaesst (dann fastapi>= entsprechend + starlette>=1.0.1).
 aiofiles==25.1.0
 aiohappyeyeballs==2.6.1
 aiohttp==3.14.0
@@ -16,7 +24,7 @@ certifi==2026.1.4
 click==8.3.1
 discord.py==2.6.4
 exceptiongroup==1.3.1
-fastapi==0.136.3
+fastapi==0.138.0
 frozenlist==1.8.0
 h11==0.16.0
 httpcore==1.0.9
@@ -26,6 +34,9 @@ itsdangerous==2.2.0
 Jinja2==3.1.6
 MarkupSafe==3.0.3
 multidict==6.7.1
+nbtlib==2.0.4
+numpy==2.2.6
+pillow==12.2.0
 propcache==0.4.1
 psutil==7.2.2
 pydantic==2.12.5
@@ -34,8 +45,10 @@ PyJWT==2.13.0
 python-dotenv==1.2.2
 python-multipart==0.0.27
 satisfactory-save==0.9.0
-starlette==1.0.1
+sse-starlette==3.4.4
+starlette==0.52.1
 typing-inspection==0.4.2
 typing_extensions==4.15.0
 uvicorn==0.41.0
+websockets==16.0
 yarl==1.22.0
