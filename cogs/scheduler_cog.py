@@ -83,6 +83,10 @@ class SchedulerCog(commands.Cog):
         self._last_auto_update: Optional[datetime] = None
         self._last_daily_report: Optional[datetime] = None
         self._pending_update: bool = False
+        # Loop-Guard (2026-06-25): nach 3 Fehlversuchen denselben Ziel-Build
+        # nicht mehr endlos alle 30min retryn — aufgeben bis ein NEUER Build kommt.
+        self._auto_update_fail_count: int = 0
+        self._auto_update_giveup_build: Optional[str] = None
 
         # Minecraft State (pro Server)
         self._mc_last_restart: dict[str, Optional[datetime]] = {}
@@ -549,13 +553,25 @@ class SchedulerCog(commands.Cog):
         logger.info("Auto-Update startet (Server leer oder offline)...")
         self._last_auto_update = now
 
-        # Alte Build-ID merken (für Spieler-Benachrichtigung)
+        # Alte Build-ID merken (für Spieler-Benachrichtigung) + Ziel-Build (Loop-Guard)
         old_build = "?"
+        target_build: Optional[str] = None
         try:
             _, info = await self.update_checker.check()
             old_build = info.get("installed_buildid", "?")
+            target_build = info.get("available_buildid")
         except Exception as e:
             logger.debug(f"Pre-Update build-id-Check fehlgeschlagen (informational): {e}")
+
+        # Loop-Guard: einen nach 3 Fehlversuchen aufgegebenen Ziel-Build nicht
+        # weiter alle 30min retryn — erst wieder bei NEUEM Build (2026-06-25-Loop).
+        if target_build and target_build == self._auto_update_giveup_build:
+            logger.warning(
+                f"Auto-Update fuer Build {target_build} aufgegeben "
+                f"(>=3 Fehlversuche) — warte auf neueren Build, kein Retry."
+            )
+            self._pending_update = False
+            return
 
         pre_update_backup_path = None
 
@@ -615,6 +631,8 @@ class SchedulerCog(commands.Cog):
 
             if update_ok:
                 self._pending_update = False
+                self._auto_update_fail_count = 0
+                self._auto_update_giveup_build = None
                 logger.info(f"Auto-Update: {update_msg}")
 
                 # 4. Server starten falls er lief
@@ -663,6 +681,27 @@ class SchedulerCog(commands.Cog):
                     )
             else:
                 logger.error(f"Auto-Update fehlgeschlagen: {update_msg}")
+
+                # Loop-Guard: Fehlversuche zaehlen, nach 3 denselben Ziel-Build
+                # aufgeben (kein 30-min-Endlos-Retry) bis ein neuerer Build kommt.
+                self._auto_update_fail_count += 1
+                if self._auto_update_fail_count >= 3 and target_build:
+                    self._auto_update_giveup_build = target_build
+                    self._pending_update = False
+                    logger.error(
+                        f"Auto-Update fuer Build {target_build} nach "
+                        f"{self._auto_update_fail_count} Fehlversuchen aufgegeben — "
+                        f"kein Auto-Retry mehr bis neuer Build, manuell pruefen."
+                    )
+                    if self.notifier:
+                        await self.notifier.send_admin(
+                            "Auto-Update aufgegeben (Loop-Guard)",
+                            f"Build {old_build} -> {target_build} schlug "
+                            f"{self._auto_update_fail_count}x fehl. Kein Auto-Retry "
+                            f"mehr bis neuer Build. Bitte manuell pruefen.",
+                            level=NotifyLevel.ERROR,
+                            ping_role=True,
+                        )
 
                 # Rollback versuchen wenn Backup vorhanden
                 if was_running and pre_update_backup_path:

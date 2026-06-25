@@ -366,6 +366,20 @@ class UpdateChecker:
             elif new_buildid:
                 self.installed_buildid = new_buildid
 
+            # Harden (Loop-Guard): Ist ein neuerer Ziel-Build bekannt, der nach
+            # app_update NICHT erreicht wurde, hat das Update nicht gegriffen.
+            # Ohne diese Pruefung meldet perform_update faelschlich Erfolg, der
+            # Build bleibt alt -> Auto-Update retryt endlos (Loop 2026-06-25).
+            target: Optional[str] = self.last_known_buildid
+            if (target and new_buildid and old_buildid
+                    and old_buildid != target and new_buildid != target):
+                logger.error(
+                    f"Update nicht installiert: Build weiterhin {new_buildid}, "
+                    f"Ziel {target} nicht erreicht."
+                )
+                await self._safe_start(server)
+                return False, f"Update nicht installiert (Build {new_buildid}, Ziel {target})"
+
             # Schritt 6+7: Server starten + Health-Check
             if server:
                 start_ok = await self._safe_start(server)
