@@ -25,6 +25,11 @@ ProtectHome=read-only
 ReadWritePaths=/home/botuser/Discord_Bots/data
 ReadWritePaths=/home/botuser/Discord_Bots/logs
 ReadWritePaths=/home/botuser/Discord_Bots/backups
+# MC-Server-Dirs: recon-bot fuehrt Modpack-Updates aus (create_staging/World-Backup/
+# Install unter /home/minecraft, bmc5 + vanilla). Ohne dies -> OSError Errno 30 EROFS
+# trotz rw-Mount, weil ProtectHome=read-only /home sonst nur-lesbar macht.
+# (Fix 2026-07-07; NICHT entfernen, sonst schlaegt das Modpack-Update wieder fehl.)
+ReadWritePaths=/home/minecraft
 PrivateTmp=yes
 # ProtectKernelTunables=yes  -- REMOVED: blocks drop_caches for optimizer
 ProtectControlGroups=yes
