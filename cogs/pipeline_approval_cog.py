@@ -4,11 +4,15 @@ Pipeline-Approval-Cog (Phase E + Feature H Modell A)
 Empfaengt Discord-Component-Interactions der n8n-Pipeline-Notifications und ruft
 via subprocess den CLI-Helper `/home/marco/n8n_stack/scripts/pipeline_approve.py`.
 
-Buttons (von pipeline_runner.step_discord_notify gesetzt):
-  - "pipeline_approve_<run_id>"   ✅ -> approve  (Finding behalten, Sammlung = Kategorie)
-  - "pipeline_dismiss_<run_id>"   🗑 -> dismiss  (Archiv-Sammlung, Few-Shot-negativ)
+Buttons (von pipeline_runner.step_discord_notify gesetzt) — Rework 2026-07-15:
+  - "pipeline_delete_<run_id>"    🗑 -> delete   (Archiv + TikTok-Unsave-Queue, KEIN
+        Few-Shot; Bot loescht zusaetzlich die Nachricht = aus Findings-View entfernt)
   - "pipeline_recat_<run_id>"     📁 -> oeffnet Kategorie-Select-Menu (ephemeral)
         -> Select-Callback ruft `recategorize --category <id>` (Korrektur + Few-Shot)
+
+Legacy (Alt-Embeds vor dem Rework, weiter unterstuetzt):
+  - "pipeline_approve_<run_id>"   ✅ -> approve  (Finding behalten, Sammlung = Kategorie)
+  - "pipeline_dismiss_<run_id>"   🗑 -> dismiss  (Archiv-Sammlung, Few-Shot-negativ)
 
 Permission:
   - ENV MARCO_DISCORD_UID muss gesetzt sein; nur dieser User darf entscheiden.
@@ -159,14 +163,16 @@ class PipelineApprovalCog(commands.Cog):
                 logger.error(f"Recat-Select konnte nicht gesendet werden: {e}")
             return
 
-        # ✅/🗑 approve / dismiss
-        if custom_id.startswith("pipeline_approve_") or custom_id.startswith("pipeline_dismiss_"):
+        # 🗑 delete (aktiv) · ✅ approve / 🗑 dismiss (Legacy: Alt-Embeds vor 2026-07-15)
+        if (custom_id.startswith("pipeline_delete_")
+                or custom_id.startswith("pipeline_approve_")
+                or custom_id.startswith("pipeline_dismiss_")):
             parts = custom_id.split("_", 2)
             if len(parts) != 3 or parts[0] != "pipeline":
                 await self._reply_ephemeral(interaction, "Ungueltiges Button-Format.")
                 return
             _, action, run_id = parts
-            if action not in ("approve", "dismiss"):
+            if action not in ("approve", "dismiss", "delete"):
                 await self._reply_ephemeral(interaction, f"Unbekannte Aktion: `{action}`.")
                 return
             if not _RUN_ID_PATTERN.match(run_id):
@@ -223,11 +229,22 @@ class PipelineApprovalCog(commands.Cog):
             extra = ""
             if action == "recategorize" and category:
                 extra = f" → `{category}`"
-            await self._finalize_embed(orig_msg, action, run_id, extra=extra)
-            emoji = {"approve": "✅", "dismiss": "🗑", "recategorize": "📁"}.get(action, "•")
-            label = {"approve": "approved", "dismiss": "dismissed",
-                     "recategorize": f"recategorized{extra}"}.get(action, action)
-            await self._followup_ephemeral(interaction, f"{emoji} Run `{run_id}` als **{label}** markiert.")
+            if action == "delete":
+                # "aus den Findings loeschen": Original-Nachricht komplett entfernen
+                # (Archiv + Unsave laufen serverseitig ueber approval='dismissed').
+                # Fallback auf Embed-Finalize, falls Loeschen scheitert (z.B. 403/älter 14 Tage).
+                deleted = await self._delete_message(orig_msg, run_id)
+                if not deleted:
+                    await self._finalize_embed(orig_msg, action, run_id)
+                await self._followup_ephemeral(
+                    interaction,
+                    f"🗑 Run `{run_id}` **gelöscht** (archiviert + für TikTok-Unsave vorgemerkt).")
+            else:
+                await self._finalize_embed(orig_msg, action, run_id, extra=extra)
+                emoji = {"approve": "✅", "dismiss": "🗑", "recategorize": "📁"}.get(action, "•")
+                label = {"approve": "approved", "dismiss": "dismissed",
+                         "recategorize": f"recategorized{extra}"}.get(action, action)
+                await self._followup_ephemeral(interaction, f"{emoji} Run `{run_id}` als **{label}** markiert.")
             logger.info(f"Pipeline-{action} run_id={run_id} cat={category} by admin_id={interaction.user.id}")
         else:
             stderr = (result.stderr or "")[:500]
@@ -245,6 +262,33 @@ class PipelineApprovalCog(commands.Cog):
         return subprocess.run(cmd, capture_output=True, text=True, timeout=30)
 
     @staticmethod
+    async def _delete_message(msg: discord.Message | None, run_id: str) -> bool:
+        """Loescht die Finding-Nachricht (delete-Action). True bei Erfolg.
+
+        429-Retry einmalig (Retry-After gedeckelt 30s). Bei anderem HTTPException
+        (z.B. 403/404/älter-14-Tage) -> False, Aufrufer faellt auf Embed-Finalize zurueck.
+        """
+        if msg is None:
+            return False
+        for attempt in range(2):
+            try:
+                await msg.delete()
+                return True
+            except discord.HTTPException as e:
+                if getattr(e, "status", None) == 429 and attempt == 0:
+                    retry_after = 5.0
+                    try:
+                        retry_after = float(e.response.headers.get("Retry-After", "5"))
+                    except (TypeError, ValueError, AttributeError):
+                        pass
+                    await asyncio.sleep(min(retry_after, 30.0))
+                    continue
+                logger.warning(f"Konnte Finding-Nachricht nicht loeschen fuer run_id={run_id} "
+                               f"(msg_id={getattr(msg,'id','?')}): {e}")
+                return False
+        return False
+
+    @staticmethod
     async def _finalize_embed(msg: discord.Message | None, action: str, run_id: str,
                               extra: str = "") -> None:
         """Original-Embed finalisieren: Buttons entfernen + Status-Field setzen."""
@@ -253,6 +297,7 @@ class PipelineApprovalCog(commands.Cog):
         meta = {
             "approve": ("✅", "Approved", 0x57F287),
             "dismiss": ("🗑", "Dismissed", 0x95A5A6),
+            "delete": ("🗑", "Gelöscht", 0x95A5A6),
             "recategorize": ("📁", "Recategorized", 0x5865F2),
         }.get(action, ("•", action.title(), 0x95A5A6))
         emoji, state_label, new_color = meta
