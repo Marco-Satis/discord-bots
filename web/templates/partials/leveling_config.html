@@ -12,42 +12,60 @@
         <p>Keine Haupt-Guild gesetzt (ENV <code>GUILD_ID</code>) — Konfiguration nicht verfuegbar.</p>
     {% else %}
     <form hx-post="/leveling/config" hx-target="#lvl-config" hx-swap="outerHTML">
-        <div class="lvl-field">
-            <label for="announce_channel">Announce-Kanal (Channel-ID)</label>
-            <input type="text" id="announce_channel" name="announce_channel"
-                   inputmode="numeric" pattern="[0-9]*"
-                   value="{{ cfg.announce_channel }}"
-                   placeholder="leer = im Auslöse-Kanal posten">
-            <small>
-                Discord-Kanal-ID (Entwicklermodus → Rechtsklick auf Kanal →
-                „ID kopieren"). Leer = Level-Up erscheint im Kanal wo es
-                ausgelöst wurde (bei Voice: System-Kanal).
-            </small>
+        <div class="set-grid">
+            <!-- Gruppe: Level-Up-Nachrichten -->
+            <div class="set-group">
+                <div class="set-group-title">Level-Up-Nachrichten</div>
+                <div class="lvl-field">
+                    <label for="announce_channel">Announce-Kanal (Channel-ID)</label>
+                    <input type="text" id="announce_channel" name="announce_channel"
+                           inputmode="numeric" pattern="[0-9]*"
+                           value="{{ cfg.announce_channel }}"
+                           placeholder="leer = im Auslöse-Kanal posten">
+                    <small>
+                        Discord-Kanal-ID (Entwicklermodus → Rechtsklick auf Kanal →
+                        „ID kopieren"). Leer = Level-Up erscheint im Kanal wo es
+                        ausgelöst wurde (bei Voice: System-Kanal).
+                    </small>
+                </div>
+                <div class="lvl-field lvl-field-check">
+                    <div class="toggle-item">
+                        <label class="toggle">
+                        <input type="checkbox" name="levelup_ping"
+                               {% if cfg.levelup_ping %}checked{% endif %}>
+                        <span class="slider"></span>
+                        </label>
+                        <span class="toggle-label">Member bei Level-Up anpingen</span>
+                    </div>
+                </div>
+            </div>
+            <!-- Gruppe: Leaderboard-Darstellung -->
+            <div class="set-group">
+                <div class="set-group-title">Leaderboard-Darstellung</div>
+                <div class="lvl-field lvl-field-check">
+                    <div class="toggle-item">
+                        <label class="toggle">
+                        <input type="checkbox" name="leaderboard_card"
+                               {% if cfg.leaderboard_card %}checked{% endif %}>
+                        <span class="slider"></span>
+                        </label>
+                        <span class="toggle-label"><code>/leaderboard</code> als Bild-Karte (statt Text)</span>
+                    </div>
+                    <small>
+                        Hintergrund hochladen via Slash-Befehl
+                        <code>/xp leaderboardcard aktiv:true hintergrund:&lt;Bild&gt;</code>.
+                        {% if cfg.leaderboard_bg %}
+                            Aktueller Hintergrund: <code>{{ cfg.leaderboard_bg }}</code>.
+                        {% else %}
+                            Noch kein Hintergrund gesetzt.
+                        {% endif %}
+                    </small>
+                </div>
+            </div>
         </div>
-        <div class="lvl-field lvl-field-check">
-            <label>
-                <input type="checkbox" name="levelup_ping"
-                       {% if cfg.levelup_ping %}checked{% endif %}>
-                Member bei Level-Up anpingen
-            </label>
+        <div class="lvl-form-actions">
+            <button type="submit" class="lvl-save-btn">Speichern</button>
         </div>
-        <div class="lvl-field lvl-field-check">
-            <label>
-                <input type="checkbox" name="leaderboard_card"
-                       {% if cfg.leaderboard_card %}checked{% endif %}>
-                <code>/leaderboard</code> als Bild-Karte (statt Text)
-            </label>
-            <small>
-                Hintergrund hochladen via Slash-Befehl
-                <code>/xp leaderboardcard aktiv:true hintergrund:&lt;Bild&gt;</code>.
-                {% if cfg.leaderboard_bg %}
-                    Aktueller Hintergrund: <code>{{ cfg.leaderboard_bg }}</code>.
-                {% else %}
-                    Noch kein Hintergrund gesetzt.
-                {% endif %}
-            </small>
-        </div>
-        <button type="submit" class="lvl-save-btn">Speichern</button>
     </form>
     {% endif %}
 </div>

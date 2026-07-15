@@ -1,35 +1,47 @@
 <!-- LFG-Config-Partial (HTMX-Swap-Ziel #lfg-config) -->
-{% if success %}<div class="lfg-banner lfg-banner-ok">{{ success }}</div>{% endif %}
-{% if error %}<div class="lfg-banner lfg-banner-err">{{ error }}</div>{% endif %}
+{% if success %}<div class="card" style="padding:12px 16px;margin-bottom:14px;border:1px solid var(--ok);color:var(--ok)">{{ success }}</div>{% endif %}
+{% if error %}<div class="card" style="padding:12px 16px;margin-bottom:14px;border:1px solid var(--bad);color:var(--bad)">{{ error }}</div>{% endif %}
 
 {% if not guild_set %}
-<p class="lfg-hint">Keine Haupt-Guild gesetzt — LFG kann nicht konfiguriert werden.</p>
+<p class="config-hint">Keine Haupt-Guild gesetzt — LFG kann nicht konfiguriert werden.</p>
 {% else %}
-<form class="lfg-card" hx-post="/lfg/config" hx-target="#lfg-config" hx-swap="innerHTML">
-    <div class="lfg-field">
-        <label for="role_id">LFG-Rollen-ID</label>
-        <input type="text" id="role_id" name="role_id" inputmode="numeric"
-               value="{{ cfg.role_id|default('', true) }}"
-               placeholder="z.B. 111111111111111111">
-        <p class="lfg-hint">Rolle die bei <code>/lfg ping</code> benachrichtigt wird.
-            Mitglieder geben sie sich per <code>/lfg an</code> oder Panel-Button.</p>
+<form class="config-section" hx-post="/lfg/config" hx-target="#lfg-config" hx-swap="innerHTML">
+    <div class="set-grid">
+        {# Gruppe 1: Welche Rolle wird angesprochen #}
+        <div class="set-group">
+            <div class="set-group-title">Rollenzuweisung</div>
+            <div class="form-group">
+                <label for="role_id">LFG-Rollen-ID</label>
+                <input type="text" id="role_id" name="role_id" inputmode="numeric"
+                       value="{{ cfg.role_id|default('', true) }}"
+                       placeholder="z.B. 111111111111111111">
+                <p class="config-hint">Rolle die bei <code>/lfg ping</code> benachrichtigt wird.
+                    Mitglieder geben sie sich per <code>/lfg an</code> oder Panel-Button.</p>
+            </div>
+        </div>
+        {# Gruppe 2: Wo und wie oft darf gepingt werden #}
+        <div class="set-group">
+            <div class="set-group-title">Ping-Konfiguration</div>
+            <div class="form-group">
+                <label for="channel_id">Ping-Kanal-ID (optional)</label>
+                <input type="text" id="channel_id" name="channel_id" inputmode="numeric"
+                       value="{{ cfg.channel_id|default('', true) }}"
+                       placeholder="leer = überall erlaubt">
+                <p class="config-hint">Wenn gesetzt, ist <code>/lfg ping</code> nur in diesem
+                    Kanal nutzbar.</p>
+            </div>
+            <div class="form-group">
+                <label for="cooldown_seconds">Ping-Cooldown (Sekunden)</label>
+                <input type="number" id="cooldown_seconds" name="cooldown_seconds"
+                       min="0" max="3600"
+                       value="{{ cfg.cooldown_seconds|default(300, true) }}">
+                <p class="config-hint">Wartezeit pro Nutzer zwischen zwei <code>/lfg ping</code>
+                    (0–3600s).</p>
+            </div>
+        </div>
     </div>
-    <div class="lfg-field">
-        <label for="channel_id">Ping-Kanal-ID (optional)</label>
-        <input type="text" id="channel_id" name="channel_id" inputmode="numeric"
-               value="{{ cfg.channel_id|default('', true) }}"
-               placeholder="leer = überall erlaubt">
-        <p class="lfg-hint">Wenn gesetzt, ist <code>/lfg ping</code> nur in diesem
-            Kanal nutzbar.</p>
+    <div class="actions-bar">
+        <button type="submit" class="btn btn-primary">Speichern</button>
     </div>
-    <div class="lfg-field">
-        <label for="cooldown_seconds">Ping-Cooldown (Sekunden)</label>
-        <input type="number" id="cooldown_seconds" name="cooldown_seconds"
-               min="0" max="3600"
-               value="{{ cfg.cooldown_seconds|default(300, true) }}">
-        <p class="lfg-hint">Wartezeit pro Nutzer zwischen zwei <code>/lfg ping</code>
-            (0–3600s).</p>
-    </div>
-    <button type="submit" class="lfg-save-btn">Speichern</button>
 </form>
 {% endif %}

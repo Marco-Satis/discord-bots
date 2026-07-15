@@ -14,6 +14,8 @@
     <link rel="stylesheet" href="/static/tailwind/_tokens.css?v=navy20260605b">
     <link rel="stylesheet" href="/static/_preview/v5.css?v=navy20260605b">
     <link rel="stylesheet" href="/static/_preview/v5_components.css?v=navy20260605b">
+    <!-- Zentrale Motion-/Modern-Schicht (v5.1) — Scroll-Reveal, Spotlight, Magnetic, View-Transitions -->
+    <link rel="stylesheet" href="/static/ui_motion.css?v=motion2">
 
     <!-- HTMX 2.0.4 -->
     <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"
@@ -33,14 +35,14 @@
 
         // Session-Timeout Warnung (5 Min vor Ablauf) — aus base.html uebernommen
         (function() {
-            var SESSION_TIMEOUT = 3600; // 60 Minuten (Server-seitig konfiguriert)
-            var WARNING_BEFORE = 300;   // 5 Minuten vorher warnen
+            var SESSION_TIMEOUT = 600;  // 10 min — an Server-Soft-Idle (session_timeout.py) angeglichen
+            var WARNING_BEFORE = 60;    // 1 Minute vorher warnen
             var _lastActivity = Date.now();
 
             ['click', 'keypress', 'scroll', 'mousemove'].forEach(function(evt) {
                 document.addEventListener(evt, function() { _lastActivity = Date.now(); }, {passive: true});
             });
-            document.body.addEventListener('htmx:beforeRequest', function() { _lastActivity = Date.now(); });
+            document.addEventListener('DOMContentLoaded', function(){ document.body.addEventListener('htmx:beforeRequest', function() { _lastActivity = Date.now(); }); });
 
             setInterval(function() {
                 var idle = (Date.now() - _lastActivity) / 1000;
@@ -69,13 +71,104 @@
         // Theme fest auf Dark (Midnight Navy) — Hell/Dunkel-Umschaltung entfernt.
         try { localStorage.removeItem('dashboard-theme'); } catch (e) {}
     </script>
+    <style>
+      /* === Globales Azur-„Farb-Fluss-Band"-Design (Design 3) — Transfer aus home nach base_v5 (2026-07-13, Marco-Abnahme) ===
+         Gilt fuer Start + alle 14 Unterseiten. Landing/Login sind standalone und behalten den kraeftigen Nordlicht-Vorhang.
+         Nach den verlinkten v5-CSS geladen -> gewinnt die Kaskade. */
+      :root{
+        --s0:#0A0E13; --s1:#0c121c; --s2:#141d2b; --s3:#1c2740;
+        --line:rgba(120,210,220,.16); --line-soft:rgba(120,210,220,.07); --line-accent:rgba(63,142,242,.42);
+        --t1:#EAF3F6; --t2:#c3d0d8; --t3:#8FA3AE;
+        --acc:#3F8EF2; --acc-2:#6fb0f7; --acc-3:#FF5FB5;
+        --acc-grad:linear-gradient(135deg,#57a0f7,#2f7fe8);
+        --acc-grad-3:linear-gradient(115deg,#8fc0fb,#3F8EF2 42%,#FF5FB5);
+        --acc-soft:rgba(63,142,242,.14); --pill-grad:linear-gradient(135deg,#3F8EF2,#FF5FB5);
+      }
+      .btn--primary{ color:#06121a; box-shadow:0 0 0 1px rgba(63,142,242,.34), 0 12px 30px rgba(63,142,242,.30) }
+      .btn--primary:hover{ box-shadow:0 0 0 1px rgba(63,142,242,.55), 0 16px 44px rgba(63,142,242,.44), 0 0 24px rgba(255,95,181,.28) }
+      .sb-foot .mark[style*="linear-gradient"]{ background:linear-gradient(135deg,#3F8EF2,#FF5FB5)!important }
+
+      /* Ruhiger dunkler Hintergrund (2026-07-13, Marco-Abnahme „das ist perfekt"): fast-schwarze Basis
+         + Azur-Glow oben links + Vignette + sehr dezentes Punkt-Raster. KEIN Fluss-Band mehr (war zu auffaellig).
+         Pink lebt nur noch als leichter Glow am unteren Kachelrand (siehe Karten weiter unten). */
+      body{ background-color:#05070b;
+        background-image:
+          radial-gradient(58% 46% at 15% 0%, rgba(63,142,242,.12), transparent 60%),
+          radial-gradient(120% 120% at 50% 42%, transparent 55%, rgba(0,0,0,.5)) }
+      body::before{ content:""; position:fixed; inset:0; z-index:-2; pointer-events:none;
+        background-image:radial-gradient(rgba(150,200,250,.09) 1.4px, transparent 1.9px); background-size:30px 30px;
+        -webkit-mask-image:linear-gradient(180deg, rgba(0,0,0,.6), transparent 56%);
+                mask-image:linear-gradient(180deg, rgba(0,0,0,.6), transparent 56%) }
+
+      /* Sidebar im dunklen Ton (nicht mehr transluzent) */
+      .appside{ background:#070a11; border-right:1px solid rgba(120,210,220,.08) }
+
+      /* Karten (Marco-Abnahme): Azur-Glow oben links + dunkle Basis + sehr dezenter Pink-Glow ueber den
+         GESAMTEN unteren Rand — als oberster Hintergrund-Layer (immer hinter dem Inhalt, kein Pseudo/Overflow).
+         Alter Top-Sheen (::before) entfaellt. Gilt fuer .card UND .stat-card (config/moderation/etc). */
+      /* Glow „Design B" (Marco-Wahl 2026-07-14): diagonaler Verlauf pro Karte — links sehr stark
+         (tiefes Dunkelblau #1F57B5 -> Azur -> Pink-Hauch), diagonal nach unten-rechts auslaufend (transparent ~78%). */
+      .appcont .card, .appcont .stat-card, .appcont .config-section, .appcont .lvl-config-card{ background:
+          linear-gradient(125deg, rgba(31,87,181,.80) 0%, rgba(63,142,242,.42) 22%, rgba(255,95,181,.20) 46%, transparent 78%),
+          linear-gradient(135deg, #141d2b 0%, rgba(16,25,38,0) 60%, #141826 100%), #0e1622 }
+      /* Alte Panel-Wrapper (marshal-Partials, leveling) auf den neuen Karten-Look bringen */
+      .appcont .config-section, .appcont .lvl-config-card{ border:1px solid var(--line); border-radius:var(--radius); padding:22px; margin-bottom:16px }
+      .appcont .card::before{ content:none }
+
+      /* Tab-Leiste A: Azur-Pill statt altem Lila (config/server_detail/admin/marshal-Untertabs) */
+      .tabs .tab.active, .tab-nav .tab-btn.active, .tab-list .tab.active{
+        background:var(--acc); color:#06121a; border:0; box-shadow:0 4px 14px rgba(63,142,242,.26) }
+      .tabs .tab:hover, .tab-nav .tab-btn:hover, .tab-list .tab:hover{ color:var(--t1); background:rgba(63,142,242,.10) }
+      /* Primaer-Button + Toggle „an" auf Azur (statt Lila/Gruen) */
+      .btn-primary, .btn.btn-primary{ background:var(--acc); color:#06121a; border:0; font-weight:600; box-shadow:0 4px 14px rgba(63,142,242,.24) }
+      .btn-primary:hover{ box-shadow:0 6px 20px rgba(63,142,242,.36) }
+      .toggle input:checked + .slider{ background:var(--acc) }
+
+      /* Toggle-Switches der admin-Tabs (audit/antispam/giveaways/tickets/reaction_roles):
+         .toggle-switch/.toggle-slider hatten kein CSS → rohe Checkbox. Self-contained V6-Switch (2026-07-14). */
+      .appcont .toggle-grid{ display:flex; flex-direction:column; gap:12px }
+      .appcont .toggle-item{ display:flex; align-items:center; justify-content:flex-start; gap:12px }
+      /* v5_components.css stylt .toggle-switch schon als eigenen Switch (bg + ::after-Knopf) → Geister-Knopf neutralisieren (2026-07-14, Fable-Review H2) */
+      .appcont .toggle-switch{ position:relative; display:inline-block; width:44px; height:24px; flex:0 0 auto; background:none; border-radius:0 }
+      .appcont .toggle-switch::after{ content:none }
+      .appcont .toggle-switch input{ position:absolute; opacity:0; width:0; height:0 }
+      .appcont .toggle-slider{ position:absolute; inset:0; cursor:pointer; background:rgba(255,255,255,.14);
+        border:1px solid var(--line); border-radius:999px; transition:background .18s ease, border-color .18s ease }
+      .appcont .toggle-slider::before{ content:""; position:absolute; height:18px; width:18px; left:2px; top:50%;
+        transform:translateY(-50%); background:#e7eef7; border-radius:50%; transition:transform .18s ease }
+      .appcont .toggle-switch input:checked + .toggle-slider{ background:var(--acc); border-color:var(--acc) }
+      .appcont .toggle-switch input:checked + .toggle-slider::before{ transform:translate(20px,-50%); background:#06121a }
+      .appcont .toggle-switch input:focus-visible + .toggle-slider{ box-shadow:0 0 0 3px rgba(63,142,242,.35) }
+      .appcont .toggle-label{ font-size:14px; color:var(--t1); line-height:1.3 }
+
+      /* label.toggle/.slider (config Feature-Toggles, embeds) wird komplett von v5_components.css gestylt
+         (.toggle/.slider inkl. Azur-Fill bei :checked, Z.574-588) — KEIN eigenes CSS hier. Die frühere
+         Version übersteuerte den Azur-Fill mit grau (gleiche Spezifität, später) → Toggles blieben grau
+         (Fable-Review H1, 2026-07-14). Entfernt. */
+
+      /* Begrüßung über dem Hintergrund lesbar + monochrome Quick-Link-Icons (home) */
+      .home-hello h1{ text-shadow:0 2px 26px rgba(6,9,13,.55) }
+      .home-hello p{ text-shadow:0 1px 12px rgba(6,9,13,.5) }
+      .ql-ico{ color:var(--acc-2); display:inline-flex }
+
+      /* Settings-Schrift etwas groesser (Marco 2026-07-14) — !important schlaegt Seiten-Inline-Styles */
+      .appcont .set-group-title{ font-size:12px!important }
+      .appcont .toggle-info-label{ font-size:15px!important }
+      .appcont .toggle-info-desc{ font-size:12.5px!important }
+      .appcont .toggle-label{ font-size:14px!important }
+      .appcont .form-group label, .appcont label.set-label{ font-size:13px!important }
+      .appcont input, .appcont select, .appcont textarea{ font-size:14px!important }
+      /* Alte Uppercase-Label-Regel (marshal-Partials .config-section label) neutralisieren
+         -> Feld-Labels Normal-Schreibung wie auf den Settings-Seiten, nicht „shouty" */
+      .appcont label{ text-transform:none!important }
+    </style>
     {% block extra_head %}{% endblock %}
 </head>
 <body>
   <div class="app">
     <!-- SIDEBAR -->
     <aside class="appside" id="sidebar">
-      <div class="sb-head"><span class="mark">B</span><span class="sb-title" style="font-weight:600">Bot Control</span></div>
+      <a class="sb-head" href="/" style="text-decoration:none;color:inherit;cursor:pointer"><span class="mark">B</span><span class="sb-title" style="font-weight:600">Bot Control</span></a>
       <nav class="sb-nav" aria-label="Hauptnavigation">
         <div class="sb-sec">Übersicht</div>
         <a class="nav-i {% block nav_home %}{% endblock %}" href="/home">
@@ -167,7 +260,7 @@
         <div id="crumb" class="h2">{% block crumb %}Übersicht{% endblock %}</div>
         <div style="margin-left:auto;display:flex;align-items:center;gap:10px">
           <span class="pill"><span class="live"></span> stabil</span>
-          <button class="btn btn--primary" onclick="window.location.reload()">↻ Aktualisieren</button>
+          <button class="btn btn--primary magnetic" onclick="window.location.reload()">↻ Aktualisieren</button>
         </div>
       </div>
 
@@ -197,6 +290,8 @@
       });
     })();
   </script>
+  <!-- Motion-Schicht (defer, non-blocking) -->
+  <script src="/static/ui_motion.js?v=motion2" defer></script>
   {% block extra_js %}{% endblock %}
 </body>
 </html>

@@ -25,8 +25,9 @@ async def test_routes():
             ("/static/htmx.min.js", [200]),
             ("/static/themes.css", [200]),
         ]
-        # Geschuetzt (sollte redirect 302/303/307)
-        protected_pages = ["/", "/system", "/security", "/config", "/search",
+        # Geschuetzt (sollte redirect 302/303/307). "/" ist seit D9 die oeffentliche
+        # Landing (allow_anon, 200) -> NICHT hier; /dashboard + /home sind protected.
+        protected_pages = ["/dashboard", "/home", "/system", "/security", "/config", "/search",
                           "/errors", "/changelog", "/marshal-bot", "/server/satisfactory"]
         for route in protected_pages:
             tests.append((route, [302, 303, 307]))
@@ -85,6 +86,8 @@ async def test_auth():
     async with aiohttp.ClientSession(cookies={"dashboard_token": token}) as session:
         auth_tests = [
             ("/", [200]),
+            ("/dashboard", [200]),
+            ("/home", [200]),
             ("/system", [200]),
             ("/security", [200]),
             ("/config", [200]),
@@ -95,7 +98,6 @@ async def test_auth():
             ("/server/satisfactory", [200]),
             ("/server/mc_bmc", [200]),
             ("/server/mc_vanilla", [200]),
-            ("/server/teamspeak", [200]),
             ("/api/analytics/summary", [200]),
             ("/api/health", [200, 503]),
             ("/api/theme", [200]),

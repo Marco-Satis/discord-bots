@@ -2,7 +2,7 @@
 Phase 13f: Marshal Setup — Konfigurationsseite fuer alle Marshal-Module.
 
 10 Tabs fuer die Verwaltung aller Marshal-Features:
-Temp Voice, TeamSpeak, WordFilter, AntiSpam, Warn-System,
+Temp Voice, WordFilter, AntiSpam, Warn-System,
 Reaction Roles, Leveling, Tickets, Audit-Logging, Giveaways.
 """
 
@@ -37,7 +37,6 @@ router = APIRouter(tags=["Marshal Setup"], dependencies=[Depends(require_auth)])
 # Zuordnung Tab-Name → Datenverzeichnis und Dateiname
 MODULE_FILE_MAP = {
     "temp_voice":     ("temp_voice",     "config.json"),
-    "teamspeak":      ("teamspeak",      "config.json"),
     "wordfilter":     ("moderation",     "wordfilter.json"),
     "antispam":       ("moderation",     "antispam.json"),
     "warn":           ("moderation",     "warn_config.json"),
@@ -56,20 +55,6 @@ DEFAULT_CONFIGS = {
         # Wird ueber web.temp_voice_bridge in die echte Bot-Config geschrieben.
         "hubs_text": "",
         "afk_timeout_minutes": 5,
-    },
-    "teamspeak": {
-        "ts_enabled": False,
-        "host": "",
-        "port": 10011,
-        "username": "",
-        "password": "",  # nosec B105 - leeres Default-Schema, echter Wert kommt aus Config
-        "virtual_server_id": 1,
-        "chat_bridge": {
-            "discord_channel_id": "",
-            "ts_channel_id": "",
-            "enabled": False,
-        },
-        "auto_channels": [],
     },
     "wordfilter": {
         "exact_words": [],
@@ -212,28 +197,6 @@ def _parse_form_temp_voice(form) -> dict:
         "hubs_text": hubs_to_text(hubs),
         "hubs": hubs,
         "afk_timeout_minutes": int(form.get("afk_timeout_minutes", 5) or 5),
-    }
-
-
-def _parse_form_teamspeak(form) -> dict:
-    """Parst Formular-Daten fuer das TeamSpeak-Modul."""
-    # Auto-Channels aus mehrzeiligem Textfeld parsen
-    auto_channels_raw = form.get("auto_channels", "").strip()
-    auto_channels = [ch.strip() for ch in auto_channels_raw.split("\n") if ch.strip()]
-
-    return {
-        "ts_enabled": "ts_enabled" in form,
-        "host": form.get("host", "").strip(),
-        "port": int(form.get("port", 10011) or 10011),
-        "username": form.get("username", "").strip(),
-        "password": form.get("password", "").strip(),
-        "virtual_server_id": int(form.get("virtual_server_id", 1) or 1),
-        "chat_bridge": {
-            "discord_channel_id": form.get("bridge_discord_channel_id", "").strip(),
-            "ts_channel_id": form.get("bridge_ts_channel_id", "").strip(),
-            "enabled": "bridge_enabled" in form,
-        },
-        "auto_channels": auto_channels,
     }
 
 
@@ -480,7 +443,6 @@ def _parse_form_embeds(form) -> dict:
 # Zuordnung Modul-Name → Parser-Funktion
 FORM_PARSERS = {
     "temp_voice":     _parse_form_temp_voice,
-    "teamspeak":      _parse_form_teamspeak,
     "wordfilter":     _parse_form_wordfilter,
     "antispam":       _parse_form_antispam,
     "warn":           _parse_form_warn,
@@ -495,7 +457,6 @@ FORM_PARSERS = {
 # Zuordnung Tab-Name → Template-Partial-Dateiname
 TAB_TEMPLATES = {
     "temp_voice":     "partials/admin_tab_temp_voice.html",
-    "teamspeak":      "partials/admin_tab_teamspeak.html",
     "wordfilter":     "partials/admin_tab_wordfilter.html",
     "antispam":       "partials/admin_tab_antispam.html",
     "warn":           "partials/admin_tab_warn.html",

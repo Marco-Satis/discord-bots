@@ -11,14 +11,47 @@
         <p>Keine Haupt-Guild gesetzt (ENV <code>GUILD_ID</code>) — Konfiguration nicht verfügbar.</p>
     {% else %}
     <form hx-post="/moderation/config" hx-target="#mod-config" hx-swap="outerHTML">
-        {% for r in rules %}
-        <div class="mod-rule">
-            <label>
-                <input type="checkbox" name="{{ r.key }}" {% if r.enabled %}checked{% endif %}>
-                <span class="mod-rule-label">{{ r.label }}</span>
-            </label>
+
+        {# Thematische Gruppen: Titel -> zugehörige Rule-Keys #}
+        {% set rule_groups = [
+            ("Text-Filterung", ["word_filter", "caps_filter", "zalgo_filter"]),
+            ("Spam & Links",   ["anti_spam", "invite_filter"]),
+        ] %}
+        {# Alle gruppierten Keys — Fallback-Schutz für zukünftige Backend-Regeln #}
+        {% set grouped_keys = ["word_filter", "caps_filter", "zalgo_filter", "anti_spam", "invite_filter"] %}
+
+        <div class="set-grid">
+        {% for gtitle, gkeys in rule_groups %}
+        <div class="set-group">
+            <div class="set-group-title">{{ gtitle }}</div>
+            {% for r in rules if r.key in gkeys %}
+            <div class="mod-rule">
+                <div class="toggle-item">
+                    <label class="toggle">
+                    <input type="checkbox" name="{{ r.key }}" {% if r.enabled %}checked{% endif %}>
+                    <span class="slider"></span>
+                    </label>
+                    <span class="mod-rule-label toggle-label">{{ r.label }}</span>
+                </div>
+            </div>
+            {% endfor %}
         </div>
         {% endfor %}
+        </div>
+
+        {# Ungrouped-Fallback: neue Regeln die noch keiner Gruppe zugeordnet sind #}
+        {% for r in rules if r.key not in grouped_keys %}
+        <div class="mod-rule">
+            <div class="toggle-item">
+                <label class="toggle">
+                <input type="checkbox" name="{{ r.key }}" {% if r.enabled %}checked{% endif %}>
+                <span class="slider"></span>
+                </label>
+                <span class="mod-rule-label toggle-label">{{ r.label }}</span>
+            </div>
+        </div>
+        {% endfor %}
+
         <p class="mod-hint">
             Änderungen greifen spätestens nach ~15 s (kein Bot-Neustart nötig).
             Schwellwerte (Caps-Anteil, Zalgo-Dichte) sind in der Config voreingestellt.

@@ -8,7 +8,7 @@
 
 <div class="config-section">
     <h3 class="subsection-title">Embed erstellen &amp; senden</h3>
-    <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 1rem;">
+    <p style="color: var(--t2); font-size: 0.85rem; margin-bottom: 1rem;">
         Erstelle ein benutzerdefiniertes Embed und sende es in einen Discord-Kanal.
     </p>
 
@@ -16,154 +16,152 @@
           hx-target="#tab-content"
           hx-swap="innerHTML">
 
-        <!-- Ziel-Channel -->
-        <div class="form-group">
-            <label for="channel_id">Ziel-Channel-ID *</label>
-            <input type="text" id="channel_id" name="channel_id"
-                   placeholder="z.B. 1111111111111111119" required
-                   value="{{ config.last_channel_id|default('') }}">
-        </div>
-
-        <div class="input-grid">
-            <!-- Titel -->
-            <div class="form-group">
-                <label for="embed_title">Titel</label>
-                <input type="text" id="embed_title" name="embed_title"
-                       placeholder="Embed-Titel" maxlength="256"
-                       value="">
-            </div>
-
-            <!-- Farbe -->
-            <div class="form-group">
-                <label for="embed_color">Farbe</label>
-                <select id="embed_color" name="embed_color" style="
-                    width: 100%;
-                    padding: 0.55rem 0.75rem;
-                    background: var(--bg-input);
-                    border: 1px solid var(--border-color);
-                    border-radius: var(--radius-sm);
-                    color: var(--text-primary);
-                    font-size: 0.9rem;
-                ">
-                    <option value="#5865F2">Blurple (Discord)</option>
-                    <option value="#2ecc71">Gruen</option>
-                    <option value="#e74c3c">Rot</option>
-                    <option value="#f39c12">Orange</option>
-                    <option value="#3498db">Blau</option>
-                    <option value="#9b59b6">Lila</option>
-                    <option value="#e0e0e0">Weiss</option>
-                    <option value="#1a1a2e">Dunkel</option>
-                    <option value="custom">Eigene (Hex)</option>
-                </select>
-            </div>
-        </div>
-
-        <!-- Eigene Farbe (versteckt, wird per JS gezeigt) -->
-        <div class="form-group" id="custom-color-group" style="display: none;">
-            <label for="custom_color">Eigene Farbe (Hex)</label>
-            <input type="text" id="custom_color" name="custom_color"
-                   placeholder="#FF5733" pattern="^#[0-9A-Fa-f]{6}$" maxlength="7">
-        </div>
-
-        <!-- Beschreibung -->
-        <div class="form-group">
-            <label for="embed_description">Beschreibung</label>
-            <textarea id="embed_description" name="embed_description"
-                      rows="4" placeholder="Embed-Text (Markdown unterstuetzt)"
-                      style="
-                          width: 100%;
-                          padding: 0.55rem 0.75rem;
-                          background: var(--bg-input);
-                          border: 1px solid var(--border-color);
-                          border-radius: var(--radius-sm);
-                          color: var(--text-primary);
-                          font-size: 0.9rem;
-                          resize: vertical;
-                      "></textarea>
-        </div>
-
-        <div class="input-grid">
-            <!-- Thumbnail URL -->
-            <div class="form-group">
-                <label for="embed_thumbnail">Thumbnail-URL</label>
-                <input type="url" id="embed_thumbnail" name="embed_thumbnail"
-                       placeholder="https://example.com/bild.png">
-            </div>
-
-            <!-- Image URL -->
-            <div class="form-group">
-                <label for="embed_image">Bild-URL</label>
-                <input type="url" id="embed_image" name="embed_image"
-                       placeholder="https://example.com/grosses-bild.png">
-            </div>
-        </div>
-
-        <!-- Felder (bis zu 5) -->
-        <h3 class="subsection-title" style="margin-top: 1.5rem;">Felder (optional)</h3>
-        <div id="embed-fields">
-            <div class="embed-field-row" style="display: grid; grid-template-columns: 1fr 1fr auto auto; gap: 0.5rem; align-items: end; margin-bottom: 0.5rem;">
-                <div class="form-group" style="margin-bottom: 0;">
-                    <label>Feld-Name</label>
-                    <input type="text" name="field_name_0" placeholder="Name" maxlength="256">
-                </div>
-                <div class="form-group" style="margin-bottom: 0;">
-                    <label>Feld-Wert</label>
-                    <input type="text" name="field_value_0" placeholder="Wert" maxlength="1024">
-                </div>
-                <div class="form-group" style="margin-bottom: 0;">
-                    <label style="font-size: 0.75rem;">Inline</label>
-                    <label class="toggle-switch" style="margin-top: 0.25rem;">
-                        <input type="checkbox" name="field_inline_0" checked>
-                        <span class="toggle-slider"></span>
-                    </label>
+        <!-- Gruppe 1: Ziel-Channel & Metadaten -->
+        <div class="set-grid">
+            <div class="set-group">
+                <div class="set-group-title">Ziel-Channel</div>
+                <div class="form-group">
+                    <label for="channel_id">Ziel-Channel-ID *</label>
+                    <input type="text" id="channel_id" name="channel_id"
+                           placeholder="z.B. 1111111111111111119" required
+                           value="{{ config.last_channel_id|default('') }}">
                 </div>
             </div>
-            <div class="embed-field-row" style="display: grid; grid-template-columns: 1fr 1fr auto auto; gap: 0.5rem; align-items: end; margin-bottom: 0.5rem;">
-                <div class="form-group" style="margin-bottom: 0;">
-                    <input type="text" name="field_name_1" placeholder="Name" maxlength="256">
+
+            <div class="set-group">
+                <div class="set-group-title">Metadaten</div>
+                <div class="form-group">
+                    <label for="embed_footer">Footer-Text</label>
+                    <input type="text" id="embed_footer" name="embed_footer"
+                           placeholder="Footer-Zeile" maxlength="2048">
                 </div>
-                <div class="form-group" style="margin-bottom: 0;">
-                    <input type="text" name="field_value_1" placeholder="Wert" maxlength="1024">
-                </div>
-                <div class="form-group" style="margin-bottom: 0;">
-                    <label class="toggle-switch" style="margin-top: 0.25rem;">
-                        <input type="checkbox" name="field_inline_1" checked>
-                        <span class="toggle-slider"></span>
-                    </label>
-                </div>
-            </div>
-            <div class="embed-field-row" style="display: grid; grid-template-columns: 1fr 1fr auto auto; gap: 0.5rem; align-items: end; margin-bottom: 0.5rem;">
-                <div class="form-group" style="margin-bottom: 0;">
-                    <input type="text" name="field_name_2" placeholder="Name" maxlength="256">
-                </div>
-                <div class="form-group" style="margin-bottom: 0;">
-                    <input type="text" name="field_value_2" placeholder="Wert" maxlength="1024">
-                </div>
-                <div class="form-group" style="margin-bottom: 0;">
-                    <label class="toggle-switch" style="margin-top: 0.25rem;">
-                        <input type="checkbox" name="field_inline_2" checked>
-                        <span class="toggle-slider"></span>
-                    </label>
+                <div class="form-group">
+                    <label for="embed_author">Author-Name</label>
+                    <input type="text" id="embed_author" name="embed_author"
+                           placeholder="Verfasser-Name" maxlength="256">
                 </div>
             </div>
         </div>
 
-        <!-- Footer -->
-        <div class="input-grid" style="margin-top: 1rem;">
-            <div class="form-group">
-                <label for="embed_footer">Footer-Text</label>
-                <input type="text" id="embed_footer" name="embed_footer"
-                       placeholder="Footer-Zeile" maxlength="2048">
+        <!-- Gruppe 2: Inhalt & Darstellung -->
+        <div class="set-grid" style="margin-top: 14px;">
+            <div class="set-group">
+                <div class="set-group-title">Inhalt</div>
+
+                <div class="input-grid">
+                    <!-- Titel -->
+                    <div class="form-group">
+                        <label for="embed_title">Titel</label>
+                        <input type="text" id="embed_title" name="embed_title"
+                               placeholder="Embed-Titel" maxlength="256"
+                               value="">
+                    </div>
+
+                    <!-- Farbe -->
+                    <div class="form-group">
+                        <label for="embed_color">Farbe</label>
+                        <select id="embed_color" name="embed_color">
+                            <option value="#5865F2">Blurple (Discord)</option>
+                            <option value="#2ecc71">Gruen</option>
+                            <option value="#e74c3c">Rot</option>
+                            <option value="#f39c12">Orange</option>
+                            <option value="#3498db">Blau</option>
+                            <option value="#9b59b6">Lila</option>
+                            <option value="#e0e0e0">Weiss</option>
+                            <option value="#1a1a2e">Dunkel</option>
+                            <option value="custom">Eigene (Hex)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Eigene Farbe (versteckt, wird per JS gezeigt) -->
+                <div class="form-group" id="custom-color-group" style="display: none;">
+                    <label for="custom_color">Eigene Farbe (Hex)</label>
+                    <input type="text" id="custom_color" name="custom_color"
+                           placeholder="#FF5733" pattern="^#[0-9A-Fa-f]{6}$" maxlength="7">
+                </div>
+
+                <!-- Beschreibung -->
+                <div class="form-group">
+                    <label for="embed_description">Beschreibung</label>
+                    <textarea id="embed_description" name="embed_description"
+                              rows="4" placeholder="Embed-Text (Markdown unterstuetzt)"></textarea>
+                </div>
             </div>
-            <div class="form-group">
-                <label for="embed_author">Author-Name</label>
-                <input type="text" id="embed_author" name="embed_author"
-                       placeholder="Verfasser-Name" maxlength="256">
+
+            <div class="set-group">
+                <div class="set-group-title">Darstellung</div>
+
+                <!-- Thumbnail URL -->
+                <div class="form-group">
+                    <label for="embed_thumbnail">Thumbnail-URL</label>
+                    <input type="url" id="embed_thumbnail" name="embed_thumbnail"
+                           placeholder="https://example.com/bild.png">
+                </div>
+
+                <!-- Image URL -->
+                <div class="form-group">
+                    <label for="embed_image">Bild-URL</label>
+                    <input type="url" id="embed_image" name="embed_image"
+                           placeholder="https://example.com/grosses-bild.png">
+                </div>
+            </div>
+        </div>
+
+        <!-- Gruppe 3: Felder -->
+        <div class="set-group" style="margin-top: 14px;">
+            <div class="set-group-title">Felder (optional)</div>
+            <div id="embed-fields">
+                <div class="form-row" style="grid-template-columns: 1fr 1fr auto; align-items: end; margin-bottom: 10px;">
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label>Feld-Name</label>
+                        <input type="text" name="field_name_0" placeholder="Name" maxlength="256">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label>Feld-Wert</label>
+                        <input type="text" name="field_value_0" placeholder="Wert" maxlength="1024">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label>Inline</label>
+                        <label class="toggle">
+                            <input type="checkbox" name="field_inline_0" checked>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                </div>
+                <div class="form-row" style="grid-template-columns: 1fr 1fr auto; align-items: end; margin-bottom: 10px;">
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <input type="text" name="field_name_1" placeholder="Name" maxlength="256">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <input type="text" name="field_value_1" placeholder="Wert" maxlength="1024">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label class="toggle">
+                            <input type="checkbox" name="field_inline_1" checked>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                </div>
+                <div class="form-row" style="grid-template-columns: 1fr 1fr auto; align-items: end; margin-bottom: 10px;">
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <input type="text" name="field_name_2" placeholder="Name" maxlength="256">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <input type="text" name="field_value_2" placeholder="Wert" maxlength="1024">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label class="toggle">
+                            <input type="checkbox" name="field_inline_2" checked>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                </div>
             </div>
         </div>
 
         <!-- Vorschau + Senden -->
-        <div class="form-actions" style="display: flex; gap: 0.75rem;">
+        <div class="form-actions" style="display: flex; gap: 0.75rem; margin-top: 14px;">
             <button type="submit" class="btn btn-primary">Embed senden</button>
             <button type="button" class="btn btn-secondary" onclick="previewEmbed()">Vorschau</button>
         </div>
@@ -175,13 +173,13 @@
     <div class="config-section">
         <h3 class="subsection-title">Vorschau</h3>
         <div id="embed-preview" style="
-            border-left: 4px solid var(--accent);
-            background: var(--bg-input);
-            border-radius: 4px;
+            border-left: 4px solid var(--acc);
+            background: var(--s2);
+            border-radius: 10px;
             padding: 1rem;
             max-width: 520px;
         ">
-            <!-- Wird per JS befuellt -->
+            <!-- Inhalt wird per JS aus dem Formular erzeugt (previewEmbed) -->
         </div>
     </div>
 </div>
@@ -261,7 +259,7 @@ function previewEmbed() {
 
     var preview = document.getElementById('embed-preview');
     preview.style.borderLeftColor = color;
-    preview.innerHTML = html || '<span style="color: var(--text-muted);">(Leeres Embed)</span>';
+    preview.innerHTML = html || '<span style="color: var(--t3);">(Leeres Embed)</span>';
 
     document.getElementById('embed-preview-area').style.display = 'block';
 }

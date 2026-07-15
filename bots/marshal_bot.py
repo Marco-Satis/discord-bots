@@ -1,12 +1,12 @@
 """
 Vormals admin_bot.py / Service admin-bot. Rolle: Moderation/Admin (Warns, Timeouts, Tickets, Giveaways).
-Marshal — Discord-Moderation, Community-Features & TeamSpeak-Steuerung
+Marshal — Discord-Moderation, Community-Features
 Bot 3 of 3 — unabhaengig von Gameservern
 
 Architektur:
   - Cog-basiertes Design mit Hot-Reloading
   - Features: Moderation, Reaction Roles, Leveling, Tickets, Audit, Giveaways,
-              Temp Voice, TeamSpeak, Server Backup
+              Temp Voice, Server Backup
   - Berechtigungen: Owner > Admin > Spieler > Alle
 """
 
@@ -79,7 +79,6 @@ INITIAL_COGS: list[str] = [
     "cogs.audit_cog",           # Phase 11g: Audit-Logging
     "cogs.giveaway_cog",        # Phase 11h: Giveaway-System
     "cogs.temp_voice_cog",      # Phase 12a: Temp Voice Channels
-    # "cogs.teamspeak_cog",     # Etappe 3.7 (2026-05-01): TS-Server inactive/not-installed,
     #                            Cog deaktiviert. Reaktivieren falls TS-Server wieder kommt.
     "cogs.server_backup_cog",   # Phase 12e: Server-Backup
     "cogs.embed_sender_cog",    # Embed-Sender (Dashboard-Queue)

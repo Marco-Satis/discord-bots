@@ -814,3 +814,74 @@ body::after {
    Größerer Title als section-title (überschreibt fuer .stat-card) */
 .stat-card .section-title { font-size: 16px; color: var(--t1); margin-bottom: 4px; letter-spacing: -.01em; text-transform: none; font-family: "Geist", "Inter", system-ui, sans-serif; }
 .stat-card .page-subtitle { font-size: 12px; margin: 4px 0 14px; }
+
+/* ============================================================
+   COMMAND-RAIL Overview (v5.1 Redesign — dashboard.html)
+   Asymmetrisches App-Grid: breite Fokus-Spalte (Server = Subjekt,
+   gross + detailliert als Rows) + persistente Vitals-Rail rechts
+   (System/Bots/Events, dicht gepackt). Ersetzt die gestapelten
+   gleichgewichtigen Baender UND die CPU/RAM/Disk-Doppelung
+   (frueher Bento-Mini + System-Bars -> jetzt nur noch Rail).
+   Tokens/Naming wie Rest des v5-Systems.
+   ============================================================ */
+.ov { display: grid; grid-template-columns: minmax(0, 1.9fr) minmax(300px, 340px);
+  gap: var(--gap-card); align-items: start; }
+.ov-focus { display: flex; flex-direction: column; gap: var(--gap-section); min-width: 0; }
+.ov-rail { display: flex; flex-direction: column; gap: var(--gap-card); }
+/* Rail klebt beim Scrollen (nur Desktop); unter 1024px faellt sie unter die Focus-Spalte */
+@media (min-width: 1025px) { .ov-rail { position: sticky; top: 84px; } }
+@media (max-width: 1024px) { .ov { grid-template-columns: 1fr; } }
+
+/* ---- Hero (Lead-Metric: Spieler aktiv) ---- */
+.ov-hero { display: flex; justify-content: space-between; align-items: flex-end;
+  gap: 16px; padding: 24px 26px; }
+.ov-hero .lead-metric { margin-top: 8px; }
+.ov-hero .hero-side { display: flex; align-items: center; gap: 9px; color: var(--t2);
+  font-size: 12px; text-transform: uppercase; letter-spacing: .1em;
+  font-family: ui-monospace, monospace; white-space: nowrap; }
+
+/* ---- Server-Rows (Tiles horizontal statt 3-col Karten-Grid) ---- */
+.srv-list { display: flex; flex-direction: column; gap: 10px; }
+/* flex-wrap statt Grid: Name behaelt Mindestbreite (180px), Metriken + Actions
+   wrappen bei schmaler Fokus-Spalte in eine 2. Zeile statt den Namen zu quetschen. */
+.srv-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 22px; padding: 16px 20px; }
+.srv-id { flex: 1 1 180px; min-width: 0; }
+.srv-name { font-size: 15px; font-weight: 600; color: var(--t1); }
+.srv-row .server-meta { margin-top: 3px; }
+/* .srv-metrics ueberschreibt .tile-body (3-col grid) -> inline Reihe, Hooks bleiben */
+.srv-metrics { display: flex; gap: 22px; margin: 0; flex: 0 1 auto; grid-template-columns: none; }
+.srv-metrics > div { display: flex; flex-direction: column; gap: 3px; }
+.srv-right { display: flex; align-items: center; gap: 12px; margin-left: auto; flex: 0 0 auto; }
+.srv-right .tile-actions { margin: 0; display: flex; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 680px) {
+  .srv-id { flex-basis: 100%; }
+  .srv-right { margin-left: 0; }
+  .srv-metrics { gap: 18px; flex-wrap: wrap; }
+}
+
+/* ---- Rail-Cards (dicht) ---- */
+.rail-card { padding: 15px 16px; }
+.rail-title { font-size: 10px; text-transform: uppercase; letter-spacing: .14em;
+  color: var(--t3); font-weight: 700; font-family: ui-monospace, monospace;
+  margin-bottom: 13px; display: flex; justify-content: space-between; align-items: center; }
+
+/* Vitals-Rail (System) — behaelt #system-stats + data-stat/data-bar Hooks */
+.vit-row { margin-bottom: 13px; }
+.vit-row:last-child { margin-bottom: 0; }
+.vit-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+.vit-k { font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: var(--t3);
+  font-family: ui-monospace, monospace; font-weight: 600; }
+.vit-v { font-family: ui-monospace, monospace; font-weight: 700; color: var(--acc);
+  font-variant-numeric: tabular-nums; font-size: 16px; line-height: 1; }
+.vit-sub { font-size: 9px; color: var(--t3); font-family: ui-monospace, monospace; margin-top: 5px;
+  text-transform: uppercase; letter-spacing: .06em; }
+
+/* Bots im Rail: vertikale dichte Liste (Karten-Chrome weg, Hooks bleiben) */
+.ov-rail .bots-row { flex-direction: column; gap: 10px; }
+.ov-rail .bot-card { min-width: 0; width: 100%; padding: 0; border: 0; background: none; box-shadow: none; }
+.ov-rail .bot-card:hover { transform: none; box-shadow: none; border: 0; }
+
+/* Events im Rail: randlos, kompakt */
+.ov-rail .feed-card { padding: 0; }
+.ov-rail .event-item { font-size: 11.5px; padding: 8px 0; }
+.ov-rail .event-time { width: 40px; }

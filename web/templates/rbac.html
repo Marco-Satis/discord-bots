@@ -4,6 +4,11 @@
 {% block nav_rbac %}active{% endblock %}
 
 {% block content %}
+{# V6-Migration 2026-07-14: eigene `.rbac-*`-CSS-Insel entfernt. Nutzt jetzt die
+   globalen v5-Komponenten (.config-section, .form-group, .table-wrapper/.data-table,
+   .badge, .btn, native .appcont-Inputs). Nur die Permission-Matrix hat ein schlankes
+   token-only Layout-Style (kein Roh-Hex, kein undefiniertes --border).
+   Backend/HTMX-Kontrakt (Feldnamen, IDs, Endpunkte) unveraendert. #}
 <div class="page-header">
     <h1>RBAC — Rollen &amp; Rechte</h1>
     <p class="page-subtitle">
@@ -31,40 +36,9 @@
 </script>
 
 <style>
-    .rbac-card { max-width: 52rem; }
-    .rbac-table { width: 100%; border-collapse: collapse; margin-bottom: 1.4rem;
-        font-size: 0.85rem; }
-    .rbac-table th, .rbac-table td { text-align: left; padding: 0.45rem 0.6rem;
-        border-bottom: 1px solid var(--border, #2a2a3a); }
-    .rbac-table th { color: var(--text-muted, #8a8a9a); font-weight: 600; }
-    .rbac-grant { display: inline-block; padding: 0.05rem 0.4rem; margin: 0.1rem;
-        border-radius: 4px; font-size: 0.72rem; background: rgba(59,130,246,0.15);
-        color: #93c5fd; border: 1px solid rgba(59,130,246,0.3); }
-    .rbac-matrix { width: auto; border-collapse: collapse; margin: 0.6rem 0 1rem; }
-    .rbac-matrix th, .rbac-matrix td { padding: 0.35rem 0.7rem; text-align: center;
-        border: 1px solid var(--border, #2a2a3a); }
-    .rbac-matrix th:first-child, .rbac-matrix td:first-child { text-align: left;
-        color: var(--text-primary); }
-    .rbac-matrix td.sensitive:first-child { color: #fbbf24; }
-    .rbac-field { margin-bottom: 0.8rem; }
-    .rbac-field label { display: block; font-weight: 500; margin-bottom: 0.3rem;
-        color: var(--text-primary); }
-    .rbac-field input { width: 100%; max-width: 24rem; padding: 0.45rem 0.6rem;
-        background: var(--bg-input, #1a1a26); color: var(--text-primary);
-        border: 1px solid var(--border, #2a2a3a); border-radius: 6px; }
-    .rbac-hint { font-size: 0.78rem; color: var(--text-muted, #8a8a9a);
-        margin: 0.3rem 0 0; }
-    .rbac-btn { padding: 0.5rem 1.1rem; background: var(--accent, #3b82f6);
-        color: #fff; border: none; border-radius: 6px; font-size: 0.88rem;
-        font-weight: 600; cursor: pointer; }
-    .rbac-btn:hover { filter: brightness(1.1); }
-    .rbac-btn-sm { padding: 0.25rem 0.6rem; font-size: 0.75rem; }
-    .rbac-btn-danger { background: rgba(239,68,68,0.85); }
-    .rbac-banner { padding: 0.55rem 0.8rem; border-radius: 6px; font-size: 0.85rem;
-        margin-bottom: 0.8rem; }
-    .rbac-banner-ok { background: rgba(34,197,94,0.12); color: #4ade80;
-        border: 1px solid rgba(34,197,94,0.3); }
-    .rbac-banner-err { background: rgba(239,68,68,0.12); color: #f87171;
-        border: 1px solid rgba(239,68,68,0.3); }
+/* Nur Permission-Matrix-Layout (token-only). Farben/Flaechen/Inputs kommen aus v5. */
+.rbac-matrix { width: auto; }
+.rbac-matrix th.rbac-cell, .rbac-matrix td.rbac-cell { text-align: center; }
+.rbac-sensitive { color: var(--warn); }
 </style>
 {% endblock %}

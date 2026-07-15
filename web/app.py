@@ -102,7 +102,7 @@ app.add_middleware(
     SessionMiddleware,
     secret_key=WEB_SECRET_KEY,
     session_cookie="dashboard_session",
-    max_age=86400,       # 24 Stunden
+    max_age=86400,   # 24 h (sliding) — haelt last_seen fuer den Idle-Timeout (session_timeout.py)
     same_site="lax",
     https_only=WEB_HTTPS
 )

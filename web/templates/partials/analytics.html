@@ -1,41 +1,51 @@
 <!-- Analytics Tab Content — geladen via HTMX -->
+{# V6-Migration 2026-07-14: eigene `.analytics-*`/`.chart-*`-CSS-Insel + Alt-Token
+   (--border-color/--bg-card/--accent/--text-*/--shadow) entfernt. Nutzt jetzt die
+   globalen v5-Komponenten (.analytics-container/.analytics-controls, .tabs/.tab,
+   .config-section + .section-title, .chart-host, .chart-empty, .stat-card). Perioden-
+   Wähler auf .tabs/.tab (Azur-Active via var(--acc)). Chart.js-Farben: Discord-Palette
+   -> v5-Token-Hexwerte (Canvas kann var() nicht lesen). Backend/Endpunkte, Canvas-IDs,
+   Chart-Datenstrukturen/Optionen unveraendert — nur Farbwerte getauscht. #}
 <div class="analytics-container">
     <div class="analytics-controls">
-        <div class="period-selector">
-            <button class="btn-period active" data-period="24h" onclick="setPeriod('24h')">24h</button>
-            <button class="btn-period" data-period="7d" onclick="setPeriod('7d')">7 Tage</button>
-            <button class="btn-period" data-period="30d" onclick="setPeriod('30d')">30 Tage</button>
+        <div class="tabs" role="tablist">
+            <button class="tab active" data-period="24h" onclick="setPeriod('24h')">24h</button>
+            <button class="tab" data-period="7d" onclick="setPeriod('7d')">7 Tage</button>
+            <button class="tab" data-period="30d" onclick="setPeriod('30d')">30 Tage</button>
         </div>
         <div class="analytics-summary" id="analyticsSummary">
             <!-- Wird per JS befuellt -->
         </div>
     </div>
 
-    <div class="chart-grid">
-        <div class="chart-card">
-            <h4>CPU &amp; RAM Auslastung</h4>
-            <canvas id="perfChart" height="200"></canvas>
+    <div class="chart-row">
+        <div class="config-section">
+            <h3 class="section-title">CPU &amp; RAM Auslastung</h3>
+            <div class="chart-host"><canvas id="perfChart"></canvas></div>
             <div class="chart-empty" id="perfChartEmpty" style="display:none;">
                 Keine Daten fuer den gewaehlten Zeitraum vorhanden.
             </div>
         </div>
-        <div class="chart-card">
-            <h4>Spieler-Aktivitaet</h4>
-            <canvas id="playerChart" height="200"></canvas>
+        <div class="config-section">
+            <h3 class="section-title">Spieler-Aktivitaet</h3>
+            <div class="chart-host"><canvas id="playerChart"></canvas></div>
             <div class="chart-empty" id="playerChartEmpty" style="display:none;">
                 Keine Daten fuer den gewaehlten Zeitraum vorhanden.
             </div>
         </div>
-        <div class="chart-card">
-            <h4>Disk-Auslastung</h4>
-            <canvas id="diskChart" height="200"></canvas>
+    </div>
+
+    <div class="chart-row">
+        <div class="config-section">
+            <h3 class="section-title">Disk-Auslastung</h3>
+            <div class="chart-host"><canvas id="diskChart"></canvas></div>
             <div class="chart-empty" id="diskChartEmpty" style="display:none;">
                 Keine Daten fuer den gewaehlten Zeitraum vorhanden.
             </div>
         </div>
-        <div class="chart-card">
-            <h4>Server-Uptime</h4>
-            <canvas id="uptimeChart" height="200"></canvas>
+        <div class="config-section">
+            <h3 class="section-title">Server-Uptime</h3>
+            <div class="chart-host"><canvas id="uptimeChart"></canvas></div>
             <div class="chart-empty" id="uptimeChartEmpty" style="display:none;">
                 Keine Daten fuer den gewaehlten Zeitraum vorhanden.
             </div>
@@ -43,144 +53,28 @@
     </div>
 </div>
 
-<style>
-    /* --- Analytics-spezifische Styles --- */
-    .analytics-container {
-        padding: 0;
-    }
-
-    .analytics-controls {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 1.5rem;
-        flex-wrap: wrap;
-        gap: 1rem;
-    }
-
-    .period-selector {
-        display: flex;
-        gap: 0.5rem;
-    }
-
-    .btn-period {
-        padding: 0.5rem 1.2rem;
-        border: 1px solid var(--border-color);
-        border-radius: var(--radius-sm, 4px);
-        background: var(--bg-card);
-        color: var(--text-primary);
-        cursor: pointer;
-        font-size: 0.9rem;
-        transition: all 0.2s ease;
-    }
-
-    .btn-period:hover {
-        background: var(--bg-hover);
-        border-color: var(--accent);
-    }
-
-    .btn-period.active {
-        background: var(--accent);
-        border-color: var(--accent-light);
-        color: #ffffff;
-    }
-
-    .analytics-summary {
-        display: flex;
-        gap: 1.5rem;
-        font-size: 0.85rem;
-        color: var(--text-secondary);
-    }
-
-    .analytics-summary .stat-item {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-    }
-
-    .analytics-summary .stat-value {
-        font-size: 1.2rem;
-        font-weight: 600;
-        color: var(--text-primary);
-    }
-
-    .analytics-summary .stat-label {
-        font-size: 0.75rem;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-    }
-
-    .chart-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(450px, 1fr));
-        gap: 1.5rem;
-    }
-
-    .chart-card {
-        background: var(--bg-card);
-        border-radius: var(--radius, 8px);
-        padding: 1.2rem;
-        box-shadow: var(--shadow);
-        position: relative;
-    }
-
-    .chart-card h4 {
-        margin: 0 0 1rem 0;
-        font-size: 1rem;
-        color: var(--text-primary);
-        font-weight: 500;
-    }
-
-    .chart-card canvas {
-        width: 100% !important;
-    }
-
-    .chart-empty {
-        text-align: center;
-        color: var(--text-muted);
-        padding: 3rem 1rem;
-        font-style: italic;
-    }
-
-    /* Responsive Anpassungen */
-    @media (max-width: 768px) {
-        .chart-grid {
-            grid-template-columns: 1fr;
-        }
-
-        .analytics-controls {
-            flex-direction: column;
-            align-items: flex-start;
-        }
-
-        .analytics-summary {
-            flex-wrap: wrap;
-        }
-    }
-</style>
-
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <script>
 (function() {
     'use strict';
 
-    // --- Farbkonfiguration (style.css v5.0-aligned, Discord-native) ---
+    // --- Farbkonfiguration (v5/V6-Design-Tokens) ---
     // Canvas-Context kann CSS-Custom-Properties nicht lesen, deshalb Hex-Werte intentional.
-    // Werte korrespondieren zu var(--danger)/--accent/--info/--success/--warning/--pink.
+    // Werte korrespondieren zu var(--bad)/--acc/--acc-2/--ok/--warn/--acc-3.
     const COLORS = {
-        cpu:      { border: '#f23f43', bg: 'rgba(242, 63, 67, 0.15)' },   // var(--danger)
-        ram:      { border: '#5865f2', bg: 'rgba(88, 101, 242, 0.15)' },  // var(--accent)
-        disk:     { border: '#00a8fc', bg: 'rgba(0, 168, 252, 0.15)' },   // var(--info)
-        players:  { border: '#23a55a', bg: 'rgba(35, 165, 90, 0.15)' },   // var(--success)
-        total:    { border: '#f0b232', bg: 'rgba(240, 178, 50, 0.15)' },  // var(--warning)
-        uptime:   { border: '#23a55a', bg: 'rgba(35, 165, 90, 0.3)' },
-        downtime: { border: '#f23f43', bg: 'rgba(242, 63, 67, 0.3)' },
+        cpu:      { border: '#fb6f78', bg: 'rgba(251, 111, 120, 0.15)' },  // var(--bad)
+        ram:      { border: '#3F8EF2', bg: 'rgba(63, 142, 242, 0.15)' },   // var(--acc)
+        disk:     { border: '#6fb0f7', bg: 'rgba(111, 176, 247, 0.15)' },  // var(--acc-2)
+        players:  { border: '#34e0a1', bg: 'rgba(52, 224, 161, 0.15)' },   // var(--ok)
+        total:    { border: '#f5b13d', bg: 'rgba(245, 177, 61, 0.15)' },   // var(--warn)
+        uptime:   { border: '#34e0a1', bg: 'rgba(52, 224, 161, 0.3)' },
+        downtime: { border: '#fb6f78', bg: 'rgba(251, 111, 120, 0.3)' },
         // Zusaetzliche Farben fuer mehrere Server
         extra: [
-            { border: '#eb459e', bg: 'rgba(235, 69, 158, 0.15)' },        // var(--pink)
-            { border: '#7983f5', bg: 'rgba(121, 131, 245, 0.15)' },       // var(--accent-light)
-            { border: '#f0b232', bg: 'rgba(240, 178, 50, 0.15)' },        // var(--warning)
-            { border: '#00a8fc', bg: 'rgba(0, 168, 252, 0.15)' },         // var(--info)
+            { border: '#FF5FB5', bg: 'rgba(255, 95, 181, 0.15)' },         // var(--acc-3) Pink
+            { border: '#22d3ee', bg: 'rgba(34, 211, 238, 0.15)' },         // Cyan (V6-neutrale Zusatzserie)
+            { border: '#f5b13d', bg: 'rgba(245, 177, 61, 0.15)' },         // var(--warn)
+            { border: '#6fb0f7', bg: 'rgba(111, 176, 247, 0.15)' },        // var(--acc-2)
         ],
     };
 
@@ -195,17 +89,17 @@
         plugins: {
             legend: {
                 labels: {
-                    color: '#b5bac1',  // var(--text-secondary)
+                    color: '#c3d0d8',  // var(--t2)
                     font: { size: 12 },
                     boxWidth: 12,
                     padding: 15,
                 },
             },
             tooltip: {
-                backgroundColor: 'rgba(53, 57, 69, 0.95)',  // var(--bg-card)
-                titleColor: '#f2f3f5',                       // var(--text-primary)
-                bodyColor: '#b5bac1',                        // var(--text-secondary)
-                borderColor: 'rgba(255, 255, 255, 0.14)',    // var(--border-color)
+                backgroundColor: 'rgba(20, 29, 43, 0.95)',   // var(--s2)
+                titleColor: '#EAF3F6',                        // var(--t1)
+                bodyColor: '#c3d0d8',                         // var(--t2)
+                borderColor: 'rgba(120, 210, 220, 0.16)',     // var(--line)
                 borderWidth: 1,
                 cornerRadius: 6,
                 padding: 10,
@@ -214,19 +108,19 @@
         scales: {
             x: {
                 ticks: {
-                    color: '#80848e',  // var(--text-muted)
+                    color: '#8FA3AE',  // var(--t3)
                     font: { size: 10 },
                     maxTicksLimit: 12,
                     maxRotation: 45,
                 },
-                grid: { color: 'rgba(255, 255, 255, 0.06)' },  // var(--border-subtle)
+                grid: { color: 'rgba(120, 210, 220, 0.07)' },  // var(--line-soft)
             },
             y: {
                 ticks: {
-                    color: '#80848e',
+                    color: '#8FA3AE',
                     font: { size: 11 },
                 },
-                grid: { color: 'rgba(255, 255, 255, 0.06)' },
+                grid: { color: 'rgba(120, 210, 220, 0.07)' },
                 beginAtZero: true,
             },
         },
@@ -528,19 +422,19 @@
             if (!container) return;
 
             container.innerHTML =
-                '<div class="stat-item">' +
+                '<div class="stat-card">' +
                     '<span class="stat-value">' + (data.peak_players_24h || 0) + '</span>' +
                     '<span class="stat-label">Spieler-Peak (24h)</span>' +
                 '</div>' +
-                '<div class="stat-item">' +
+                '<div class="stat-card">' +
                     '<span class="stat-value">' + (data.avg_cpu_24h || 0) + '%</span>' +
                     '<span class="stat-label">CPU Avg (24h)</span>' +
                 '</div>' +
-                '<div class="stat-item">' +
+                '<div class="stat-card">' +
                     '<span class="stat-value">' + (data.avg_ram_24h || 0) + '%</span>' +
                     '<span class="stat-label">RAM Avg (24h)</span>' +
                 '</div>' +
-                '<div class="stat-item">' +
+                '<div class="stat-card">' +
                     '<span class="stat-value">' + (data.total_entries || 0) + '</span>' +
                     '<span class="stat-label">Datenpunkte</span>' +
                 '</div>';
@@ -562,8 +456,8 @@
     window.setPeriod = function(period) {
         currentPeriod = period;
 
-        // Button-Zustand aktualisieren
-        var buttons = document.querySelectorAll('.btn-period');
+        // Button-Zustand aktualisieren (data-period-getriebene Tabs)
+        var buttons = document.querySelectorAll('[data-period]');
         buttons.forEach(function(btn) {
             btn.classList.remove('active');
             if (btn.getAttribute('data-period') === period) {

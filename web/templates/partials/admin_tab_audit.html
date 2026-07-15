@@ -13,9 +13,11 @@
             Separate Log-Channels pro Kategorie — verfolge alle Server-Ereignisse.
         </p>
 
+        <div class="set-grid">
         <!-- Log-Channels -->
-        <h3 style="color: var(--text-primary); font-size: 1rem; margin: 0 0 0.75rem; font-weight: 600;">Log-Channels</h3>
-        <div class="input-grid">
+        <div class="set-group">
+            <div class="set-group-title">Log-Channels</div>
+            <div class="input-grid">
             <div class="form-group">
                 <label for="moderation_log_channel">Moderation-Log Channel ID</label>
                 <input type="text" id="moderation_log_channel" name="moderation_log_channel"
@@ -52,11 +54,13 @@
                        value="{{ config.message_log_channel|default('', true) }}"
                        placeholder="Geloeschte/bearbeitete Nachrichten">
             </div>
+            </div>
         </div>
 
         <!-- Feature-Toggles -->
-        <h3 style="color: var(--text-primary); font-size: 1rem; margin: 1.5rem 0 0.75rem; font-weight: 600;">Aktive Kategorien</h3>
-        <div class="toggle-grid">
+        <div class="set-group">
+            <div class="set-group-title">Aktive Kategorien</div>
+            <div class="toggle-grid">
             <div class="toggle-item">
                 <label class="toggle-switch">
                     <input type="checkbox" name="moderation_enabled"
@@ -105,6 +109,8 @@
                 </label>
                 <span class="toggle-label">Nachrichten (geloescht/bearbeitet)</span>
             </div>
+            </div>
+        </div>
         </div>
     </section>
 

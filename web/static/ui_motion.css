@@ -1,0 +1,135 @@
+/* ============================================================
+   ui_motion.css — Zentrale Motion-/Modern-Schicht (v5.1)
+   Wird von base_v5.html geladen (nach v5_components.css).
+   Vanilla CSS, nutzt Tokens aus _tokens.css. Kalibriert "premium
+   modern" (Linear/Vercel-Liga) — dezent, nicht Circus.
+   Alles hinter @media (prefers-reduced-motion) sauber abschaltbar.
+   ============================================================ */
+
+/* @property fuer animierbaren Winkel (Gradient-Border-Shimmer).
+   Progressive Enhancement — Browser ohne @property ignorieren es. */
+@property --angle { syntax: "<angle>"; initial-value: 0deg; inherits: false; }
+
+/* ============================================================
+   1. SCROLL-REVEAL  ([data-reveal], per IntersectionObserver .is-in)
+   ============================================================ */
+[data-reveal]{
+  opacity:0; transform:translateY(16px);
+  transition:opacity .6s var(--ease,cubic-bezier(.16,1,.3,1)),
+             transform .6s var(--ease,cubic-bezier(.16,1,.3,1));
+  transition-delay:calc(var(--rev-i,0) * 60ms);
+  will-change:opacity, transform;
+}
+[data-reveal].is-in{ opacity:1; transform:none; }
+/* Falls JS fehlt/aus: nie unsichtbar haengen bleiben */
+.no-js [data-reveal], html:not(.js) [data-reveal]{ opacity:1; transform:none; }
+
+/* ============================================================
+   2. SPOTLIGHT-CARDS  (Pointer-getrackte Highlight-Schicht)
+   --mx/--my werden per JS auf .card gesetzt (in %); Fallback 50%.
+   ============================================================ */
+.appcont .card{ --mx:50%; --my:-20%; }
+/* Cursor-Spotlight wieder aktiv, aber DEUTLICH dezenter (Marco 2026-07-14) —
+   kleinerer Radius, ~halbe Deckkraft, weicher Azur-Ton, gedrosselte Hover-Opacity. */
+.appcont .card::after{
+  content:""; position:absolute; inset:0; border-radius:inherit; pointer-events:none;
+  background:radial-gradient(260px circle at var(--mx) var(--my),
+            rgba(111,176,247,.05), transparent 62%);
+  opacity:0; transition:opacity var(--norm,.26s) ease; z-index:0;
+}
+.appcont .card:hover::after{ opacity:.8; }
+/* Karten-Inhalt ueber die Spotlight-Schicht heben */
+.appcont .card > *{ position:relative; z-index:1; }
+
+/* ============================================================
+   3. MAGNETIC / TACTILE  (Primary-CTA zieht leicht zum Cursor)
+   JS setzt --tx/--ty (px). Press-Feedback via :active.
+   ============================================================ */
+.magnetic{ transition:transform var(--fast,.16s) var(--ease,cubic-bezier(.16,1,.3,1)),
+                       box-shadow var(--norm,.26s); }
+.magnetic{ transform:translate(var(--tx,0), var(--ty,0)); }
+.btn:active, .magnetic:active{ transform:translateY(1px) scale(.985); }
+
+/* ============================================================
+   4. HERO — animierter Gradient-Border-Shimmer + Zahl-Glow
+   ============================================================ */
+.ov-hero{ position:relative; }
+.ov-hero::before{
+  content:""; position:absolute; inset:0; border-radius:inherit; padding:1px; pointer-events:none;
+  background:conic-gradient(from var(--angle),
+     transparent 0deg, rgba(59,130,246,.0) 60deg, rgba(96,165,250,.55) 130deg,
+     rgba(109,92,246,.55) 200deg, rgba(217,70,239,.45) 250deg, transparent 320deg);
+  -webkit-mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+          mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite:xor; mask-composite:exclude;
+  animation:hero-rotate 7s linear infinite; opacity:.9;
+}
+@keyframes hero-rotate{ to{ --angle:360deg; } }
+.ov-hero .lead-metric{ animation:lead-glow 4.5s ease-in-out infinite; }
+@keyframes lead-glow{
+  0%,100%{ text-shadow:0 0 26px rgba(59,130,246,.30); }
+  50%{ text-shadow:0 0 40px rgba(59,130,246,.55), 0 0 12px rgba(96,165,250,.4); }
+}
+
+/* ============================================================
+   5. NAV — aktive Pill-Sweep + Hover-Slide
+   ============================================================ */
+.nav-i{ position:relative; overflow:hidden; }
+.nav-i .lbl{ transition:transform var(--fast,.16s) var(--ease); }
+.nav-i:hover .lbl{ transform:translateX(2px); }
+.nav-i.active::before{
+  content:""; position:absolute; left:0; top:50%; width:3px; height:0; border-radius:0 3px 3px 0;
+  background:var(--pill-grad); transform:translateY(-50%);
+  animation:nav-grow .4s var(--ease) forwards;
+}
+@keyframes nav-grow{ to{ height:60%; } }
+
+/* ============================================================
+   6. STAT COUNT-UP  (Zahl-Element bleibt stabil; JS animiert Text)
+   Tabular-nums verhindert Layout-Jitter waehrend des Zaehlens.
+   ============================================================ */
+[data-countup]{ font-variant-numeric:tabular-nums; }
+
+/* ============================================================
+   7. SHIMMER SKELETON  (Loading-States, HTMX)
+   ============================================================ */
+.skeleton{
+  position:relative; overflow:hidden; border-radius:var(--radius-sm,12px);
+  background:var(--s2); min-height:16px;
+}
+.skeleton::after{
+  content:""; position:absolute; inset:0;
+  background:linear-gradient(90deg, transparent, rgba(255,255,255,.06), transparent);
+  transform:translateX(-100%); animation:shimmer 1.4s infinite;
+}
+@keyframes shimmer{ 100%{ transform:translateX(100%); } }
+/* HTMX In-Flight: Ziel leicht dimmen + Puls */
+.htmx-request.htmx-indicator, .htmx-request .htmx-indicator{ opacity:1; }
+[hx-post].htmx-request, [hx-get].htmx-request{ opacity:.6; transition:opacity var(--fast); }
+
+/* ============================================================
+   8. CARD HOVER — bereits in v5.css (translateY). Hier nur die
+   Progress-Bar-Fill: sanfter Ease + Live-Sheen.
+   ============================================================ */
+.progress-fill{ transition:width .6s var(--ease,cubic-bezier(.16,1,.3,1)), background var(--norm); }
+
+/* ============================================================
+   9. VIEW TRANSITIONS  (Cross-Page-Morph bei MPA-Navigation)
+   Chrome/Edge: sanftes Fade/Slide zwischen Seiten. Andere: ignoriert.
+   ============================================================ */
+@view-transition{ navigation:auto; }
+::view-transition-old(root){ animation:vt-out .28s var(--ease) both; }
+::view-transition-new(root){ animation:vt-in .34s var(--ease) both; }
+@keyframes vt-out{ to{ opacity:0; transform:translateY(-6px); } }
+@keyframes vt-in{ from{ opacity:0; transform:translateY(8px); } }
+
+/* ============================================================
+   REDUCED MOTION — alles Ambiente aus, Reveal sofort sichtbar
+   ============================================================ */
+@media (prefers-reduced-motion:reduce){
+  [data-reveal]{ opacity:1!important; transform:none!important; transition:none!important; }
+  .ov-hero::before, .ov-hero .lead-metric, .nav-i.active::before, .skeleton::after{ animation:none!important; }
+  .magnetic{ transform:none!important; }
+  ::view-transition-old(root), ::view-transition-new(root){ animation:none!important; }
+  .appcont .card::after{ display:none; }
+}

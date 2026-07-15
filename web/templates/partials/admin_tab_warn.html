@@ -13,65 +13,73 @@
             Stufenbasiertes Warnsystem — Punkte fuehren zu automatischen Massnahmen.
         </p>
 
-        <div class="input-grid">
-            <div class="form-group">
-                <label for="decay_days">Warn-Verfall (Tage, 0 = kein Verfall)</label>
-                <input type="number" id="decay_days" name="decay_days"
-                       value="{{ config.decay_days|default(30, true) }}"
-                       min="0" max="365">
+        <div class="set-grid">
+
+            <!-- Gruppe: Allgemeine Einstellungen -->
+            <div class="set-group">
+                <div class="set-group-title">Allgemeine Einstellungen</div>
+                <div class="form-group">
+                    <label for="decay_days">Warn-Verfall (Tage, 0 = kein Verfall)</label>
+                    <input type="number" id="decay_days" name="decay_days"
+                           value="{{ config.decay_days|default(30, true) }}"
+                           min="0" max="365">
+                </div>
+                <div class="form-group">
+                    <label for="log_channel_id">Log-Channel ID</label>
+                    <input type="text" id="log_channel_id" name="log_channel_id"
+                           value="{{ config.log_channel_id|default('', true) }}"
+                           placeholder="z.B. 111111111111111111">
+                </div>
             </div>
-            <div class="form-group">
-                <label for="log_channel_id">Log-Channel ID</label>
-                <input type="text" id="log_channel_id" name="log_channel_id"
-                       value="{{ config.log_channel_id|default('', true) }}"
-                       placeholder="z.B. 111111111111111111">
+
+            <!-- Gruppe: Warn-Stufen -->
+            <div class="set-group">
+                <div class="set-group-title">Warn-Stufen</div>
+                <p style="color: var(--text-secondary); font-size: 0.8rem; margin-bottom: 1rem;">
+                    Definiere die automatischen Massnahmen bei bestimmten Punktestaenden.
+                </p>
+
+                <div id="warn-levels">
+                    {% for level in config.levels %}
+                    <div class="warn-level-row" style="
+                        display: grid;
+                        grid-template-columns: 100px 1fr 120px;
+                        gap: 0.75rem;
+                        align-items: center;
+                        margin-bottom: 0.5rem;
+                        padding: 0.5rem;
+                        background: var(--accent-bg);
+                        border-radius: var(--radius-sm);
+                    ">
+                        <div class="form-group" style="margin: 0;">
+                            <label style="font-size: 0.75rem;">Punkte</label>
+                            <input type="number" name="level_points_{{ loop.index0 }}"
+                                   value="{{ level.points }}" min="1" max="100">
+                        </div>
+                        <div class="form-group" style="margin: 0;">
+                            <label style="font-size: 0.75rem;">Massnahme</label>
+                            <select name="level_action_{{ loop.index0 }}">
+                                <option value="warn" {% if level.action == 'warn' %}selected{% endif %}>Warnung</option>
+                                <option value="mute" {% if level.action == 'mute' %}selected{% endif %}>Mute</option>
+                                <option value="kick" {% if level.action == 'kick' %}selected{% endif %}>Kick</option>
+                                <option value="ban" {% if level.action == 'ban' %}selected{% endif %}>Ban</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="margin: 0;">
+                            <label style="font-size: 0.75rem;">Dauer (Min)</label>
+                            <input type="number" name="level_duration_{{ loop.index0 }}"
+                                   value="{{ level.duration|default(0) }}" min="0">
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+
+                <p style="color: var(--text-muted); font-size: 0.75rem; margin-top: 0.5rem;">
+                    Dauer gilt nur fuer Mute (in Minuten). Bei Ban/Kick wird die Dauer ignoriert.
+                </p>
             </div>
+
         </div>
-
-        <!-- Warn-Stufen -->
-        <h3 style="color: var(--text-primary); font-size: 1rem; margin: 1.5rem 0 0.75rem; font-weight: 600;">Warn-Stufen</h3>
-        <p style="color: var(--text-secondary); font-size: 0.8rem; margin-bottom: 1rem;">
-            Definiere die automatischen Massnahmen bei bestimmten Punktestaenden.
-        </p>
-
-        <div id="warn-levels">
-            {% for level in config.levels %}
-            <div class="warn-level-row" style="
-                display: grid;
-                grid-template-columns: 100px 1fr 120px;
-                gap: 0.75rem;
-                align-items: center;
-                margin-bottom: 0.5rem;
-                padding: 0.5rem;
-                background: var(--accent-bg);
-                border-radius: var(--radius-sm);
-            ">
-                <div class="form-group" style="margin: 0;">
-                    <label style="font-size: 0.75rem;">Punkte</label>
-                    <input type="number" name="level_points_{{ loop.index0 }}"
-                           value="{{ level.points }}" min="1" max="100">
-                </div>
-                <div class="form-group" style="margin: 0;">
-                    <label style="font-size: 0.75rem;">Massnahme</label>
-                    <select name="level_action_{{ loop.index0 }}">
-                        <option value="warn" {% if level.action == 'warn' %}selected{% endif %}>Warnung</option>
-                        <option value="mute" {% if level.action == 'mute' %}selected{% endif %}>Mute</option>
-                        <option value="kick" {% if level.action == 'kick' %}selected{% endif %}>Kick</option>
-                        <option value="ban" {% if level.action == 'ban' %}selected{% endif %}>Ban</option>
-                    </select>
-                </div>
-                <div class="form-group" style="margin: 0;">
-                    <label style="font-size: 0.75rem;">Dauer (Min)</label>
-                    <input type="number" name="level_duration_{{ loop.index0 }}"
-                           value="{{ level.duration|default(0) }}" min="0">
-                </div>
-            </div>
-            {% endfor %}
-        </div>
-
-        <p style="color: var(--text-muted); font-size: 0.75rem; margin-top: 0.5rem;">
-            Dauer gilt nur fuer Mute (in Minuten). Bei Ban/Kick wird die Dauer ignoriert.
-        </p>
     </section>
 
     <div class="form-actions">

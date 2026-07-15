@@ -13,47 +13,52 @@
             Support-Tickets per Button — erstellt private Channels fuer Anfragen.
         </p>
 
-        <div class="input-grid">
-            <div class="form-group">
-                <label for="button_channel_id">Button-Channel ID</label>
-                <input type="text" id="button_channel_id" name="button_channel_id"
-                       value="{{ config.button_channel_id|default('', true) }}"
-                       placeholder="Channel in dem der Ticket-Button steht">
+        <div class="set-grid">
+            <!-- Gruppe: Einrichtung — Channel-IDs und Zugriffs-Rollen -->
+            <div class="set-group">
+                <div class="set-group-title">Einrichtung</div>
+                <div class="form-group">
+                    <label for="button_channel_id">Button-Channel ID</label>
+                    <input type="text" id="button_channel_id" name="button_channel_id"
+                           value="{{ config.button_channel_id|default('', true) }}"
+                           placeholder="Channel in dem der Ticket-Button steht">
+                </div>
+                <div class="form-group">
+                    <label for="ticket_category_id">Ticket-Kategorie ID</label>
+                    <input type="text" id="ticket_category_id" name="ticket_category_id"
+                           value="{{ config.ticket_category_id|default('', true) }}"
+                           placeholder="Discord-Kategorie fuer neue Ticket-Channels">
+                </div>
+                <div class="form-group">
+                    <label for="support_role_ids">Support-Rollen IDs (kommasepariert)</label>
+                    <input type="text" id="support_role_ids" name="support_role_ids"
+                           value="{{ config.support_role_ids|default('', true) }}"
+                           placeholder="z.B. 123456789, 987654321">
+                </div>
             </div>
-            <div class="form-group">
-                <label for="support_role_ids">Support-Rollen IDs (kommasepariert)</label>
-                <input type="text" id="support_role_ids" name="support_role_ids"
-                       value="{{ config.support_role_ids|default('', true) }}"
-                       placeholder="z.B. 123456789, 987654321">
-            </div>
-            <div class="form-group">
-                <label for="ticket_category_id">Ticket-Kategorie ID</label>
-                <input type="text" id="ticket_category_id" name="ticket_category_id"
-                       value="{{ config.ticket_category_id|default('', true) }}"
-                       placeholder="Discord-Kategorie fuer neue Ticket-Channels">
-            </div>
-            <div class="form-group">
-                <label for="auto_close_hours">Auto-Close nach Inaktivitaet (Stunden, 0 = aus)</label>
-                <input type="number" id="auto_close_hours" name="auto_close_hours"
-                       value="{{ config.auto_close_hours|default(0, true) }}"
-                       min="0" max="720">
-            </div>
-            <div class="form-group">
-                <label for="transcript_channel_id">Transcript-Channel ID</label>
-                <input type="text" id="transcript_channel_id" name="transcript_channel_id"
-                       value="{{ config.transcript_channel_id|default('', true) }}"
-                       placeholder="Channel fuer Ticket-Transkripte (optional)">
-            </div>
-        </div>
-
-        <div class="toggle-grid" style="margin-top: 1.25rem;">
-            <div class="toggle-item">
-                <label class="toggle-switch">
-                    <input type="checkbox" name="transcript_enabled"
-                           {% if config.transcript_enabled is defined and config.transcript_enabled %}checked{% endif %}>
-                    <span class="toggle-slider"></span>
-                </label>
-                <span class="toggle-label">Transkripte bei Ticket-Schliessung speichern</span>
+            <!-- Gruppe: Transkripte &amp; Automatisierung — Archivierung und Auto-Close -->
+            <div class="set-group">
+                <div class="set-group-title">Transkripte &amp; Automatisierung</div>
+                <div class="form-group">
+                    <label for="transcript_channel_id">Transcript-Channel ID</label>
+                    <input type="text" id="transcript_channel_id" name="transcript_channel_id"
+                           value="{{ config.transcript_channel_id|default('', true) }}"
+                           placeholder="Channel fuer Ticket-Transkripte (optional)">
+                </div>
+                <div class="form-group">
+                    <label for="auto_close_hours">Auto-Close nach Inaktivitaet (Stunden, 0 = aus)</label>
+                    <input type="number" id="auto_close_hours" name="auto_close_hours"
+                           value="{{ config.auto_close_hours|default(0, true) }}"
+                           min="0" max="720">
+                </div>
+                <div class="toggle-item">
+                    <label class="toggle-switch">
+                        <input type="checkbox" name="transcript_enabled"
+                               {% if config.transcript_enabled is defined and config.transcript_enabled %}checked{% endif %}>
+                        <span class="toggle-slider"></span>
+                    </label>
+                    <span class="toggle-label">Transkripte bei Ticket-Schliessung speichern</span>
+                </div>
             </div>
         </div>
     </section>

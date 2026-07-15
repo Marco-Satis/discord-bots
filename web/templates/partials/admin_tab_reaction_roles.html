@@ -14,22 +14,29 @@
             (<code>/reactionrole create</code>, <code>/reactionrole add</code>) verwaltet.
         </p>
 
-        <div class="toggle-grid">
-            <div class="toggle-item">
-                <label class="toggle-switch">
-                    <input type="checkbox" name="allow_multiple"
-                           {% if config.allow_multiple is defined and config.allow_multiple %}checked{% endif %}>
-                    <span class="toggle-slider"></span>
-                </label>
-                <span class="toggle-label">Mehrere Rollen gleichzeitig erlauben</span>
+        <!-- Thematische Gruppen: Formularfelder -->
+        <div class="set-grid">
+            <div class="set-group">
+                <div class="set-group-title">Verhalten</div>
+                <div class="toggle-item">
+                    <label class="toggle-switch">
+                        <input type="checkbox" name="allow_multiple"
+                               {% if config.allow_multiple is defined and config.allow_multiple %}checked{% endif %}>
+                        <span class="toggle-slider"></span>
+                    </label>
+                    <span class="toggle-label">Mehrere Rollen gleichzeitig erlauben</span>
+                </div>
             </div>
-            <div class="toggle-item">
-                <label class="toggle-switch">
-                    <input type="checkbox" name="dm_notification"
-                           {% if config.dm_notification is defined and config.dm_notification %}checked{% endif %}>
-                    <span class="toggle-slider"></span>
-                </label>
-                <span class="toggle-label">DM-Benachrichtigung bei Rollen-Aenderung</span>
+            <div class="set-group">
+                <div class="set-group-title">Benachrichtigungen</div>
+                <div class="toggle-item">
+                    <label class="toggle-switch">
+                        <input type="checkbox" name="dm_notification"
+                               {% if config.dm_notification is defined and config.dm_notification %}checked{% endif %}>
+                        <span class="toggle-slider"></span>
+                    </label>
+                    <span class="toggle-label">DM-Benachrichtigung bei Rollen-Aenderung</span>
+                </div>
             </div>
         </div>
 

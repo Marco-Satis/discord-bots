@@ -5,8 +5,42 @@
 {% block nav_dashboard %}active{% endblock %}
 
 {% block content %}
-{# V5 Midnight Navy Data-Terminal — alle Component-Klassen kommen aus v5_components.css.
-   Funktionale Hooks (IDs, data-attrs, Klassen) unveraendert fuer SSE/HTMX/Chart-Kompatibilitaet. #}
+{# Control-Panel-Layout (2026-07-14): Status-Leiste (#system-stats) + Game-Server-Karten-Grid (.scard,
+   #server-tiles) + Charts + Bot-Health/Events + System-Updates. Alle funktionalen Hooks (IDs, data-attrs,
+   hx-, Chart-Canvases) unveraendert fuer WS-Live-Updates + HTMX + Chart.js. Layout-CSS inline im content-block. #}
+
+<style>
+  /* === Dashboard „Control-Panel" (2026-07-14, Marco-Abnahme via Vorschau) === */
+  .dash-statbar{ display:flex; flex-direction:row; align-items:stretch; flex-wrap:wrap; padding:0; overflow:hidden; margin-bottom:2px }
+  .dash-statbar .sb-seg{ flex:1 1 auto; min-width:140px; padding:16px 22px; border-left:1px solid var(--line-soft,rgba(255,255,255,.06)); display:flex; flex-direction:column; gap:5px }
+  .dash-statbar .sb-seg:first-child{ border-left:0 }
+  .dash-statbar .sb-cap{ font-size:11px; letter-spacing:.07em; text-transform:uppercase; color:var(--t3); font-family:ui-monospace,Menlo,monospace }
+  .dash-statbar .sb-val{ font-size:22px; font-weight:700; color:var(--t1); font-family:ui-monospace,Menlo,monospace; letter-spacing:-.01em }
+  .dash-statbar .sb-val.acc{ color:var(--acc) }
+  .dash-statbar .sb-sub{ font-size:11px; color:var(--t3); font-family:ui-monospace,Menlo,monospace }
+  .dash-statbar .sb-dots{ display:inline-flex; gap:4px; margin-left:6px }
+  .dash-statbar .sb-dots .dot{ width:8px;height:8px;border-radius:99px;display:inline-block }
+
+  .srv-cards{ display:grid; grid-template-columns:repeat(auto-fit,minmax(330px,1fr)); gap:16px }
+  .scard{ padding:22px; display:flex; flex-direction:column; gap:18px; position:relative; overflow:hidden }
+  .scard.on{ border-color:rgba(63,142,242,.5); box-shadow:0 0 0 1px rgba(63,142,242,.25), 0 14px 40px rgba(63,142,242,.14) }
+  .scard.on::before{ content:""; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--acc) }
+  .scard .sc-top{ display:flex; align-items:center; gap:14px }
+  .scard .sc-ico{ width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0 }
+  .scard .sc-ico svg{ width:23px;height:23px }
+  .scard .sc-ico.mc{ background:rgba(52,224,161,.14); color:#34e0a1 }
+  .scard .sc-ico.sat{ background:rgba(245,177,61,.16); color:#f5b13d }
+  .scard .sc-ico.srv{ background:var(--acc-soft); color:var(--acc-2) }
+  .scard .sc-nm{ font-size:17px; font-weight:600; color:var(--t1) }
+  .scard .sc-ty{ font-size:11px; letter-spacing:.07em; text-transform:uppercase; color:var(--t3); margin-top:2px }
+  .scard .status-badge{ margin-left:auto; align-self:flex-start }
+  .scard .sc-mx{ display:flex; gap:26px }
+  .scard .sc-mx .sb-cap{ font-size:11px; letter-spacing:.07em; text-transform:uppercase; color:var(--t3); font-family:ui-monospace,Menlo,monospace; margin-bottom:5px }
+  .scard .metric-value{ font-size:19px; font-weight:600; color:var(--t1); font-family:ui-monospace,Menlo,monospace }
+  .scard .sc-act{ display:flex; gap:8px; margin-top:auto; flex-wrap:wrap }
+  .dash-row{ display:grid; grid-template-columns:2fr 1fr; gap:16px; margin-top:20px }
+  @media(max-width:980px){ .dash-row{ grid-template-columns:1fr } }
+</style>
 
 <!-- Page-Header -->
 <div class="page-header">
@@ -19,173 +53,60 @@
 
 {% set online_servers = servers|selectattr('status','equalto','online')|list|length if servers else 0 %}
 {% set total_servers = servers|length if servers else 0 %}
-{% set total_players = servers|sum(attribute='players') if servers else 0 %}
+{% set total_players = servers|map(attribute='players')|map('int')|sum if servers else 0 %}
 {% set online_bots = bots|selectattr('status','equalto','online')|list|length if bots else 0 %}
 
-<!-- BENTO HERO -->
-<div class="bento">
-    <!-- Lead: Spieler aktiv (col2 row2) -->
-    <div class="card lead-card col2 row2 hero-stat">
-        <div>
-            <div class="cap">Spieler aktiv</div>
-            <div class="lead-metric" data-stat="total_players" style="margin-top:10px">{{ total_players }}</div>
-        </div>
-        <div style="display:flex;align-items:center;gap:8px;color:var(--t2);font-size:12px;text-transform:uppercase;letter-spacing:.1em;font-family:ui-monospace,monospace">
-            <span class="dot" style="background:var(--ok);box-shadow:0 0 0 3px var(--ok-bg)"></span>
-            {{ online_servers }} / {{ total_servers }} Server online
-        </div>
-    </div>
-
-    <!-- 4 Mini-Stats (cols 3-4, rows 1-2) -->
-    <div class="card stat-mini">
-        <div class="cap">Server</div>
-        <div class="v">{{ online_servers }}<span class="sub">/{{ total_servers }}</span></div>
-    </div>
-    <div class="card stat-mini hero-stat">
-        <div class="cap">CPU</div>
-        <div class="v" data-stat="cpu_percent">{{ system.cpu_percent }}<span class="sub">%</span></div>
-    </div>
-    <div class="card stat-mini hero-stat">
-        <div class="cap">RAM</div>
-        <div class="v" data-stat="ram_percent">{{ system.ram_percent }}<span class="sub">%</span></div>
-        <div class="cap" style="font-size:9px;font-weight:500" data-stat="ram_text">{{ system.ram_used_gb }} / {{ system.ram_total_gb }} GB</div>
-    </div>
-    <div class="card stat-mini">
-        <div class="cap">Disk</div>
-        <div class="v">{{ system.disk_percent }}<span class="sub">%</span></div>
-    </div>
+<!-- 1) Status-Leiste -->
+<div class="card dash-statbar" id="system-stats" data-reveal>
+    <div class="sb-seg"><span class="sb-cap">Server online</span><span class="sb-val acc">{{ online_servers }}<span style="color:var(--t3);font-size:15px">/{{ total_servers }}</span></span></div>
+    <div class="sb-seg"><span class="sb-cap">Spieler aktiv</span><span class="sb-val" data-countup data-stat="total_players">{{ total_players }}</span></div>
+    <div class="sb-seg"><span class="sb-cap">CPU</span><span class="sb-val" data-countup data-stat="cpu_percent">{{ system.cpu_percent }}%</span><span class="sb-sub">{{ system.cpu_cores|default(0) }} Cores</span></div>
+    <div class="sb-seg"><span class="sb-cap">RAM</span><span class="sb-val" data-countup data-stat="ram_percent">{{ system.ram_percent }}%</span><span class="sb-sub" data-stat="ram_text">{{ system.ram_used_gb }} / {{ system.ram_total_gb }} GB</span></div>
+    <div class="sb-seg"><span class="sb-cap">Disk</span><span class="sb-val" data-countup data-stat="disk_percent">{{ system.disk_percent }}%</span><span class="sb-sub">Backups + Logs</span></div>
+    <div class="sb-seg"><span class="sb-cap">Bots</span><span class="sb-val">{{ online_bots }}/{{ bots|length }}<span class="sb-dots">{% for bot in bots %}<span class="dot" style="background:{% if bot.status == 'online' %}var(--ok){% else %}var(--t3){% endif %}"></span>{% endfor %}</span></span></div>
 </div>
 
-<!-- Server-Tiles -->
-<section class="section">
-    <div class="section-header">
+<!-- 2) Game-Server Steuer-Karten -->
+<section class="section" data-reveal>
+    <div class="section-header" style="margin-top:26px">
         <h2 class="section-title">// Game-Server</h2>
         <a href="/errors" class="btn btn-sm">Alle Logs</a>
     </div>
-    <div class="tile-grid" id="server-tiles">
+    <div class="srv-cards" id="server-tiles">
         {% if servers %}
-            {% for server in servers %}
-            {% set status_class = 'status-online' if server.status == 'online' else ('status-offline' if server.status == 'offline' else 'status-unknown') %}
-            <div class="card tile" data-server-id="{{ server.id }}" data-server-url="/server/{{ server.id }}">
-                <div class="tile-header">
-                    <div>
-                        <div class="tile-name">{{ server.name }}</div>
-                        <div class="server-meta">{{ server.type|capitalize }}{% if server.address and server.address != 'N/A' %} · {{ server.address }}{% if server.port and server.port != 'N/A' %}:{{ server.port }}{% endif %}{% endif %}</div>
-                    </div>
-                    <span class="status-badge {{ status_class }}">{{ server.status|capitalize }}</span>
-                </div>
-                <div class="tile-body">
-                    <div>
-                        <div class="metric-label">Spieler</div>
-                        {% if server.status == 'online' %}
-                        <div class="metric-value">{{ server.players }}<span class="metric-sub">/{{ server.max_players }}</span></div>
-                        {% else %}
-                        <div class="metric-value text-dim">&mdash;</div>
-                        {% endif %}
-                    </div>
-                    <div>
-                        <div class="metric-label">Uptime</div>
-                        <div class="metric-value">{% if server.status == 'online' %}{{ server.uptime }}{% else %}<span class="text-dim">&mdash;</span>{% endif %}</div>
-                    </div>
-                    <div>
-                        <div class="metric-label">CPU</div>
-                        <div class="metric-value">{% if server.status == 'online' %}{{ server.cpu_percent|default(0) }}%{% else %}<span class="text-dim">&mdash;</span>{% endif %}</div>
-                    </div>
-                </div>
-                {% if server.player_names is defined and server.player_names %}
-                <div class="server-meta" style="margin-bottom:14px">
-                    {% for p in server.player_names %}<span class="status-badge" style="margin-right:4px;background:var(--s3);color:var(--t2)">{{ p }}</span>{% endfor %}
-                </div>
-                {% endif %}
-                <div class="tile-actions" onclick="event.stopPropagation();">
-                    {% if server.status != 'online' %}
-                    <button class="btn btn-sm btn-success"
-                            hx-post="/api/server/{{ server.id }}/action"
-                            hx-vals='{"action": "start"}'
-                            hx-confirm="Server {{ server.name }} starten?"
-                            hx-swap="none">▶ Start</button>
-                    {% else %}
-                    <button class="btn btn-sm btn-danger"
-                            hx-post="/api/server/{{ server.id }}/action"
-                            hx-vals='{"action": "stop"}'
-                            hx-confirm="Server {{ server.name }} stoppen?"
-                            hx-swap="none">■ Stop</button>
-                    <button class="btn btn-sm"
-                            hx-post="/api/server/{{ server.id }}/action"
-                            hx-vals='{"action": "restart"}'
-                            hx-confirm="Server {{ server.name }} neustarten?"
-                            hx-swap="none">↻ Restart</button>
-                    {% endif %}
-                    <a class="btn btn-sm btn-primary" href="/server/{{ server.id }}">Details</a>
-                </div>
+        {% for server in servers %}
+        {% set son = server.status == 'online' %}
+        {% set icoclass = 'sat' if server.type == 'satisfactory' else ('mc' if server.type == 'minecraft' else 'srv') %}
+        <div class="card tile scard{% if son %} on{% endif %}" data-server-id="{{ server.id }}" data-server-url="/server/{{ server.id }}">
+            <div class="sc-top">
+                <span class="sc-ico {{ icoclass }}">{% if server.type == 'satisfactory' %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 20a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8l-7 5V8l-7 5V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2z"/><path d="M7 18h.01M12 18h.01M17 18h.01"/></svg>{% elif server.type == 'minecraft' %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>{% else %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>{% endif %}</span>
+                <div><div class="sc-nm">{{ server.name }}</div><div class="sc-ty">{{ server.type|capitalize }}</div></div>
+                <span class="status-badge {{ 'status-online' if son else ('status-offline' if server.status == 'offline' else 'status-unknown') }}">{{ server.status|capitalize }}</span>
             </div>
-            {% endfor %}
+            <div class="sc-mx">
+                <div><div class="sb-cap">Spieler</div><div class="metric-value">{% if son %}{{ server.players }}<span class="metric-sub">/{{ server.max_players }}</span>{% else %}<span class="text-dim">&mdash;</span>{% endif %}</div></div>
+                <div><div class="sb-cap">Uptime</div><div class="metric-value">{% if son %}{{ server.uptime }}{% else %}<span class="text-dim">&mdash;</span>{% endif %}</div></div>
+                <div><div class="sb-cap">CPU</div><div class="metric-value">{% if son %}{{ server.cpu_percent|default(0) }}%{% else %}<span class="text-dim">&mdash;</span>{% endif %}</div></div>
+            </div>
+            <div class="sc-act" onclick="event.stopPropagation();">
+                {% if not son %}
+                <button class="btn btn-sm btn-success" hx-post="/api/server/{{ server.id }}/action" hx-vals='{"action": "start"}' hx-confirm="Server {{ server.name }} starten?" hx-swap="none">▶ Start</button>
+                {% else %}
+                <button class="btn btn-sm btn-danger" hx-post="/api/server/{{ server.id }}/action" hx-vals='{"action": "stop"}' hx-confirm="Server {{ server.name }} stoppen?" hx-swap="none">■ Stop</button>
+                <button class="btn btn-sm" hx-post="/api/server/{{ server.id }}/action" hx-vals='{"action": "restart"}' hx-confirm="Server {{ server.name }} neustarten?" hx-swap="none">↻ Restart</button>
+                {% endif %}
+                <a class="btn btn-sm btn-primary" href="/server/{{ server.id }}">Details</a>
+            </div>
+        </div>
+        {% endfor %}
         {% else %}
-            <div class="tile-empty">Keine Server-Daten verfügbar. Status-Dateien werden nach dem ersten Health-Check erstellt.</div>
+        <div class="tile-empty">Keine Server-Daten verfügbar. Status-Dateien werden nach dem ersten Health-Check erstellt.</div>
         {% endif %}
     </div>
 </section>
 
-<!-- Bot-Health Strip -->
-<section class="section">
-    <div class="section-header">
-        <h2 class="section-title">// Bot-Health</h2>
-        <span class="status">
-            <span class="status-dot {% if online_bots == bots|length and bots|length > 0 %}status-dot--online{% elif online_bots > 0 %}status-dot--warning{% else %}status-dot--offline{% endif %}"></span>
-            {{ online_bots }} / {{ bots|length }} online
-        </span>
-    </div>
-    <div class="bots-row" id="bot-status">
-        {% for bot in bots %}
-        <div class="card bot-card">
-            <span class="bot-indicator {% if bot.status == 'online' %}indicator-online{% elif bot.status == 'offline' %}indicator-offline{% else %}indicator-unknown{% endif %}"></span>
-            <div class="bot-info">
-                <span class="bot-name">{{ bot.name }}</span>
-                <span class="bot-detail">{% if bot.ping != 'N/A' and bot.ping != 0 %}Ping {{ bot.ping }}ms{% elif bot.uptime != 'N/A' %}Uptime {{ bot.uptime }}{% else %}{{ bot.status|capitalize }}{% endif %}</span>
-            </div>
-        </div>
-        {% endfor %}
-    </div>
-</section>
-
-<!-- System-Performance Bars -->
-<section class="section">
-    <div class="section-header">
-        <h2 class="section-title">// System-Performance</h2>
-    </div>
-    <div class="stats-grid" id="system-stats">
-        {% set cpu_state = 'danger' if system.cpu_percent > 80 else ('warning' if system.cpu_percent > 60 else 'ok') %}
-        <div class="card stat-card">
-            <div class="flex justify-between items-center mb-3">
-                <span class="stat-label">CPU</span>
-                <span class="stat-value" data-stat="cpu_percent">{{ system.cpu_percent }}%</span>
-            </div>
-            <div class="progress-bar"><div class="progress-fill progress-{{ cpu_state }}" style="width: {{ system.cpu_percent }}%" data-bar="cpu_percent"></div></div>
-            <div class="sys-metric__detail">{{ system.cpu_cores|default(0) }} Cores</div>
-        </div>
-        {% set ram_state = 'danger' if system.ram_percent > 85 else ('warning' if system.ram_percent > 70 else 'ok') %}
-        <div class="card stat-card">
-            <div class="flex justify-between items-center mb-3">
-                <span class="stat-label">RAM</span>
-                <span class="stat-value" data-stat="ram_percent">{{ system.ram_percent }}%</span>
-            </div>
-            <div class="progress-bar"><div class="progress-fill progress-{{ ram_state }}" style="width: {{ system.ram_percent }}%" data-bar="ram_percent"></div></div>
-            <div class="sys-metric__detail" data-stat="ram_text">{{ system.ram_used_gb }} GB / {{ system.ram_total_gb }} GB</div>
-        </div>
-        {% set disk_state = 'danger' if system.disk_percent > 90 else ('warning' if system.disk_percent > 75 else 'ok') %}
-        <div class="card stat-card">
-            <div class="flex justify-between items-center mb-3">
-                <span class="stat-label">Disk</span>
-                <span class="stat-value" data-stat="disk_percent">{{ system.disk_percent }}%</span>
-            </div>
-            <div class="progress-bar"><div class="progress-fill progress-{{ disk_state }}" style="width: {{ system.disk_percent }}%" data-bar="disk_percent"></div></div>
-            <div class="sys-metric__detail">Backups + Logs inkl.</div>
-        </div>
-    </div>
-</section>
-
-<!-- Charts + Events 2-Col -->
-<section class="section">
+<!-- 3) Verlauf (Charts) -->
+<section class="section" data-reveal>
     <div class="section-header">
         <h2 class="section-title">// Verlauf</h2>
         <div class="chart-controls">
@@ -206,60 +127,68 @@
     </div>
 </section>
 
-<!-- Events -->
-<section class="section">
-    <div class="section-header">
-        <h2 class="section-title">// Letzte Ereignisse</h2>
-        <div style="display:flex; gap:.5rem;">
-            <button class="btn btn-sm btn-danger"
-                    hx-post="/api/events/clear"
-                    hx-target="#event-feed"
-                    hx-swap="innerHTML"
-                    hx-confirm="Alle Ereignisse wirklich löschen?">Leeren</button>
-            <a class="btn btn-sm" href="/errors">Vollständiges Log</a>
+<!-- 4) Bot-Health + Ereignisse -->
+<div class="dash-row">
+    <!-- Bot-Health -->
+    <div class="card rail-card" data-reveal>
+        <div class="rail-title">
+            <span>Bot-Health</span>
+            <span class="status">
+                <span class="status-dot {% if online_bots == bots|length and bots|length > 0 %}status-dot--online{% elif online_bots > 0 %}status-dot--warning{% else %}status-dot--offline{% endif %}"></span>
+                {{ online_bots }} / {{ bots|length }}
+            </span>
+        </div>
+        <div class="bots-row" id="bot-status">
+            {% for bot in bots %}
+            <div class="card bot-card">
+                <span class="bot-indicator {% if bot.status == 'online' %}indicator-online{% elif bot.status == 'offline' %}indicator-offline{% else %}indicator-unknown{% endif %}"></span>
+                <div class="bot-info">
+                    <span class="bot-name">{{ bot.name }}</span>
+                    <span class="bot-detail">{% if bot.ping != 'N/A' and bot.ping != 0 %}Ping {{ bot.ping }}ms{% elif bot.uptime != 'N/A' %}Uptime {{ bot.uptime }}{% else %}{{ bot.status|capitalize }}{% endif %}</span>
+                </div>
+            </div>
+            {% endfor %}
         </div>
     </div>
-    <div class="card feed-card">
-        <ul class="event-list" id="event-feed">
-        {% if events %}
-            {% for ev in events[:10] %}
-            {% set evtype = (ev.event_type|default('info'))|lower %}
-            {% set badge = 'badge-success' if evtype in ['health','success','ok','join','player_join'] else ('badge-warning' if evtype in ['warn','warning','leave','player_leave'] else ('badge-error' if evtype in ['error','crash','fail'] else 'badge-info')) %}
-            {% set label = (ev.event_type|default('INFO'))|upper %}
-            <li class="event-item">
-                <span class="event-time">{{ (ev.timestamp|default(''))[11:16] }}</span>
-                <span class="event-type {{ badge }}">{{ label[:8] }}</span>
-                <span class="event-message">{{ ev.message|default('') }}</span>
-            </li>
-            {% endfor %}
-        {% else %}
-            <li class="event-item"><span class="event-time">—</span><span class="event-type badge-info">INFO</span><span class="event-message text-dim">Keine Ereignisse in der Historie.</span></li>
-        {% endif %}
-        </ul>
-    </div>
-</section>
 
-<!-- System-Updates -->
-<section class="section">
+    <!-- Ereignisse -->
+    <div class="card rail-card" data-reveal>
+        <div class="rail-title">
+            <span>Ereignisse</span>
+            <button class="btn btn-sm btn-danger" style="padding:4px 10px;font-size:10px" hx-post="/api/events/clear" hx-target="#event-feed" hx-swap="innerHTML" hx-confirm="Alle Ereignisse wirklich löschen?">Leeren</button>
+        </div>
+        <div class="feed-card">
+            <ul class="event-list" id="event-feed">
+            {% if events %}
+                {% for ev in events[:10] %}
+                {% set evtype = (ev.event_type|default('info'))|lower %}
+                {% set badge = 'badge-success' if evtype in ['health','success','ok','join','player_join'] else ('badge-warning' if evtype in ['warn','warning','leave','player_leave'] else ('badge-error' if evtype in ['error','crash','fail'] else 'badge-info')) %}
+                {% set label = (ev.event_type|default('INFO'))|upper %}
+                <li class="event-item">
+                    <span class="event-time">{{ (ev.timestamp|default(''))[11:16] }}</span>
+                    <span class="event-type {{ badge }}">{{ label[:8] }}</span>
+                    <span class="event-message">{{ ev.message|default('') }}</span>
+                </li>
+                {% endfor %}
+            {% else %}
+                <li class="event-item"><span class="event-time">&mdash;</span><span class="event-type badge-info">INFO</span><span class="event-message text-dim">Keine Ereignisse in der Historie.</span></li>
+            {% endif %}
+            </ul>
+        </div>
+    </div>
+</div>
+
+<!-- 5) System-Updates -->
+<section class="section" data-reveal style="margin-top:20px">
     <div class="section-header">
         <h2 class="section-title">// System-Updates</h2>
     </div>
     <div id="package-update-result" style="margin-bottom:12px"></div>
     <div style="display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap">
-        <button class="btn btn-sm"
-                hx-post="/api/system/packages/check"
-                hx-target="#package-list-area"
-                hx-swap="innerHTML">Auf Updates prüfen</button>
-        <button class="btn btn-sm btn-primary"
-                hx-post="/api/system/packages/upgrade"
-                hx-target="#package-update-result"
-                hx-confirm="System-Updates installieren? (kann ~5-10 min dauern)"
-                hx-swap="innerHTML">Updates installieren</button>
+        <button class="btn btn-sm" hx-post="/api/system/packages/check" hx-target="#package-list-area" hx-swap="innerHTML">Auf Updates prüfen</button>
+        <button class="btn btn-sm btn-primary magnetic" hx-post="/api/system/packages/upgrade" hx-target="#package-update-result" hx-confirm="System-Updates installieren? (kann ~5-10 min dauern)" hx-swap="innerHTML">Updates installieren</button>
     </div>
-    <div id="package-list-area"
-         hx-get="/api/system/packages/list"
-         hx-trigger="load, packageListChanged from:body"
-         hx-swap="innerHTML"></div>
+    <div id="package-list-area" hx-get="/api/system/packages/list" hx-trigger="load, packageListChanged from:body" hx-swap="innerHTML"></div>
 </section>
 {% endblock %}
 
@@ -269,10 +198,10 @@
 //   Chart.js Setup — Midnight-Navy-Blau (V5)
 // ============================================================
 const CHART_COLORS = {
-    cpu: '#3b82f6',
-    ram: '#60a5fa',
-    disk: '#6d5cf6',
-    players: ['#3b82f6', '#60a5fa', '#6d5cf6', '#22d3ee']
+    cpu: '#3F8EF2',
+    ram: '#6fb0f7',
+    disk: '#FF5FB5',
+    players: ['#3F8EF2', '#6fb0f7', '#FF5FB5', '#22d3ee']
 };
 const CHART_DEFAULTS = {
     responsive: true,
@@ -321,9 +250,9 @@ function loadCharts(period, btn) {
             systemChart = new Chart(ctx, {
                 type: 'line',
                 data: { labels: data.labels, datasets: [
-                    { label: 'CPU %', data: data.datasets[0].data, borderColor: CHART_COLORS.cpu, backgroundColor: 'rgba(59,130,246,0.12)', fill: true },
-                    { label: 'RAM %', data: data.datasets[1].data, borderColor: CHART_COLORS.ram, backgroundColor: 'rgba(96,165,250,0.10)', fill: true },
-                    { label: 'Disk %', data: data.datasets[2].data, borderColor: CHART_COLORS.disk, backgroundColor: 'rgba(109,92,246,0.08)', fill: true }
+                    { label: 'CPU %', data: data.datasets[0].data, borderColor: CHART_COLORS.cpu, backgroundColor: 'rgba(63,142,242,0.12)', fill: true },
+                    { label: 'RAM %', data: data.datasets[1].data, borderColor: CHART_COLORS.ram, backgroundColor: 'rgba(111,176,247,0.10)', fill: true },
+                    { label: 'Disk %', data: data.datasets[2].data, borderColor: CHART_COLORS.disk, backgroundColor: 'rgba(255,95,181,0.08)', fill: true }
                 ]},
                 options: Object.assign({}, CHART_DEFAULTS, { scales: Object.assign({}, CHART_DEFAULTS.scales, { y: Object.assign({}, CHART_DEFAULTS.scales.y, { max: 100 }) }) })
             });
@@ -350,7 +279,7 @@ function loadCharts(period, btn) {
         })
         .catch(function(err) { _showChartError('playersChart', err); });
 }
-document.addEventListener('DOMContentLoaded', function() { loadCharts('24h'); });
+document.addEventListener('DOMContentLoaded', function() { loadCharts('24h', document.querySelector('.chart-period-btn[data-period="24h"]')); });
 
 // ============================================================
 //   SSE Live-Updates (Hooks unveraendert)
@@ -434,6 +363,7 @@ document.addEventListener('DOMContentLoaded', function() { loadCharts('24h'); })
             var tile = container.querySelector('.tile[data-server-id="' + CSS.escape(String(srv.id)) + '"]');
             if (!tile) return;
             var isOnline = srv.status === 'online';
+            tile.classList.toggle('on', isOnline);
             var statusClass = isOnline ? 'status-online' : (srv.status === 'offline' ? 'status-offline' : 'status-unknown');
             var badge = tile.querySelector('.status-badge');
             if (badge) {
@@ -461,6 +391,11 @@ document.addEventListener('DOMContentLoaded', function() { loadCharts('24h'); })
                 }
             }
         });
+        // M1-Fix (2026-07-14, Fable-Review): Status-Leisten-Aggregat „Spieler aktiv" live nachziehen
+        // (WS-JS aktualisierte data-stat="total_players" nie -> fror auf Seiten-Ladewert ein).
+        var totalP = servers.reduce(function(s, sv){ return s + (parseInt(sv.players, 10) || 0); }, 0);
+        var tpEl = document.querySelector('[data-stat="total_players"]');
+        if (tpEl) tpEl.textContent = totalP;
     }
 
     function updateSystemStats(sys) {

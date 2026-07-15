@@ -54,10 +54,14 @@ def _collect_server_status() -> list[dict]:
         logger.debug(f"Monitor-Verzeichnis nicht gefunden: {monitor_dir}")
         return servers
 
-    # Nur *_status.json Dateien lesen (vom StatusWriter erzeugt)
-    # bot_status.json ausschliessen (wird unter Bot-Status angezeigt)
+    # Nur *_status.json Dateien lesen (vom StatusWriter erzeugt).
+    # Nicht-Server-Monitore ausschliessen, sonst tauchen sie faelschlich als
+    # Server-Karte mit totem /server/<id>-Details-Link auf:
+    #   bot_status.json -> wird unter Bot-Status angezeigt
+    #   ssl_status.json -> SSL-Zertifikats-Monitor, gehoert auf /security
+    _non_server = {"bot_status.json", "ssl_status.json"}
     for json_file in sorted(monitor_dir.glob("*_status.json")):
-        if json_file.name == "bot_status.json":
+        if json_file.name in _non_server:
             continue
         data = _load_json_safe(json_file)
         if data:
@@ -86,6 +90,7 @@ def _collect_system_stats() -> dict:
     """
     stats = {
         "cpu_percent": 0,
+        "cpu_cores": 0,
         "ram_percent": 0,
         "ram_used_gb": 0,
         "ram_total_gb": 0,
@@ -99,6 +104,7 @@ def _collect_system_stats() -> dict:
         # Erster Call liefert 0.0; spaetere Calls liefern den realen Wert.
         # Vermeidet 500ms Event-Loop-Block in async Hot-Path.
         stats["cpu_percent"] = psutil.cpu_percent(interval=None)
+        stats["cpu_cores"] = psutil.cpu_count() or 0
 
         mem = psutil.virtual_memory()
         stats["ram_percent"] = mem.percent

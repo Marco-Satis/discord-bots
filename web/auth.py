@@ -63,6 +63,10 @@ DISCORD_API_URL = "https://discord.com/api/v10"
 
 # JWT Konfiguration
 JWT_ALGORITHM = "HS256"
+# Absolutes Session-Cap (JWT-`exp` + Cookie-max_age) = 24 h fuer aktive Nutzung. Das
+# eigentliche Auslog-Verhalten steuert der ZWEISTUFIGE Idle-Timeout (Marco 2026-07-14):
+# 10 min Soft-Logout (zur Login-Seite, Cookie BLEIBT) / 60 min Hard-Logout (Cookie geloescht)
+# in web/middleware/session_timeout.py. prompt=consent bleibt entfernt → stiller Re-Login.
 JWT_EXPIRY_HOURS = 24
 
 # Erlaubte Rollen und Benutzer aus config.json
@@ -287,20 +291,22 @@ async def discord_oauth_redirect(request: Request):
     state = secrets.token_urlsafe(32)
     request.session["oauth_state"] = state
 
+    # KEIN prompt=consent (Marco 2026-07-14): sonst zeigt Discord bei JEDEM Login den
+    # Autorisierungs-Dialog erneut. Ohne prompt merkt Discord die Zustimmung → stiller
+    # Re-Login (Guild-/Rollen-Check laeuft weiter, Auth-Sicherheit unveraendert).
     params = {
         "client_id": DISCORD_CLIENT_ID,
         "redirect_uri": DISCORD_REDIRECT_URI,
         "response_type": "code",
         "scope": "identify guilds guilds.members.read",
         "state": state,
-        "prompt": "consent",
     }
     query = "&".join(f"{k}={httpx.QueryParams({k: v})}" for k, v in params.items())
     # Saubere URL zusammenbauen
     auth_url = f"{DISCORD_AUTH_URL}?client_id={DISCORD_CLIENT_ID}"
     auth_url += f"&redirect_uri={DISCORD_REDIRECT_URI}"
     auth_url += f"&response_type=code&scope=identify+guilds+guilds.members.read"
-    auth_url += f"&state={state}&prompt=consent"
+    auth_url += f"&state={state}"
 
     logger.info("Benutzer wird zu Discord OAuth2 weitergeleitet")
     return RedirectResponse(url=auth_url, status_code=302)
@@ -419,6 +425,9 @@ async def discord_oauth_callback(request: Request, code: str = "", state: str = 
                 "roles": [str(r) for r in member_roles],
             }
             token = _create_jwt(jwt_data)
+            # Idle-Uhr zuruecksetzen — sonst bounct die Session-Timeout-Middleware direkt
+            # nach dem Re-Login erneut zur Login-Seite (last_seen waere noch alt).
+            request.session["last_seen"] = time.time()
 
             logger.info(f"Discord-Login erfolgreich: {username} ({user_id})")
 
@@ -516,6 +525,7 @@ async def login_post(request: Request, username: str = Form(""), password: str =
         "is_owner": True,  # Fallback-Login ist immer Owner
     }
     token = _create_jwt(jwt_data)
+    request.session["last_seen"] = time.time()  # Idle-Uhr zuruecksetzen (siehe OAuth-Callback)
 
     # B2/M13-Fix: Fallback-Login (Owner-Rechte) prominent auditieren
     logger.warning(f"[AUDIT] Fallback-Passwort-Login mit Owner-Rechten: {username} von {client_ip}")

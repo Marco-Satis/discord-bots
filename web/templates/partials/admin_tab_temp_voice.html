@@ -15,32 +15,42 @@
             „Chill-Voice") — je mit eigener Kategorie, Limit und Namens-Template.
         </p>
 
-        <div class="form-group">
-            <label for="hubs_text">Hubs — eine Zeile pro Hub</label>
-            <textarea id="hubs_text" name="hubs_text" rows="6"
-                      style="width:100%; font-family:monospace; font-size:0.85rem;"
-                      placeholder="hub_channel_id | category_id | limit | privat | naming">{{ config.hubs_text|default('', true) }}</textarea>
-            <p style="color: var(--text-secondary); font-size: 0.8rem; margin-top: 0.5rem;">
-                Format pro Zeile (Felder mit <code>|</code> getrennt):<br>
-                <code>hub_channel_id | category_id | limit | privat | naming</code><br>
-                Beispiel:<br>
-                <code>111111111111111111 | 444444444444444444 | 5 | nein | {user}'s COD Voice</code><br>
-                <code>333333333333333333 | | 0 | ja | {game} #{count}</code><br><br>
-                <strong>Felder:</strong> <code>category_id</code>/<code>limit</code>/<code>privat</code>/<code>naming</code>
-                sind optional (leer = Default).
-                <strong>privat:</strong> <code>ja</code> = Channel direkt geschlossen.
-                <strong>Platzhalter im Naming:</strong>
-                <code>{user}</code> = Anzeigename, <code>{count}</code> = laufende Nummer,
-                <code>{game}</code> = Spielname (6. Feld, optional).
-            </p>
-        </div>
+        <div class="set-grid">
+            <!-- Gruppe: Hub-Konfiguration -->
+            <div class="set-group">
+                <div class="set-group-title">Hub-Konfiguration</div>
+                <div class="form-group">
+                    <label for="hubs_text">Hubs — eine Zeile pro Hub</label>
+                    <textarea id="hubs_text" name="hubs_text" rows="7"
+                              style="width:100%; font-family:ui-monospace,monospace; font-size:0.85rem;"
+                              placeholder="hub_channel_id | category_id | limit | privat | naming">{{ config.hubs_text|default('', true) }}</textarea>
+                    <p style="color: var(--text-secondary); font-size: 0.8rem; margin-top: 0.5rem;">
+                        Format je Zeile, Felder mit <code>|</code> getrennt. <code>category_id</code>/<code>limit</code>/<code>privat</code>/<code>naming</code>
+                        sind optional (leer = Default). <code>privat: ja</code> = Channel direkt geschlossen.
+                    </p>
+                </div>
+            </div>
 
-        <div class="input-grid" style="margin-top: 1rem;">
-            <div class="form-group">
-                <label for="afk_timeout_minutes">AFK-Timeout (Minuten bis leerer Channel geloescht wird)</label>
-                <input type="number" id="afk_timeout_minutes" name="afk_timeout_minutes"
-                       value="{{ config.afk_timeout_minutes|default(5, true) }}"
-                       min="1" max="120">
+            <!-- Gruppe: Einstellungen -->
+            <div class="set-group">
+                <div class="set-group-title">Einstellungen</div>
+                <div class="form-group">
+                    <label for="afk_timeout_minutes">AFK-Timeout (Minuten bis leerer Channel geloescht wird)</label>
+                    <input type="number" id="afk_timeout_minutes" name="afk_timeout_minutes"
+                           value="{{ config.afk_timeout_minutes|default(5, true) }}"
+                           min="1" max="120">
+                </div>
+                <div class="form-group">
+                    <label>Naming-Platzhalter</label>
+                    <p style="color: var(--text-secondary); font-size: 0.8rem; margin-top: 2px;">
+                        <code>{user}</code> = Anzeigename &nbsp;·&nbsp; <code>{count}</code> = laufende Nummer &nbsp;·&nbsp; <code>{game}</code> = Spielname (6. Feld, optional)
+                    </p>
+                </div>
+                <div class="form-group">
+                    <label>Beispiel</label>
+                    <pre style="margin:2px 0 0; padding:12px 14px; background:var(--s1,rgba(0,0,0,.25)); border:1px solid var(--line); border-radius:10px; font-family:ui-monospace,monospace; font-size:0.8rem; color:var(--t2,#c2cde0); overflow-x:auto; white-space:pre-wrap;">111111111111111111 | 444444444444444444 | 5 | nein | {user}'s COD Voice
+333333333333333333 | | 0 | ja | {game} #{count}</pre>
+                </div>
             </div>
         </div>
 
@@ -49,9 +59,9 @@
             <code>/tempvoice hubremove</code>, <code>/tempvoice hubs</code>.
             Aenderungen hier uebernimmt der Bot ohne Neustart.
         </p>
-    </section>
 
-    <div class="form-actions">
-        <button type="submit" class="btn btn-primary">Speichern</button>
-    </div>
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Speichern</button>
+        </div>
+    </section>
 </form>

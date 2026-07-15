@@ -4,6 +4,10 @@
 {% block nav_audit %}active{% endblock %}
 
 {% block content %}
+{# V6-Migration 2026-07-14: eigene `.audit-*`-CSS-Insel entfernt. Nutzt jetzt die
+   globalen v5-Komponenten (.config-section, .form-row, .table-wrapper/.data-table,
+   .badge, native .appcont-Inputs) + token-basierte Inline-Styles wie home.html.
+   Kein Hardcode-Blau mehr, kein undefiniertes --border. Backend/Query unveraendert. #}
 <div class="page-header">
     <h1>Audit-Log</h1>
     <p class="page-subtitle">
@@ -12,90 +16,69 @@
     </p>
 </div>
 
-<form class="audit-filter" method="get" action="/audit">
-    <div class="audit-f">
-        <label for="f_user">User</label>
-        <input type="text" id="f_user" name="user" value="{{ f_user|default('', true) }}"
-               placeholder="ID oder Name">
-    </div>
-    <div class="audit-f">
-        <label for="f_resource">Bereich</label>
-        <select id="f_resource" name="resource">
-            <option value="">— alle —</option>
-            {% for r in resources %}
-            <option value="{{ r }}" {% if r == f_resource %}selected{% endif %}>{{ r }}</option>
-            {% endfor %}
-        </select>
-    </div>
-    <div class="audit-f">
-        <label for="f_since">Von (ISO)</label>
-        <input type="text" id="f_since" name="since" value="{{ f_since|default('', true) }}"
-               placeholder="2026-06-01">
-    </div>
-    <div class="audit-f">
-        <label for="f_until">Bis (ISO)</label>
-        <input type="text" id="f_until" name="until" value="{{ f_until|default('', true) }}"
-               placeholder="2026-06-30">
-    </div>
-    <div class="audit-f audit-f-btn">
-        <button type="submit" class="audit-btn">Filtern</button>
-        <a class="audit-reset" href="/audit">Zuruecksetzen</a>
-    </div>
-</form>
+<!-- Filter -->
+<div class="config-section" style="margin-bottom:16px">
+    <form method="get" action="/audit">
+        <div class="form-row">
+            <div class="form-group">
+                <label for="f_user">User</label>
+                <input type="text" id="f_user" name="user" value="{{ f_user|default('', true) }}"
+                       placeholder="ID oder Name">
+            </div>
+            <div class="form-group">
+                <label for="f_resource">Bereich</label>
+                <select id="f_resource" name="resource">
+                    <option value="">&mdash; alle &mdash;</option>
+                    {% for r in resources %}
+                    <option value="{{ r }}" {% if r == f_resource %}selected{% endif %}>{{ r }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="f_since">Von <span class="hint">(ISO)</span></label>
+                <input type="text" id="f_since" name="since" value="{{ f_since|default('', true) }}"
+                       placeholder="2026-06-01">
+            </div>
+            <div class="form-group">
+                <label for="f_until">Bis <span class="hint">(ISO)</span></label>
+                <input type="text" id="f_until" name="until" value="{{ f_until|default('', true) }}"
+                       placeholder="2026-06-30">
+            </div>
+        </div>
+        <div class="actions-bar">
+            <a class="btn btn-secondary" href="/audit">Zuruecksetzen</a>
+            <button type="submit" class="btn btn-primary">Filtern</button>
+        </div>
+    </form>
+</div>
 
-<p class="audit-count">{{ entries|length }} Eintraege (max. {{ limit }})</p>
+<p class="config-hint" style="margin:0 0 10px">{{ entries|length }} Eintraege (max. {{ limit }})</p>
 
-<table class="audit-table">
-    <thead>
-        <tr>
-            <th>Zeit</th><th>User</th><th>Bereich</th><th>Aktion</th>
-            <th>Detail</th><th>IP</th>
-        </tr>
-    </thead>
-    <tbody>
-    {% for e in entries %}
-        <tr>
-            <td class="audit-ts">{{ e.ts }}</td>
-            <td>{{ e.username|default('—', true) }}
-                {% if e.discord_id %}<span class="audit-id">({{ e.discord_id }})</span>{% endif %}
-            </td>
-            <td><span class="audit-res">{{ e.resource|default('—', true) }}</span></td>
-            <td>{{ e.action|default('—', true) }}</td>
-            <td class="audit-detail">{{ e.detail|default('', true) }}</td>
-            <td class="audit-id">{{ e.ip|default('—', true) }}</td>
-        </tr>
-    {% else %}
-        <tr><td colspan="6" class="audit-empty">Keine Eintraege fuer diese Filter.</td></tr>
-    {% endfor %}
-    </tbody>
-</table>
-
-<style>
-    .audit-filter { display: flex; flex-wrap: wrap; gap: 0.8rem; align-items: flex-end;
-        margin-bottom: 1rem; }
-    .audit-f { display: flex; flex-direction: column; }
-    .audit-f label { font-size: 0.75rem; color: var(--text-muted, #8a8a9a);
-        margin-bottom: 0.25rem; }
-    .audit-f input, .audit-f select { padding: 0.4rem 0.55rem;
-        background: var(--bg-input, #1a1a26); color: var(--text-primary);
-        border: 1px solid var(--border, #2a2a3a); border-radius: 6px; font-size: 0.85rem; }
-    .audit-f-btn { flex-direction: row; gap: 0.6rem; align-items: center; }
-    .audit-btn { padding: 0.45rem 1rem; background: var(--accent, #3b82f6); color: #fff;
-        border: none; border-radius: 6px; font-size: 0.85rem; font-weight: 600; cursor: pointer; }
-    .audit-reset { font-size: 0.8rem; color: var(--text-muted, #8a8a9a); }
-    .audit-count { font-size: 0.8rem; color: var(--text-muted, #8a8a9a); margin: 0 0 0.5rem; }
-    .audit-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
-    .audit-table th, .audit-table td { text-align: left; padding: 0.4rem 0.55rem;
-        border-bottom: 1px solid var(--border, #2a2a3a); vertical-align: top; }
-    .audit-table th { color: var(--text-muted, #8a8a9a); font-weight: 600;
-        position: sticky; top: 0; background: var(--bg-card, #14141f); }
-    .audit-ts { white-space: nowrap; color: var(--text-muted, #8a8a9a); }
-    .audit-id { font-size: 0.72rem; color: var(--text-muted, #8a8a9a); }
-    .audit-res { display: inline-block; padding: 0.05rem 0.4rem; border-radius: 4px;
-        background: rgba(59,130,246,0.15); color: #93c5fd; font-size: 0.74rem; }
-    .audit-detail { font-family: ui-monospace, monospace; font-size: 0.74rem;
-        max-width: 28rem; word-break: break-word; color: var(--text-primary); }
-    .audit-empty { text-align: center; color: var(--text-muted, #8a8a9a);
-        padding: 1.2rem; }
-</style>
+<!-- Tabelle -->
+<div class="table-wrapper">
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Zeit</th><th>User</th><th>Bereich</th><th>Aktion</th>
+                <th>Detail</th><th>IP</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for e in entries %}
+            <tr>
+                <td style="white-space:nowrap;color:var(--t3)">{{ e.ts }}</td>
+                <td>{{ e.username|default('—', true) }}
+                    {% if e.discord_id %}<span style="font-size:11px;color:var(--t3)">({{ e.discord_id }})</span>{% endif %}
+                </td>
+                <td><span class="badge badge-info">{{ e.resource|default('—', true) }}</span></td>
+                <td>{{ e.action|default('—', true) }}</td>
+                <td style="font-family:ui-monospace,monospace;font-size:12px;color:var(--t2);max-width:28rem;word-break:break-word">{{ e.detail|default('', true) }}</td>
+                <td style="font-size:11px;color:var(--t3)">{{ e.ip|default('—', true) }}</td>
+            </tr>
+        {% else %}
+            <tr class="empty-row"><td colspan="6">Keine Eintraege fuer diese Filter.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
 {% endblock %}

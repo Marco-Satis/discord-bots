@@ -1,8 +1,13 @@
 {% extends "base_v5.html" %}
 
 {% block title %}Suche{% endblock %}
+{% block nav_search %}active{% endblock %}
 
 {% block content %}
+{# V6-Migration 2026-07-14: seiten-lokale `<style>`-Insel entfernt (Alt-Tokens
+   --bg-primary/--border-color/--accent*/--radius-sm). Alle Search-Klassen kommen
+   jetzt token-only aus v5_components.css. Filter-Pills -> .filter-bar + .btn btn-sm,
+   .search-source-badge -> .badge badge-info. Backend/Query-Kontrakt unveraendert. #}
 <div class="page-header">
     <h1>Suche</h1>
     <p class="page-subtitle">Volltextsuche ueber alle Dashboard-Daten</p>
@@ -37,17 +42,19 @@
 {% if query %}
 <div class="config-section">
     <div class="section-header">
-        <h3>Ergebnisse{% if total %} ({{ total }}){% endif %}</h3>
+        <h3 class="section-title">Ergebnisse{% if total %} ({{ total }}){% endif %}</h3>
     </div>
 
     {% if total == 0 %}
     <p class="text-muted">Keine Ergebnisse fuer &laquo;{{ query }}&raquo; gefunden.</p>
     {% else %}
     <!-- Quell-Filter -->
-    <div class="search-source-filters">
-        <a href="/search?q={{ query }}" class="search-filter {% if not request.query_params.get('source') %}active{% endif %}">Alle ({{ total }})</a>
+    <div class="filter-bar">
+        <a href="/search?q={{ query }}"
+           class="btn btn-sm {% if not request.query_params.get('source') %}btn-primary{% else %}btn-secondary{% endif %}">Alle ({{ total }})</a>
         {% for source_key, group in grouped.items() %}
-        <a href="/search?q={{ query }}&source={{ source_key }}" class="search-filter">{{ group.label }} ({{ group.items|length }})</a>
+        <a href="/search?q={{ query }}&source={{ source_key }}"
+           class="btn btn-sm {% if request.query_params.get('source') == source_key %}btn-primary{% else %}btn-secondary{% endif %}">{{ group.label }} ({{ group.items|length }})</a>
         {% endfor %}
     </div>
 
@@ -59,7 +66,7 @@
         <div class="search-result">
             <div class="search-result-content">{{ item.snippet|safe }}</div>
             <div class="search-result-meta">
-                <span class="search-source-badge">{{ group.label }}</span>
+                <span class="badge badge-info">{{ group.label }}</span>
                 {% if item.timestamp %}
                 <span class="text-muted">{{ item.timestamp }}</span>
                 {% endif %}
@@ -71,140 +78,4 @@
     {% endif %}
 </div>
 {% endif %}
-
-<style>
-    .search-form {
-        margin-bottom: 0.75rem;
-    }
-
-    .search-input-group {
-        display: flex;
-        gap: 0.5rem;
-    }
-
-    .search-input {
-        flex: 1;
-        padding: 0.6rem 1rem;
-        background: var(--bg-primary);
-        border: 1px solid var(--border-color);
-        border-radius: var(--radius-sm);
-        color: var(--text-primary);
-        font-size: 0.95rem;
-    }
-
-    .search-input:focus {
-        outline: none;
-        border-color: var(--accent);
-        box-shadow: 0 0 0 3px var(--accent-glow);
-    }
-
-    .search-recent {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        flex-wrap: wrap;
-        margin-top: 0.5rem;
-    }
-
-    .search-tag {
-        display: inline-block;
-        padding: 0.2rem 0.6rem;
-        background: var(--bg-primary);
-        border: 1px solid var(--border-color);
-        border-radius: 1rem;
-        color: var(--text-secondary);
-        text-decoration: none;
-        font-size: 0.8rem;
-        transition: all 0.15s ease;
-    }
-
-    .search-tag:hover {
-        border-color: var(--accent);
-        color: var(--accent-light);
-    }
-
-    .search-source-filters {
-        display: flex;
-        gap: 0.5rem;
-        flex-wrap: wrap;
-        margin-bottom: 1rem;
-        padding-bottom: 0.75rem;
-        border-bottom: 1px solid var(--border-color);
-    }
-
-    .search-filter {
-        padding: 0.3rem 0.75rem;
-        background: var(--bg-primary);
-        border: 1px solid var(--border-color);
-        border-radius: var(--radius-sm);
-        color: var(--text-secondary);
-        text-decoration: none;
-        font-size: 0.85rem;
-        transition: all 0.15s ease;
-    }
-
-    .search-filter:hover,
-    .search-filter.active {
-        border-color: var(--accent);
-        color: var(--accent-light);
-        background: var(--accent-bg);
-    }
-
-    .search-group {
-        margin-bottom: 1.25rem;
-    }
-
-    .search-group-title {
-        font-size: 0.95rem;
-        font-weight: 600;
-        color: var(--accent-light);
-        margin-bottom: 0.5rem;
-        padding-bottom: 0.25rem;
-        border-bottom: 1px solid var(--border-color);
-    }
-
-    .search-result {
-        padding: 0.6rem 0.75rem;
-        margin-bottom: 0.35rem;
-        background: var(--bg-primary);
-        border-radius: var(--radius-sm);
-        border-left: 3px solid var(--accent);
-    }
-
-    .search-result-content {
-        font-size: 0.9rem;
-        color: var(--text-primary);
-        line-height: 1.5;
-    }
-
-    .search-result-content mark {
-        background: var(--accent-glow);
-        color: var(--accent-light);
-        padding: 0.05rem 0.15rem;
-        border-radius: 2px;
-    }
-
-    .search-result-meta {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        margin-top: 0.3rem;
-        font-size: 0.8rem;
-    }
-
-    .search-source-badge {
-        display: inline-block;
-        padding: 0.1rem 0.4rem;
-        background: var(--accent);
-        color: white;
-        border-radius: var(--radius-sm);
-        font-size: 0.7rem;
-        font-weight: 600;
-        text-transform: uppercase;
-    }
-
-    .text-muted {
-        color: var(--text-secondary);
-    }
-</style>
 {% endblock %}

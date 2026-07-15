@@ -33,13 +33,19 @@ def _load_json_safe(filepath: Path) -> dict:
     return {}
 
 
+# Status-Dateien in data/monitor/, die KEINE Game-Server sind und daher nicht
+# als Server-Karte auftauchen duerfen (sonst: toter /server/<id>-Details-Link).
+# ssl_status.json = SSL-Zertifikats-Monitor -> gehoert auf /security, nicht hierher.
+_NON_SERVER_STATUS = {"bot_status.json", "ssl_status.json"}
+
+
 def collect_server_status() -> list[dict]:
-    """Server-Status aus data/monitor/*_status.json (ohne bot_status.json)."""
+    """Server-Status aus data/monitor/*_status.json (ohne Nicht-Server-Monitore)."""
     servers: list[dict] = []
     if not MONITOR_DATA_DIR.exists():
         return servers
     for json_file in sorted(MONITOR_DATA_DIR.glob("*_status.json")):
-        if json_file.name == "bot_status.json":
+        if json_file.name in _NON_SERVER_STATUS:
             continue
         data = _load_json_safe(json_file)
         if data:

@@ -18,10 +18,14 @@ from utils.logger import get_logger
 
 logger = get_logger("web.session_timeout")
 
-# Idle-Timeout in Sekunden (C1/M06-Fix: 10 Minuten Inaktivitaet).
-# Absolutes Timeout deckt das JWT selbst ab (exp = 24h) — abgelaufene Tokens
-# dekodieren zu None und werden von der Route-Auth abgefangen.
-INACTIVITY_TIMEOUT = 600  # 10 Minuten
+# Zweistufiger Idle-Timeout (Marco 2026-07-14), Sliding-Window auf `last_seen`:
+#   SOFT (10 min): Soft-Logout → zur Login-Seite, Cookie BLEIBT erhalten. Rueckkehr < HARD
+#     ist ein stiller Discord-Re-Login (prompt=consent ist entfernt). last_seen wird im
+#     Soft-Fenster NICHT weitergeschoben → idle waechst weiter Richtung HARD.
+#   HARD (60 min): Voll-Logout → Session leeren + dashboard_token-Cookie loeschen.
+# Absolutes Cap deckt zusaetzlich das JWT selbst ab (exp = 24 h, web/auth.py).
+SOFT_IDLE_TIMEOUT = 10 * 60   # 10 min — Soft-Logout, Cookie bleibt
+HARD_IDLE_TIMEOUT = 60 * 60   # 60 min — Cookie wird geloescht
 
 # Pfade die kein Login erfordern
 PUBLIC_PATHS = {
@@ -79,15 +83,25 @@ class SessionTimeoutMiddleware:
         now = time.time()
         last_seen = session.get("last_seen")
 
-        if last_seen and (now - last_seen) > INACTIVITY_TIMEOUT:
-            logger.info(f"Idle-Timeout ({(now - last_seen) / 60:.0f}min) fuer "
-                        f"{payload.get('username', '?')}")
-            session.clear()
-            response = RedirectResponse(url="/auth/login?reason=inactive", status_code=302)
-            response.delete_cookie("dashboard_token")
-            await response(scope, receive, send)
-            return
+        if last_seen:
+            idle = now - last_seen
+            if idle > HARD_IDLE_TIMEOUT:
+                # 60 min inaktiv → Voll-Logout: Session leeren + Cookie loeschen.
+                logger.info(f"Hard-Idle ({idle / 60:.0f}min) → Logout + Cookie-Delete fuer "
+                            f"{payload.get('username', '?')}")
+                session.clear()
+                response = RedirectResponse(url="/auth/login?reason=inactive", status_code=302)
+                response.delete_cookie("dashboard_token")
+                await response(scope, receive, send)
+                return
+            if idle > SOFT_IDLE_TIMEOUT:
+                # 10 min inaktiv → Soft-Logout: zur Login-Seite, Cookie BLEIBT (schnelle
+                # Rueckkehr < 60 min via stillem Re-Login). last_seen NICHT sliden, damit
+                # idle Richtung HARD weiterwaechst.
+                response = RedirectResponse(url="/auth/login?reason=inactive", status_code=302)
+                await response(scope, receive, send)
+                return
 
-        # Aktivitaet aktualisieren (sliding window)
+        # Aktive Nutzung (idle <= SOFT) → Sliding-Window aktualisieren.
         session["last_seen"] = now
         await self.app(scope, receive, send)

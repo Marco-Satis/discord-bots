@@ -4,6 +4,18 @@
 {% block nav_lfg %}active{% endblock %}
 
 {% block content %}
+{# V6-Migration 2026-07-14: eigene `.lfg-*`-CSS-Insel entfernt. Nutzt jetzt die
+   globalen v5-Komponenten (.config-section, .form-group, .btn btn-primary, native
+   .appcont-Inputs) + token-only Inline-Styles. Kein Hardcode-Blau/-Gruen/-Rot mehr,
+   kein undefiniertes --border/--bg-input. Backend/Route unveraendert. #}
+<style>
+/* Einstellungen gruppieren (abgenommenes Muster aus config.html, token-only) */
+.set-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 4px; align-items: start; }
+@media (max-width: 760px) { .set-grid { grid-template-columns: 1fr; } }
+.set-group { border: 1px solid var(--line); border-radius: 14px; padding: 10px 15px 4px; background: rgba(120,180,240,.03); }
+.set-group-title { font-size: 11px; text-transform: uppercase; letter-spacing: .12em; color: var(--acc-2); font-weight: 700; margin: 4px 0 2px; font-family: ui-monospace, monospace; }
+</style>
+
 <div class="page-header">
     <h1>LFG — Mitspieler-Suche</h1>
     <p class="page-subtitle">
@@ -19,26 +31,4 @@
 <div id="lfg-config">
 {% include "partials/lfg_config.html" %}
 </div>
-
-<style>
-    .lfg-card { max-width: 40rem; }
-    .lfg-field { margin-bottom: 1rem; }
-    .lfg-field label { display: block; font-weight: 500; margin-bottom: 0.3rem;
-        color: var(--text-primary); }
-    .lfg-field input { width: 100%; padding: 0.45rem 0.6rem;
-        background: var(--bg-input, #1a1a26); color: var(--text-primary);
-        border: 1px solid var(--border, #2a2a3a); border-radius: 6px; }
-    .lfg-hint { font-size: 0.78rem; color: var(--text-muted, #8a8a9a);
-        margin: 0.3rem 0 0; }
-    .lfg-save-btn { padding: 0.5rem 1.1rem; background: var(--accent, #3b82f6);
-        color: #fff; border: none; border-radius: 6px; font-size: 0.88rem;
-        font-weight: 600; cursor: pointer; }
-    .lfg-save-btn:hover { filter: brightness(1.1); }
-    .lfg-banner { padding: 0.55rem 0.8rem; border-radius: 6px; font-size: 0.85rem;
-        margin-bottom: 0.8rem; }
-    .lfg-banner-ok { background: rgba(34,197,94,0.12); color: #4ade80;
-        border: 1px solid rgba(34,197,94,0.3); }
-    .lfg-banner-err { background: rgba(239,68,68,0.12); color: #f87171;
-        border: 1px solid rgba(239,68,68,0.3); }
-</style>
 {% endblock %}

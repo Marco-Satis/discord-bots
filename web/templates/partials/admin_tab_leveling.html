@@ -13,101 +13,106 @@
             XP fuer Nachrichten und Voice-Zeit. Level-Ups mit automatischer Rollen-Vergabe.
         </p>
 
-        <!-- XP-Raten -->
-        <h3 style="color: var(--text-primary); font-size: 1rem; margin: 0 0 0.75rem; font-weight: 600;">XP-Raten</h3>
-        <div class="input-grid">
-            <div class="form-group">
-                <label for="xp_per_message_min">XP pro Nachricht (min)</label>
-                <input type="number" id="xp_per_message_min" name="xp_per_message_min"
-                       value="{{ config.xp_per_message_min|default(15, true) }}"
-                       min="1" max="100">
+        <div class="set-grid">
+            <!-- Gruppe: XP-Raten -->
+            <div class="set-group">
+                <div class="set-group-title">XP-Raten</div>
+                <div class="input-grid">
+                    <div class="form-group">
+                        <label for="xp_per_message_min">XP pro Nachricht (min)</label>
+                        <input type="number" id="xp_per_message_min" name="xp_per_message_min"
+                               value="{{ config.xp_per_message_min|default(15, true) }}"
+                               min="1" max="100">
+                    </div>
+                    <div class="form-group">
+                        <label for="xp_per_message_max">XP pro Nachricht (max)</label>
+                        <input type="number" id="xp_per_message_max" name="xp_per_message_max"
+                               value="{{ config.xp_per_message_max|default(25, true) }}"
+                               min="1" max="100">
+                    </div>
+                    <div class="form-group">
+                        <label for="xp_cooldown_seconds">XP-Cooldown (Sekunden)</label>
+                        <input type="number" id="xp_cooldown_seconds" name="xp_cooldown_seconds"
+                               value="{{ config.xp_cooldown_seconds|default(60, true) }}"
+                               min="10" max="600">
+                    </div>
+                    <div class="form-group">
+                        <label for="voice_xp_per_minute">Voice-XP pro Minute</label>
+                        <input type="number" id="voice_xp_per_minute" name="voice_xp_per_minute"
+                               value="{{ config.voice_xp_per_minute|default(5, true) }}"
+                               min="0" max="50">
+                    </div>
+                    <div class="form-group">
+                        <label for="leaderboard_display_count">Leaderboard Anzahl</label>
+                        <input type="number" id="leaderboard_display_count" name="leaderboard_display_count"
+                               value="{{ config.leaderboard_display_count|default(10, true) }}"
+                               min="5" max="50">
+                    </div>
+                </div>
             </div>
-            <div class="form-group">
-                <label for="xp_per_message_max">XP pro Nachricht (max)</label>
-                <input type="number" id="xp_per_message_max" name="xp_per_message_max"
-                       value="{{ config.xp_per_message_max|default(25, true) }}"
-                       min="1" max="100">
-            </div>
-            <div class="form-group">
-                <label for="xp_cooldown_seconds">XP-Cooldown (Sekunden)</label>
-                <input type="number" id="xp_cooldown_seconds" name="xp_cooldown_seconds"
-                       value="{{ config.xp_cooldown_seconds|default(60, true) }}"
-                       min="10" max="600">
-            </div>
-            <div class="form-group">
-                <label for="voice_xp_per_minute">Voice-XP pro Minute</label>
-                <input type="number" id="voice_xp_per_minute" name="voice_xp_per_minute"
-                       value="{{ config.voice_xp_per_minute|default(5, true) }}"
-                       min="0" max="50">
-            </div>
-            <div class="form-group">
-                <label for="leaderboard_display_count">Leaderboard Anzahl</label>
-                <input type="number" id="leaderboard_display_count" name="leaderboard_display_count"
-                       value="{{ config.leaderboard_display_count|default(10, true) }}"
-                       min="5" max="50">
-            </div>
-        </div>
 
-        <!-- Channel-Multiplikatoren -->
-        <h3 style="color: var(--text-primary); font-size: 1rem; margin: 1.5rem 0 0.75rem; font-weight: 600;">Channel-Multiplikatoren</h3>
-        <p style="color: var(--text-secondary); font-size: 0.8rem; margin-bottom: 0.75rem;">
-            XP-Multiplikator pro Channel (z.B. 0.5 = halbe XP, 2.0 = doppelte XP).
-        </p>
-        <div id="channel-multipliers">
-            {% for cm in config.channel_multipliers %}
-            <div style="display: grid; grid-template-columns: 1fr 120px; gap: 0.5rem; margin-bottom: 0.5rem;">
-                <input type="text" name="cm_channel_{{ loop.index0 }}"
-                       value="{{ cm.channel_id }}" placeholder="Channel ID">
-                <input type="number" name="cm_multiplier_{{ loop.index0 }}"
-                       value="{{ cm.multiplier }}" step="0.1" min="0" max="10" placeholder="Multiplikator">
+            <!-- Gruppe: Rollen-Belohnungen -->
+            <div class="set-group">
+                <div class="set-group-title">Rollen-Belohnungen</div>
+                <p style="color: var(--text-secondary); font-size: 0.8rem; margin-bottom: 0.75rem;">
+                    Bei bestimmten Leveln automatisch Discord-Rollen zuweisen.
+                </p>
+                <div id="role-rewards">
+                    {% for rr in config.role_rewards %}
+                    <div style="display: grid; grid-template-columns: 100px 1fr; gap: 0.5rem; margin-bottom: 0.5rem;">
+                        <input type="number" name="rr_level_{{ loop.index0 }}"
+                               value="{{ rr.level }}" min="1" placeholder="Level">
+                        <input type="text" name="rr_role_{{ loop.index0 }}"
+                               value="{{ rr.role_id }}" placeholder="Rollen-ID">
+                    </div>
+                    {% endfor %}
+                    {% if not config.role_rewards %}
+                    <p style="color: var(--text-muted); font-size: 0.8rem; font-style: italic;">
+                        Keine Rollen-Rewards konfiguriert.
+                    </p>
+                    {% endif %}
+                </div>
+                <div class="form-group">
+                    <div class="toggle-item">
+                        <label class="toggle">
+                        <input type="checkbox" name="remove_lower_rewards" value="on"
+                               {% if config.remove_lower_rewards %}checked{% endif %}>
+                        <span class="slider"></span>
+                        </label>
+                        <span class="toggle-label">Nur die hoechste erreichte Belohnungs-Rolle behalten (niedrigere beim Aufstieg entfernen)</span>
+                    </div>
+                </div>
             </div>
-            {% endfor %}
-            {% if not config.channel_multipliers %}
-            <p style="color: var(--text-muted); font-size: 0.8rem; font-style: italic;">
-                Keine Channel-Multiplikatoren konfiguriert.
-            </p>
-            {% endif %}
-        </div>
 
-        <!-- Rollen-Rewards -->
-        <h3 style="color: var(--text-primary); font-size: 1rem; margin: 1.5rem 0 0.75rem; font-weight: 600;">Rollen-Rewards</h3>
-        <p style="color: var(--text-secondary); font-size: 0.8rem; margin-bottom: 0.75rem;">
-            Bei bestimmten Leveln automatisch Discord-Rollen zuweisen.
-        </p>
-        <div id="role-rewards">
-            {% for rr in config.role_rewards %}
-            <div style="display: grid; grid-template-columns: 100px 1fr; gap: 0.5rem; margin-bottom: 0.5rem;">
-                <input type="number" name="rr_level_{{ loop.index0 }}"
-                       value="{{ rr.level }}" min="1" placeholder="Level">
-                <input type="text" name="rr_role_{{ loop.index0 }}"
-                       value="{{ rr.role_id }}" placeholder="Rollen-ID">
+            <!-- Gruppe: Channel-Steuerung -->
+            <div class="set-group">
+                <div class="set-group-title">Channel-Steuerung</div>
+                <p style="color: var(--text-secondary); font-size: 0.8rem; margin-bottom: 0.75rem;">
+                    XP-Multiplikator pro Channel (z.B. 0.5 = halbe XP, 2.0 = doppelte XP).
+                </p>
+                <div id="channel-multipliers">
+                    {% for cm in config.channel_multipliers %}
+                    <div style="display: grid; grid-template-columns: 1fr 120px; gap: 0.5rem; margin-bottom: 0.5rem;">
+                        <input type="text" name="cm_channel_{{ loop.index0 }}"
+                               value="{{ cm.channel_id }}" placeholder="Channel ID">
+                        <input type="number" name="cm_multiplier_{{ loop.index0 }}"
+                               value="{{ cm.multiplier }}" step="0.1" min="0" max="10" placeholder="Multiplikator">
+                    </div>
+                    {% endfor %}
+                    {% if not config.channel_multipliers %}
+                    <p style="color: var(--text-muted); font-size: 0.8rem; font-style: italic;">
+                        Keine Channel-Multiplikatoren konfiguriert.
+                    </p>
+                    {% endif %}
+                </div>
+                <p style="color: var(--text-secondary); font-size: 0.8rem; margin: 0.75rem 0;">
+                    Channels in denen kein XP vergeben wird (eine Channel-ID pro Zeile).
+                </p>
+                <div class="form-group">
+                    <textarea name="no_xp_channels" rows="3" placeholder="111111111111111111"
+                              style="width: 100%; font-family: monospace;">{% if config.no_xp_channels %}{{ config.no_xp_channels|join('\n') }}{% endif %}</textarea>
+                </div>
             </div>
-            {% endfor %}
-            {% if not config.role_rewards %}
-            <p style="color: var(--text-muted); font-size: 0.8rem; font-style: italic;">
-                Keine Rollen-Rewards konfiguriert.
-            </p>
-            {% endif %}
-        </div>
-
-        <!-- Rollen-Aufstieg -->
-        <h3 style="color: var(--text-primary); font-size: 1rem; margin: 1.5rem 0 0.75rem; font-weight: 600;">Rollen-Aufstieg</h3>
-        <div class="form-group">
-            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-                <input type="checkbox" name="remove_lower_rewards" value="on"
-                       {% if config.remove_lower_rewards %}checked{% endif %}>
-                Nur die hoechste erreichte Belohnungs-Rolle behalten (niedrigere beim Aufstieg entfernen)
-            </label>
-        </div>
-
-        <!-- No-XP-Channels -->
-        <h3 style="color: var(--text-primary); font-size: 1rem; margin: 1.5rem 0 0.75rem; font-weight: 600;">No-XP-Channels</h3>
-        <p style="color: var(--text-secondary); font-size: 0.8rem; margin-bottom: 0.75rem;">
-            Channels in denen kein XP vergeben wird (eine Channel-ID pro Zeile).
-        </p>
-        <div class="form-group">
-            <textarea name="no_xp_channels" rows="3" placeholder="111111111111111111"
-                      style="width: 100%; font-family: monospace;">{% if config.no_xp_channels %}{{ config.no_xp_channels|join('\n') }}{% endif %}</textarea>
         </div>
     </section>
 

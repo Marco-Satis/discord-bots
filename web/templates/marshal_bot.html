@@ -3,6 +3,13 @@
 {% block nav_marshal_bot %}active{% endblock %}
 
 {% block content %}
+<style>
+/* Reorg-Gruppen — gilt auch fuer die via HTMX in #tab-content injizierten admin_tab_*-Partials */
+.set-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 4px; align-items: start; }
+@media (max-width: 760px) { .set-grid { grid-template-columns: 1fr; } }
+.set-group { border: 1px solid var(--line); border-radius: 14px; padding: 10px 15px 4px; background: rgba(120,180,240,.03); }
+.set-group-title { font-size: 11px; text-transform: uppercase; letter-spacing: .12em; color: var(--acc-2); font-weight: 700; margin: 4px 0 2px; font-family: ui-monospace, monospace; }
+</style>
 <div class="page-header">
     <h1>Marshal Setup</h1>
     <p class="page-subtitle">Konfiguration aller Marshal-Module</p>
@@ -34,11 +41,6 @@
             hx-target="#tab-content"
             hx-swap="innerHTML"
             onclick="switchTab(this)">Temp Voice</button>
-    <button class="tab-btn"
-            hx-get="/marshal-bot/tab/teamspeak"
-            hx-target="#tab-content"
-            hx-swap="innerHTML"
-            onclick="switchTab(this)">TeamSpeak</button>
     <button class="tab-btn"
             hx-get="/marshal-bot/tab/wordfilter"
             hx-target="#tab-content"

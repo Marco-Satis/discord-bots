@@ -5,29 +5,59 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="csrf-token" content="{{ request.state.csrf_token|default('') }}">
   <title>Bot Control — Anmelden</title>
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='%233b82f6'/><stop offset='1' stop-color='%236d5cf6'/></linearGradient></defs><rect width='32' height='32' rx='7' fill='url(%23g)'/><text x='16' y='22' font-family='sans-serif' font-size='18' font-weight='700' text-anchor='middle' fill='white'>B</text></svg>">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='%233F8EF2'/><stop offset='1' stop-color='%23FF5FB5'/></linearGradient></defs><rect width='32' height='32' rx='7' fill='url(%23g)'/><text x='16' y='22' font-family='sans-serif' font-size='18' font-weight='700' text-anchor='middle' fill='%230A0E13'>B</text></svg>">
   <link rel="stylesheet" href="/static/fonts/geist/geist.css">
   <link rel="stylesheet" href="/static/tailwind/output.css">
   <link rel="stylesheet" href="/static/tailwind/_tokens.css?v=navy20260605b">
   <link rel="stylesheet" href="/static/_preview/v5.css?v=navy20260605b">
   <style>
-    body{ background:var(--s0) }
-    body::before{ content:""; position:fixed; inset:0; z-index:-1; pointer-events:none;
-      background:radial-gradient(820px 520px at 50% 16%, rgba(59,130,246,.16), transparent 62%) }
+    /* Nordlicht-Palette (Azur/Pink) — page-lokal, identisch zu landing.html */
+    :root{
+      --s0:#0A0E13; --s1:#0c121c; --s2:#141d2b; --s3:#1c2740;
+      --line:rgba(120,210,220,.16); --line-soft:rgba(120,210,220,.07); --line-accent:rgba(63,142,242,.42);
+      --t1:#EAF3F6; --t2:#c3d0d8; --t3:#8FA3AE;
+      --acc:#3F8EF2; --acc-2:#6fb0f7; --acc-3:#FF5FB5;
+      --acc-grad:linear-gradient(135deg,#57a0f7,#2f7fe8);
+      --acc-grad-3:linear-gradient(115deg,#8fc0fb,#3F8EF2 42%,#FF5FB5);
+      --acc-soft:rgba(63,142,242,.14);
+    }
+    .btn--primary{ color:#06121a; box-shadow:0 0 0 1px rgba(63,142,242,.34), 0 12px 30px rgba(63,142,242,.30) }
+    .btn--primary:hover{ box-shadow:0 0 0 1px rgba(63,142,242,.55), 0 16px 44px rgba(63,142,242,.44), 0 0 24px rgba(255,95,181,.28) }
+    body{ background:#0B1017 }
+
+    /* Nordlicht-Vorhang (animiert) — identisch zu landing.html */
+    .atmos{ position:fixed; inset:0; z-index:-3; overflow:hidden; background-color:#0B1017;
+      background-image:
+        radial-gradient(120% 80% at 28% -8%, rgba(63,142,242,0.34), rgba(63,142,242,0) 62%),
+        radial-gradient(120% 80% at 78% -10%, rgba(255,95,181,0.26), rgba(255,95,181,0) 64%),
+        radial-gradient(150% 120% at 50% 4%, rgba(63,142,242,0.15), transparent 78%),
+        linear-gradient(180deg,#0e1420,#0A0E13 72%) }
+    .atmos::before{ content:""; position:absolute; inset:-32%; pointer-events:none; transform-origin:top center;
+      background-image:linear-gradient(99deg, rgba(63,142,242,0) 4%, rgba(63,142,242,0.56) 13%, rgba(63,142,242,0) 23%, rgba(63,142,242,0.40) 37%, rgba(63,142,242,0) 49%, rgba(63,142,242,0.54) 62%, rgba(63,142,242,0) 73%, rgba(63,142,242,0.42) 88%, rgba(63,142,242,0) 97%);
+      -webkit-mask-image:linear-gradient(180deg,#000 0%,#000 50%,rgba(0,0,0,.55) 76%,rgba(0,0,0,0) 95%);
+              mask-image:linear-gradient(180deg,#000 0%,#000 50%,rgba(0,0,0,.55) 76%,rgba(0,0,0,0) 95%);
+      animation:cur-a 12s ease-in-out infinite }
+    .atmos::after{ content:""; position:absolute; inset:-32%; pointer-events:none; transform-origin:top center;
+      background-image:linear-gradient(97deg, rgba(255,95,181,0) 6%, rgba(255,95,181,0.50) 17%, rgba(255,95,181,0) 28%, rgba(255,95,181,0.34) 44%, rgba(255,95,181,0) 55%, rgba(255,95,181,0.48) 69%, rgba(255,95,181,0) 80%, rgba(255,95,181,0.34) 92%, rgba(255,95,181,0) 99%);
+      -webkit-mask-image:linear-gradient(180deg,#000 0%,#000 46%,rgba(0,0,0,.5) 72%,rgba(0,0,0,0) 90%);
+              mask-image:linear-gradient(180deg,#000 0%,#000 46%,rgba(0,0,0,.5) 72%,rgba(0,0,0,0) 90%);
+      mix-blend-mode:screen; animation:cur-b 10s ease-in-out infinite }
+    @keyframes cur-a{ 0%{transform:translate3d(-5%,0,0) skewX(-7deg); opacity:.82} 50%{transform:translate3d(5%,0,0) skewX(6.5deg); opacity:1} 100%{transform:translate3d(-5%,0,0) skewX(-7deg); opacity:.82} }
+    @keyframes cur-b{ 0%{transform:translate3d(4.5%,0,0) skewX(6deg); opacity:.6} 50%{transform:translate3d(-4.5%,0,0) skewX(-6.5deg); opacity:1} 100%{transform:translate3d(4.5%,0,0) skewX(6deg); opacity:.6} }
     .login-wrap{ min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; position:relative; z-index:1 }
     .login-card{ width:100%; max-width:420px; text-align:center }
     .orb-stage{ position:relative; height:190px; display:flex; align-items:center; justify-content:center; margin-bottom:8px }
     .orb-glow{ position:absolute; width:300px; height:200px; border-radius:50%; z-index:0; pointer-events:none;
-      background:radial-gradient(ellipse at center, #93c5fd 0%, rgba(59,130,246,.5) 35%, rgba(109,92,246,.16) 60%, transparent 75%);
+      background:radial-gradient(ellipse at center, #bcd6fb 0%, rgba(63,142,242,.5) 35%, rgba(255,95,181,.16) 60%, transparent 75%);
       filter:blur(40px); opacity:.7; animation:obreath 6s ease-in-out infinite }
     @keyframes obreath{ 50%{ opacity:.95; transform:scale(1.06) } }
     .orb{ position:relative; z-index:1; width:96px; height:96px; border-radius:24px;
       display:flex; align-items:center; justify-content:center; font-weight:800; font-size:42px; color:#fff;
       font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
       background:linear-gradient(135deg,var(--acc),var(--acc-3));
-      box-shadow:0 0 50px rgba(59,130,246,.55), inset 0 2px 0 rgba(255,255,255,.35) }
+      box-shadow:0 0 50px rgba(63,142,242,.55), inset 0 2px 0 rgba(255,255,255,.35) }
     .orb-grid{ position:absolute; inset:0; z-index:0; opacity:.5;
-      background-image:radial-gradient(rgba(96,165,250,.45) 1px, transparent 1px);
+      background-image:radial-gradient(rgba(63,142,242,.42) 1px, transparent 1px);
       background-size:22px 22px;
       -webkit-mask-image:radial-gradient(closest-side, #000 30%, transparent 75%);
       mask-image:radial-gradient(closest-side, #000 30%, transparent 75%) }
@@ -64,6 +94,7 @@
   </style>
 </head>
 <body>
+  <div class="atmos"></div>
   <a class="backlink" href="/">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M11 6l-6 6 6 6"/></svg> Zurück
   </a>
@@ -101,11 +132,11 @@
       {% else %}
       <div class="login-alert warn">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
-        <span>Discord-Login ist nicht konfiguriert (<code>DISCORD_CLIENT_ID</code>/<code>SECRET</code> fehlen). Nutze den Notfall-Login.</span>
+        <span>Discord-Login ist nicht konfiguriert (<code>DISCORD_CLIENT_ID</code>/<code>SECRET</code> fehlen). Nutze den Login unten.</span>
       </div>
       {% endif %}
 
-      <div class="divider">oder Notfall-Login</div>
+      <div class="divider">oder Login</div>
 
       <form action="/auth/login" method="post" autocomplete="on">
         <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token|default('') }}">

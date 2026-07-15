@@ -3,6 +3,14 @@
 {% block nav_security %}active{% endblock %}
 
 {% block content %}
+<style>
+/* Security-seitenspezifische Gruppierung — identisches Schema zu config.html */
+.set-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 4px; align-items: start; }
+@media (max-width: 760px) { .set-grid { grid-template-columns: 1fr; } }
+.set-group { border: 1px solid var(--line); border-radius: 14px; padding: 10px 15px 4px; background: rgba(120,180,240,.03); }
+.set-group-title { font-size: 11px; text-transform: uppercase; letter-spacing: .12em; color: var(--acc-2); font-weight: 700; margin: 4px 0 2px; font-family: ui-monospace, monospace; }
+</style>
+
 <div class="page-header">
     <h1>Sicherheit</h1>
     <p class="page-subtitle">Firewall, Fail2Ban, SSL und IP-Sperren</p>
@@ -159,102 +167,110 @@
     {% endif %}
 </section>
 
-<!-- SSL Zertifikat Status -->
+<!-- Gruppe: Netzwerk & Zertifikate (SSL + Ports nebeneinander) -->
 <section class="config-section">
-    <h2 class="section-title">SSL-Zertifikat</h2>
-    {% if ssl and ssl.domain %}
-    <table class="data-table">
-        <tbody>
-            <tr>
-                <td><strong>Domain</strong></td>
-                <td>{{ ssl.domain }}</td>
-            </tr>
-            <tr>
-                <td><strong>Status</strong></td>
-                <td>
-                    {% if ssl.status == "ok" %}
-                    <span class="status-online">Gueltig</span>
-                    {% elif ssl.status == "warning" %}
-                    <span class="status-warning">Laeuft bald ab</span>
-                    {% elif ssl.status == "critical" %}
-                    <span class="status-offline">Laeuft bald ab!</span>
-                    {% elif ssl.status == "expired" %}
-                    <span class="status-offline">Abgelaufen!</span>
-                    {% else %}
-                    <span class="text-muted">{{ ssl.status|default("Unbekannt") }}</span>
-                    {% endif %}
-                </td>
-            </tr>
-            <tr>
-                <td><strong>Verbleibend</strong></td>
-                <td>{{ ssl.days_remaining|default("?") }} Tage</td>
-            </tr>
-            {% if ssl.valid_until %}
-            <tr>
-                <td><strong>Gueltig bis</strong></td>
-                <td>{{ ssl.valid_until[:10] }}</td>
-            </tr>
-            {% endif %}
-            {% if ssl.issuer %}
-            <tr>
-                <td><strong>Aussteller</strong></td>
-                <td>{{ ssl.issuer }}</td>
-            </tr>
-            {% endif %}
-        </tbody>
-    </table>
-    {% if ssl.error %}
-    <p class="text-muted">Fehler: {{ ssl.error }}</p>
-    {% endif %}
-    {% else %}
-    <p class="text-muted">Keine SSL-Daten verfuegbar.</p>
-    {% endif %}
-</section>
+    <h2 class="section-title">Netzwerk &amp; Zertifikate</h2>
+    <div class="set-grid">
 
-<!-- Port Status -->
-<section class="config-section">
-    <h2 class="section-title">Port-Status</h2>
-    {% if ports and ports.ports %}
-    <table class="data-table">
-        <thead>
-            <tr>
-                <th>Port</th>
-                <th>Bezeichnung</th>
-                <th>Status</th>
-                <th>Antwortzeit</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for port in ports.ports %}
-            <tr>
-                <td>{{ port.port }}</td>
-                <td>{{ port.label }}</td>
-                <td>
-                    {% if port.open %}
-                    <span class="status-online">Offen</span>
-                    {% else %}
-                    <span class="status-offline">Geschlossen</span>
+        <!-- SSL-Zertifikat -->
+        <div class="set-group">
+            <div class="set-group-title">SSL-Zertifikat</div>
+            {% if ssl and ssl.domain %}
+            <table class="data-table">
+                <tbody>
+                    <tr>
+                        <td><strong>Domain</strong></td>
+                        <td>{{ ssl.domain }}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Status</strong></td>
+                        <td>
+                            {% if ssl.status == "ok" %}
+                            <span class="status-online">Gueltig</span>
+                            {% elif ssl.status == "warning" %}
+                            <span class="status-warning">Laeuft bald ab</span>
+                            {% elif ssl.status == "critical" %}
+                            <span class="status-offline">Laeuft bald ab!</span>
+                            {% elif ssl.status == "expired" %}
+                            <span class="status-offline">Abgelaufen!</span>
+                            {% else %}
+                            <span class="text-muted">{{ ssl.status|default("Unbekannt") }}</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td><strong>Verbleibend</strong></td>
+                        <td>{{ ssl.days_remaining|default("?") }} Tage</td>
+                    </tr>
+                    {% if ssl.valid_until %}
+                    <tr>
+                        <td><strong>Gueltig bis</strong></td>
+                        <td>{{ ssl.valid_until[:10] }}</td>
+                    </tr>
                     {% endif %}
-                </td>
-                <td>
-                    {% if port.open and port.response_ms >= 0 %}
-                    {{ port.response_ms }} ms
-                    {% elif not port.open %}
-                    {{ port.error|default("—") }}
-                    {% else %}
-                    —
+                    {% if ssl.issuer %}
+                    <tr>
+                        <td><strong>Aussteller</strong></td>
+                        <td>{{ ssl.issuer }}</td>
+                    </tr>
                     {% endif %}
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-    <p class="text-muted">
-        {{ ports.open_ports|default(0) }}/{{ ports.total_ports|default(0) }} Ports erreichbar
-    </p>
-    {% else %}
-    <p class="text-muted">Keine Port-Daten verfuegbar.</p>
-    {% endif %}
+                </tbody>
+            </table>
+            {% if ssl.error %}
+            <p class="text-muted">Fehler: {{ ssl.error }}</p>
+            {% endif %}
+            {% else %}
+            <p class="text-muted">Keine SSL-Daten verfuegbar.</p>
+            {% endif %}
+        </div>
+
+        <!-- Port-Status -->
+        <div class="set-group">
+            <div class="set-group-title">Port-Status</div>
+            {% if ports and ports.ports %}
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Port</th>
+                        <th>Bezeichnung</th>
+                        <th>Status</th>
+                        <th>Antwortzeit</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for port in ports.ports %}
+                    <tr>
+                        <td>{{ port.port }}</td>
+                        <td>{{ port.label }}</td>
+                        <td>
+                            {% if port.open %}
+                            <span class="status-online">Offen</span>
+                            {% else %}
+                            <span class="status-offline">Geschlossen</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if port.open and port.response_ms >= 0 %}
+                            {{ port.response_ms }} ms
+                            {% elif not port.open %}
+                            {{ port.error|default("—") }}
+                            {% else %}
+                            —
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            <p class="text-muted">
+                {{ ports.open_ports|default(0) }}/{{ ports.total_ports|default(0) }} Ports erreichbar
+            </p>
+            {% else %}
+            <p class="text-muted">Keine Port-Daten verfuegbar.</p>
+            {% endif %}
+        </div>
+
+    </div>
 </section>
 
 <!-- F44: Haeufigste gebannte IPs (Top 10) -->

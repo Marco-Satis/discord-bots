@@ -3,14 +3,11 @@
   Welcome-Home — Post-Login-Startseite (Route GET /home via home_route.py, require_auth).
   Begrüßung + Status-Snapshot + Quick-Links. Server-Liste lebt getrennt unter /dashboard.
 
-  Erwarteter Kontext (vom Route-Handler):
-    user     — dict (username, avatar)   [via require_auth]
-    servers  — list[dict]  (gather_dashboard_payload()['servers'])
-    system   — dict        (gather_dashboard_payload()['system'])
-    bots     — list[dict]  (gather_dashboard_payload()['bots'])
+  Design „Farb-Fluss-Band" (Azur/Pink, Design 3) lebt seit 2026-07-13 GLOBAL in base_v5
+  (Palette + Hintergrund + Design-4-Karten + transluzente Sidebar). Diese Seite braucht
+  daher KEIN eigenes extra_head mehr — sie erbt alles wie die 14 Unterseiten.
 
-  Hinweis (nach RBAC-Merge): Quick-Link-Kacheln je nach Rolle ein-/ausblenden
-  (z.B. {% if can_view('moderation') %}…). Jetzt alle sichtbar (Owner-Default).
+  Erwarteter Kontext: user, servers (list), system (dict), bots (list).
 #}
 {% block title %}Start{% endblock %}
 {% block crumb %}Start{% endblock %}
@@ -25,27 +22,50 @@
 {% elif (not all_bots) or (system.disk_percent | default(0)) >= 95 %}{% set ns.h_label = 'Achtung' %}{% set ns.h_color = 'var(--bad)' %}
 {% else %}{% set ns.h_label = 'Erhöht' %}{% set ns.h_color = 'var(--warn)' %}{% endif %}
 
+<!-- Startseiten-Aurora: Nordlicht-Vorhang wie Willkommensseite, nur kleiner + ruhiger (2026-07-14) -->
+<style>
+  .home-atmos{ position:fixed; inset:0; z-index:-1; overflow:hidden; pointer-events:none;
+    background-image:
+      radial-gradient(120% 80% at 28% -8%, rgba(63,142,242,0.24), rgba(63,142,242,0) 62%),
+      radial-gradient(120% 80% at 78% -10%, rgba(255,95,181,0.18), rgba(255,95,181,0) 64%),
+      radial-gradient(150% 120% at 50% 4%, rgba(63,142,242,0.10), transparent 78%); }
+  .home-atmos::before{ content:""; position:absolute; inset:-24%; pointer-events:none; transform-origin:top center; will-change:transform,opacity;
+    background-image:linear-gradient(99deg, rgba(63,142,242,0) 4%, rgba(63,142,242,0.46) 13%, rgba(63,142,242,0) 23%, rgba(63,142,242,0.32) 37%, rgba(63,142,242,0) 49%, rgba(63,142,242,0.44) 62%, rgba(63,142,242,0) 73%, rgba(63,142,242,0.34) 88%, rgba(63,142,242,0) 97%);
+    -webkit-mask-image:linear-gradient(180deg,#000 0%,#000 50%,rgba(0,0,0,.55) 76%,rgba(0,0,0,0) 95%);
+            mask-image:linear-gradient(180deg,#000 0%,#000 50%,rgba(0,0,0,.55) 76%,rgba(0,0,0,0) 95%);
+    animation:home-cur-a 20s ease-in-out infinite }
+  .home-atmos::after{ content:""; position:absolute; inset:-24%; pointer-events:none; transform-origin:top center; will-change:transform,opacity;
+    background-image:linear-gradient(97deg, rgba(255,95,181,0) 6%, rgba(255,95,181,0.40) 17%, rgba(255,95,181,0) 28%, rgba(255,95,181,0.28) 44%, rgba(255,95,181,0) 55%, rgba(255,95,181,0.38) 69%, rgba(255,95,181,0) 80%, rgba(255,95,181,0.28) 92%, rgba(255,95,181,0) 99%);
+    -webkit-mask-image:linear-gradient(180deg,#000 0%,#000 46%,rgba(0,0,0,.5) 72%,rgba(0,0,0,0) 90%);
+            mask-image:linear-gradient(180deg,#000 0%,#000 46%,rgba(0,0,0,.5) 72%,rgba(0,0,0,0) 90%);
+    mix-blend-mode:screen; animation:home-cur-b 17s ease-in-out infinite }
+  @keyframes home-cur-a{ 0%{transform:translate3d(-3.5%,0,0) skewX(-4.5deg); opacity:.78} 50%{transform:translate3d(3.5%,0,0) skewX(4deg); opacity:.96} 100%{transform:translate3d(-3.5%,0,0) skewX(-4.5deg); opacity:.78} }
+  @keyframes home-cur-b{ 0%{transform:translate3d(3%,0,0) skewX(4deg); opacity:.55} 50%{transform:translate3d(-3%,0,0) skewX(-4deg); opacity:.92} 100%{transform:translate3d(3%,0,0) skewX(4deg); opacity:.55} }
+  @media (prefers-reduced-motion: reduce){ .home-atmos::before,.home-atmos::after{ animation:none } }
+</style>
+<div class="home-atmos" aria-hidden="true"></div>
+
 <!-- Begrüßung -->
-<div style="margin-bottom:22px">
+<div class="home-hello" style="margin-bottom:22px" data-reveal>
   <h1 class="display" style="font-size:clamp(24px,3.4vw,34px);margin:0">Willkommen zurück, <span class="grad-text">{{ (user.username if user else 'Marco') }}</span>.</h1>
   <p style="color:var(--t2);margin:8px 0 0;font-size:15px">Hier ist der schnelle Überblick. Spring direkt dahin, wo du hin willst.</p>
 </div>
 
 <!-- Status-Snapshot -->
 <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:var(--gap-card);margin-bottom:26px">
-  <div class="card" style="padding:18px">
+  <div class="card" style="padding:18px" data-reveal>
     <div class="cap">Bots aktiv</div>
     <div class="grad-text tnum" style="font-size:30px;font-weight:700;margin-top:5px">{{ ns.bots_active }}<span style="font-size:16px;color:var(--t3);-webkit-text-fill-color:var(--t3)">/{{ bots | length }}</span></div>
   </div>
-  <div class="card" style="padding:18px">
+  <div class="card" style="padding:18px" data-reveal>
     <div class="cap">Server online</div>
     <div class="tnum" style="font-size:30px;font-weight:700;margin-top:5px;{% if ns.servers_online > 0 %}color:var(--ok){% endif %}">{{ ns.servers_online }}<span style="font-size:16px;color:var(--t3)">/{{ servers | length }}</span></div>
   </div>
-  <div class="card" style="padding:18px">
+  <div class="card" style="padding:18px" data-reveal>
     <div class="cap">Spieler online</div>
     <div class="tnum" style="font-size:30px;font-weight:700;margin-top:5px;{% if ns.players > 0 %}color:var(--ok){% endif %}">{{ ns.players }}</div>
   </div>
-  <div class="card" style="padding:18px">
+  <div class="card" style="padding:18px" data-reveal>
     <div class="cap">System</div>
     <div style="display:flex;align-items:center;gap:9px;margin-top:10px">
       <span class="dot" style="width:11px;height:11px;border-radius:99px;background:{{ ns.h_color }};box-shadow:0 0 10px {{ ns.h_color }}"></span>
@@ -56,52 +76,52 @@
 </div>
 
 <!-- Quick-Links -->
-<div class="cap" style="margin:0 0 12px">Schnellzugriff</div>
+<div class="cap" style="margin:0 0 12px" data-reveal>Schnellzugriff</div>
 <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:var(--gap-card)">
 
-  <a class="card" href="/dashboard" style="padding:20px;display:block;text-decoration:none">
+  <a class="card" href="/dashboard" style="padding:20px;display:block;text-decoration:none" data-reveal>
     <div style="display:flex;align-items:center;gap:11px;margin-bottom:8px">
-      <span style="color:#b8a2f8"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg></span>
+      <span class="ql-ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg></span>
       <span style="font-weight:600;font-size:15px">Server-Übersicht</span>
     </div>
     <p style="margin:0;color:var(--t2);font-size:13px">Status & Steuerung aller Game-Server und Bots.</p>
   </a>
 
-  <a class="card" href="/leveling" style="padding:20px;display:block;text-decoration:none">
+  <a class="card" href="/leveling" style="padding:20px;display:block;text-decoration:none" data-reveal>
     <div style="display:flex;align-items:center;gap:11px;margin-bottom:8px">
-      <span style="color:#f5b13d"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19h16M7 19V9M12 19V5M17 19v-7"/></svg></span>
+      <span class="ql-ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19h16M7 19V9M12 19V5M17 19v-7"/></svg></span>
       <span style="font-weight:600;font-size:15px">Leveling</span>
     </div>
     <p style="margin:0;color:var(--t2);font-size:13px">Leaderboard, Role-Rewards und XP-Konfiguration.</p>
   </a>
 
-  <a class="card" href="/moderation" style="padding:20px;display:block;text-decoration:none">
+  <a class="card" href="/moderation" style="padding:20px;display:block;text-decoration:none" data-reveal>
     <div style="display:flex;align-items:center;gap:11px;margin-bottom:8px">
-      <span style="color:#67e8f9"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 4v6c0 5-3.5 7.5-8 10-4.5-2.5-8-5-8-10V6z"/><path d="M9 12l2 2 4-4"/></svg></span>
+      <span class="ql-ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 4v6c0 5-3.5 7.5-8 10-4.5-2.5-8-5-8-10V6z"/><path d="M9 12l2 2 4-4"/></svg></span>
       <span style="font-weight:600;font-size:15px">Moderation</span>
     </div>
     <p style="margin:0;color:var(--t2);font-size:13px">AutoMod-Regeln, Warn-System und Tickets.</p>
   </a>
 
-  <a class="card" href="/lfg" style="padding:20px;display:block;text-decoration:none">
+  <a class="card" href="/lfg" style="padding:20px;display:block;text-decoration:none" data-reveal>
     <div style="display:flex;align-items:center;gap:11px;margin-bottom:8px">
-      <span style="color:#f0a3e6"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M3 20v-1a5 5 0 0 1 10 0v1M14 20v-1a4 4 0 0 1 7-2.5"/></svg></span>
+      <span class="ql-ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M3 20v-1a5 5 0 0 1 10 0v1M14 20v-1a4 4 0 0 1 7-2.5"/></svg></span>
       <span style="font-weight:600;font-size:15px">LFG</span>
     </div>
     <p style="margin:0;color:var(--t2);font-size:13px">Spielersuche-Rolle und Ping-Konfiguration.</p>
   </a>
 
-  <a class="card" href="/config" style="padding:20px;display:block;text-decoration:none">
+  <a class="card" href="/config" style="padding:20px;display:block;text-decoration:none" data-reveal>
     <div style="display:flex;align-items:center;gap:11px;margin-bottom:8px">
-      <span style="color:#34e0a1"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l1.5 4.5L18 5l-1.5 4.5L21 11l-4.5 1.5L18 17l-4.5-1.5L12 20l-1.5-4.5L6 17l1.5-4.5L3 11l4.5-1.5L6 5l4.5 1.5z"/></svg></span>
+      <span class="ql-ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l1.5 4.5L18 5l-1.5 4.5L21 11l-4.5 1.5L18 17l-4.5-1.5L12 20l-1.5-4.5L6 17l1.5-4.5L3 11l4.5-1.5L6 5l4.5 1.5z"/></svg></span>
       <span style="font-weight:600;font-size:15px">Konfiguration</span>
     </div>
     <p style="margin:0;color:var(--t2);font-size:13px">Feature-Flags, Kanäle und Bot-Einstellungen.</p>
   </a>
 
-  <a class="card" href="/security" style="padding:20px;display:block;text-decoration:none">
+  <a class="card" href="/security" style="padding:20px;display:block;text-decoration:none" data-reveal>
     <div style="display:flex;align-items:center;gap:11px;margin-bottom:8px">
-      <span style="color:#b8a2f8"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 4v6c0 5-3.5 7.5-8 10-4.5-2.5-8-5-8-10V6z"/></svg></span>
+      <span class="ql-ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 4v6c0 5-3.5 7.5-8 10-4.5-2.5-8-5-8-10V6z"/></svg></span>
       <span style="font-weight:600;font-size:15px">Sicherheit</span>
     </div>
     <p style="margin:0;color:var(--t2);font-size:13px">Verification, Anti-Raid und Audit-Übersicht.</p>

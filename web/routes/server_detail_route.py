@@ -35,7 +35,6 @@ VALID_SERVER_IDS = {
     "satisfactory": "Satisfactory",
     "mc_bmc": "Minecraft BMC",
     "mc_vanilla": "Minecraft Vanilla",
-    "teamspeak": "TeamSpeak",
 }
 
 # Server-Typ-Zuordnung (fuer Feature-Flags wie RCON)
@@ -43,7 +42,6 @@ SERVER_TYPES = {
     "satisfactory": "satisfactory",
     "mc_bmc": "minecraft",
     "mc_vanilla": "minecraft",
-    "teamspeak": "teamspeak",
 }
 
 # Backup-Verzeichnisse pro Server (aus ENV oder Standard-Pfade)
@@ -58,7 +56,6 @@ SERVICE_NAMES = {
     "satisfactory": "satisfactory.service",
     "mc_bmc": "minecraft-bmc.service",
     "mc_vanilla": "minecraft-vanilla.service",
-    "teamspeak": "teamspeak.service",
 }
 
 
@@ -79,7 +76,7 @@ def _get_server_display_name(server_id: str) -> str:
 
 
 def _get_server_type(server_id: str) -> str:
-    """Gibt den Server-Typ zurück (minecraft, satisfactory, teamspeak)."""
+    """Gibt den Server-Typ zurück (minecraft, satisfactory)."""
     return SERVER_TYPES.get(server_id, "unknown")
 
 
@@ -201,11 +198,6 @@ def _get_server_info(server_id: str) -> dict:
             "E-Mail-Benachrichtigungen": features.get("email_notifications", False),
             "Steam-Changelog": features.get("steam_changelog", False),
             "Graceful Degradation": features.get("graceful_degradation", False),
-        }
-    elif server_type == "teamspeak":
-        server_config = {
-            "Service": "teamspeak.service",
-            "Port": "9987 (Voice) / 30033 (FileTransfer)",
         }
 
     # World/Savegame-Info aus Status-Daten
