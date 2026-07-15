@@ -144,17 +144,28 @@ class ConnectionManager:
         logger.debug(f"WebSocket getrennt. Aktive Verbindungen: {len(self.active_connections)}")
 
     async def broadcast(self, message: dict):
-        """Nachricht an alle verbundenen Clients senden. Tote Sockets gesammelt entfernen."""
+        """Nachricht an alle verbundenen Clients senden — nebenlaeufig mit Per-Client-Timeout.
+
+        RR (p-c481ac9379): sequenzielles await pro Client liess einen langsamen/haengenden
+        Socket alle folgenden Sends blockieren (Head-of-Line-Blocking). Jetzt parallel via
+        asyncio.gather mit 5s-Timeout pro Client; Timeout/Fehler => Socket als tot markieren.
+        """
         import json
         data = json.dumps(message)
         async with self._lock:
             targets = list(self.active_connections)
-        dead = []
-        for connection in targets:
+        if not targets:
+            return
+
+        async def _send(conn: WebSocket):
             try:
-                await connection.send_text(data)
-            except Exception:  # noqa: BLE001
-                dead.append(connection)
+                await asyncio.wait_for(conn.send_text(data), timeout=5.0)
+                return None
+            except Exception:  # noqa: BLE001  (Timeout, ConnectionClosed, ...)
+                return conn
+
+        results = await asyncio.gather(*(_send(c) for c in targets))
+        dead = [c for c in results if c is not None]
         if dead:
             async with self._lock:
                 self.active_connections.difference_update(dead)

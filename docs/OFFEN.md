@@ -1,6 +1,8 @@
 # Discord Bot System — Offene Punkte
 
 > **Stand:** 2. Juni 2026 (v4.4.0-Konsolidierung) — ältere Abschnitte unten sind historisch (v4.1.0-Auto-Update, abgeschlossen).
+>
+> **⚠️ VERALTET-Hinweis (2026-07-15):** Dieses Dokument ist weitgehend überholt. Seit 06-02 gab es massive Änderungen: Bot-Umbenennung (monitor/gameserver/admin → recon/operator/marshal), komplette TeamSpeak-Entfernung, V6-Dashboard-Redesign (Glow/Motion, LF-EOL-Normalisierung), pipeline-delete-Feature. Insb.: der **I1-I9-Minecraft-Auto-Update-Plan gilt als IMPLEMENTIERT** — `UpdateManager` (`modules/minecraft/update_manager.py`) ist live verdrahtet in `recon_bot.py`, `update_cog.py`, `scheduler_cog.py`. Verbleibende echte offene Punkte werden im aktuellen Handoff (`HANDOFF_offene-punkte_aus-harvest_2026-07-15.md`) geführt, nicht mehr hier.
 
 ---
 
