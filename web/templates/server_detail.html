@@ -291,8 +291,8 @@
     <div class="chart-card">
       <h4>Uptime-Verlauf</h4>
       <div class="inline-stats">
-        <div><span class="inline-stat-val text-success">{{ analytics.uptime_pct if analytics else '—' }}</span><br><span class="text-muted text-sm">Verfuegbarkeit</span></div>
-        <div><span class="inline-stat-val text-primary">{{ analytics.outages if analytics else '—' }}</span><br><span class="text-muted text-sm">Ausfaelle</span></div>
+        <div><span class="inline-stat-val text-success" id="sd-stat-uptime">—</span><br><span class="text-muted text-sm">Verfuegbarkeit</span></div>
+        <div><span class="inline-stat-val text-primary" id="sd-stat-outages">—</span><br><span class="text-muted text-sm">Ausfaelle</span></div>
       </div>
       <div class="chart-host"><canvas id="sd-chart-uptime"></canvas></div>
     </div>
@@ -306,8 +306,8 @@
     <div class="chart-card">
       <h4>Spieler-Aktivitaet</h4>
       <div class="inline-stats">
-        <div><span class="inline-stat-val text-accent">{{ analytics.players_peak if analytics else '—' }}</span><br><span class="text-muted text-sm">Peak (7 Tage)</span></div>
-        <div><span class="inline-stat-val text-primary">{{ analytics.players_avg if analytics else '—' }}</span><br><span class="text-muted text-sm">&Oslash; Online</span></div>
+        <div><span class="inline-stat-val text-accent" id="sd-stat-peak">—</span><br><span class="text-muted text-sm">Peak</span></div>
+        <div><span class="inline-stat-val text-primary" id="sd-stat-avg">—</span><br><span class="text-muted text-sm">&Oslash; Online</span></div>
       </div>
       <div class="chart-host"><canvas id="sd-chart-players"></canvas></div>
     </div>
@@ -351,13 +351,16 @@ document.addEventListener('click', function(e) {
   tab.classList.add('active');
   var target = document.getElementById('tab-' + tab.dataset.tab);
   if (target) target.classList.add('active');
-  if (tab.dataset.tab === 'analyse') sdInitCharts();
+  if (tab.dataset.tab === 'analyse') sdLoadAnalytics();
 });
 
-// Time-Range Toggle
+// Time-Range Toggle -> Analytics mit neuem Zeitraum neu laden
 function sdSetTimeRange(btn) {
   document.querySelectorAll('.time-btn').forEach(function(b) { b.classList.remove('btn-primary','active'); });
   btn.classList.add('btn-primary','active');
+  var txt = btn.textContent.trim();
+  sdPeriod = txt.indexOf('24') !== -1 ? '24h' : (txt.indexOf('30') !== -1 ? '30d' : '7d');
+  sdLoadAnalytics();
 }
 
 // RCON-Enter + DOM-Trim (verhindert unbounded RCON-Output-Growth)
@@ -384,55 +387,84 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 });
 
-// Charts (Chart.js bereits aus base.html geladen, Placeholder-Daten)
-var sdChartsInit = false;
-function sdInitCharts() {
-  if (sdChartsInit) return;
-  if (typeof Chart === 'undefined') return;
-  sdChartsInit = true;
+// ===== Analyse-Charts: ECHTE per-Server-Daten aus /api/analytics/server/{id} =====
+var SD_SERVER_ID = {{ server.server_id|tojson }};
+var sdCharts = {};       // canvasId -> Chart-Instanz
+var sdPeriod = '7d';     // Default: 7-Tage-Button ist active
 
+function sdChartDefaults() {
   var fontColor = getComputedStyle(document.body).getPropertyValue('--text-muted').trim() || '#80848e';
   var gridColor = 'rgba(255,255,255,0.06)';
-  var defaults = {
-    responsive: true,
-    maintainAspectRatio: false,
+  return {
+    responsive: true, maintainAspectRatio: false,
     plugins: { legend: { labels: { color: fontColor, font: { size: 11 } } } },
     scales: {
       x: { ticks: { color: fontColor, font: { size: 10 } }, grid: { color: gridColor } },
       y: { ticks: { color: fontColor, font: { size: 10 } }, grid: { color: gridColor } }
     }
   };
-  var days = ['T-7', 'T-6', 'T-5', 'T-4', 'T-3', 'T-2', 'T-1', 'Heute'];
+}
+function sdRender(id, config) {
+  var el = document.getElementById(id);
+  if (!el || typeof Chart === 'undefined') return;
+  var host = el.parentNode; var note = host.querySelector('.sd-empty-note'); if (note) note.remove();
+  if (sdCharts[id]) sdCharts[id].destroy();
+  sdCharts[id] = new Chart(el, config);
+}
+function sdEmpty(id, text) {   // ehrlicher Leer-Hinweis statt Fake-Chart
+  var el = document.getElementById(id); if (!el) return;
+  if (sdCharts[id]) { sdCharts[id].destroy(); delete sdCharts[id]; }
+  var host = el.parentNode; var note = host.querySelector('.sd-empty-note');
+  if (!note) { note = document.createElement('div'); note.className = 'sd-empty-note';
+    note.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--t3);font-size:12px;text-align:center;padding:0 12px;';
+    host.appendChild(note); }
+  note.textContent = text;
+}
+function sdLoadAnalytics() {
+  if (typeof Chart === 'undefined' || !SD_SERVER_ID) return;
+  var d = sdChartDefaults();
+  fetch('/api/analytics/server/' + encodeURIComponent(SD_SERVER_ID) + '?period=' + sdPeriod, { credentials: 'same-origin' })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (data) {
+      var ids = ['sd-chart-uptime','sd-chart-perf','sd-chart-players','sd-chart-tps'];
+      if (!data || !data.labels || !data.labels.length) { ids.forEach(function(id){ sdEmpty(id, 'Keine Analytics-Daten im Zeitraum'); }); return; }
+      var labels = data.labels;
+      function ds(name){ var x = (data.datasets||[]).find(function(s){ return s.label === name; }); return x ? x.data : []; }
+      var players = ds('Spieler'), cpu = ds('CPU %'), ram = ds('RAM (MB)'), status = ds('Status');
 
-  new Chart(document.getElementById('sd-chart-uptime'), {
-    type: 'bar',
-    data: { labels: days, datasets: [{ label: 'Online (h)', data: [24,24,24,24,22.6,24,24,17], backgroundColor: 'rgba(52,224,161,.5)', borderColor: '#34e0a1', borderWidth: 1, borderRadius: 3 }] },
-    options: Object.assign({}, defaults, { scales: Object.assign({}, defaults.scales, { y: Object.assign({}, defaults.scales.y, { max: 24 }) }) })
-  });
-  new Chart(document.getElementById('sd-chart-perf'), {
-    type: 'line',
-    data: { labels: days, datasets: [
-      { label: 'CPU %', data: [8,15,22,18,12,14,20,12], borderColor: '#3F8EF2', backgroundColor: 'rgba(63,142,242,.1)', fill: true, tension: .3 },
-      { label: 'RAM GB', data: [3.8,4.1,4.5,4.3,3.9,4.0,4.4,4.2], borderColor: '#FF5FB5', backgroundColor: 'rgba(255,95,181,.1)', fill: true, tension: .3, yAxisID: 'y1' }
-    ]},
-    options: Object.assign({}, defaults, { scales: Object.assign({}, defaults.scales, {
-      y: Object.assign({}, defaults.scales.y, { title: { display: true, text: 'CPU %', color: fontColor } }),
-      y1: { position: 'right', ticks: { color: fontColor, font: { size: 10 } }, grid: { display: false }, title: { display: true, text: 'RAM (GB)', color: fontColor } }
-    })})
-  });
-  new Chart(document.getElementById('sd-chart-players'), {
-    type: 'line',
-    data: { labels: days, datasets: [
-      { label: 'Peak', data: [3,5,6,4,2,3,5,4], borderColor: '#3F8EF2', backgroundColor: 'rgba(63,142,242,.15)', fill: true, tension: .3, pointRadius: 4 },
-      { label: 'O Online', data: [1.5,2.8,3.2,2.1,1.0,1.8,2.9,2.4], borderColor: fontColor, borderDash: [5,5], tension: .3, pointRadius: 0 }
-    ]},
-    options: defaults
-  });
-  new Chart(document.getElementById('sd-chart-tps'), {
-    type: 'line',
-    data: { labels: days, datasets: [{ label: 'TPS', data: [20,19.9,19.4,19.7,20,19.8,19.5,19.8], borderColor: '#34e0a1', backgroundColor: 'rgba(52,224,161,.1)', fill: true, tension: .3, pointRadius: 4 }] },
-    options: Object.assign({}, defaults, { scales: Object.assign({}, defaults.scales, { y: Object.assign({}, defaults.scales.y, { min: 18, max: 20.5 }) }) })
-  });
+      // Inline-Kennzahlen aus den echten Daten
+      var nums = players.map(function(v){ return +v || 0; });
+      var peak = nums.length ? Math.max.apply(null, nums) : 0;
+      var avg = nums.length ? nums.reduce(function(a,b){ return a+b; }, 0) / nums.length : 0;
+      var online = status.filter(function(s){ return s === 1; }).length;
+      var uptimePct = status.length ? Math.round(online / status.length * 100) : 0;
+      var outages = 0; for (var i = 1; i < status.length; i++) { if (status[i-1] === 1 && status[i] !== 1) outages++; }
+      var set = function(id, v){ var e = document.getElementById(id); if (e) e.textContent = v; };
+      set('sd-stat-uptime', uptimePct + '%'); set('sd-stat-outages', outages);
+      set('sd-stat-peak', peak); set('sd-stat-avg', Math.round(avg * 10) / 10);
+
+      sdRender('sd-chart-uptime', { type: 'bar',
+        data: { labels: labels, datasets: [{ label: 'Online', data: status.map(function(s){ return s === 1 ? 1 : 0; }), backgroundColor: 'rgba(52,224,161,.5)', borderColor: '#34e0a1', borderWidth: 1, borderRadius: 3 }] },
+        options: Object.assign({}, d, { scales: Object.assign({}, d.scales, { y: Object.assign({}, d.scales.y, { min: 0, max: 1, ticks: { stepSize: 1, color: d.scales.y.ticks.color, callback: function(v){ return v ? 'On' : 'Off'; } } }) }) }) });
+
+      sdRender('sd-chart-perf', { type: 'line',
+        data: { labels: labels, datasets: [
+          { label: 'CPU %', data: cpu, borderColor: '#3F8EF2', backgroundColor: 'rgba(63,142,242,.1)', fill: true, tension: .3 },
+          { label: 'RAM MB', data: ram, borderColor: '#FF5FB5', backgroundColor: 'rgba(255,95,181,.1)', fill: true, tension: .3, yAxisID: 'y1' }
+        ]},
+        options: Object.assign({}, d, { scales: Object.assign({}, d.scales, {
+          y: Object.assign({}, d.scales.y, { title: { display: true, text: 'CPU %', color: d.scales.y.ticks.color } }),
+          y1: { position: 'right', ticks: { color: d.scales.y.ticks.color, font: { size: 10 } }, grid: { display: false }, title: { display: true, text: 'RAM (MB)', color: d.scales.y.ticks.color } }
+        })}) });
+
+      sdRender('sd-chart-players', { type: 'line',
+        data: { labels: labels, datasets: [{ label: 'Spieler', data: players, borderColor: '#3F8EF2', backgroundColor: 'rgba(63,142,242,.15)', fill: true, tension: .3, pointRadius: 3 }] },
+        options: d });
+
+      // TPS: kein Backend-Feld in den Server-Analytics -> ehrlicher Hinweis statt erfundener Kurve
+      sdEmpty('sd-chart-tps', 'TPS-Verlauf: wird noch nicht erfasst');
+    })
+    .catch(function(){ ['sd-chart-uptime','sd-chart-perf','sd-chart-players','sd-chart-tps'].forEach(function(id){ sdEmpty(id, 'Analytics nicht erreichbar'); }); });
 }
 </script>
 {% endblock %}
