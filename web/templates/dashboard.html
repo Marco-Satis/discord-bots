@@ -22,7 +22,7 @@
   .dash-statbar .sb-dots .dot{ width:8px;height:8px;border-radius:99px;display:inline-block }
 
   .srv-cards{ display:grid; grid-template-columns:repeat(auto-fit,minmax(330px,1fr)); gap:16px }
-  .scard{ padding:22px; display:flex; flex-direction:column; gap:18px; position:relative; overflow:hidden }
+  .scard{ padding:22px; display:flex; flex-direction:column; gap:18px; position:relative; overflow:hidden; cursor:pointer }
   .scard.on{ border-color:rgba(63,142,242,.5); box-shadow:0 0 0 1px rgba(63,142,242,.25), 0 14px 40px rgba(63,142,242,.14) }
   .scard.on::before{ content:""; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--acc) }
   .scard .sc-top{ display:flex; align-items:center; gap:14px }
@@ -280,6 +280,14 @@ function loadCharts(period, btn) {
         .catch(function(err) { _showChartError('playersChart', err); });
 }
 document.addEventListener('DOMContentLoaded', function() { loadCharts('24h', document.querySelector('.chart-period-btn[data-period="24h"]')); });
+
+// Ganze Server-Karte klickbar -> Detail-Seite (Buttons/Links im .sc-act stoppen propagation selbst)
+document.addEventListener('click', function(e) {
+  var card = e.target.closest('.scard[data-server-url]');
+  if (!card) return;
+  if (e.target.closest('a, button, .sc-act')) return;   // echte Controls nicht abfangen
+  window.location.href = card.getAttribute('data-server-url');
+});
 
 // ============================================================
 //   SSE Live-Updates (Hooks unveraendert)

@@ -27,6 +27,10 @@ logger = get_logger("cogs.general")
 # Persistenz-Datei für laufende Clear-Tasks
 CLEAR_STATE_FILE = DATA_DIR / "clear_tasks.json"
 
+# Discord-API-Limit: Bulk-Delete funktioniert nur fuer Nachrichten < 14 Tage.
+# Aeltere muessen einzeln geloescht werden.
+BULK_DELETE_MAX_AGE_DAYS = 14
+
 
 class GeneralCog(commands.Cog):
     """General bot commands"""
@@ -224,7 +228,7 @@ class GeneralCog(commands.Cog):
             })
 
             # Aufteilen in Bulk-faehig (< 14 Tage) und alt (>= 14 Tage)
-            cutoff = datetime.now(timezone.utc) - timedelta(days=14)
+            cutoff = datetime.now(timezone.utc) - timedelta(days=BULK_DELETE_MAX_AGE_DAYS)
             bulk_msgs = [m for m in messages if m.created_at > cutoff]
             old_msgs = [m for m in messages if m.created_at <= cutoff]
 
