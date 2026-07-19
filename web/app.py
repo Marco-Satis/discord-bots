@@ -288,11 +288,13 @@ from web.routes.landing_route import router as landing_router          # noqa: E
 from web.routes.home_route import router as home_router                # noqa: E402  (D9: Post-Login `/home`)
 from web.routes.rbac_route import router as rbac_router                # noqa: E402  (RBAC: /rbac — war nicht registriert)
 from web.routes.audit_route import router as audit_router              # noqa: E402  (RBAC: /audit — war nicht registriert)
+from web.routes.channels_route import router as channels_router        # noqa: E402  (Channel-Dropdowns: /api/guild/channels)
 
 app.include_router(landing_router)   # D9: `/` (anon Landing) + `/partials/landing-stats`
 app.include_router(home_router)      # D9: `/home` (Post-Login-Startseite)
 app.include_router(rbac_router)      # RBAC: /rbac + /rbac/config (owner/perm-gated)
 app.include_router(audit_router)     # RBAC: /audit (owner/perm-gated)
+app.include_router(channels_router)  # Channel-Dropdowns: /api/guild/channels
 app.include_router(auth_router)
 app.include_router(dashboard_router)
 app.include_router(errors_router)

@@ -58,6 +58,7 @@ from modules.monitoring.login_audit import LoginAudit
 from modules.monitoring.auto_cleanup import AutoCleanup
 from modules.monitoring.selftest import SelfTest
 from modules.monitoring.savegame_protection import SavegameProtection
+from modules.channel_snapshot import write_snapshot as write_channel_snapshot
 from modules.monitoring.graceful_degradation import GracefulDegradation
 from modules.monitoring.steam_changelog import SteamChangelog
 from modules.config_validator import ConfigValidator
@@ -2323,6 +2324,20 @@ async def setup_hook():
     logger.info("Setup hook complete")
 
 
+@tasks.loop(minutes=10)
+async def channel_snapshot_task():
+    """Schreibt die Guild-Channel-Liste nach data/guild_channels.json — Bruecke fuer
+    die Dashboard-Channel-Dropdowns (Namen statt roher IDs). tasks.loop feuert die
+    erste Iteration sofort beim start() (in on_ready), danach alle 10 min."""
+    if not GUILD_ID:
+        return
+    guild = bot.get_guild(GUILD_ID)
+    if guild is None:
+        return
+    # Kleiner Snapshot-Write (wenige KB) — synchron ok bei 10-min-Kadenz.
+    write_channel_snapshot(guild)
+
+
 @bot.event
 async def on_ready():
     """Called on every (re)connection. Only idempotent operations here."""
@@ -2357,7 +2372,7 @@ async def on_ready():
         health_check_task, player_log_task, update_status_embed,
         update_voice_stats, optimize_task, login_audit_task,
         weekly_snapshot_task, health_auto_restart_task, ssl_check_task,
-        ban_expiry_task, db_maintenance_task,
+        ban_expiry_task, db_maintenance_task, channel_snapshot_task,
     ]
     # Web-Status-Task nur starten wenn aktiviert
     if web_status_generator:
