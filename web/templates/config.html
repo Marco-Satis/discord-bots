@@ -54,6 +54,8 @@
           hx-get="/config/login" hx-target="#tab-login" hx-swap="innerHTML">Login-Verwaltung</button>
   <button class="tab" data-tab="botprofiles"
           hx-get="/config/bot-profiles" hx-target="#tab-botprofiles" hx-swap="innerHTML">Bot-Profile</button>
+  <button class="tab" data-tab="notifications"
+          hx-get="/config/notifications" hx-target="#tab-notifications" hx-swap="innerHTML">Benachrichtigungen</button>
 </div>
 
 {# Gemeinsames Form fuer Toggles+Intervalle+Schwellwerte+Channels (POST /config) #}
@@ -316,6 +318,11 @@
 <!-- TAB: Bot-Profile (HTMX-Lazy-Load) -->
 <div class="tab-panel" id="tab-botprofiles">
   <div class="stat-card"><p class="empty-text">Klicke auf den Tab "Bot-Profile" zum Laden...</p></div>
+</div>
+
+<!-- TAB: Benachrichtigungen (HTMX-Lazy-Load) -->
+<div class="tab-panel" id="tab-notifications">
+  <div class="stat-card"><p class="empty-text">Klicke auf den Tab "Benachrichtigungen" zum Laden...</p></div>
 </div>
 
 <script>

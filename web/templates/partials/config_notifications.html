@@ -8,7 +8,7 @@
     <div class="alert alert-danger">{{ error }}</div>
     {% endif %}
 
-    <form hx-post="/config/notifications" hx-target="#config-tab-content" hx-swap="innerHTML">
+    <form hx-post="/config/notifications" hx-target="#tab-notifications" hx-swap="innerHTML">
 
         <p class="config-hint">
             Lege fest, in welchen Kanal jede Benachrichtigung gesendet wird und ob zusaetzlich eine E-Mail verschickt werden soll.
@@ -54,10 +54,10 @@
                                 </div>
                             </td>
                             <td class="col-email">
-                                <label class="toggle-switch">
+                                <label class="toggle">
                                     <input type="checkbox" name="routing.{{ event_key }}.email"
                                            {% if event_data.email %}checked{% endif %}>
-                                    <span class="toggle-slider"></span>
+                                    <span class="slider"></span>
                                 </label>
                             </td>
                         </tr>
