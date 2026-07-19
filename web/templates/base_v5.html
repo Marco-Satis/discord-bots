@@ -295,17 +295,19 @@
   <script>
     (function () {
       'use strict';
-      var cache = {};  // kind -> Promise<channels[]>
+      var cache = {};        // kind -> {ts, promise}
+      var CACHE_TTL = 15000; // 15s -> neue Discord-Channels erscheinen nach Tab-Wechsel/Reload fast sofort
       function fetchKind(kind) {
         var k = kind || 'all';
-        if (!cache[k]) {
+        var now = Date.now();
+        if (!cache[k] || (now - cache[k].ts) > CACHE_TTL) {
           var url = '/api/guild/channels' + (kind && kind !== 'all' ? ('?kind=' + encodeURIComponent(kind)) : '');
-          cache[k] = fetch(url, { credentials: 'same-origin' })
+          cache[k] = { ts: now, promise: fetch(url, { credentials: 'same-origin' })
             .then(function (r) { return r.ok ? r.json() : { channels: [] }; })
             .then(function (d) { return (d && d.channels) || []; })
-            .catch(function () { return []; });
+            .catch(function () { return []; }) };
         }
-        return cache[k];
+        return cache[k].promise;
       }
       function icon(t) {
         if (t === 'voice' || t === 'stage_voice') return '🔊 ';

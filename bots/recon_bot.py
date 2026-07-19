@@ -2328,7 +2328,8 @@ async def setup_hook():
 async def channel_snapshot_task():
     """Schreibt die Guild-Channel-Liste nach data/guild_channels.json — Bruecke fuer
     die Dashboard-Channel-Dropdowns (Namen statt roher IDs). tasks.loop feuert die
-    erste Iteration sofort beim start() (in on_ready), danach alle 10 min."""
+    erste Iteration sofort beim start() (in on_ready), danach alle 10 min als Fallback.
+    Die schnelle Aktualisierung laeuft event-getrieben (on_guild_channel_* unten)."""
     if not GUILD_ID:
         return
     guild = bot.get_guild(GUILD_ID)
@@ -2336,6 +2337,48 @@ async def channel_snapshot_task():
         return
     # Kleiner Snapshot-Write (wenige KB) — synchron ok bei 10-min-Kadenz.
     write_channel_snapshot(guild)
+
+
+# Event-getriebener Schnell-Sync: bei Channel-Aenderungen in der Haupt-Guild sofort
+# neu snapshotten (mit 2s-Debounce, damit Bulk-Ops nicht dutzende Writes ausloesen).
+_channel_snap_pending = False
+
+
+async def _debounced_channel_snapshot():
+    global _channel_snap_pending
+    if _channel_snap_pending:
+        return
+    _channel_snap_pending = True
+    try:
+        await asyncio.sleep(2)  # Burst-Coalescing (mehrere Aenderungen -> 1 Write)
+        guild = bot.get_guild(GUILD_ID) if GUILD_ID else None
+        if guild is not None:
+            write_channel_snapshot(guild)
+    finally:
+        _channel_snap_pending = False
+
+
+def _is_primary_guild_channel(channel) -> bool:
+    g = getattr(channel, "guild", None)
+    return bool(GUILD_ID and g is not None and getattr(g, "id", None) == GUILD_ID)
+
+
+@bot.event
+async def on_guild_channel_create(channel):
+    if _is_primary_guild_channel(channel):
+        asyncio.create_task(_debounced_channel_snapshot())
+
+
+@bot.event
+async def on_guild_channel_delete(channel):
+    if _is_primary_guild_channel(channel):
+        asyncio.create_task(_debounced_channel_snapshot())
+
+
+@bot.event
+async def on_guild_channel_update(before, after):
+    if _is_primary_guild_channel(after):
+        asyncio.create_task(_debounced_channel_snapshot())
 
 
 @bot.event
