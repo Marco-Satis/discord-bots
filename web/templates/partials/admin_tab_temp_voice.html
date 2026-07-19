@@ -210,12 +210,16 @@
         </div>
         <div class="tv-hub-grid">
             <div class="tv-fg tv-full">
-                <span class="tv-fg-label">Hub-Channel-ID *</span>
-                <input type="text" inputmode="numeric" class="tv-c-hubid" placeholder="111111111111111111" autocomplete="off">
+                <span class="tv-fg-label">Voice-Hub (Channel) *</span>
+                <select class="channel-select tv-c-hubid" data-channel-select data-kind="voice">
+                    <option value="">— Voice-Hub wählen —</option>
+                </select>
             </div>
             <div class="tv-fg">
-                <span class="tv-fg-label">Kategorie-ID</span>
-                <input type="text" inputmode="numeric" class="tv-c-catid" placeholder="optional" autocomplete="off">
+                <span class="tv-fg-label">Kategorie</span>
+                <select class="channel-select tv-c-catid" data-channel-select data-kind="category">
+                    <option value="">— optional —</option>
+                </select>
             </div>
             <div class="tv-fg">
                 <span class="tv-fg-label">Limit (0–99)</span>

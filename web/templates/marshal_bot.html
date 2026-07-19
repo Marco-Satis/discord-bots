@@ -213,18 +213,32 @@
     updateCount();
   }
 
+  /** Channel-<select> vorbereiten: Roh-ID synchron als selektierte Option (value sofort
+      korrekt, auch bevor der Populator die Namen async laedt) + data-value fuer den Populator. */
+  function setChan(sel, id){
+    if(!sel) return;
+    id = id ? String(id) : '';
+    if(id){
+      var o = document.createElement('option');
+      o.value = id; o.textContent = 'ID ' + id; o.selected = true;
+      sel.appendChild(o);
+    }
+    sel.dataset.value = id;
+  }
+
   function makeCard(h){
     var tpl = document.getElementById('tv-hub-tpl'), wrap = cardsWrap();
     if(!tpl || !wrap) return null;
     var node = tpl.content.firstElementChild.cloneNode(true);
     h = h || {};
-    q(node,'.tv-c-hubid').value  = h.hub_id || '';
-    q(node,'.tv-c-catid').value  = h.category_id || '';
+    setChan(q(node,'.tv-c-hubid'), h.hub_id);
+    setChan(q(node,'.tv-c-catid'), h.category_id);
     q(node,'.tv-c-limit').value  = (h.limit != null ? h.limit : '');
     q(node,'.tv-c-priv').checked = !!h.privat;
     q(node,'.tv-c-naming').value = h.naming || '';
     q(node,'.tv-c-game').value   = h.game || '';
     wrap.appendChild(node);
+    if (window.initChannelSelects) window.initChannelSelects(node);  // Voice-Hub/Kategorie mit Namen befuellen
     updatePreview(node);
     return node;
   }
@@ -306,11 +320,10 @@
   });
 
   document.addEventListener('change', function(e){
-    var t = e.target;
-    if(t.classList && t.classList.contains('tv-c-priv')){
-      var card = t.closest('.tv-hub-card');
-      if(card){ cardsDirty = true; rawDirty = false; serialize(); }
-    }
+    var t = e.target; if(!t.closest) return;
+    // Privat-Checkbox + Voice-Hub/Kategorie-<select> (feuern 'change', nicht ueberall 'input')
+    var card = t.closest('#' + CARDS_ID + ' .tv-hub-card');
+    if(card){ cardsDirty = true; rawDirty = false; serialize(); }
   });
 
   document.addEventListener('focusin', function(e){

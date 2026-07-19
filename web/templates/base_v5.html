@@ -345,6 +345,9 @@
       function scan(root) {
         (root || document).querySelectorAll('select[data-channel-select]').forEach(populate);
       }
+      // Global fuer dynamisch erzeugte Selects (z.B. temp-voice Hub-Karten): nach dem
+      // Einfuegen window.initChannelSelects(neuerKnoten) rufen -> populate laeuft.
+      window.initChannelSelects = scan;
       document.addEventListener('DOMContentLoaded', function () { scan(); });
       document.body.addEventListener('htmx:afterSwap', function (e) { scan(e.target); });
       if (document.readyState !== 'loading') scan();
