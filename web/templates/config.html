@@ -1,6 +1,7 @@
 {% extends "base_v5.html" %}
 
 {% block title %}Config-Panel{% endblock %}
+{% block crumb %}Konfiguration{% endblock %}
 {% block nav_config %}active{% endblock %}
 
 {% block content %}
@@ -200,7 +201,8 @@
         </div>
       </div>
 
-      <div class="section-sub-header">Scheduler-Toggles</div>
+      <div class="set-group" style="margin-top:14px">
+      <div class="set-group-title">Scheduler-Toggles</div>
       {% set scheduler_toggles = [
           ("daily_restart_enabled", "Taeglicher Neustart aktiviert"),
           ("auto_backup_enabled", "Auto-Backup aktiviert"),
@@ -234,6 +236,7 @@
           <span class="slider"></span>
         </label>
       </div>
+      </div><!-- /.set-group -->
 
       <div class="actions-bar">
         <button type="reset" class="btn">Zuruecksetzen</button>

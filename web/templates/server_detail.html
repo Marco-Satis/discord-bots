@@ -1,6 +1,7 @@
 {% extends "base_v5.html" %}
 
 {% block title %}{{ server.name }} &mdash; Detail{% endblock %}
+{% block crumb %}{{ server.name }}{% endblock %}
 
 {% block content %}
 {# Refactor 2026-05-17: .sd-*-Prefix entfernt, style.css v5.0-Klassen direkt.
@@ -25,10 +26,12 @@
 .rcon-line .rcon-err  { color: var(--danger); }
 .rcon-form { display: flex; gap: var(--s-2); }
 .rcon-form input { flex: 1; }
-.config-pairs { display: grid; grid-template-columns: 200px 1fr; gap: var(--s-2) var(--s-4); }
-@media (max-width: 600px) { .config-pairs { grid-template-columns: 1fr; gap: var(--s-1) 0; } }
-.config-pairs .key { font-size: 14px; color: var(--t2, #c2cde0); padding: 12px 2px; border-bottom: 1px solid var(--line); }
-.config-pairs .val { font-size: 14px; color: var(--t1, #eef3fb); padding: 12px 2px; border-bottom: 1px solid var(--line); font-family: 'JetBrains Mono', monospace; word-break: break-all; }
+/* Info-Kacheln (Welt-Info / Server-Config / Updates) — gerundete Karten statt flacher Tabelle (2026-07-16) */
+.config-pairs { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: var(--s-3); }
+@media (max-width: 600px) { .config-pairs { grid-template-columns: 1fr; } }
+.config-item { display: flex; flex-direction: column; gap: 5px; padding: 12px 15px 11px; border: 1px solid var(--line); border-radius: var(--radius-sm, 12px); background: rgba(120,180,240,.03); }
+.config-item .key { font-size: 11px; text-transform: uppercase; letter-spacing: .1em; font-weight: 700; color: var(--acc-2, #6fb0f7); font-family: ui-monospace, 'JetBrains Mono', monospace; }
+.config-item .val { font-size: 14px; color: var(--t1, #eef3fb); font-family: ui-monospace, 'JetBrains Mono', monospace; word-break: break-all; }
 .chart-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-4); margin-bottom: var(--s-4); }
 @media (max-width: 900px) { .chart-row { grid-template-columns: 1fr; } }
 .chart-host { position: relative; height: 250px; margin-bottom: var(--s-3); }
@@ -198,8 +201,10 @@
     <h3 class="subsection-title">{% if server.type == 'minecraft' %}Welt-Informationen{% elif server.type == 'satisfactory' %}Session-Informationen{% else %}Server-Informationen{% endif %}</h3>
     <div class="config-pairs">
       {% for key, value in server.world_info.items() %}
-      <div class="key">{{ key }}</div>
-      <div class="val">{{ value }}</div>
+      <div class="config-item">
+        <div class="key">{{ key }}</div>
+        <div class="val">{{ value }}</div>
+      </div>
       {% endfor %}
     </div>
   </div>
@@ -215,11 +220,13 @@
     <h3 class="subsection-title">server.properties (Auszug)</h3>
     <div class="config-pairs">
       {% for key, value in server.server_config.items() %}
-      <div class="key">{{ key }}</div>
-      <div class="val">
-        {% if value is sameas true %}<span class="text-success">true</span>
-        {% elif value is sameas false %}<span class="text-danger">false</span>
-        {% else %}{{ value }}{% endif %}
+      <div class="config-item">
+        <div class="key">{{ key }}</div>
+        <div class="val">
+          {% if value is sameas true %}<span class="text-success">true</span>
+          {% elif value is sameas false %}<span class="text-danger">false</span>
+          {% else %}{{ value }}{% endif %}
+        </div>
       </div>
       {% endfor %}
     </div>
@@ -235,14 +242,18 @@
     <div class="stat-card">
       <h4>Server-Version</h4>
       <div class="config-pairs">
-        <div class="key">Aktuell</div>
-        <div class="val">{{ server.update_info.current_version if server.update_info else '—' }}</div>
-        <div class="key">Verfuegbar</div>
-        <div class="val {% if server.update_info and server.update_info.update_available %}text-warning{% else %}text-success{% endif %}">
-          {% if server.update_info %}
-            {{ server.update_info.available_version }}
-            {% if server.update_info.update_available %} &uarr; Update verfuegbar{% else %} &check; Aktuell{% endif %}
-          {% else %}&mdash;{% endif %}
+        <div class="config-item">
+          <div class="key">Aktuell</div>
+          <div class="val">{{ server.update_info.current_version if server.update_info else '—' }}</div>
+        </div>
+        <div class="config-item">
+          <div class="key">Verfuegbar</div>
+          <div class="val {% if server.update_info and server.update_info.update_available %}text-warning{% else %}text-success{% endif %}">
+            {% if server.update_info %}
+              {{ server.update_info.available_version }}
+              {% if server.update_info.update_available %} &uarr; Update verfuegbar{% else %} &check; Aktuell{% endif %}
+            {% else %}&mdash;{% endif %}
+          </div>
         </div>
       </div>
     </div>

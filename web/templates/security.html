@@ -1,5 +1,6 @@
 {% extends "base_v5.html" %}
 {% block title %}Sicherheit{% endblock %}
+{% block crumb %}Sicherheit{% endblock %}
 {% block nav_security %}active{% endblock %}
 
 {% block content %}
@@ -7,8 +8,13 @@
 /* Security-seitenspezifische Gruppierung — identisches Schema zu config.html */
 .set-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 4px; align-items: start; }
 @media (max-width: 760px) { .set-grid { grid-template-columns: 1fr; } }
-.set-group { border: 1px solid var(--line); border-radius: 14px; padding: 10px 15px 4px; background: rgba(120,180,240,.03); }
-.set-group-title { font-size: 11px; text-transform: uppercase; letter-spacing: .12em; color: var(--acc-2); font-weight: 700; margin: 4px 0 2px; font-family: ui-monospace, monospace; }
+.set-group { border: 1px solid var(--line); border-radius: 14px; padding: 10px 15px 12px; background: rgba(120,180,240,.03); }
+.set-group-title { font-size: 11px; text-transform: uppercase; letter-spacing: .12em; color: var(--acc-2); font-weight: 700; margin: 4px 0 8px; font-family: ui-monospace, monospace; }
+/* SSL Info-Kacheln — config-item Muster (nach server_detail.html) */
+.ssl-kv-grid { display: flex; flex-direction: column; gap: 6px; }
+.config-item { display: flex; flex-direction: column; gap: 4px; padding: 10px 13px 9px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: rgba(120,180,240,.03); }
+.config-item .key { font-size: 10px; text-transform: uppercase; letter-spacing: .1em; font-weight: 700; color: var(--acc-2); font-family: ui-monospace, monospace; }
+.config-item .val { font-size: 13px; color: var(--t1); font-family: ui-monospace, monospace; word-break: break-all; }
 </style>
 
 <div class="page-header">
@@ -176,48 +182,46 @@
         <div class="set-group">
             <div class="set-group-title">SSL-Zertifikat</div>
             {% if ssl and ssl.domain %}
-            <table class="data-table">
-                <tbody>
-                    <tr>
-                        <td><strong>Domain</strong></td>
-                        <td>{{ ssl.domain }}</td>
-                    </tr>
-                    <tr>
-                        <td><strong>Status</strong></td>
-                        <td>
-                            {% if ssl.status == "ok" %}
-                            <span class="status-online">Gueltig</span>
-                            {% elif ssl.status == "warning" %}
-                            <span class="status-warning">Laeuft bald ab</span>
-                            {% elif ssl.status == "critical" %}
-                            <span class="status-offline">Laeuft bald ab!</span>
-                            {% elif ssl.status == "expired" %}
-                            <span class="status-offline">Abgelaufen!</span>
-                            {% else %}
-                            <span class="text-muted">{{ ssl.status|default("Unbekannt") }}</span>
-                            {% endif %}
-                        </td>
-                    </tr>
-                    <tr>
-                        <td><strong>Verbleibend</strong></td>
-                        <td>{{ ssl.days_remaining|default("?") }} Tage</td>
-                    </tr>
-                    {% if ssl.valid_until %}
-                    <tr>
-                        <td><strong>Gueltig bis</strong></td>
-                        <td>{{ ssl.valid_until[:10] }}</td>
-                    </tr>
-                    {% endif %}
-                    {% if ssl.issuer %}
-                    <tr>
-                        <td><strong>Aussteller</strong></td>
-                        <td>{{ ssl.issuer }}</td>
-                    </tr>
-                    {% endif %}
-                </tbody>
-            </table>
+            <div class="ssl-kv-grid">
+                <div class="config-item">
+                    <span class="key">Domain</span>
+                    <span class="val">{{ ssl.domain }}</span>
+                </div>
+                <div class="config-item">
+                    <span class="key">Status</span>
+                    <span class="val">
+                        {% if ssl.status == "ok" %}
+                        <span class="status-badge status-online">Gueltig</span>
+                        {% elif ssl.status == "warning" %}
+                        <span class="status-badge status-unknown">Laeuft bald ab</span>
+                        {% elif ssl.status == "critical" %}
+                        <span class="status-badge status-offline">Laeuft bald ab!</span>
+                        {% elif ssl.status == "expired" %}
+                        <span class="status-badge status-offline">Abgelaufen!</span>
+                        {% else %}
+                        <span class="text-muted">{{ ssl.status|default("Unbekannt") }}</span>
+                        {% endif %}
+                    </span>
+                </div>
+                <div class="config-item">
+                    <span class="key">Verbleibend</span>
+                    <span class="val">{{ ssl.days_remaining|default("?") }} Tage</span>
+                </div>
+                {% if ssl.valid_until %}
+                <div class="config-item">
+                    <span class="key">Gueltig bis</span>
+                    <span class="val">{{ ssl.valid_until[:10] }}</span>
+                </div>
+                {% endif %}
+                {% if ssl.issuer %}
+                <div class="config-item">
+                    <span class="key">Aussteller</span>
+                    <span class="val">{{ ssl.issuer }}</span>
+                </div>
+                {% endif %}
+            </div>
             {% if ssl.error %}
-            <p class="text-muted">Fehler: {{ ssl.error }}</p>
+            <p class="text-muted" style="margin-top:8px">Fehler: {{ ssl.error }}</p>
             {% endif %}
             {% else %}
             <p class="text-muted">Keine SSL-Daten verfuegbar.</p>
