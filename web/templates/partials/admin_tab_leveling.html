@@ -1,4 +1,5 @@
 <!-- Phase 13g: Leveling/XP-System Konfiguration -->
+{% from "partials/_channel_select.html" import channel_select %}
 {% if success is defined and success %}
 <div class="alert alert-success">{{ success }}</div>
 {% endif %}
@@ -93,8 +94,7 @@
                 <div id="channel-multipliers">
                     {% for cm in config.channel_multipliers %}
                     <div style="display: grid; grid-template-columns: 1fr 120px; gap: 0.5rem; margin-bottom: 0.5rem;">
-                        <input type="text" name="cm_channel_{{ loop.index0 }}"
-                               value="{{ cm.channel_id }}" placeholder="Channel ID">
+                        {{ channel_select('cm_channel_' ~ loop.index0, cm.channel_id, kind='text') }}
                         <input type="number" name="cm_multiplier_{{ loop.index0 }}"
                                value="{{ cm.multiplier }}" step="0.1" min="0" max="10" placeholder="Multiplikator">
                     </div>
