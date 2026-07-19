@@ -11,9 +11,9 @@
     <!-- v5 Design-System (Midnight Navy Data-Terminal). Stack wie genehmigtes Preview. -->
     <link rel="stylesheet" href="/static/fonts/geist/geist.css">
     <link rel="stylesheet" href="/static/tailwind/output.css">
-    <link rel="stylesheet" href="/static/tailwind/_tokens.css?v=navy20260719">
-    <link rel="stylesheet" href="/static/_preview/v5.css?v=navy20260719">
-    <link rel="stylesheet" href="/static/_preview/v5_components.css?v=navy20260719">
+    <link rel="stylesheet" href="/static/tailwind/_tokens.css?v=navy20260719b">
+    <link rel="stylesheet" href="/static/_preview/v5.css?v=navy20260719b">
+    <link rel="stylesheet" href="/static/_preview/v5_components.css?v=navy20260719b">
     <!-- Zentrale Motion-/Modern-Schicht (v5.1) — Scroll-Reveal, Spotlight, Magnetic, View-Transitions -->
     <link rel="stylesheet" href="/static/ui_motion.css?v=motion2">
 
@@ -288,6 +288,66 @@
         document.body.classList.toggle('collapsed');
         localStorage.setItem('sb', document.body.classList.contains('collapsed') ? 'c' : 'o');
       });
+    })();
+  </script>
+  <!-- Channel-Select-Populator: befuellt <select data-channel-select> aus /api/guild/channels
+       (Namen statt IDs). Persistent + HTMX-swap-sicher (re-scan bei afterSwap). -->
+  <script>
+    (function () {
+      'use strict';
+      var cache = {};  // kind -> Promise<channels[]>
+      function fetchKind(kind) {
+        var k = kind || 'all';
+        if (!cache[k]) {
+          var url = '/api/guild/channels' + (kind && kind !== 'all' ? ('?kind=' + encodeURIComponent(kind)) : '');
+          cache[k] = fetch(url, { credentials: 'same-origin' })
+            .then(function (r) { return r.ok ? r.json() : { channels: [] }; })
+            .then(function (d) { return (d && d.channels) || []; })
+            .catch(function () { return []; });
+        }
+        return cache[k];
+      }
+      function icon(t) {
+        if (t === 'voice' || t === 'stage_voice') return '🔊 ';
+        if (t === 'category') return '▸ ';
+        return '# ';
+      }
+      function populate(sel) {
+        if (sel.dataset.chanReady === '1') return;   // frisches Element nach Swap -> Flag unset -> laeuft neu
+        sel.dataset.chanReady = '1';
+        var kind = sel.dataset.kind || '';
+        var current = sel.dataset.value || '';
+        fetchKind(kind).then(function (channels) {
+          var empty = sel.querySelector('option[value=""]');
+          sel.innerHTML = '';
+          if (empty) sel.appendChild(empty);
+          var found = false;
+          channels.forEach(function (c) {
+            var o = document.createElement('option');
+            o.value = c.id;
+            o.textContent = icon(c.type) + (c.name || c.id);
+            if (String(c.id) === String(current)) { o.selected = true; found = true; }
+            sel.appendChild(o);
+          });
+          if (current && !found) {           // aktueller Wert nicht im Snapshot (stale/geloescht) -> Roh-ID behalten
+            var o2 = document.createElement('option');
+            o2.value = current; o2.textContent = 'ID ' + current + ' (nicht in Liste)';
+            o2.selected = true; sel.appendChild(o2);
+          }
+          if (!channels.length && !current) {  // Snapshot leer -> Hinweis-Option (Bot offline / kein Snapshot)
+            var o3 = document.createElement('option');
+            o3.value = ''; o3.disabled = true;
+            o3.textContent = '(keine Channel-Daten — Bot offline?)';
+            sel.appendChild(o3);
+          }
+        });
+      }
+      function scan(root) {
+        (root || document).querySelectorAll('select[data-channel-select]').forEach(populate);
+      }
+      document.addEventListener('DOMContentLoaded', function () { scan(); });
+      document.body.addEventListener('htmx:afterSwap', function (e) { scan(e.target); });
+      if (document.readyState !== 'loading') scan();
     })();
   </script>
   <!-- Motion-Schicht (defer, non-blocking) -->

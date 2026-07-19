@@ -1,0 +1,28 @@
+{#
+  Wiederverwendbare Channel-Select-Komponente.
+  Rendert ein natives <select> das per JS (base_v5-Populator) aus
+  /api/guild/channels befuellt wird: zeigt Channel-NAMEN, Wert = Channel-ID.
+
+  Nutzung im Template:
+    {% from "partials/_channel_select.html" import channel_select %}
+    {{ channel_select('admin_channel', config.admin_channel, kind='text') }}
+
+  Args:
+    name         Form-Feldname (postet die Channel-ID — Backend unveraendert)
+    value        aktuell gespeicherte Channel-ID (wird vorselektiert)
+    kind         'text' | 'voice' | 'category' | '' (Filter fuer die Liste)
+    placeholder  Text der Leer-Option
+    allow_empty  Leer-Option anbieten (Default true)
+
+  Progressive Enhancement: laeuft kein JS / ist der Snapshot leer, bleibt die
+  Leer-Option + (falls gesetzt) die aktuelle ID als Option erhalten -> das
+  Formular postet weiterhin einen gueltigen Wert.
+#}
+{% macro channel_select(name, value='', kind='text', placeholder='— Channel wählen —', allow_empty=true) -%}
+<select class="channel-select" name="{{ name }}"
+        data-channel-select data-kind="{{ kind }}"
+        data-value="{{ value|default('', true) }}">
+    {% if allow_empty %}<option value="">{{ placeholder }}</option>{% endif %}
+    {% if value %}<option value="{{ value }}" selected>ID {{ value }}</option>{% endif %}
+</select>
+{%- endmacro %}

@@ -1,4 +1,5 @@
 {% extends "base_v5.html" %}
+{% from "partials/_channel_select.html" import channel_select %}
 
 {% block title %}Config-Panel{% endblock %}
 {% block crumb %}Konfiguration{% endblock %}
@@ -294,9 +295,7 @@
         {% for key, label, scope in channel_labels %}
         <div class="form-group">
           <label>{{ label }} <span class="hint">({{ scope }})</span></label>
-          <input type="text" name="channels.{{ key }}" placeholder="Channel-ID (numerisch)"
-                 value="{{ config.channels[key] if config.channels is defined and key in config.channels else '' }}"
-                 pattern="\d*">
+          {{ channel_select('channels.' ~ key, config.channels[key] if config.channels is defined and key in config.channels else '', kind='text') }}
         </div>
         {% endfor %}
       </div>
