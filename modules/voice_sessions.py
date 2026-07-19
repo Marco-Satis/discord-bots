@@ -27,7 +27,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from utils.logger import get_logger
-from modules.database.db_manager import get_db
+from modules.database.db_manager import get_db, DBHelper, transaction
 
 logger = get_logger("voice_sessions")
 
@@ -94,16 +94,15 @@ class VoiceSessionTracker:
         }
 
         try:
-            db = await get_db()
-            cursor = await db.execute(
+            db = DBHelper(await get_db())
+            new_id = await db.execute(  # commit + Write-Retry (busy/locked)
                 "INSERT INTO voice_sessions (guild_id, user_id, channel_id, join_time) "
                 "VALUES (?, ?, ?, ?)",
                 (str(guild_id), str(user_id), str(channel_id), _iso(now)),
             )
-            await db.commit()
             # Session koennte zwischenzeitlich beendet worden sein
             if key in self._open:
-                self._open[key]["db_id"] = cursor.lastrowid
+                self._open[key]["db_id"] = new_id
         except Exception as e:
             logger.error(f"Voice-Session start fuer {key} fehlgeschlagen: {e}")
 
@@ -159,14 +158,12 @@ class VoiceSessionTracker:
 
         if s["db_id"] is not None:
             try:
-                db = await get_db()
-                await db.execute(
+                await DBHelper(await get_db()).execute(  # commit + Write-Retry
                     "UPDATE voice_sessions "
                     "SET leave_time = ?, duration_seconds = ?, valid = ? "
                     "WHERE id = ?",
                     (_iso(now), duration, is_valid, s["db_id"]),
                 )
-                await db.commit()
             except Exception as e:
                 logger.error(f"Voice-Session end fuer {key} fehlgeschlagen: {e}")
 
@@ -182,12 +179,10 @@ class VoiceSessionTracker:
         if db_id is None:
             return
         try:
-            db = await get_db()
-            await db.execute(
+            await DBHelper(await get_db()).execute(  # commit + Write-Retry
                 "UPDATE voice_sessions SET xp_awarded = ? WHERE id = ?",
                 (int(xp), db_id),
             )
-            await db.commit()
         except Exception as e:
             logger.error(f"Voice-Session set_xp fuer {db_id} fehlgeschlagen: {e}")
 
@@ -201,14 +196,13 @@ class VoiceSessionTracker:
         """
         now = time.time() if now is None else now
         try:
-            db = await get_db()
-            cursor = await db.execute(
-                "UPDATE voice_sessions SET leave_time = ?, valid = 0 "
-                "WHERE leave_time IS NULL",
-                (_iso(now),),
-            )
-            await db.commit()
-            closed = cursor.rowcount or 0
+            async with transaction() as conn:  # BEGIN IMMEDIATE + Retry (cross-Prozess), rowcount
+                cursor = await conn.execute(
+                    "UPDATE voice_sessions SET leave_time = ?, valid = 0 "
+                    "WHERE leave_time IS NULL",
+                    (_iso(now),),
+                )
+                closed = cursor.rowcount or 0
             if closed:
                 logger.info(f"{closed} verwaiste Voice-Session(s) geschlossen")
             return closed
