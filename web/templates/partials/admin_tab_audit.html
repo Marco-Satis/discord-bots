@@ -1,3 +1,4 @@
+{% from "partials/_channel_select.html" import channel_select %}
 <!-- Phase 13g: Audit-Logging Konfiguration -->
 {% if success is defined and success %}
 <div class="alert alert-success">{{ success }}</div>
@@ -20,39 +21,27 @@
             <div class="input-grid">
             <div class="form-group">
                 <label for="moderation_log_channel">Moderation-Log Channel ID</label>
-                <input type="text" id="moderation_log_channel" name="moderation_log_channel"
-                       value="{{ config.moderation_log_channel|default('', true) }}"
-                       placeholder="Warns, Mutes, Kicks, Bans">
+                {{ channel_select('moderation_log_channel', config.moderation_log_channel|default('', true), kind='text') }}
             </div>
             <div class="form-group">
                 <label for="join_leave_log_channel">Join/Leave-Log Channel ID</label>
-                <input type="text" id="join_leave_log_channel" name="join_leave_log_channel"
-                       value="{{ config.join_leave_log_channel|default('', true) }}"
-                       placeholder="Member Joins und Leaves">
+                {{ channel_select('join_leave_log_channel', config.join_leave_log_channel|default('', true), kind='text') }}
             </div>
             <div class="form-group">
                 <label for="member_update_log_channel">Member-Update-Log Channel ID</label>
-                <input type="text" id="member_update_log_channel" name="member_update_log_channel"
-                       value="{{ config.member_update_log_channel|default('', true) }}"
-                       placeholder="Nickname-/Avatar-Aenderungen">
+                {{ channel_select('member_update_log_channel', config.member_update_log_channel|default('', true), kind='text') }}
             </div>
             <div class="form-group">
                 <label for="role_change_log_channel">Rollen-Log Channel ID</label>
-                <input type="text" id="role_change_log_channel" name="role_change_log_channel"
-                       value="{{ config.role_change_log_channel|default('', true) }}"
-                       placeholder="Rollen hinzugefuegt/entfernt">
+                {{ channel_select('role_change_log_channel', config.role_change_log_channel|default('', true), kind='text') }}
             </div>
             <div class="form-group">
                 <label for="server_change_log_channel">Server-Log Channel ID</label>
-                <input type="text" id="server_change_log_channel" name="server_change_log_channel"
-                       value="{{ config.server_change_log_channel|default('', true) }}"
-                       placeholder="Channel/Rollen erstellt/geloescht">
+                {{ channel_select('server_change_log_channel', config.server_change_log_channel|default('', true), kind='text') }}
             </div>
             <div class="form-group">
                 <label for="message_log_channel">Nachrichten-Log Channel ID</label>
-                <input type="text" id="message_log_channel" name="message_log_channel"
-                       value="{{ config.message_log_channel|default('', true) }}"
-                       placeholder="Geloeschte/bearbeitete Nachrichten">
+                {{ channel_select('message_log_channel', config.message_log_channel|default('', true), kind='text') }}
             </div>
             </div>
         </div>

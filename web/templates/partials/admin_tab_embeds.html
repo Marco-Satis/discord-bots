@@ -1,3 +1,4 @@
+{% from "partials/_channel_select.html" import channel_select %}
 <!-- HTMX-Partial: Embed-Builder fuer Marshal -->
 {% if success %}
 <div class="alert alert-success">{{ success }}</div>
@@ -22,9 +23,7 @@
                 <div class="set-group-title">Ziel-Channel</div>
                 <div class="form-group">
                     <label for="channel_id">Ziel-Channel-ID *</label>
-                    <input type="text" id="channel_id" name="channel_id"
-                           placeholder="z.B. 1111111111111111119" required
-                           value="{{ config.last_channel_id|default('') }}">
+                    {{ channel_select('channel_id', config.last_channel_id|default(''), kind='text') }}
                 </div>
             </div>
 

@@ -1,3 +1,4 @@
+{% from "partials/_channel_select.html" import channel_select %}
 <!-- Phase 13g: Warn-System Konfiguration -->
 {% if success is defined and success %}
 <div class="alert alert-success">{{ success }}</div>
@@ -26,9 +27,7 @@
                 </div>
                 <div class="form-group">
                     <label for="log_channel_id">Log-Channel ID</label>
-                    <input type="text" id="log_channel_id" name="log_channel_id"
-                           value="{{ config.log_channel_id|default('', true) }}"
-                           placeholder="z.B. 111111111111111111">
+                    {{ channel_select('log_channel_id', config.log_channel_id|default('', true), kind='text') }}
                 </div>
             </div>
 

@@ -1,3 +1,4 @@
+{% from "partials/_channel_select.html" import channel_select %}
 <!-- Phase 13g: Ticket-System Konfiguration -->
 {% if success is defined and success %}
 <div class="alert alert-success">{{ success }}</div>
@@ -19,15 +20,11 @@
                 <div class="set-group-title">Einrichtung</div>
                 <div class="form-group">
                     <label for="button_channel_id">Button-Channel ID</label>
-                    <input type="text" id="button_channel_id" name="button_channel_id"
-                           value="{{ config.button_channel_id|default('', true) }}"
-                           placeholder="Channel in dem der Ticket-Button steht">
+                    {{ channel_select('button_channel_id', config.button_channel_id|default('', true), kind='text') }}
                 </div>
                 <div class="form-group">
                     <label for="ticket_category_id">Ticket-Kategorie ID</label>
-                    <input type="text" id="ticket_category_id" name="ticket_category_id"
-                           value="{{ config.ticket_category_id|default('', true) }}"
-                           placeholder="Discord-Kategorie fuer neue Ticket-Channels">
+                    {{ channel_select('ticket_category_id', config.ticket_category_id|default('', true), kind='category', placeholder='— Kategorie wählen —') }}
                 </div>
                 <div class="form-group">
                     <label for="support_role_ids">Support-Rollen IDs (kommasepariert)</label>
@@ -41,9 +38,7 @@
                 <div class="set-group-title">Transkripte &amp; Automatisierung</div>
                 <div class="form-group">
                     <label for="transcript_channel_id">Transcript-Channel ID</label>
-                    <input type="text" id="transcript_channel_id" name="transcript_channel_id"
-                           value="{{ config.transcript_channel_id|default('', true) }}"
-                           placeholder="Channel fuer Ticket-Transkripte (optional)">
+                    {{ channel_select('transcript_channel_id', config.transcript_channel_id|default('', true), kind='text') }}
                 </div>
                 <div class="form-group">
                     <label for="auto_close_hours">Auto-Close nach Inaktivitaet (Stunden, 0 = aus)</label>

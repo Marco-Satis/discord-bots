@@ -1,3 +1,4 @@
+{% from "partials/_channel_select.html" import channel_select %}
 <!-- LFG-Config-Partial (HTMX-Swap-Ziel #lfg-config) -->
 {% if success %}<div class="card" style="padding:12px 16px;margin-bottom:14px;border:1px solid var(--ok);color:var(--ok)">{{ success }}</div>{% endif %}
 {% if error %}<div class="card" style="padding:12px 16px;margin-bottom:14px;border:1px solid var(--bad);color:var(--bad)">{{ error }}</div>{% endif %}
@@ -24,9 +25,7 @@
             <div class="set-group-title">Ping-Konfiguration</div>
             <div class="form-group">
                 <label for="channel_id">Ping-Kanal-ID (optional)</label>
-                <input type="text" id="channel_id" name="channel_id" inputmode="numeric"
-                       value="{{ cfg.channel_id|default('', true) }}"
-                       placeholder="leer = überall erlaubt">
+                {{ channel_select('channel_id', cfg.channel_id|default('', true), kind='text') }}
                 <p class="config-hint">Wenn gesetzt, ist <code>/lfg ping</code> nur in diesem
                     Kanal nutzbar.</p>
             </div>

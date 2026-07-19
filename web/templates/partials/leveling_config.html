@@ -1,3 +1,4 @@
+{% from "partials/_channel_select.html" import channel_select %}
 {# Level-Up-Benachrichtigungs-Config (B1+B2) — HTMX-Partial.
    Wird von leveling.html via {% include %} eingebunden UND von POST
    /leveling/config als Swap-Ziel (#lvl-config) zurueckgegeben. CSRF-Header
@@ -18,10 +19,7 @@
                 <div class="set-group-title">Level-Up-Nachrichten</div>
                 <div class="lvl-field">
                     <label for="announce_channel">Announce-Kanal (Channel-ID)</label>
-                    <input type="text" id="announce_channel" name="announce_channel"
-                           inputmode="numeric" pattern="[0-9]*"
-                           value="{{ cfg.announce_channel }}"
-                           placeholder="leer = im Auslöse-Kanal posten">
+                    {{ channel_select('announce_channel', cfg.announce_channel, kind='text') }}
                     <small>
                         Discord-Kanal-ID (Entwicklermodus → Rechtsklick auf Kanal →
                         „ID kopieren"). Leer = Level-Up erscheint im Kanal wo es
