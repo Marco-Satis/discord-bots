@@ -45,7 +45,6 @@ Laden ein einzelner Hub aus den Legacy-Feldern synthetisiert (idempotent).
 
 from __future__ import annotations
 
-import asyncio
 import json
 import time
 from datetime import datetime, timezone
@@ -431,7 +430,10 @@ class TempVoiceManager:
             "joined_at": {str(member.id): now},  # Zeit-im-Channel fuer Slot-Liste
             "events": [{"uid": member.id, "type": "join", "ts": now}],  # Ringpuffer
         }
-        await asyncio.to_thread(self._save)  # blocking File-IO nicht im Event-Loop
+        # Sync speichern wie alle anderen Mutatoren: to_thread(self._save) wuerde
+        # self._channels im Worker-Thread iterieren waehrend der Event-Loop es mutiert
+        # (dict changed size during iteration). Datei ist winzig -> Loop-Block vernachlaessigbar.
+        self._save()
 
         logger.info(
             f"Temp-Voice-Channel erstellt: #{channel.name} (ID: {channel.id}) "

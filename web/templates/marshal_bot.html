@@ -321,6 +321,10 @@
 
   document.addEventListener('change', function(e){
     var t = e.target; if(!t.closest) return;
+    // Audit-Fix (2026-07-20): manuelle Rohtext-Aenderung beim Verlassen der Textarea (Blur=change,
+    // feuert VOR einem folgenden Karten-Klick) in die Karten uebernehmen -> eine anschliessende
+    // Karten-Aktion serialisiert dann die AKTUELLEN Karten und clobbert die Roh-Aenderung nicht mehr.
+    if(t.id === RAW_ID){ rebuild(); rawDirty = false; cardsDirty = false; return; }
     // Privat-Checkbox + Voice-Hub/Kategorie-<select> (feuern 'change', nicht ueberall 'input')
     var card = t.closest('#' + CARDS_ID + ' .tv-hub-card');
     if(card){ cardsDirty = true; rawDirty = false; serialize(); }

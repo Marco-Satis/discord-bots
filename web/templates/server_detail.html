@@ -391,6 +391,7 @@ document.addEventListener('DOMContentLoaded', function() {
 var SD_SERVER_ID = {{ server.server_id|tojson }};
 var sdCharts = {};       // canvasId -> Chart-Instanz
 var sdPeriod = '7d';     // Default: 7-Tage-Button ist active
+var sdReqSeq = 0;        // Audit-Fix: Out-of-Order-Response-Schutz
 
 function sdChartDefaults() {
   var fontColor = getComputedStyle(document.body).getPropertyValue('--text-muted').trim() || '#80848e';
@@ -423,10 +424,12 @@ function sdEmpty(id, text) {   // ehrlicher Leer-Hinweis statt Fake-Chart
 function sdLoadAnalytics() {
   if (typeof Chart === 'undefined' || !SD_SERVER_ID) return;
   var d = sdChartDefaults();
+  var seq = ++sdReqSeq;   // nur die neueste Response verarbeiten
+  var ids = ['sd-chart-uptime','sd-chart-perf','sd-chart-players','sd-chart-tps'];
   fetch('/api/analytics/server/' + encodeURIComponent(SD_SERVER_ID) + '?period=' + sdPeriod, { credentials: 'same-origin' })
-    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
     .then(function (data) {
-      var ids = ['sd-chart-uptime','sd-chart-perf','sd-chart-players','sd-chart-tps'];
+      if (seq !== sdReqSeq) return;   // veraltete Response (schneller Zeitraum-Wechsel) verwerfen
       if (!data || !data.labels || !data.labels.length) { ids.forEach(function(id){ sdEmpty(id, 'Keine Analytics-Daten im Zeitraum'); }); return; }
       var labels = data.labels;
       function ds(name){ var x = (data.datasets||[]).find(function(s){ return s.label === name; }); return x ? x.data : []; }
@@ -464,7 +467,7 @@ function sdLoadAnalytics() {
       // TPS: kein Backend-Feld in den Server-Analytics -> ehrlicher Hinweis statt erfundener Kurve
       sdEmpty('sd-chart-tps', 'TPS-Verlauf: wird noch nicht erfasst');
     })
-    .catch(function(){ ['sd-chart-uptime','sd-chart-perf','sd-chart-players','sd-chart-tps'].forEach(function(id){ sdEmpty(id, 'Analytics nicht erreichbar'); }); });
+    .catch(function(){ if (seq !== sdReqSeq) return; ids.forEach(function(id){ sdEmpty(id, 'Fehler beim Laden der Analytics (nicht erreichbar/Auth)'); }); });
 }
 </script>
 {% endblock %}

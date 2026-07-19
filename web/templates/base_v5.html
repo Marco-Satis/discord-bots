@@ -305,7 +305,7 @@
           cache[k] = { ts: now, promise: fetch(url, { credentials: 'same-origin' })
             .then(function (r) { return r.ok ? r.json() : { channels: [] }; })
             .then(function (d) { return (d && d.channels) || []; })
-            .catch(function () { return []; }) };
+            .catch(function () { if (cache[k]) cache[k].ts = 0; return []; }) };  // Fehler nicht voll cachen -> naechster Versuch sofort
         }
         return cache[k].promise;
       }
@@ -339,7 +339,7 @@
           if (!channels.length && !current) {  // Snapshot leer -> Hinweis-Option (Bot offline / kein Snapshot)
             var o3 = document.createElement('option');
             o3.value = ''; o3.disabled = true;
-            o3.textContent = '(keine Channel-Daten — Bot offline?)';
+            o3.textContent = '(keine Channels für diese Auswahl)';
             sel.appendChild(o3);
           }
         });
