@@ -102,5 +102,236 @@
         });
         btn.classList.add('active');
     }
+
+
+    // [TEMP-VOICE-HUB-MANAGER]
+/* =====================================================================
+   >>> Gehoert in marshal_bot.html, IN den bestehenden persistenten
+   Script-Block (nach der switchTab-Funktion, vor dem schliessenden Tag).
+   NICHT ins Partial — HTMX innerHTML-Swap fuehrt Partial-Skripte nicht aus.
+   Alles läuft via Event-Delegation auf document und re-initialisiert bei
+   htmx:afterSwap; Backend unverändert (postet nur hubs_text + afk_timeout_minutes).
+   ===================================================================== */
+(function () {
+  'use strict';
+  var RAW_ID = 'tv-hubs-text';
+  var CARDS_ID = 'tv-cards';
+  var TRUE_WORDS = { ja:1, yes:1, '1':1, 'true':1, privat:1, 'private':1, x:1 };
+  var cardsDirty = false;   // Karten wurden editiert -> Karten sind Quelle
+  var rawDirty   = false;   // Textarea manuell editiert -> Rohtext gewinnt (Kommentar-Erhalt)
+  var lastNaming = null;    // zuletzt fokussiertes Naming-Feld (für Chips)
+
+  function form()      { return document.getElementById('tv-form'); }
+  function cardsWrap() { return document.getElementById(CARDS_ID); }
+  function rawEl()     { return document.getElementById(RAW_ID); }
+  function isDigits(s) { return /^\d+$/.test(s); }
+  function q(root, sel){ return root ? root.querySelector(sel) : null; }
+
+  /** Pipe/Newline entfernen, damit das |-getrennte Format nicht bricht. */
+  function sanitize(s){ return (s == null ? '' : String(s)).replace(/[|\r\n]+/g, '/').trim(); }
+
+  /** Rohtext -> Hub-Objekte (spiegelt parse_hubs_text im Backend). */
+  function parseHubs(text){
+    var hubs = [];
+    (text || '').split(/\r?\n/).forEach(function(raw){
+      var line = raw.trim();
+      if(!line || line.charAt(0) === '#') return;
+      var p = line.split('|').map(function(s){ return s.trim(); });
+      if(!isDigits(p[0])) return;
+      hubs.push({
+        hub_id: p[0],
+        category_id: (p[1] && isDigits(p[1])) ? p[1] : '',
+        limit: (p[2] && isDigits(p[2])) ? String(Math.max(0, Math.min(99, parseInt(p[2],10)))) : '',
+        privat: !!TRUE_WORDS[(p[3] || '').toLowerCase()],
+        naming: (p[4] && p[4].length) ? p[4] : '',
+        game: p[5] || ''
+      });
+    });
+    return hubs;
+  }
+
+  function readCard(card){
+    return {
+      hub_id:      (q(card,'.tv-c-hubid').value  || '').trim(),
+      category_id: (q(card,'.tv-c-catid').value  || '').trim(),
+      limit:       (q(card,'.tv-c-limit').value  || '').trim(),
+      privat:       q(card,'.tv-c-priv').checked,
+      naming:       q(card,'.tv-c-naming').value || '',
+      game:         q(card,'.tv-c-game').value   || ''
+    };
+  }
+
+  /** Hub-Objekt -> hubs_text-Zeile (spiegelt Backend-Erwartungen: Clamp, Defaults, game nur wenn gesetzt). */
+  function hubToLine(h){
+    var cat = isDigits(h.category_id) ? h.category_id : '';
+    var lim = isDigits(h.limit) ? String(Math.max(0, Math.min(99, parseInt(h.limit,10)))) : '0';
+    var priv = h.privat ? 'ja' : 'nein';
+    var naming = sanitize(h.naming).slice(0,100) || "{user}'s Channel";
+    var game = sanitize(h.game).slice(0,50);
+    var line = h.hub_id + ' | ' + cat + ' | ' + lim + ' | ' + priv + ' | ' + naming;
+    if(game) line += ' | ' + game;
+    return line;
+  }
+
+  function buildText(){
+    var wrap = cardsWrap();
+    if(!wrap) return rawEl() ? rawEl().value : '';
+    var lines = [];
+    wrap.querySelectorAll('.tv-hub-card').forEach(function(card){
+      var h = readCard(card);
+      if(!isDigits(h.hub_id)) return;   // unvollständige Karte nicht serialisieren
+      lines.push(hubToLine(h));
+    });
+    return lines.join('\n');
+  }
+
+  function updatePreview(card){
+    var out = q(card,'.tv-preview-val'); if(!out) return;
+    var nEl = q(card,'.tv-c-naming'), gEl = q(card,'.tv-c-game');
+    var tpl  = (nEl && nEl.value.trim()) ? nEl.value : "{user}'s Channel";
+    var game = (gEl && gEl.value.trim()) ? gEl.value.trim() : 'Spiel';
+    out.textContent = tpl.replace(/\{user\}/g, 'Marco')
+                         .replace(/\{count\}/g, '1')
+                         .replace(/\{game\}/g, game);
+  }
+
+  function updateCount(){
+    var f = form(); if(!f) return;
+    var n = f.querySelectorAll('#' + CARDS_ID + ' .tv-hub-card').length;
+    var badge = f.querySelector('.tv-count-badge');
+    if(badge) badge.textContent = (n === 1) ? '1 Hub' : (n + ' Hubs');
+    var empty = document.getElementById('tv-empty');
+    if(empty) empty.style.display = n ? 'none' : '';
+    f.querySelectorAll('#' + CARDS_ID + ' .tv-hub-card').forEach(function(c, i){
+      var num = c.querySelector('.tv-hub-num'); if(num) num.textContent = (i + 1);
+    });
+  }
+
+  /** Karten -> Textarea (Source-of-Truth aktualisieren). */
+  function serialize(){
+    var ta = rawEl(); if(ta) ta.value = buildText();
+    updateCount();
+  }
+
+  function makeCard(h){
+    var tpl = document.getElementById('tv-hub-tpl'), wrap = cardsWrap();
+    if(!tpl || !wrap) return null;
+    var node = tpl.content.firstElementChild.cloneNode(true);
+    h = h || {};
+    q(node,'.tv-c-hubid').value  = h.hub_id || '';
+    q(node,'.tv-c-catid').value  = h.category_id || '';
+    q(node,'.tv-c-limit').value  = (h.limit != null ? h.limit : '');
+    q(node,'.tv-c-priv').checked = !!h.privat;
+    q(node,'.tv-c-naming').value = h.naming || '';
+    q(node,'.tv-c-game').value   = h.game || '';
+    wrap.appendChild(node);
+    updatePreview(node);
+    return node;
+  }
+
+  function rebuild(){
+    var wrap = cardsWrap(); if(!wrap) return;
+    wrap.innerHTML = '';
+    parseHubs(rawEl() ? rawEl().value : '').forEach(function(h){ makeCard(h); });
+    updateCount();
+  }
+
+  function insertChip(tok){
+    var el = lastNaming;
+    if(!el || !document.contains(el)) el = q(cardsWrap(), '.tv-c-naming');
+    if(!el){ return; }
+    var s = (el.selectionStart != null) ? el.selectionStart : el.value.length;
+    var e = (el.selectionEnd   != null) ? el.selectionEnd   : el.value.length;
+    el.value = el.value.slice(0, s) + tok + el.value.slice(e);
+    el.focus();
+    var pos = s + tok.length;
+    try { el.setSelectionRange(pos, pos); } catch(_) {}
+    var card = el.closest('.tv-hub-card');
+    if(card) updatePreview(card);
+    cardsDirty = true; rawDirty = false; serialize();
+  }
+
+  /** Init/Re-Init: markiert das Form, klappt Rohmodus zu, baut Karten aus der Textarea. */
+  function init(){
+    var f = form();
+    if(!f || !cardsWrap()) return;
+    if(f.dataset.tvReady === '1') return;   // frisches Form-Element nach Swap -> Flag unset -> läuft neu
+    f.dataset.tvReady = '1';
+    f.classList.add('tv-ready');
+    cardsDirty = false; rawDirty = false;
+    var det = f.querySelector('.tv-raw');
+    if(det && det.tagName === 'DETAILS') det.open = false;   // Rohmodus für JS-Nutzer einklappen
+    rebuild();
+  }
+
+  // ---- Event-Delegation (einmalig, überlebt HTMX-Swaps) ----
+  document.addEventListener('click', function(e){
+    if(!e.target.closest) return;
+    var add = e.target.closest('[data-tv-action="add"]');
+    if(add){
+      e.preventDefault();
+      var c = makeCard({});
+      cardsDirty = true; rawDirty = false; serialize();
+      if(c){ var f = q(c,'.tv-c-hubid'); if(f) f.focus(); }
+      return;
+    }
+    var rm = e.target.closest('[data-tv-action="remove"]');
+    if(rm){
+      e.preventDefault();
+      var card = rm.closest('.tv-hub-card');
+      if(card) card.remove();
+      cardsDirty = true; rawDirty = false; serialize();
+      return;
+    }
+    var rb = e.target.closest('[data-tv-action="rebuild"]');
+    if(rb){
+      e.preventDefault();
+      rebuild();
+      cardsDirty = false; rawDirty = false;   // Rohtext bleibt Quelle
+      return;
+    }
+    var chip = e.target.closest('[data-tv-chip]');
+    if(chip){ e.preventDefault(); insertChip(chip.getAttribute('data-tv-chip')); return; }
+  });
+
+  document.addEventListener('input', function(e){
+    var t = e.target; if(!t.closest) return;
+    if(t.id === RAW_ID){ rawDirty = true; return; }         // manuelle Rohtext-Edits gewinnen
+    var card = t.closest('#' + CARDS_ID + ' .tv-hub-card');
+    if(card){
+      cardsDirty = true; rawDirty = false;
+      if(t.classList.contains('tv-c-naming') || t.classList.contains('tv-c-game')) updatePreview(card);
+      serialize();
+    }
+  });
+
+  document.addEventListener('change', function(e){
+    var t = e.target;
+    if(t.classList && t.classList.contains('tv-c-priv')){
+      var card = t.closest('.tv-hub-card');
+      if(card){ cardsDirty = true; rawDirty = false; serialize(); }
+    }
+  });
+
+  document.addEventListener('focusin', function(e){
+    if(e.target.classList && e.target.classList.contains('tv-c-naming')) lastNaming = e.target;
+  });
+
+  // ---- Sicherheitsnetz vor dem HTMX-POST: nur beim Temp-Voice-Save + nur wenn Karten die Quelle sind ----
+  document.body.addEventListener('htmx:configRequest', function(e){
+    if(!cardsWrap()) return;                                     // nicht der Temp-Voice-Tab
+    if(!e.detail || !e.detail.path || e.detail.path.indexOf('/save/temp_voice') === -1) return;
+    if(cardsDirty && !rawDirty){                                 // Karten-Edits -> serialisieren; sonst Rohtext (inkl. #-Kommentaren) unangetastet
+      var txt = buildText();
+      var ta = rawEl(); if(ta) ta.value = txt;
+      if(e.detail.parameters) e.detail.parameters['hubs_text'] = txt;
+    }
+  });
+
+  // ---- Init: initialer Server-Include + nach jedem HTMX-Swap (Tab-Wechsel & nach Speichern) ----
+  document.addEventListener('DOMContentLoaded', init);
+  document.body.addEventListener('htmx:afterSwap', init);
+  if(document.readyState !== 'loading') init();
+})();
 </script>
 {% endblock %}

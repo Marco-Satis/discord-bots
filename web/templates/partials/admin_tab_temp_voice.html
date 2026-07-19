@@ -1,4 +1,4 @@
-<!-- Phase 13f / C1: Temp Voice Multi-Hub Konfiguration -->
+<!-- Phase 13f / C1: Temp Voice Multi-Hub Konfiguration — V6 Hub-Manager (Synthese) -->
 {% if success is defined and success %}
 <div class="alert alert-success">{{ success }}</div>
 {% endif %}
@@ -6,55 +6,190 @@
 <div class="alert alert-danger">{{ error }}</div>
 {% endif %}
 
-<form hx-post="/marshal-bot/save/temp_voice" hx-target="#tab-content" hx-swap="innerHTML">
+<style>
+/* ===== Temp-Voice Hub-Manager (V6) — im Partial <style>, HTMX-innerHTML-swap-safe ===== */
+/* Progressive Enhancement: ohne JS bleibt der Rohtext-Editor (details[open]) voll nutzbar. */
+#tv-form:not(.tv-ready) .tv-ready-only { display: none !important; }
+#tv-form.tv-ready .tv-no-js { display: none; }
+
+.tv-intro { color: var(--t3); font-size: .85rem; line-height: 1.6; margin: 0 0 1.1rem; }
+.tv-intro code, .tv-help code {
+  background: var(--s0); color: var(--acc-2); padding: 2px 6px; border-radius: 4px;
+  font-family: ui-monospace, monospace; font-size: .82em;
+}
+.tv-help { color: var(--t3); font-size: .8rem; line-height: 1.65; margin: 4px 0 0; }
+
+.tv-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 10px; }
+.tv-chips-label { font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: var(--t3);
+  font-family: ui-monospace, monospace; }
+.tv-chip { padding: 4px 10px; border-radius: 99px; border: 1px solid var(--line-accent);
+  background: var(--s2); color: var(--acc-2); font-size: 11.5px; cursor: pointer;
+  font-family: ui-monospace, monospace; transition: all var(--fast); }
+.tv-chip:hover { background: var(--acc-soft); color: var(--t1); }
+
+.tv-manager-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.tv-count-badge {
+  font-size: 10px; font-weight: 700; padding: 4px 11px; border-radius: 99px;
+  background: var(--acc-soft); color: var(--acc-2); text-transform: uppercase;
+  letter-spacing: .08em; font-family: ui-monospace, monospace; white-space: nowrap;
+}
+
+.tv-no-js {
+  padding: 12px 16px; border: 1px dashed var(--warn); border-radius: var(--radius-sm);
+  background: var(--warn-bg); color: var(--warn); font-size: 12px; margin-bottom: 14px;
+}
+
+.tv-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 14px; }
+.tv-hub-card {
+  border: 1px solid var(--line); border-radius: var(--radius); background: rgba(120,180,240,.03);
+  padding: 14px 16px 16px; transition: border-color var(--fast), box-shadow var(--fast);
+}
+.tv-hub-card:hover { border-color: var(--line-accent); }
+.tv-hub-card:focus-within { border-color: var(--line-accent); box-shadow: 0 0 0 3px var(--acc-soft); }
+
+.tv-hub-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 13px; }
+.tv-hub-title { display: flex; align-items: center; gap: 8px; font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .12em; color: var(--acc-2); font-family: ui-monospace, monospace; }
+.tv-hub-num { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 22px;
+  padding: 0 6px; border-radius: 99px; background: var(--acc-soft); color: var(--acc-2);
+  font-size: 11px; font-variant-numeric: tabular-nums; }
+.tv-hub-del { background: var(--bad-bg); color: var(--bad); border: 0; padding: 5px 11px; border-radius: 8px;
+  cursor: pointer; font-size: 11px; font-family: ui-monospace, monospace; transition: filter var(--fast); }
+.tv-hub-del:hover { filter: brightness(1.15); }
+
+.tv-hub-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 11px 12px; }
+.tv-full { grid-column: 1 / -1; }
+.tv-fg { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.tv-fg-label { font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: var(--t3);
+  font-weight: 600; font-family: ui-monospace, monospace; }
+.tv-fg input { width: 100%; }
+
+.tv-toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 9px 12px; border: 1px solid var(--line-soft); border-radius: 10px; background: var(--s2); }
+.tv-toggle-name { font-size: 13px; color: var(--t1); font-weight: 500; }
+.tv-toggle-desc { font-size: 11px; color: var(--t3); margin-top: 2px; }
+
+.tv-preview { display: flex; align-items: center; gap: 9px; overflow: hidden;
+  padding: 9px 11px; border: 1px solid var(--line-soft); border-radius: 10px;
+  background: linear-gradient(180deg, rgba(59,130,246,.06), transparent); }
+.tv-preview-lbl { font-size: 9px; text-transform: uppercase; letter-spacing: .1em; color: var(--t3);
+  font-family: ui-monospace, monospace; flex-shrink: 0; }
+.tv-preview-val { color: var(--acc-2); font-weight: 600; font-size: 13px; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tv-preview-val::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--ok); box-shadow: 0 0 0 3px var(--ok-bg); margin-right: 7px; vertical-align: middle; }
+
+.tv-empty { padding: 30px; text-align: center; color: var(--t3); font-size: 12px;
+  border: 1px dashed var(--line); border-radius: var(--radius); margin-top: 4px;
+  text-transform: uppercase; letter-spacing: .08em; }
+
+.tv-add-row { margin-top: 14px; }
+.tv-add-btn { display: inline-flex; align-items: center; gap: 9px; padding: 11px 18px; border-radius: 10px;
+  border: 1px dashed var(--line-accent); background: var(--acc-soft); color: var(--acc-2); cursor: pointer;
+  font-size: 13px; font-weight: 600; font-family: ui-monospace, monospace; transition: all var(--fast); }
+.tv-add-btn:hover { background: var(--acc); color: #fff; border-style: solid; }
+.tv-add-btn .tv-plus { font-size: 16px; line-height: 1; }
+
+.tv-raw { margin-top: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--s2); padding: 0 14px; }
+.tv-raw > summary { cursor: pointer; padding: 13px 0; font-size: 11px; text-transform: uppercase; letter-spacing: .1em;
+  color: var(--t3); font-weight: 700; font-family: ui-monospace, monospace; list-style: none;
+  display: flex; align-items: center; gap: 8px; }
+.tv-raw > summary::-webkit-details-marker { display: none; }
+.tv-raw > summary::before { content: "\25B8"; color: var(--acc-2); display: inline-block; transition: transform var(--fast); }
+.tv-raw[open] > summary::before { transform: rotate(90deg); }
+.tv-raw[open] > summary { border-bottom: 1px solid var(--line-soft); margin-bottom: 12px; }
+.tv-raw textarea { width: 100%; font-family: ui-monospace, monospace; font-size: .85rem; margin-bottom: 12px; }
+.tv-raw-actions { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+.tv-raw-note { font-size: 10px; color: var(--t3); text-transform: uppercase; letter-spacing: .06em;
+  font-family: ui-monospace, monospace; }
+.tv-raw-help { margin-bottom: 10px; }
+
+.tv-slash-hint { margin-top: 14px; }
+
+@media (max-width: 520px) { .tv-hub-grid { grid-template-columns: 1fr; } }
+</style>
+
+<form id="tv-form" hx-post="/marshal-bot/save/temp_voice" hx-target="#tab-content" hx-swap="innerHTML">
+
+    <!-- Grundeinstellungen -->
     <section class="config-section">
         <h2 class="section-title">Temp Voice — Hubs (Join-to-Create)</h2>
-        <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 1.25rem;">
+        <p class="tv-intro">
             Jeder <strong>Hub</strong> ist ein Voice-Channel, der beim Beitreten einen
-            persoenlichen Temp-Channel erstellt. Mehrere Hubs moeglich (z.B. „COD-Voice",
-            „Chill-Voice") — je mit eigener Kategorie, Limit und Namens-Template.
+            persoenlichen Temp-Channel erstellt. Mehrere Hubs moeglich (z.&nbsp;B. <code>COD-Voice</code>,
+            <code>Chill-Voice</code>) — je mit eigener Kategorie, Limit und Namens-Template.
         </p>
 
         <div class="set-grid">
-            <!-- Gruppe: Hub-Konfiguration -->
             <div class="set-group">
-                <div class="set-group-title">Hub-Konfiguration</div>
-                <div class="form-group">
-                    <label for="hubs_text">Hubs — eine Zeile pro Hub</label>
-                    <textarea id="hubs_text" name="hubs_text" rows="7"
-                              style="width:100%; font-family:ui-monospace,monospace; font-size:0.85rem;"
-                              placeholder="hub_channel_id | category_id | limit | privat | naming">{{ config.hubs_text|default('', true) }}</textarea>
-                    <p style="color: var(--text-secondary); font-size: 0.8rem; margin-top: 0.5rem;">
-                        Format je Zeile, Felder mit <code>|</code> getrennt. <code>category_id</code>/<code>limit</code>/<code>privat</code>/<code>naming</code>
-                        sind optional (leer = Default). <code>privat: ja</code> = Channel direkt geschlossen.
-                    </p>
-                </div>
-            </div>
-
-            <!-- Gruppe: Einstellungen -->
-            <div class="set-group">
-                <div class="set-group-title">Einstellungen</div>
+                <div class="set-group-title">Grundeinstellungen</div>
                 <div class="form-group">
                     <label for="afk_timeout_minutes">AFK-Timeout (Minuten bis leerer Channel geloescht wird)</label>
                     <input type="number" id="afk_timeout_minutes" name="afk_timeout_minutes"
                            value="{{ config.afk_timeout_minutes|default(5, true) }}"
                            min="1" max="120">
                 </div>
-                <div class="form-group">
-                    <label>Naming-Platzhalter</label>
-                    <p style="color: var(--text-secondary); font-size: 0.8rem; margin-top: 2px;">
-                        <code>{user}</code> = Anzeigename &nbsp;·&nbsp; <code>{count}</code> = laufende Nummer &nbsp;·&nbsp; <code>{game}</code> = Spielname (6. Feld, optional)
-                    </p>
-                </div>
-                <div class="form-group">
-                    <label>Beispiel</label>
-                    <pre style="margin:2px 0 0; padding:12px 14px; background:var(--s1,rgba(0,0,0,.25)); border:1px solid var(--line); border-radius:10px; font-family:ui-monospace,monospace; font-size:0.8rem; color:var(--t2,#c2cde0); overflow-x:auto; white-space:pre-wrap;">111111111111111111 | 444444444444444444 | 5 | nein | {user}'s COD Voice
-333333333333333333 | | 0 | ja | {game} #{count}</pre>
+            </div>
+            <div class="set-group">
+                <div class="set-group-title">Naming-Platzhalter</div>
+                <p class="tv-help">
+                    <code>{user}</code> = Anzeigename &nbsp;·&nbsp;
+                    <code>{count}</code> = laufende Nummer &nbsp;·&nbsp;
+                    <code>{game}</code> = Spielname (Game-Feld der Karte).
+                </p>
+                <div class="tv-chips tv-ready-only">
+                    <span class="tv-chips-label">Einfügen:</span>
+                    <button type="button" class="tv-chip" data-tv-chip="{user}">{user}</button>
+                    <button type="button" class="tv-chip" data-tv-chip="{count}">{count}</button>
+                    <button type="button" class="tv-chip" data-tv-chip="{game}">{game}</button>
                 </div>
             </div>
         </div>
+    </section>
 
-        <p style="color: var(--text-secondary); font-size: 0.8rem; margin-top: 1rem;">
+    <!-- Hub-Karten-Manager -->
+    <section class="config-section" id="tv-manager">
+        <div class="tv-manager-head">
+            <h2 class="section-title" style="margin:0;">Hubs</h2>
+            <span class="tv-count-badge tv-ready-only">0 Hubs</span>
+        </div>
+
+        <div class="tv-no-js">
+            JavaScript ist deaktiviert — nutze den Rohtext-Editor unten (eine Zeile pro Hub).
+        </div>
+
+        <!-- Karten werden vom Host-JS aus der Textarea (Datenquelle) gebaut -->
+        <div class="tv-cards tv-ready-only" id="tv-cards"></div>
+        <div class="tv-empty tv-ready-only" id="tv-empty" style="display:none;">
+            Noch keine Hubs — füge den ersten hinzu.
+        </div>
+
+        <div class="tv-add-row tv-ready-only">
+            <button type="button" class="tv-add-btn" data-tv-action="add">
+                <span class="tv-plus">+</span> Hub hinzufügen
+            </button>
+        </div>
+
+        <!-- Rohmodus = Single-Source-of-Truth (name="hubs_text"). Ohne JS offen + editierbar. -->
+        <details class="tv-raw" open>
+            <summary>Rohmodus — Hubs als Text (Datenquelle)</summary>
+            <p class="tv-help tv-raw-help">
+                Format je Zeile, Felder mit <code>|</code> getrennt:
+                <code>hub_id | category_id | limit | privat | naming | game</code>.
+                Felder 2–6 optional (leer = Default), <code>privat: ja</code> = Channel startet geschlossen.
+                Zeilen mit <code>#</code> sind Kommentare. Karten oben und dieser Text bleiben synchron.
+            </p>
+            <textarea id="tv-hubs-text" name="hubs_text" rows="6"
+                      placeholder="111111111111111111 | 444444444444444444 | 5 | nein | {user}'s COD Voice | COD">{{ config.hubs_text|default('', true) }}</textarea>
+            <div class="tv-raw-actions tv-ready-only">
+                <button type="button" class="btn btn-secondary btn-sm" data-tv-action="rebuild">
+                    Karten aus Text neu aufbauen
+                </button>
+                <span class="tv-raw-note">Karten schreiben automatisch hierher</span>
+            </div>
+        </details>
+
+        <p class="tv-help tv-slash-hint">
             Alternativ pro Hub via Slash-Command: <code>/tempvoice hubadd</code>,
             <code>/tempvoice hubremove</code>, <code>/tempvoice hubs</code>.
             Aenderungen hier uebernimmt der Bot ohne Neustart.
@@ -65,3 +200,47 @@
         </div>
     </section>
 </form>
+
+<!-- Karten-Vorlage: bleibt inert (Template), reist HTMX-swap-sicher mit, wird per JS geklont. -->
+<template id="tv-hub-tpl">
+    <div class="tv-hub-card">
+        <div class="tv-hub-head">
+            <span class="tv-hub-title"><span class="tv-hub-num">1</span> Hub</span>
+            <button type="button" class="tv-hub-del" data-tv-action="remove" aria-label="Hub entfernen">Entfernen</button>
+        </div>
+        <div class="tv-hub-grid">
+            <div class="tv-fg tv-full">
+                <span class="tv-fg-label">Hub-Channel-ID *</span>
+                <input type="text" inputmode="numeric" class="tv-c-hubid" placeholder="111111111111111111" autocomplete="off">
+            </div>
+            <div class="tv-fg">
+                <span class="tv-fg-label">Kategorie-ID</span>
+                <input type="text" inputmode="numeric" class="tv-c-catid" placeholder="optional" autocomplete="off">
+            </div>
+            <div class="tv-fg">
+                <span class="tv-fg-label">Limit (0–99)</span>
+                <input type="number" min="0" max="99" class="tv-c-limit" placeholder="0">
+            </div>
+            <div class="tv-fg tv-full">
+                <div class="tv-toggle-row">
+                    <div>
+                        <div class="tv-toggle-name">Privat</div>
+                        <div class="tv-toggle-desc">Channel startet geschlossen</div>
+                    </div>
+                    <label class="toggle"><input type="checkbox" class="tv-c-priv"><span class="slider"></span></label>
+                </div>
+            </div>
+            <div class="tv-fg tv-full">
+                <span class="tv-fg-label">Naming-Template</span>
+                <input type="text" class="tv-c-naming" placeholder="{user}'s Channel" autocomplete="off">
+            </div>
+            <div class="tv-fg tv-full">
+                <span class="tv-fg-label">Game (optional, für {game})</span>
+                <input type="text" class="tv-c-game" placeholder="z. B. COD" autocomplete="off">
+            </div>
+            <div class="tv-full">
+                <div class="tv-preview"><span class="tv-preview-lbl">Vorschau</span><span class="tv-preview-val"></span></div>
+            </div>
+        </div>
+    </div>
+</template>
