@@ -41,5 +41,20 @@
 .rbac-matrix { width: auto; }
 .rbac-matrix th.rbac-cell, .rbac-matrix td.rbac-cell { text-align: center; }
 .rbac-sensitive { color: var(--warn); }
+
+/* V6-Checkbox (ersetzt die nativen weissen Quadrate) — dark, gerundet, Azur-Haken. */
+.rbac-matrix input[type="checkbox"] {
+  appearance: none; -webkit-appearance: none; -moz-appearance: none;
+  width: 20px; height: 20px; margin: 0; border-radius: 6px; vertical-align: middle;
+  border: 1px solid var(--line-accent); background: var(--s2); cursor: pointer;
+  position: relative; transition: background var(--fast), border-color var(--fast), box-shadow var(--fast);
+}
+.rbac-matrix input[type="checkbox"]:hover { border-color: var(--acc-2); }
+.rbac-matrix input[type="checkbox"]:checked { background: var(--acc); border-color: var(--acc); }
+.rbac-matrix input[type="checkbox"]:checked::after {
+  content: ""; position: absolute; left: 6px; top: 2px; width: 5px; height: 10px;
+  border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg);
+}
+.rbac-matrix input[type="checkbox"]:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
 </style>
 {% endblock %}
