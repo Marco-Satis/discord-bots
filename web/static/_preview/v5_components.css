@@ -450,9 +450,13 @@ body::after {
 
 /* Table-Wrapper (errors/system/security) */
 .table-wrapper {
-  border: 1px solid var(--line); border-radius: var(--radius-sm); overflow: hidden;
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+  overflow-x: auto; overflow-y: hidden;
   background: var(--s2);
+  scrollbar-width: thin; scrollbar-color: var(--line) transparent;
 }
+.table-wrapper::-webkit-scrollbar { height: 4px; }
+.table-wrapper::-webkit-scrollbar-thumb { background: var(--line); border-radius: 99px; }
 .table-wrapper .table { margin: 0; }
 
 /* Empty-Text (Charts + leere Listen) */
@@ -904,4 +908,30 @@ body::after {
 /* Events im Rail: randlos, kompakt */
 .ov-rail .feed-card { padding: 0; }
 .ov-rail .event-item { font-size: 11.5px; padding: 8px 0; }
+
+/* ============================================================
+   Klein-Handy-Tier (≤480px) — additiv, 2026-07-20
+   Der V6-Stack ist bis ~680px responsiv; dieser Block deckt
+   schmale Telefone (360–430px) ab: Grids voll einspaltig,
+   Touch-Targets ≥44px. Kein Desktop-Selektor überschrieben.
+   ============================================================ */
+@media (max-width: 480px) {
+  /* Grids die oberhalb nur bis 2-spaltig gehen → voll einspaltig */
+  .hero-stats { grid-template-columns: 1fr; }
+  .bento { grid-template-columns: 1fr; }
+  .bento .col2 { grid-column: auto; }
+  .bento .row2 { grid-row: auto; }
+
+  /* Touch-Targets ≥44px (WCAG 2.5.5 / Apple HIG) */
+  .btn, .btn-sm { min-height: 44px; }
+  .btn-sm { padding: 10px 14px; }
+
+  /* Aktions-Reihen: Buttons volle Breite, gestapelt statt gequetscht */
+  .actions-bar, .form-actions { flex-direction: column; align-items: stretch; }
+  .actions-bar .btn, .form-actions .btn { width: 100%; }
+
+  /* Content-Padding schmaler → mehr Nutzfläche */
+  .lead-card { padding: 20px 18px; }
+  .hero-stat { padding: 14px 16px; }
+}
 .ov-rail .event-time { width: 40px; }
