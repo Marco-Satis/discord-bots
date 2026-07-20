@@ -68,6 +68,13 @@
 
   /* Sektions-Header enger */
   .section-header { margin-bottom: 12px; }
+
+  /* Topbar entlasten: dekorative Status-Pill weg, Refresh-Button kompakt,
+     Titel mit Ellipsis → passt in eine Zeile ohne Overflow/Clip */
+  .apptop { gap: 8px; }
+  .apptop #crumb { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .apptop .pill { display: none; }
+  .apptop .btn--primary { padding: 9px 13px; font-size: 12.5px; min-height: 40px; }
 }
 
 /* ------------------------------------------------------------
