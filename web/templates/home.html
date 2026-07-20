@@ -52,7 +52,7 @@
 </div>
 
 <!-- Status-Snapshot -->
-<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:var(--gap-card);margin-bottom:26px">
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:var(--gap-card);margin-bottom:26px">
   <div class="card" style="padding:18px" data-reveal>
     <div class="cap">Bots aktiv</div>
     <div class="grad-text tnum" style="font-size:30px;font-weight:700;margin-top:5px">{{ ns.bots_active }}<span style="font-size:16px;color:var(--t3);-webkit-text-fill-color:var(--t3)">/{{ bots | length }}</span></div>
@@ -77,7 +77,7 @@
 
 <!-- Quick-Links -->
 <div class="cap" style="margin:0 0 12px" data-reveal>Schnellzugriff</div>
-<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:var(--gap-card)">
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:var(--gap-card)">
 
   <a class="card" href="/dashboard" style="padding:20px;display:block;text-decoration:none" data-reveal>
     <div style="display:flex;align-items:center;gap:11px;margin-bottom:8px">
