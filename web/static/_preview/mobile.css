@@ -99,6 +99,16 @@
   .svc-table td:last-child { padding-top: 10px; }
   .svc-table td:last-child > div { flex-wrap: wrap; }
   .svc-table td:last-child .btn { flex: 1 1 auto; min-height: 40px; }
+
+  /* Horizontal-scrollbare Tabellen (Paket-/Versions-Listen): Gradient-Fade am
+     rechten Rand = klarer Swipe-Hinweis (Profi-Pattern). Nicht auf gestapelte
+     svc-table (die scrollt nicht). */
+  .table-wrapper:not(:has(.svc-table)) { position: relative; }
+  .table-wrapper:not(:has(.svc-table))::after {
+    content: ""; position: absolute; top: 1px; right: 1px; bottom: 1px;
+    width: 30px; pointer-events: none; border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    background: linear-gradient(90deg, transparent, var(--s2) 78%);
+  }
 }
 
 /* ------------------------------------------------------------
