@@ -255,7 +255,12 @@ body::after {
    ============================================================ */
 .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--gap-card); }
 @media (max-width: 900px) { .stats-grid { grid-template-columns: 1fr; } }
-.stat-card { padding: 18px 22px; }
+.stat-card {
+  padding: 18px 22px;
+  background: linear-gradient(180deg, var(--s2), var(--s1));
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
 .stat-card .stat-label { font-size: 10px; color: var(--t3); text-transform: uppercase; letter-spacing: .12em; font-weight: 600; }
 .stat-card .stat-value { font-size: 22px; font-weight: 700; color: var(--acc); }
 .progress-bar { height: 6px; border-radius: 99px; background: rgba(255, 255, 255, .06); overflow: hidden; margin: 10px 0 6px; }

@@ -75,6 +75,16 @@
   .apptop #crumb { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .apptop .pill { display: none; }
   .apptop .btn--primary { padding: 9px 13px; font-size: 12.5px; min-height: 40px; }
+
+  /* Tabs: statt horizontal-scroll (Swipe nötig) am Handy UMBRECHEN → alle sichtbar */
+  .tab-list, .tabs, .tab-nav {
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
+  .tab-list .tab, .tabs .tab, .tab-nav .tab-btn {
+    flex-shrink: 1;
+    white-space: normal;
+  }
 }
 
 /* ------------------------------------------------------------
