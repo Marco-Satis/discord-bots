@@ -1,0 +1,102 @@
+/* ============================================================
+   mobile.css — Mobile-First-Layer für den V6-Stack
+   Wird NACH v5.css + v5_components.css geladen (gewinnt per Load-Order).
+   Zweck: Desktop-Skala am Handy runterbrechen. Der Rest-Stack ist bis
+   ~680px responsiv, aber Typo/Spacing/Hero bleiben Desktop-groß und der
+   animierte Hintergrund erzeugt Unruhe. Hier: kohärente kleinere Skala
+   (Token-Override), ruhigerer Hintergrund, klare Einspaltigkeit,
+   Touch-Targets ≥44px. Hochkant UND Quer getrennt getunt.
+   Additiv — kein Desktop-Selektor umgeschrieben. Rollback = Datei-Link raus.
+   2026-07-20.
+   ============================================================ */
+
+/* ------------------------------------------------------------
+   1. HOCHKANT / schmale Telefone (≤560px)
+   ------------------------------------------------------------ */
+@media (max-width: 560px) {
+
+  /* Token-Skala runter — kaskadiert durch alle .display/.h1/.h2/.section/
+     .card-Paddings. EIN Hebel statt Einzel-Overrides. Ratio ~1.28 für
+     klare Hierarchie (display>h1>h2>body). */
+  :root {
+    --fs-display: 30px;
+    --fs-h1:      23px;
+    --fs-h2:      17px;
+    --fs-body:    14.5px;
+    --fs-cap:     11px;
+    --gap-section: 22px;   /* war 48 — halber vertikaler Rhythmus */
+    --gap-card:    12px;
+    --gap-inner:   10px;
+    --pad-card:    16px;   /* war 24 */
+  }
+
+  /* Shell: Seiten-Padding runter → mehr Nutzbreite */
+  .appcont { padding: 16px 14px; }
+  .apptop  { padding: 11px 14px; gap: 10px; }
+
+  /* Hero-Metrik: 84px ist am Handy absurd → lesbar klein */
+  .lead-metric { font-size: 40px; }
+  .lead-card   { padding: 18px; }
+  .hero-stat   { padding: 14px 16px; }
+  .hero-stat .stat-value { font-size: 24px; }
+
+  /* Alle Multi-Spalten-Grids hart einspaltig (unter den 900/980-Tiers) */
+  .bento, .hero-stats, .tile-grid, .stats-grid,
+  .chart-grid, .chart-row, .input-grid,
+  .form-row, .form-row-3, .ov {
+    grid-template-columns: 1fr;
+  }
+  .bento .col2 { grid-column: auto; }
+  .bento .row2 { grid-row: auto; }
+
+  /* Touch-Targets ≥44px (WCAG 2.5.5 / Apple HIG) */
+  .btn, .btn-sm, .iconbtn, .nav-i, .tab, .tab-btn { min-height: 44px; }
+  .btn-sm { padding: 10px 14px; }
+
+  /* Aktions-Reihen: Buttons volle Breite, gestapelt statt gequetscht */
+  .actions-bar, .form-actions { flex-direction: column; align-items: stretch; }
+  .actions-bar .btn, .form-actions .btn { width: 100%; }
+
+  /* Hintergrund-Rauschen zähmen → visuelle Ruhe/Ordnung */
+  .bg-grid  { opacity: .22; background-size: 30px 30px; }
+  .bg-grain { opacity: .3; }
+  .bg-mesh  { filter: saturate(105%); }
+
+  /* Tabellen kompakter → weniger Horizontal-Scroll nötig */
+  .table { font-size: 12.5px; }
+  .table th, .table td { padding: 9px 10px; }
+
+  /* Sektions-Header enger */
+  .section-header { margin-bottom: 12px; }
+}
+
+/* ------------------------------------------------------------
+   2. QUERFORMAT / kurze Höhe (Landscape-Handy)
+   Breite reicht für 2 Spalten, aber Höhe ist knapp → vertikalen
+   Rhythmus stark komprimieren, Breite nutzen.
+   ------------------------------------------------------------ */
+@media (orientation: landscape) and (max-height: 540px) {
+
+  :root {
+    --gap-section: 16px;
+    --pad-card:    14px;
+  }
+
+  .appcont { padding: 12px 18px; }
+  .apptop  { padding: 8px 16px; }
+
+  .lead-metric { font-size: 34px; }
+  .lead-card   { padding: 14px 16px; }
+  .hero-stat   { padding: 10px 14px; }
+
+  /* Breite nutzen: Hero-Stats + Server-Tiles 2-spaltig statt 1 langer Scroll */
+  .hero-stats { grid-template-columns: repeat(2, 1fr); }
+  .tile-grid  { grid-template-columns: repeat(2, 1fr); }
+  .stats-grid { grid-template-columns: repeat(2, 1fr); }
+
+  /* Touch-Targets bleiben tappbar, aber flacher (Höhe knapp) */
+  .btn, .btn-sm, .iconbtn { min-height: 40px; }
+
+  .bg-grid  { opacity: .2; }
+  .bg-grain { opacity: .28; }
+}
