@@ -85,6 +85,20 @@
     flex-shrink: 1;
     white-space: normal;
   }
+
+  /* Service-Tabelle: Aktions-Buttons wurden rechts abgeschnitten. Am Handy
+     jede Zeile als gestapelte Karte → Name, Status, Buttons untereinander,
+     volle Breite, kein Horizontal-Scroll/Swipe. */
+  .svc-table thead { display: none; }
+  .svc-table, .svc-table tbody, .svc-table tr, .svc-table td { display: block; width: 100%; }
+  .svc-table tr {
+    padding: 12px 4px; border-bottom: 1px solid var(--line-soft);
+  }
+  .svc-table tr:last-child { border-bottom: 0; }
+  .svc-table td { border: 0; padding: 3px 4px; }
+  .svc-table td:last-child { padding-top: 10px; }
+  .svc-table td:last-child > div { flex-wrap: wrap; }
+  .svc-table td:last-child .btn { flex: 1 1 auto; min-height: 40px; }
 }
 
 /* ------------------------------------------------------------
