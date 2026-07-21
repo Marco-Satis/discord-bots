@@ -272,10 +272,37 @@
 <div class="tab-panel" id="tab-blacklist">
   <div class="section-header">
     <h3 class="section-title">Blacklist &mdash; {{ server.name }}</h3>
-    <button class="btn btn-danger btn-sm" disabled title="Backend-Anbindung folgt">+ Spieler sperren</button>
+    <button type="button" class="btn btn-danger btn-sm"
+            onclick="var f=document.getElementById('bl-add-form'); f.style.display=(f.style.display==='none'?'block':'none');">+ Spieler sperren</button>
   </div>
+  <form id="bl-add-form" class="tile" style="display:none; margin-bottom:1rem;"
+        hx-post="/api/server/{{ server.server_id }}/action"
+        hx-target="#action-result"
+        hx-swap="innerHTML"
+        hx-on::after-request="if(event.detail.successful){ this.reset(); this.style.display='none'; htmx.trigger(document.body, 'blacklistChanged'); }">
+    <input type="hidden" name="action" value="ban">
+    <div style="display:flex; flex-wrap:wrap; gap:0.5rem; align-items:flex-end;">
+      <label style="flex:1; min-width:160px;">
+        <span class="text-sm text-muted">Spielername</span>
+        <input type="text" name="target" required autocomplete="off" placeholder="Spielername" style="width:100%;">
+      </label>
+      <label style="flex:2; min-width:200px;">
+        <span class="text-sm text-muted">Grund (optional)</span>
+        <input type="text" name="reason" autocomplete="off" placeholder="Grund" style="width:100%;">
+      </label>
+      <button type="submit" class="btn btn-danger btn-sm">Sperren</button>
+    </div>
+    <p class="text-sm text-muted" style="margin-top:0.5rem;">
+      {% if server.type == 'minecraft' %}Ban wird per RCON an die MC-Server gesendet und serveruebergreifend gespeichert.{% else %}Spieler muss mind. einmal verbunden gewesen sein (IP wird per iptables blockiert).{% endif %}
+    </p>
+  </form>
   <div class="tile">
-    <p class="empty-text">Blacklist-Backend wird in einer kuenftigen Etappe angebunden.<br><span class="text-sm">Mockup-Vorschau: Spalten = Spieler, Gesperrt am, Gesperrt von, Grund, Server, Aktionen.</span></p>
+    <div id="bl-table"
+         hx-get="/api/server/{{ server.server_id }}/blacklist"
+         hx-trigger="load, blacklistChanged from:body"
+         hx-swap="innerHTML">
+      <p class="empty-text">Blacklist wird geladen...</p>
+    </div>
   </div>
 </div>
 

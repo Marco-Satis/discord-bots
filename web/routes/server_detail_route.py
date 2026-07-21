@@ -124,6 +124,42 @@ def _list_backups(server_id: str) -> list[dict]:
     return backups
 
 
+async def _get_blacklist_entries(server_type: str) -> list[dict]:
+    """Liest die Blacklist-Eintraege fuer einen Server-Typ aus SQLite.
+
+    Fuer Minecraft ist die Blacklist serveruebergreifend (server_type='minecraft'),
+    fuer Satisfactory serverspezifisch inkl. IP.
+    """
+    entries: list[dict] = []
+    try:
+        db = await get_db()
+        cursor = await db.execute(
+            "SELECT player_name, ip_address, reason, added_by, added_at "
+            "FROM blacklist WHERE server_type = ? ORDER BY added_at DESC",
+            (server_type,),
+        )
+        rows = await cursor.fetchall()
+        for row in rows:
+            raw_ts = row["added_at"] or ""
+            added_display = str(raw_ts)
+            if raw_ts:
+                try:
+                    dt = datetime.fromisoformat(str(raw_ts).replace("Z", "+00:00"))
+                    added_display = dt.strftime("%d.%m.%Y %H:%M")
+                except (ValueError, TypeError):
+                    added_display = str(raw_ts)
+            entries.append({
+                "player_name": row["player_name"] or "",
+                "ip_address": row["ip_address"] or "",
+                "reason": row["reason"] or "",
+                "added_by": row["added_by"] or "",
+                "added_at": added_display,
+            })
+    except Exception as e:
+        logger.warning(f"Blacklist-Eintraege lesen fehlgeschlagen ({server_type}): {e}")
+    return entries
+
+
 def _get_server_info(server_id: str) -> dict:
     """
     Sammelt alle verfügbaren Informationen zu einem Server.
@@ -333,6 +369,25 @@ async def server_backups_partial(request: Request, server_id: str, current_user:
     })
 
 
+@router.get("/api/server/{server_id}/blacklist", response_class=HTMLResponse)
+async def server_blacklist_partial(request: Request, server_id: str, current_user: dict = Depends(require_auth_api)):
+    """
+    HTMX-Partial: Gibt die Blacklist-Eintraege als HTML-Fragment zurueck.
+    """
+    if server_id not in VALID_SERVER_IDS:
+        return HTMLResponse(content="<p>Unbekannter Server</p>", status_code=404)
+
+    server_type = _get_server_type(server_id)
+    entries = await _get_blacklist_entries(server_type)
+
+    return templates.TemplateResponse("partials/server_blacklist.html", {
+        "request": request,
+        "entries": entries,
+        "server_id": server_id,
+        "server_type": server_type,
+    })
+
+
 @router.post("/api/server/{server_id}/action", response_class=HTMLResponse)
 async def server_action(request: Request, server_id: str, current_user: dict = Depends(require_perm("system", "control"))):
     """
@@ -350,6 +405,7 @@ async def server_action(request: Request, server_id: str, current_user: dict = D
         form = await request.form()
         action = str(form.get("action", "")).strip()
         target = str(form.get("target", "")).strip()
+        reason = str(form.get("reason", "")).strip()[:300]
     except Exception as e:
         logger.error(f"Form-Daten lesen fehlgeschlagen: {e}")
         return HTMLResponse(
@@ -357,7 +413,7 @@ async def server_action(request: Request, server_id: str, current_user: dict = D
             status_code=400,
         )
 
-    valid_actions = ("start", "stop", "restart", "maintenance", "kick", "ban")
+    valid_actions = ("start", "stop", "restart", "maintenance", "kick", "ban", "unban")
     if action not in valid_actions:
         return HTMLResponse(
             content='<div class="alert alert-danger">Ungueltige Aktion</div>',
@@ -373,6 +429,7 @@ async def server_action(request: Request, server_id: str, current_user: dict = D
         "maintenance": "Wartungsmodus",
         "kick": "Kick",
         "ban": "Ban",
+        "unban": "Entsperren",
     }
     action_display = action_names.get(action, action)
 
@@ -380,9 +437,108 @@ async def server_action(request: Request, server_id: str, current_user: dict = D
                 + (f" (Ziel: {target})" if target else ""))
 
     # ------------------------------------------------------------------
+    # Unban — Blacklist-Eintrag entfernen (MC: RCON pardon, SAT: iptables unblock)
+    # ------------------------------------------------------------------
+    if action == "unban":
+        if not target:
+            return HTMLResponse(content='<div class="alert alert-danger">Kein Spielername angegeben.</div>')
+        safe_target = html_escape_module.escape(target)
+
+        # Gespeicherte IP holen (fuer SAT iptables-Unblock)
+        stored_ip = None
+        try:
+            db = await get_db()
+            cursor = await db.execute(
+                "SELECT ip_address FROM blacklist WHERE LOWER(player_name) = ? AND server_type = ? "
+                "ORDER BY added_at DESC LIMIT 1",
+                (target.lower(), server_type),
+            )
+            row = await cursor.fetchone()
+            if row:
+                stored_ip = row[0] if isinstance(row, (tuple, list)) else row["ip_address"]
+        except Exception as e:
+            logger.warning(f"Unban: IP-Lookup fehlgeschlagen fuer {target}: {e}")
+
+        note = ""
+        if server_type == "minecraft":
+            rcon_prefixes = {"mc_bmc": "MC_BMC_", "mc_vanilla": "MC_VANILLA_"}
+            prefix = rcon_prefixes.get(server_id, "")
+            rcon_host = get_env(f"{prefix}RCON_HOST", "127.0.0.1")
+            rcon_port = int(get_env(f"{prefix}RCON_PORT", "25575"))
+            rcon_password = get_env(f"{prefix}RCON_PASSWORD", "")
+            if rcon_password:
+                try:
+                    async with MinecraftRCON(rcon_host, rcon_port, rcon_password, timeout=5.0) as rcon:
+                        await rcon.command(f"pardon {target}")
+                    note = "RCON-pardon gesendet."
+                except Exception as e:
+                    logger.warning(f"Unban RCON-pardon fehlgeschlagen fuer {target}: {e}")
+                    note = "RCON-pardon fehlgeschlagen (DB-Eintrag trotzdem entfernt)."
+            else:
+                note = "RCON nicht konfiguriert (nur DB-Eintrag entfernt)."
+        elif server_type == "satisfactory":
+            if stored_ip:
+                try:
+                    import ipaddress
+                    ip_norm = str(ipaddress.ip_address(stored_ip))
+
+                    async def _unblock(*args: str) -> None:
+                        try:
+                            proc = await asyncio.create_subprocess_exec(
+                                *args,
+                                stdout=asyncio.subprocess.PIPE,
+                                stderr=asyncio.subprocess.PIPE,
+                            )
+                            await asyncio.wait_for(proc.communicate(), timeout=10)
+                        except Exception as e:
+                            logger.warning(f"iptables-Unblock-Befehl fehlgeschlagen: {e}")
+
+                    await _unblock("sudo", "iptables", "-D", "INPUT", "-s", ip_norm, "-j", "REJECT")
+                    await _unblock("sudo", "iptables", "-D", "OUTPUT", "-d", ip_norm, "-j", "REJECT")
+                    note = f"iptables-Block fuer {ip_norm} entfernt."
+                except (ValueError, TypeError):
+                    logger.warning(f"Unban: gespeicherte IP ungueltig fuer {target}: {stored_ip!r}")
+                    note = "Gespeicherte IP ungueltig — kein iptables-Unblock."
+            else:
+                note = "Keine IP hinterlegt — nur DB-Eintrag entfernt."
+
+        # DB: Blacklist-Eintrag loeschen + Ban deaktivieren
+        try:
+            db = await get_db()
+            cur = await db.execute(
+                "DELETE FROM blacklist WHERE LOWER(player_name) = ? AND server_type = ?",
+                (target.lower(), server_type),
+            )
+            removed = cur.rowcount
+            await db.execute(
+                "UPDATE bans SET active = FALSE WHERE LOWER(player_name) = ? AND server_type = ?",
+                (target.lower(), server_type),
+            )
+            await db.commit()
+        except Exception as e:
+            logger.error(f"Unban DB-Update fehlgeschlagen fuer {target}: {e}")
+            return HTMLResponse(
+                content=f'<div class="alert alert-danger"><strong>Fehler:</strong> Entsperren fuer {safe_target} fehlgeschlagen: {html_escape_module.escape(str(e)[:200])}</div>'
+            )
+
+        if not removed:
+            return HTMLResponse(
+                content=f'<div class="alert alert-warning">{safe_target} war nicht auf der Blacklist ({server_type}).</div>'
+            )
+
+        logger.info(f"Unban: {target} entsperrt von {user.get('username', 'Dashboard')} ({server_type})")
+        return HTMLResponse(content=f"""
+            <div class="alert alert-success">
+                <strong>Entsperrt:</strong> {safe_target} wurde von der Blacklist entfernt.
+                <br><small>{html_escape_module.escape(note)}</small>
+            </div>
+        """)
+
+    # ------------------------------------------------------------------
     # Kick / Ban — per RCON (Minecraft) oder Platzhalter (SAT)
     # ------------------------------------------------------------------
     if action in ("kick", "ban"):
+        ban_reason = reason or "Gebannt via Dashboard"
         if not target:
             return HTMLResponse(
                 content='<div class="alert alert-danger">Kein Spielername angegeben.</div>',
@@ -405,11 +561,36 @@ async def server_action(request: Request, server_id: str, current_user: dict = D
 
             rcon_cmd = f"{action} {target}"
             if action == "ban":
-                rcon_cmd = f"ban {target} Gebannt via Dashboard"
+                rcon_cmd = f"ban {target} {ban_reason}"
 
             try:
                 async with MinecraftRCON(rcon_host, rcon_port, rcon_password, timeout=5.0) as rcon:
                     response = await rcon.command(rcon_cmd)
+
+                # Ban serveruebergreifend in Blacklist/Bans-Tabellen persistieren
+                # (dedup: nur wenn Spieler nicht bereits gelistet)
+                if action == "ban":
+                    try:
+                        banned_by = user.get("username", "Dashboard")
+                        db = await get_db()
+                        exists = await (await db.execute(
+                            "SELECT 1 FROM blacklist WHERE LOWER(player_name) = ? AND server_type = 'minecraft'",
+                            (target.lower(),),
+                        )).fetchone()
+                        if not exists:
+                            await db.execute(
+                                "INSERT INTO blacklist (player_name, ip_address, server_type, reason, added_by) "
+                                "VALUES (?, '', 'minecraft', ?, ?)",
+                                (target, ban_reason, banned_by),
+                            )
+                            await db.execute(
+                                "INSERT INTO bans (ip_address, player_name, server_type, reason, banned_by, active, source) "
+                                "VALUES ('', ?, 'minecraft', ?, ?, TRUE, 'dashboard')",
+                                (target, ban_reason, banned_by),
+                            )
+                            await db.commit()
+                    except Exception as e:
+                        logger.warning(f"MC-Ban SQLite-Eintrag fehlgeschlagen fuer {target}: {e}")
 
                 logger.info(f"RCON {action} erfolgreich: {target} auf {display_name}")
                 return HTMLResponse(content=f"""
@@ -529,13 +710,13 @@ async def server_action(request: Request, server_id: str, current_user: dict = D
                     db = await get_db()
                     await db.execute(
                         "INSERT INTO bans (ip_address, player_name, server_type, reason, banned_by, banned_at, active, source) "
-                        "VALUES (?, ?, 'satisfactory', 'Gebannt via Dashboard', ?, ?, TRUE, 'dashboard')",
-                        (player_ip, target, banned_by, ban_time),
+                        "VALUES (?, ?, 'satisfactory', ?, ?, ?, TRUE, 'dashboard')",
+                        (player_ip, target, ban_reason, banned_by, ban_time),
                     )
                     await db.execute(
                         "INSERT INTO blacklist (player_name, ip_address, server_type, reason, added_by, added_at) "
-                        "VALUES (?, ?, 'satisfactory', 'Gebannt via Dashboard', ?, ?)",
-                        (target, player_ip, banned_by, ban_time),
+                        "VALUES (?, ?, 'satisfactory', ?, ?, ?)",
+                        (target, player_ip, ban_reason, banned_by, ban_time),
                     )
                     await db.commit()
                     logger.info(f"Ban fuer {target} ({player_ip}) in SQLite gespeichert")

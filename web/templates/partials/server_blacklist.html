@@ -1,0 +1,51 @@
+<!-- HTMX-Partial: Blacklist-Eintraege fuer Server-Detailseite -->
+<div class="table-wrapper">
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Spieler</th>
+                <th>Gesperrt am</th>
+                <th>Gesperrt von</th>
+                <th>Grund</th>
+                {% if server_type == 'satisfactory' %}<th>IP</th>{% endif %}
+                <th>Aktionen</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for e in entries %}
+            <tr>
+                <td><span style="font-weight: 600;">{{ e.player_name }}</span></td>
+                <td class="col-timestamp">{{ e.added_at or 'N/A' }}</td>
+                <td>{{ e.added_by or 'N/A' }}</td>
+                <td>{{ e.reason or '—' }}</td>
+                {% if server_type == 'satisfactory' %}<td style="font-family: monospace; font-size: 0.8rem;">{{ e.ip_address or '—' }}</td>{% endif %}
+                <td>
+                    <button class="btn btn-sm btn-success"
+                            hx-post="/api/server/{{ server_id }}/action"
+                            hx-vals='{"action": "unban", "target": {{ e.player_name | tojson }}}'
+                            hx-target="#action-result"
+                            hx-swap="innerHTML"
+                            hx-confirm="{{ e.player_name }} von der Blacklist entfernen?"
+                            hx-on::after-request="if(event.detail.successful){ htmx.trigger(document.body, 'blacklistChanged'); }"
+                            style="padding: 0.2rem 0.5rem; font-size: 0.75rem;">
+                        Entsperren
+                    </button>
+                </td>
+            </tr>
+            {% endfor %}
+            {% if not entries %}
+            <tr>
+                <td colspan="{% if server_type == 'satisfactory' %}6{% else %}5{% endif %}" class="empty-row" style="color: var(--text-muted);">
+                    Keine Blacklist-Eintraege
+                </td>
+            </tr>
+            {% endif %}
+        </tbody>
+    </table>
+</div>
+{% if entries %}
+<p style="color: var(--text-muted); font-size: 0.8rem; margin-top: 0.5rem; text-align: right;">
+    {{ entries|length }} Eintrag{% if entries|length != 1 %}e{% endif %}
+    &middot; {% if server_type == 'minecraft' %}serveruebergreifend (alle MC-Server){% else %}Satisfactory{% endif %}
+</p>
+{% endif %}
