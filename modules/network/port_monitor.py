@@ -96,6 +96,15 @@ class PortMonitor:
         self._alert_cooldown: int = cfg.get("alert_cooldown_seconds", 600)  # 10 Min
         self._last_alert_time: Dict[int, datetime] = {}
 
+        # Alert erst nach N aufeinanderfolgenden Fehlschlaegen.
+        # Grund: geplante Restarts (MC Daily-Restart 05:00, Modpack-Update) machen den
+        # Port fuer ~1-3 Minuten zu. Bei check_interval=300s trifft ein einzelner Check
+        # dieses Fenster und erzeugte bisher taeglich einen Fehlalarm.
+        self._alert_after_failures: int = max(1, int(cfg.get("alert_after_failures", 2)))
+        self._consecutive_failures: Dict[int, int] = {}
+        # Ports fuer die aktuell ein Alert offen ist (fuer Recovery-Meldung)
+        self._alerted_ports: set[int] = set()
+
         # Callbacks
         self.on_port_closed: Optional[
             Callable[[Dict[str, Any]], Awaitable[None]]
@@ -255,26 +264,34 @@ class PortMonitor:
 
     async def _handle_results(self, results: List[Dict[str, Any]]) -> None:
         """Verarbeitet die Pruefergebnisse und loest ggf. Callbacks aus."""
-        # Vorherige Ergebnisse fuer Recovery-Erkennung merken
-        prev_map: Dict[int, bool] = {
-            r["port"]: r["open"] for r in self._last_results
-        }
-
         for result in results:
             port: int = result["port"]
             is_open: bool = result["open"]
-            was_open: Optional[bool] = prev_map.get(port)
 
             if not is_open:
                 # Manuell gestoppter Server → keine Warning (Server SOLL offline sein)
                 if _port_belongs_to_stopped_server(port):
+                    self._consecutive_failures[port] = 0
                     logger.debug(
                         f"Port {port} ({result['label']}) zu — Server manuell gestoppt, "
                         f"keine Warnung"
                     )
                     continue
+
+                # Fehlschlaege zaehlen — kurze Ausfaelle (geplanter Restart) nicht melden
+                fails: int = self._consecutive_failures.get(port, 0) + 1
+                self._consecutive_failures[port] = fails
+                if fails < self._alert_after_failures:
+                    logger.debug(
+                        f"Port {port} ({result['label']}) zu "
+                        f"({fails}/{self._alert_after_failures}) — noch kein Alert "
+                        f"(vermutlich geplanter Restart)"
+                    )
+                    continue
+
                 # Port ist geschlossen
                 if self._should_alert(port):
+                    self._alerted_ports.add(port)
                     logger.warning(
                         f"Port {port} ({result['label']}) auf {result['host']} "
                         f"ist NICHT erreichbar: {result.get('error', 'unbekannt')}"
@@ -285,17 +302,23 @@ class PortMonitor:
                         except Exception as e:
                             logger.error(f"on_port_closed Callback-Fehler: {e}")
 
-            elif was_open is False and is_open:
-                # Port war geschlossen und ist jetzt wieder offen
-                logger.info(
-                    f"Port {port} ({result['label']}) ist wieder erreichbar "
-                    f"({result['response_ms']}ms)"
-                )
-                if self.on_port_recovered:
-                    try:
-                        await self.on_port_recovered(result)
-                    except Exception as e:
-                        logger.error(f"on_port_recovered Callback-Fehler: {e}")
+            else:
+                # Port offen — Fehlschlag-Zaehler zuruecksetzen
+                self._consecutive_failures[port] = 0
+
+                # Recovery nur melden wenn vorher wirklich ein Alert rausging
+                if port in self._alerted_ports:
+                    self._alerted_ports.discard(port)
+                    self._last_alert_time.pop(port, None)
+                    logger.info(
+                        f"Port {port} ({result['label']}) ist wieder erreichbar "
+                        f"({result['response_ms']}ms)"
+                    )
+                    if self.on_port_recovered:
+                        try:
+                            await self.on_port_recovered(result)
+                        except Exception as e:
+                            logger.error(f"on_port_recovered Callback-Fehler: {e}")
 
         # Gesamter Check abgeschlossen
         if self.on_check_complete:

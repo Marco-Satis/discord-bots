@@ -256,6 +256,17 @@ class ShutdownCog(commands.Cog):
             if proc.returncode == 0:
                 success = True
                 logger.info(f"Server {display} erfolgreich gestoppt")
+
+                # Persistenten Manual-Stop-Flag setzen. Ohne das greift nur die
+                # 600s-In-Memory-Suppression oben — danach wuerde der Health-Auto-
+                # Restart den absichtlich gestoppten Server wieder hochfahren.
+                try:
+                    from modules.monitoring import manual_stop_state
+                    await manual_stop_state.mark_stopped(server_id)
+                except Exception as e:
+                    logger.warning(
+                        f"manual_stop_state.mark_stopped({server_id}) fehlgeschlagen: {e}"
+                    )
             else:
                 error_msg = stderr.decode().strip() if stderr else "Unbekannter Fehler"
                 logger.error(

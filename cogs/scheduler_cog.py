@@ -457,10 +457,13 @@ class SchedulerCog(commands.Cog):
             )
 
             if result == TimerResult.COMPLETED:
-                # Health-Check unterdruecken waehrend geplanter Restart
+                # Health-Check unterdruecken waehrend geplanter Restart.
+                # 900s (nicht 300s): Satisfactory braucht nach dem Restart >7 Min bis
+                # es wieder auf Query antwortet — mit 300s lief taeglich um 04:27 ein
+                # ueberfluessiger Auto-Restart in den noch bootenden Server.
                 har = getattr(self.bot, "health_auto_restart", None)
                 if har:
-                    har.suppress("sat", "main", duration_seconds=300)
+                    har.suppress("sat", "main", duration_seconds=900)
                 success, msg = await self.sat_server.restart()
             elif result == TimerResult.CANCELLED:
                 logger.info("Daily restart timer cancelled")
@@ -470,7 +473,7 @@ class SchedulerCog(commands.Cog):
                 # Try direct restart as fallback
                 har = getattr(self.bot, "health_auto_restart", None)
                 if har:
-                    har.suppress("sat", "main", duration_seconds=300)
+                    har.suppress("sat", "main", duration_seconds=900)
                 success, msg = await self.sat_server.restart()
 
             if self.notifier:
