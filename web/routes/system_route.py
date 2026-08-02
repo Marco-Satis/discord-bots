@@ -204,6 +204,22 @@ async def service_action(request: Request, current_user: dict = Depends(require_
             username = user.get("username", "Unbekannt")
             logger.info(f"Service {service_name} {label} von {username}")
 
+            # Manual-Stop-State pflegen — sonst startet der Health-Auto-Restart einen
+            # hier gestoppten Game-Server nach wenigen Minuten wieder hoch.
+            # Nicht-Game-Services (recon-bot, nginx, ...) sind nicht gemappt -> No-Op.
+            try:
+                from modules.monitoring import manual_stop_state
+                mapped_id = manual_stop_state.SERVICE_TO_SERVER_ID.get(service_name)
+                if mapped_id:
+                    if action == "stop":
+                        await manual_stop_state.mark_stopped(mapped_id)
+                    else:  # start / restart
+                        await manual_stop_state.mark_started(mapped_id)
+            except Exception as e:
+                logger.warning(
+                    f"manual_stop_state Update fehlgeschlagen ({action} {service_name}): {e}"
+                )
+
             # F35: Audit-Log-Eintrag für Service-Aktionen
             try:
                 from datetime import datetime, timezone
