@@ -58,6 +58,66 @@ SERVICE_NAMES = {
     "mc_vanilla": "minecraft-vanilla.service",
 }
 
+# Mod-Verzeichnisse pro Server. Paper/Vanilla nutzt plugins/ statt mods/.
+MOD_DIRS = {
+    "satisfactory": Path("/home/satisfactory/SatisfactoryDedicatedServer"),
+    "mc_bmc": Path(get_env("MC_BMC_PATH", "/home/minecraft/bmc5")) / "mods",
+    "mc_vanilla": Path(get_env("MC_VANILLA_PATH", "/home/minecraft/vanilla")) / "plugins",
+}
+
+# Minecraft-Version je Server — noetig, damit Modrinth die passende Datei liefert
+MC_GAME_VERSIONS = {
+    "mc_bmc": get_env("MC_BMC_VERSION", "1.21.1"),
+    "mc_vanilla": get_env("MC_VANILLA_VERSION", "1.21.1"),
+}
+MC_LOADERS = {
+    "mc_bmc": get_env("MC_BMC_LOADER", "neoforge"),
+    "mc_vanilla": get_env("MC_VANILLA_LOADER", "paper"),
+}
+
+
+def _get_mod_manager(server_id: str):
+    """Liefert einen ModManager fuer die Server-ID (oder None)."""
+    from modules.mod_manager import ModManager
+
+    server_type = _get_server_type(server_id)
+    if server_type not in ("minecraft", "satisfactory"):
+        return None
+    mods_dir = MOD_DIRS.get(server_id)
+    if mods_dir is None:
+        return None
+    try:
+        if server_type == "satisfactory":
+            return ModManager("satisfactory", mods_dir)
+        return ModManager("minecraft", mods_dir.parent, mods_dir)
+    except ValueError as e:
+        logger.warning(f"ModManager fuer {server_id} nicht erstellbar: {e}")
+        return None
+
+
+async def _is_server_running(server_id: str) -> bool:
+    """Prueft ueber systemd, ob der Server laeuft (fuer den apply-Schutz)."""
+    svc = SERVICE_NAMES.get(server_id)
+    if not svc:
+        return False
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "systemctl", "is-active", "--quiet", svc,
+            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+        )
+        await asyncio.wait_for(proc.wait(), timeout=5.0)
+        return proc.returncode == 0
+    except (asyncio.TimeoutError, OSError):
+        return False
+
+
+def _mod_result_html(ok: bool, msg: str) -> HTMLResponse:
+    """Einheitliche Rueckmeldung fuer Mod-Aktionen (loest Listen-Reload aus)."""
+    cls = "alert-success" if ok else "alert-danger"
+    body = f'<div class="alert {cls}">{html_escape_module.escape(msg)}</div>'
+    headers = {"HX-Trigger": "modListChanged"} if ok else {}
+    return HTMLResponse(content=body, headers=headers)
+
 
 def _load_json_safe(filepath: Path) -> dict:
     """Lädt eine JSON-Datei sicher. Gibt leeres Dict bei Fehler zurück."""
@@ -843,38 +903,144 @@ async def server_mods_partial(request: Request, server_id: str, current_user: di
     """
     HTMX-Partial: Gibt die Mod-Liste als HTML-Fragment zurueck.
 
-    Liest die installierte Mod-Liste aus der jeweiligen JSON-Datei
-    des ModManagers und stellt sie als Tabelle dar.
+    Quelle sind die ECHTEN Backends — Dateisystem (Minecraft) bzw. das
+    ficsit-Profil (Satisfactory). Frueher wurde hier eine JSON-Datei gelesen,
+    die nie mit dem Server abgeglichen war: auf BMC5 lagen 342 Mod-Dateien,
+    waehrend die Liste leer blieb.
     """
     if server_id not in VALID_SERVER_IDS:
         return HTMLResponse(content="<p>Unbekannter Server</p>", status_code=404)
 
-    # Mod-Liste aus der JSON-Datei laden
     server_type = _get_server_type(server_id)
     mods: list[dict] = []
+    status: dict = {"ready": False, "detail": "kein Backend", "backend": "-"}
 
-    # Mod-Dateien nach Server-Typ suchen
-    mod_files = {
-        "minecraft": ["minecraft_mods.json"],
-        "satisfactory": ["satisfactory_mods.json"],
-    }
-    for mod_file_name in mod_files.get(server_type, []):
-        mod_file = DATA_DIR / mod_file_name
-        if mod_file.exists():
-            try:
-                with open(mod_file, "r", encoding="utf-8") as f:
-                    mod_data = json.load(f)
-                if isinstance(mod_data, list):
-                    mods = mod_data
-            except (json.JSONDecodeError, IOError) as e:
-                logger.warning(f"Konnte Mod-Datei nicht laden: {e}")
+    mgr = _get_mod_manager(server_id)
+    if mgr:
+        try:
+            mods = mgr.list_installed()
+            status = await mgr.backend_status()
+        except Exception as e:
+            logger.warning(f"Mod-Liste fuer {server_id} fehlgeschlagen: {e}")
+            status = {"ready": False, "detail": str(e)[:200], "backend": "-"}
 
     return templates.TemplateResponse("partials/server_mods.html", {
         "request": request,
         "mods": mods,
         "server_id": server_id,
         "server_type": server_type,
+        "mod_status": status,
+        "enabled_count": sum(1 for m in mods if m.get("enabled", True)),
+        "server_running": await _is_server_running(server_id),
     })
+
+
+@router.post("/api/server/{server_id}/mods/toggle", response_class=HTMLResponse)
+async def server_mods_toggle(
+    request: Request, server_id: str,
+    current_user: dict = Depends(require_perm("system", "control")),
+):
+    """Schaltet eine Mod ein oder aus."""
+    if server_id not in VALID_SERVER_IDS:
+        return HTMLResponse(content="<p>Unbekannter Server</p>", status_code=404)
+
+    form = await request.form()
+    mod_id = str(form.get("mod_id", "")).strip()
+    enable = str(form.get("enable", "")).lower() in ("1", "true", "yes", "on")
+    if not mod_id:
+        return _mod_result_html(False, "Keine Mod angegeben")
+
+    mgr = _get_mod_manager(server_id)
+    if not mgr:
+        return _mod_result_html(False, "Kein Mod-Backend fuer diesen Server")
+
+    ok, msg = await mgr.set_enabled(mod_id, enable)
+    logger.info(
+        f"Mod-Toggle {server_id}/{mod_id} -> {enable} von "
+        f"{current_user.get('username', '?')}: {msg}"
+    )
+    return _mod_result_html(ok, msg)
+
+
+@router.post("/api/server/{server_id}/mods/uninstall", response_class=HTMLResponse)
+async def server_mods_uninstall(
+    request: Request, server_id: str,
+    current_user: dict = Depends(require_perm("system", "control")),
+):
+    """Entfernt eine Mod."""
+    if server_id not in VALID_SERVER_IDS:
+        return HTMLResponse(content="<p>Unbekannter Server</p>", status_code=404)
+
+    form = await request.form()
+    mod_id = str(form.get("mod_id") or form.get("mod_name") or "").strip()
+    if not mod_id:
+        return _mod_result_html(False, "Keine Mod angegeben")
+
+    mgr = _get_mod_manager(server_id)
+    if not mgr:
+        return _mod_result_html(False, "Kein Mod-Backend fuer diesen Server")
+
+    ok, msg = await mgr.uninstall_mod(mod_id)
+    logger.info(
+        f"Mod-Uninstall {server_id}/{mod_id} von "
+        f"{current_user.get('username', '?')}: {msg}"
+    )
+    return _mod_result_html(ok, msg)
+
+
+@router.post("/api/server/{server_id}/mods/install", response_class=HTMLResponse)
+async def server_mods_install(
+    request: Request, server_id: str,
+    current_user: dict = Depends(require_perm("system", "control")),
+):
+    """Installiert eine Mod aus der offiziellen Quelle."""
+    if server_id not in VALID_SERVER_IDS:
+        return HTMLResponse(content="<p>Unbekannter Server</p>", status_code=404)
+
+    form = await request.form()
+    mod_id = str(form.get("mod_id", "")).strip()
+    if not mod_id:
+        return _mod_result_html(False, "Keine Mod angegeben")
+
+    mgr = _get_mod_manager(server_id)
+    if not mgr:
+        return _mod_result_html(False, "Kein Mod-Backend fuer diesen Server")
+
+    ok, msg = await mgr.install_mod(
+        mod_id,
+        game_version=MC_GAME_VERSIONS.get(server_id),
+        loader=MC_LOADERS.get(server_id, "neoforge"),
+    )
+    logger.info(
+        f"Mod-Install {server_id}/{mod_id} von "
+        f"{current_user.get('username', '?')}: {msg}"
+    )
+    return _mod_result_html(ok, msg)
+
+
+@router.post("/api/server/{server_id}/mods/apply", response_class=HTMLResponse)
+async def server_mods_apply(
+    request: Request, server_id: str,
+    current_user: dict = Depends(require_perm("system", "control")),
+):
+    """Wendet das Mod-Profil an (Satisfactory: ficsit apply).
+
+    Bricht ab, wenn der Server laeuft — so verlangt es die offizielle Doku,
+    und Schreiben ins laufende Verzeichnis ist riskant.
+    """
+    if server_id not in VALID_SERVER_IDS:
+        return HTMLResponse(content="<p>Unbekannter Server</p>", status_code=404)
+
+    mgr = _get_mod_manager(server_id)
+    if not mgr:
+        return _mod_result_html(False, "Kein Mod-Backend fuer diesen Server")
+
+    running = await _is_server_running(server_id)
+    ok, msg = await mgr.apply(server_running=running)
+    logger.info(
+        f"Mod-Apply {server_id} von {current_user.get('username', '?')}: {msg}"
+    )
+    return _mod_result_html(ok, msg)
 
 
 @router.get("/api/server/{server_id}/mods/export")
@@ -890,97 +1056,127 @@ async def server_mods_export(request: Request, server_id: str, current_user: dic
     server_type = _get_server_type(server_id)
     mods: list[dict] = []
 
-    mod_files = {
-        "minecraft": ["minecraft_mods.json"],
-        "satisfactory": ["satisfactory_mods.json"],
-    }
-    for mod_file_name in mod_files.get(server_type, []):
-        mod_file = DATA_DIR / mod_file_name
-        if mod_file.exists():
-            try:
-                with open(mod_file, "r", encoding="utf-8") as f:
-                    mods = json.load(f)
-            except (json.JSONDecodeError, IOError):
-                pass
+    # Echte Quelle statt des alten JSON-Katalogs (der nie abgeglichen war).
+    mgr = _get_mod_manager(server_id)
+    if mgr:
+        try:
+            mods = mgr.list_installed()
+        except Exception as e:
+            logger.warning(f"Mod-Export fuer {server_id} fehlgeschlagen: {e}")
 
     return JSONResponse(
-        content={"server_id": server_id, "server_type": server_type, "mods": mods},
+        content={
+            "server_id": server_id,
+            "server_type": server_type,
+            "exported_at": datetime.now().isoformat(),
+            "total": len(mods),
+            "enabled": sum(1 for m in mods if m.get("enabled", True)),
+            "mods": mods,
+        },
         headers={"Content-Disposition": f'attachment; filename="mods_{server_id}.json"'},
     )
 
 
 @router.post("/api/server/{server_id}/mods/search", response_class=HTMLResponse)
 async def server_mods_search(request: Request, server_id: str, current_user: dict = Depends(require_perm("system", "view"))):
-    """
-    Mod-Suche — Platzhalter-Endpunkt.
+    """Mod-Suche in der offiziellen Quelle des jeweiligen Spiels.
 
-    Unterstuetzt je nach Server-Typ verschiedene Quellen:
-    - Minecraft: Modrinth / CurseForge
-    - Satisfactory: ficsit.app (Satisfactory Mod Repository)
+    Minecraft -> Modrinth-API, Satisfactory -> ficsit-cli (ficsit.app).
+    Die Treffer bekommen einen Installieren-Button.
     """
-    user = current_user
+    if server_id not in VALID_SERVER_IDS:
+        return HTMLResponse(content="<p>Unbekannter Server</p>", status_code=404)
+
     form = await request.form()
-    query = form.get("query", "").strip()
-    source = form.get("source", "modrinth")
-
+    query = str(form.get("query", "")).strip()
     if not query:
         return HTMLResponse(content='<div class="alert alert-danger">Bitte Suchbegriff eingeben.</div>')
 
-    logger.info(f"Mod-Suche: '{query}' auf {source} (von {user.get('username', 'Unbekannt')})")
+    mgr = _get_mod_manager(server_id)
+    if not mgr:
+        return _mod_result_html(False, "Kein Mod-Backend fuer diesen Server")
 
-    safe_query = html_escape_module.escape(query)
-    safe_source = html_escape_module.escape(source)
-    resp_html = f"""
-    <div class="alert alert-warning">
-        <strong>Feature in Entwicklung:</strong>
-        Suche nach &laquo;{safe_query}&raquo; auf {safe_source} empfangen.
-        Die Mod-Suche wird aktiviert, sobald die Bots neben dem Dashboard laufen
-        und der ModManager direkt angesprochen werden kann.
+    logger.info(f"Mod-Suche '{query}' ({server_id}) von {current_user.get('username', '?')}")
+    try:
+        results = await mgr.search_mods(query)
+    except Exception as e:
+        logger.warning(f"Mod-Suche fehlgeschlagen: {e}")
+        return _mod_result_html(False, f"Suche fehlgeschlagen: {str(e)[:200]}")
+
+    if not results:
+        return HTMLResponse(
+            content=f'<div class="alert alert-warning">Keine Treffer fuer '
+                    f'&laquo;{html_escape_module.escape(query)}&raquo;.</div>'
+        )
+
+    rows = ""
+    for r in results:
+        mid = html_escape_module.escape(str(r.get("mod_id", "")))
+        name = html_escape_module.escape(str(r.get("name", mid)))
+        desc = html_escape_module.escape(str(r.get("description", ""))[:120])
+        dls = r.get("downloads")
+        meta = f'<br><small style="color:var(--text-muted);font-size:0.75rem">{desc}</small>' if desc else ""
+        dl_txt = f'{dls:,}'.replace(",", ".") if isinstance(dls, int) else "-"
+        rows += (
+            f'<tr><td><strong>{name}</strong>{meta}'
+            f'<br><code style="font-size:0.72rem;color:var(--text-muted)">{mid}</code></td>'
+            f'<td style="text-align:right;color:var(--text-muted);font-size:0.8rem">{dl_txt}</td>'
+            f'<td><button class="btn btn-sm btn-primary" style="padding:0.2rem 0.5rem;font-size:0.75rem"'
+            f' hx-post="/api/server/{server_id}/mods/install"'
+            f' hx-vals=\'{{"mod_id": "{mid}"}}\''
+            f' hx-target="#mod-update-result" hx-swap="innerHTML"'
+            f' hx-confirm="{name} installieren?">Installieren</button></td></tr>'
+        )
+
+    return HTMLResponse(content=f"""
+    <div class="table-wrapper" style="margin-top:0.5rem">
+      <table class="data-table">
+        <thead><tr><th>Mod</th><th style="text-align:right">Downloads</th><th>Aktion</th></tr></thead>
+        <tbody>{rows}</tbody>
+      </table>
     </div>
-    """
-    return HTMLResponse(content=resp_html)
+    """)
 
 
 @router.post("/api/server/{server_id}/mods/check-updates", response_class=HTMLResponse)
 async def server_mods_check_updates(server_id: str, current_user: dict = Depends(require_perm("system", "view"))):
-    """Prueft auf verfuegbare Mod-Updates — Platzhalter."""
-    logger.info(f"Mod-Update-Check fuer {server_id} (von {current_user.get('username', 'Unbekannt')})")
-    return HTMLResponse(content="""
-    <div class="alert alert-warning">
-        <strong>Feature in Entwicklung:</strong>
-        Der Update-Check wird aktiviert, sobald die Bots neben dem Dashboard laufen.
-    </div>
-    """)
+    """Update-Pruefung pro Mod.
+
+    Bewusst ehrlich: eine echte Versionspruefung gegen die Repositories ist
+    nicht implementiert. Frueher stand hier "Feature in Entwicklung" neben
+    einer Mod-Liste, die ebenfalls nur Attrappe war.
+    """
+    server_type = _get_server_type(server_id)
+    if server_type == "satisfactory":
+        return HTMLResponse(content=
+            '<div class="alert alert-warning">Einzel-Update-Pruefung ist nicht implementiert. '
+            'Die Mods stehen im Profil auf <code>&gt;=0.0.0</code> — ein <strong>Anwenden</strong> '
+            'zieht jeweils die neueste passende Version.</div>'
+        )
+    return HTMLResponse(content=
+        '<div class="alert alert-warning">Update-Pruefung fuer einzelne Minecraft-Mods ist nicht '
+        'implementiert. Fuer BMC5 laeuft die Aktualisierung ueber das Modpack-Update.</div>'
+    )
 
 
 @router.post("/api/server/{server_id}/mods/update", response_class=HTMLResponse)
 async def server_mod_update(request: Request, server_id: str, current_user: dict = Depends(require_perm("system", "control"))):
-    """Aktualisiert einen einzelnen Mod — Platzhalter."""
-    form = await request.form()
-    mod_name = form.get("mod_name", "")
-    logger.info(f"Mod-Update: '{mod_name}' fuer {server_id} (von {current_user.get('username', 'Unbekannt')})")
-    safe_mod_name = html_escape_module.escape(mod_name)
-    return HTMLResponse(content=f"""
-    <div class="alert alert-warning">
-        <strong>Feature in Entwicklung:</strong>
-        Update fuer &laquo;{safe_mod_name}&raquo; empfangen.
-    </div>
-    """)
+    """Aktualisiert eine einzelne Mod (soweit vom Backend unterstuetzt)."""
+    if server_id not in VALID_SERVER_IDS:
+        return HTMLResponse(content="<p>Unbekannter Server</p>", status_code=404)
 
-
-@router.post("/api/server/{server_id}/mods/uninstall", response_class=HTMLResponse)
-async def server_mod_uninstall(request: Request, server_id: str, current_user: dict = Depends(require_perm("system", "control"))):
-    """Deinstalliert einen Mod — Platzhalter."""
     form = await request.form()
-    mod_name = form.get("mod_name", "")
-    logger.info(f"Mod-Deinstallation: '{mod_name}' fuer {server_id} (von {current_user.get('username', 'Unbekannt')})")
-    safe_mod_name = html_escape_module.escape(mod_name)
-    return HTMLResponse(content=f"""
-    <div class="alert alert-warning">
-        <strong>Feature in Entwicklung:</strong>
-        Deinstallation von &laquo;{safe_mod_name}&raquo; empfangen.
-    </div>
-    """)
+    mod_id = str(form.get("mod_id") or form.get("mod_name") or "").strip()
+    if not mod_id:
+        return _mod_result_html(False, "Keine Mod angegeben")
+
+    mgr = _get_mod_manager(server_id)
+    if not mgr:
+        return _mod_result_html(False, "Kein Mod-Backend fuer diesen Server")
+
+    ok, msg = await mgr.update_mod(mod_id)
+    logger.info(f"Mod-Update {server_id}/{mod_id} von {current_user.get('username', '?')}: {msg}")
+    return _mod_result_html(ok, msg)
 
 
 @router.post("/api/server/{server_id}/rcon", response_class=HTMLResponse)

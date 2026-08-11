@@ -171,16 +171,21 @@ for _sid in bot.mc_servers:
     logger.info(f"MC IP-Tracker aktiviert: {_sid}")
 
 # Mod management
+# Satisfactory laeuft ueber das offizielle ficsit-cli; mods_dir wird dabei
+# nicht gebraucht (ficsit kennt den Installationspfad selbst). Frueher stand
+# hier DATA_DIR/mods/satisfactory — ein Pfad im Bot-Datenverzeichnis, der mit
+# dem Serververzeichnis nichts zu tun hatte.
 bot.sat_mod_mgr = ModManager("satisfactory",
-                             server_path=bot.sat_server.server_path,
-                             mods_dir=DATA_DIR / "mods" / "satisfactory")
+                             server_path=bot.sat_server.server_path)
 bot.mc_mod_mgrs: dict[str, ModManager] = {}
 for _sid, _srv in bot.mc_servers.items():
     try:
+        # Paper/Vanilla nutzt plugins/, NeoForge/Forge nutzt mods/.
+        _mod_sub = "plugins" if (_srv.server_path / "plugins").is_dir() else "mods"
         bot.mc_mod_mgrs[_sid] = ModManager(
             "minecraft",
             server_path=_srv.server_path,
-            mods_dir=_srv.server_path / "mods"
+            mods_dir=_srv.server_path / _mod_sub
         )
     except Exception as _e:
         logger.warning(f"ModManager fuer MC-{_sid} nicht initialisiert: {_e}")

@@ -1,9 +1,37 @@
-<!-- HTMX-Partial: Mod-Verwaltung fuer Server-Detailseite -->
+{# HTMX-Partial: Mod-Verwaltung fuer die Server-Detailseite.
+   Quelle sind die echten Backends: Dateisystem (Minecraft, .jar/.jar.disabled)
+   bzw. das ficsit-Profil (Satisfactory). #}
 <div class="config-section">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-        <h3 class="subsection-title" style="margin: 0;">Installierte Mods</h3>
+
+    {# --- Backend-Status: sagt ehrlich, ob Schreiben moeglich ist --- #}
+    {% if not mod_status.ready %}
+    <div class="alert alert-warning" style="margin-bottom: 1rem;">
+        <strong>Mod-Verwaltung eingeschraenkt</strong> &mdash; Anzeigen geht, Aendern nicht.<br>
+        <small style="font-family: ui-monospace, monospace; font-size: 0.75rem;">{{ mod_status.detail }}</small>
+    </div>
+    {% endif %}
+
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
+        <h3 class="subsection-title" style="margin: 0;">
+            Installierte Mods
+            {% if mods %}
+            <span style="color: var(--text-muted); font-weight: 400; font-size: 0.85rem;">
+                &mdash; {{ enabled_count }} aktiv, {{ mods|length - enabled_count }} inaktiv
+            </span>
+            {% endif %}
+        </h3>
         <div style="display: flex; gap: 0.5rem;">
+            {% if server_type == 'satisfactory' %}
             <button class="btn btn-primary btn-sm"
+                    hx-post="/api/server/{{ server_id }}/mods/apply"
+                    hx-target="#mod-update-result"
+                    hx-swap="innerHTML"
+                    hx-confirm="Mod-Profil anwenden? ficsit laedt dabei alle Mods samt Abhaengigkeiten und SML. Der Server muss dafuer gestoppt sein."
+                    {% if server_running %}disabled title="Server laeuft — zum Anwenden erst stoppen"{% endif %}>
+                Profil anwenden
+            </button>
+            {% endif %}
+            <button class="btn btn-secondary btn-sm"
                     hx-post="/api/server/{{ server_id }}/mods/check-updates"
                     hx-target="#mod-update-result"
                     hx-swap="innerHTML">
@@ -12,34 +40,29 @@
         </div>
     </div>
 
+    {% if server_type == 'satisfactory' and server_running %}
+    <p style="color: var(--text-muted); font-size: 0.8rem; margin: -0.5rem 0 0.75rem;">
+        Der Server laeuft. Aenderungen am Profil werden gespeichert, aber erst mit
+        <strong>Profil anwenden</strong> bei gestopptem Server wirksam.
+    </p>
+    {% endif %}
+
     <div id="mod-update-result" style="margin-bottom: 0.75rem;"></div>
 
-    <!-- Suchfeld zum Filtern -->
     <div style="margin-bottom: 1rem;">
-        <input type="text"
-               id="mod-filter"
-               placeholder="Mods filtern..."
+        <input type="text" id="mod-filter" placeholder="Mods filtern..."
                oninput="filterMods(this.value)"
-               style="
-                   width: 100%;
-                   max-width: 400px;
-                   padding: 0.5rem 0.75rem;
-                   background: var(--bg-input);
-                   border: 1px solid var(--border-color);
-                   border-radius: var(--radius-sm);
-                   color: var(--text-primary);
-                   font-size: 0.9rem;
-               ">
+               style="width: 100%; max-width: 400px; padding: 0.5rem 0.75rem;
+                      background: var(--bg-input); border: 1px solid var(--border-color);
+                      border-radius: var(--radius-sm); color: var(--text-primary); font-size: 0.9rem;">
     </div>
 
-    <!-- Mod-Tabelle -->
-    <div class="table-wrapper">
+    <div class="table-wrapper" style="max-height: 620px; overflow-y: auto;">
         <table class="data-table" id="mod-table">
             <thead>
                 <tr>
                     <th>Name</th>
-                    <th>Version</th>
-                    <th>Installiert am</th>
+                    <th>{{ 'Version' if server_type == 'satisfactory' else 'Groesse' }}</th>
                     <th>Status</th>
                     <th>Aktionen</th>
                 </tr>
@@ -50,56 +73,46 @@
                     <td>
                         <span style="font-weight: 600;">{{ mod.name }}</span>
                         {% if mod.description %}
-                        <br><small style="color: var(--text-muted); font-size: 0.75rem;">{{ mod.description[:80] }}{% if mod.description|length > 80 %}...{% endif %}</small>
+                        <br><small style="color: var(--text-muted); font-size: 0.75rem;">{{ mod.description[:80] }}</small>
                         {% endif %}
                     </td>
                     <td>
-                        <span style="font-family: monospace; font-size: 0.85rem;">{{ mod.version|default('N/A') }}</span>
-                    </td>
-                    <td class="col-timestamp">{{ mod.installed_at|default('N/A') }}</td>
-                    <td>
-                        {% if mod.update_available %}
-                        <span style="
-                            display: inline-block;
-                            padding: 0.15rem 0.5rem;
-                            background: var(--warning-dim);
-                            color: var(--warning);
-                            border-radius: 8px;
-                            font-size: 0.75rem;
-                            font-weight: 600;
-                        ">Update</span>
+                        {% if server_type == 'satisfactory' %}
+                        <span style="font-family: ui-monospace, monospace; font-size: 0.8rem;">{{ mod.version }}</span>
                         {% else %}
-                        <span style="
-                            display: inline-block;
-                            padding: 0.15rem 0.5rem;
-                            background: var(--success-dim);
-                            color: var(--success);
-                            border-radius: 8px;
-                            font-size: 0.75rem;
-                            font-weight: 600;
-                        ">Aktuell</span>
+                        <span style="color: var(--text-muted); font-size: 0.8rem;">
+                            {{ '%.1f'|format(mod.size_bytes / 1048576) }} MB
+                        </span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if mod.enabled %}
+                        <span style="display:inline-block; padding:0.15rem 0.5rem; background:var(--success-dim);
+                                     color:var(--success); border-radius:8px; font-size:0.75rem; font-weight:600;">Aktiv</span>
+                        {% else %}
+                        <span style="display:inline-block; padding:0.15rem 0.5rem; background:var(--bg-input);
+                                     color:var(--text-muted); border-radius:8px; font-size:0.75rem; font-weight:600;">Inaktiv</span>
                         {% endif %}
                     </td>
                     <td>
                         <div style="display: flex; gap: 0.35rem;">
-                            {% if mod.update_available %}
-                            <button class="btn btn-sm btn-primary"
-                                    hx-post="/api/server/{{ server_id }}/mods/update"
-                                    hx-vals='{"mod_name": "{{ mod.name }}"}'
+                            <button class="btn btn-sm {{ 'btn-secondary' if mod.enabled else 'btn-primary' }}"
+                                    hx-post="/api/server/{{ server_id }}/mods/toggle"
+                                    hx-vals='{"mod_id": {{ mod.mod_id|tojson }}, "enable": "{{ 0 if mod.enabled else 1 }}"}'
                                     hx-target="#mod-update-result"
                                     hx-swap="innerHTML"
-                                    hx-confirm="Mod {{ mod.name }} aktualisieren?"
-                                    style="padding: 0.2rem 0.5rem; font-size: 0.75rem;">
-                                Update
+                                    style="padding: 0.2rem 0.5rem; font-size: 0.75rem;"
+                                    {% if not mod_status.ready %}disabled{% endif %}>
+                                {{ 'Ausschalten' if mod.enabled else 'Einschalten' }}
                             </button>
-                            {% endif %}
                             <button class="btn btn-sm btn-danger"
                                     hx-post="/api/server/{{ server_id }}/mods/uninstall"
-                                    hx-vals='{"mod_name": "{{ mod.name }}"}'
+                                    hx-vals='{"mod_id": {{ mod.mod_id|tojson }}}'
                                     hx-target="#mod-update-result"
                                     hx-swap="innerHTML"
-                                    hx-confirm="Mod {{ mod.name }} wirklich deinstallieren?"
-                                    style="padding: 0.2rem 0.5rem; font-size: 0.75rem;">
+                                    hx-confirm="{{ mod.name }} wirklich entfernen? Das loescht die Datei."
+                                    style="padding: 0.2rem 0.5rem; font-size: 0.75rem;"
+                                    {% if not mod_status.ready %}disabled{% endif %}>
                                 Entfernen
                             </button>
                         </div>
@@ -108,7 +121,7 @@
                 {% endfor %}
                 {% if not mods %}
                 <tr>
-                    <td colspan="5" class="empty-row" style="color: var(--text-muted);">
+                    <td colspan="4" class="empty-row" style="color: var(--text-muted);">
                         Keine Mods installiert
                     </td>
                 </tr>
@@ -119,58 +132,39 @@
 
     {% if mods %}
     <p style="color: var(--text-muted); font-size: 0.8rem; margin-top: 0.5rem; text-align: right;">
-        {{ mods|length }} Mod(s) installiert
+        {{ mods|length }} Mod(s) &mdash; Backend: {{ mod_status.backend }}
     </p>
     {% endif %}
 
-    <!-- Mod-Suche + Installation -->
+    {# --- Suche + Installation --- #}
     <div style="margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--border-color);">
         <h3 class="subsection-title">Mod suchen &amp; installieren</h3>
+        <p style="color: var(--text-muted); font-size: 0.8rem; margin-bottom: 0.75rem;">
+            Quelle:
+            {% if server_type == 'satisfactory' %}
+            ficsit.app ueber das offizielle <code>ficsit-cli</code> &mdash; Abhaengigkeiten und SML werden mitinstalliert.
+            {% else %}
+            Modrinth &mdash; die Datei wird direkt in den Mod-Ordner geladen.
+            {% endif %}
+        </p>
         <form hx-post="/api/server/{{ server_id }}/mods/search"
               hx-target="#mod-search-results"
               hx-swap="innerHTML"
               style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
-            <input type="text" name="query" placeholder="Mod-Name suchen..."
-                   required
-                   style="
-                       flex: 1;
-                       padding: 0.5rem 0.75rem;
-                       background: var(--bg-input);
-                       border: 1px solid var(--border-color);
-                       border-radius: var(--radius-sm);
-                       color: var(--text-primary);
-                       font-size: 0.9rem;
-                   ">
-            <select name="source" style="
-                padding: 0.5rem 0.75rem;
-                background: var(--bg-input);
-                border: 1px solid var(--border-color);
-                border-radius: var(--radius-sm);
-                color: var(--text-primary);
-                font-size: 0.9rem;
-            ">
-                {% if server_type == 'satisfactory' %}
-                <option value="ficsit">ficsit.app (SMR)</option>
-                {% else %}
-                <option value="modrinth">Modrinth</option>
-                <option value="curseforge">CurseForge</option>
-                {% endif %}
-            </select>
+            <input type="text" name="query" placeholder="Mod-Name suchen..." required
+                   style="flex: 1; padding: 0.5rem 0.75rem; background: var(--bg-input);
+                          border: 1px solid var(--border-color); border-radius: var(--radius-sm);
+                          color: var(--text-primary); font-size: 0.9rem;">
             <button type="submit" class="btn btn-primary btn-sm">Suchen</button>
         </form>
         <div id="mod-search-results"></div>
     </div>
 
-    <!-- Export/Import -->
-    <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-color); display: flex; gap: 0.5rem;">
+    <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-color);">
         <a href="/api/server/{{ server_id }}/mods/export"
-           class="btn btn-secondary btn-sm"
-           download="mods_{{ server_id }}.json">
+           class="btn btn-secondary btn-sm" download="mods_{{ server_id }}.json">
             Mod-Liste exportieren
         </a>
-        <span style="color: var(--text-muted); font-size: 0.8rem; align-self: center;">
-            (Feature in Entwicklung: Import)
-        </span>
     </div>
 </div>
 
