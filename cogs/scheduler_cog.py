@@ -94,6 +94,17 @@ class SchedulerCog(commands.Cog):
         self._mc_last_update_check: dict[str, Optional[datetime]] = {}
         self._mc_last_config_backup: dict[str, Optional[datetime]] = {}
 
+        # Modpack-Update Loop-Guard (2026-08-11): ein Ziel-Version die N-mal
+        # scheitert (z.B. "Kein Server Pack fuer diese Version verfuegbar")
+        # wird aufgegeben — sonst blockiert sie JEDEN Tag den Daily-Restart
+        # und flutet den Log. Reset bei NEUER Version.
+        self._mc_update_fail_count: dict[str, int] = {}
+        self._mc_update_fail_target: dict[str, Optional[str]] = {}
+        self._mc_update_giveup_version: dict[str, Optional[str]] = {}
+        self._mc_update_max_attempts: int = mc_sched.get(
+            "modpack_update_max_attempts", 2
+        )
+
         # Modpack-Update-Check (Phase 8h) — LEGACY: durch zeitplanbasierte Checks ersetzt
         self._modpack_check_interval_hours = sched.get("modpack_check_interval_hours", 12)
         self._last_modpack_check: Optional[datetime] = None
@@ -895,15 +906,42 @@ class SchedulerCog(commands.Cog):
         # --- I2: Pruefen ob ein scheduled Modpack-Update vorliegt ---
         scheduled_update = await self._get_scheduled_modpack_update(server_id)
         if scheduled_update:
-            logger.info(
-                f"[{server_id}] Scheduled Modpack-Update gefunden — "
-                f"starte Update statt normalem Restart"
-            )
-            self._mc_last_restart[server_id] = now
-            await self._run_scheduled_modpack_update(server_id, scheduled_update)
-            return
+            target = str(scheduled_update.get("new_version") or "?")
 
-        # --- Normaler Restart (kein scheduled Update) ---
+            if target == self._mc_update_giveup_version.get(server_id):
+                # Bereits aufgegebene Version — Eintrag verwerfen und ganz
+                # normal neustarten (sonst blockiert sie den Restart taeglich).
+                logger.warning(
+                    f"[{server_id}] Scheduled Update auf {target} wurde aufgegeben "
+                    f"(>= {self._mc_update_max_attempts} Fehlversuche) — "
+                    f"normaler Daily-Restart"
+                )
+                await self._discard_scheduled_update(server_id, scheduled_update)
+            else:
+                logger.info(
+                    f"[{server_id}] Scheduled Modpack-Update gefunden — "
+                    f"starte Update statt normalem Restart"
+                )
+                self._mc_last_restart[server_id] = now
+                ok = await self._run_scheduled_modpack_update(
+                    server_id, scheduled_update
+                )
+                if ok:
+                    return
+                # Fallback (2026-08-11): Update fehlgeschlagen -> trotzdem
+                # normal neustarten. Vorher blieb der Server tagelang ohne
+                # Restart (BMC v51->v52, 3 Tage Uptime).
+                await self._register_mc_update_failure(server_id, target)
+                logger.warning(
+                    f"[{server_id}] Scheduled Update fehlgeschlagen — "
+                    f"Fallback auf normalen Daily-Restart"
+                )
+
+        # --- Normaler Restart (kein/verworfenes scheduled Update) ---
+        await self._do_mc_normal_restart(server_id, srv, now)
+
+    async def _do_mc_normal_restart(self, server_id: str, srv: Any, now: datetime):
+        """Fuehrt den regulaeren MC-Daily-Restart aus (Backup + Warnung + Restart)."""
         logger.info(f"[{server_id}] MC Daily Restart startet...")
         self._mc_last_restart[server_id] = now
 
@@ -1097,6 +1135,14 @@ class SchedulerCog(commands.Cog):
                 f"(Check um {now.hour:02d}:00)"
             )
 
+            # Loop-Guard: aufgegebene Version nicht endlos neu versuchen/planen.
+            if str(new_version) == self._mc_update_giveup_version.get(server_id):
+                logger.info(
+                    f"[{server_id}] Modpack-Version {new_version} wurde aufgegeben "
+                    f"— kein Auto-Versuch, warte auf neuere Version."
+                )
+                return
+
             if now.hour == self._mc_modpack_immediate_hour:
                 # 12:00-Check: Sofort Auto-Update mit 10-Min-Countdown
                 logger.info(
@@ -1122,6 +1168,9 @@ class SchedulerCog(commands.Cog):
                     logger.error(
                         f"[{server_id}] Auto-Update (12:00) fehlgeschlagen: "
                         f"{result.get('error', '?')}"
+                    )
+                    await self._register_mc_update_failure(
+                        server_id, str(new_version)
                     )
             else:
                 # 00:00-Check: Nur Flag in DB setzen
@@ -1203,14 +1252,78 @@ class SchedulerCog(commands.Cog):
             logger.debug(f"[{server_id}] DB-Check für scheduled Update fehlgeschlagen: {e}")
             return None
 
-    async def _run_scheduled_modpack_update(
+    async def _discard_scheduled_update(
         self, server_id: str, scheduled_row: Dict[str, Any]
     ) -> None:
-        """Fuehrt ein scheduled Modpack-Update aus (04:00 Daily-Restart)."""
+        """Entfernt einen scheduled-Eintrag aus der DB (aufgegebene Version)."""
+        try:
+            db_conn = await get_db()
+            await db_conn.execute(
+                "DELETE FROM modpack_updates WHERE id = ?",
+                (scheduled_row.get("id"),),
+            )
+            await db_conn.commit()
+        except Exception as e:
+            logger.debug(f"[{server_id}] Scheduled-Eintrag verwerfen fehlgeschlagen: {e}")
+
+    async def _register_mc_update_failure(self, server_id: str, target: str) -> None:
+        """Zaehlt Fehlversuche pro Ziel-Version und gibt sie ab N Versuchen auf.
+
+        Verhindert dass eine dauerhaft kaputte Version (z.B. Modpack ohne
+        Server-Pack) jeden Tag erneut den Daily-Restart blockiert.
+        """
+        if self._mc_update_giveup_version.get(server_id) == target:
+            return
+
+        # Neue Ziel-Version -> Zaehler zuruecksetzen
+        if self._mc_update_fail_target.get(server_id) != target:
+            self._mc_update_fail_target[server_id] = target
+            self._mc_update_fail_count[server_id] = 0
+
+        count = self._mc_update_fail_count.get(server_id, 0) + 1
+        self._mc_update_fail_count[server_id] = count
+
+        if count < self._mc_update_max_attempts:
+            logger.info(
+                f"[{server_id}] Modpack-Update {target}: Fehlversuch "
+                f"{count}/{self._mc_update_max_attempts}"
+            )
+            return
+
+        self._mc_update_giveup_version[server_id] = target
+        logger.error(
+            f"[{server_id}] Modpack-Update auf {target} nach {count} Fehlversuchen "
+            f"AUFGEGEBEN — kein weiterer Auto-Versuch bis eine neuere Version "
+            f"erscheint. Daily-Restart laeuft normal weiter."
+        )
+        if self.notifier:
+            srv = self.mc_servers.get(server_id)
+            label = srv.display_name if srv else f"MC {server_id}"
+            try:
+                await self.notifier.send_admin(
+                    f"MC {label} — Modpack-Update {target} aufgegeben",
+                    f"Nach {count} Fehlversuchen wird {target} nicht mehr automatisch "
+                    f"versucht. Der taegliche Restart laeuft normal weiter. "
+                    f"Manueller Eingriff noetig (z.B. Server-Pack fehlt beim Anbieter).",
+                    NotifyLevel.ERROR,
+                    ping_role=True,
+                )
+            except Exception as e:
+                logger.debug(f"[{server_id}] Giveup-Notify fehlgeschlagen: {e}")
+
+    async def _run_scheduled_modpack_update(
+        self, server_id: str, scheduled_row: Dict[str, Any]
+    ) -> bool:
+        """Fuehrt ein scheduled Modpack-Update aus (04:00 Daily-Restart).
+
+        Returns:
+            True bei Erfolg, False bei Fehler — der Aufrufer faellt dann auf
+            einen normalen Daily-Restart zurueck.
+        """
         update_mgr = self.mc_update_managers.get(server_id)
         if not update_mgr:
             logger.error(f"[{server_id}] Kein UpdateManager — scheduled Update übersprungen")
-            return
+            return False
 
         try:
             # Version-Info aus dem scheduled-Eintrag rekonstruieren
@@ -1261,15 +1374,20 @@ class SchedulerCog(commands.Cog):
                     label = srv.display_name if srv else f"MC {server_id}"
                     await self.notifier.send_admin(
                         f"MC {label} — Scheduled Update FEHLGESCHLAGEN",
-                        f"Fehler: {result.get('error', '?')}",
+                        f"Fehler: {result.get('error', '?')}\n"
+                        f"Server wird stattdessen normal neugestartet.",
                         NotifyLevel.ERROR,
                         ping_role=True,
                     )
+                return False
+
+            return True
 
         except Exception as e:
             logger.error(
                 f"[{server_id}] Scheduled Update Fehler: {e}", exc_info=True
             )
+            return False
 
     # ------------------------------------------------------------------
     # I2: SAT SteamCMD Auto-Update (12:00/00:00 Zeitplan)

@@ -120,10 +120,23 @@ class PackageChecker:
             proc = await asyncio.create_subprocess_exec(
                 "apt", "list", "--upgradable",
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
             )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30.0)
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30.0)
             output = stdout.decode("utf-8", errors="replace")
+
+            # Exit-Code pruefen (2026-08-11): bei kaputtem dpkg-Zustand liefert
+            # apt keine Zeilen und bricht ab. Ohne diesen Check wurde das als
+            # "0 Updates" persistiert — eine stille Falschmeldung.
+            if proc.returncode not in (0, None):
+                err = stderr.decode("utf-8", errors="replace").strip()
+                result["error"] = (
+                    f"apt list --upgradable Exit-Code {proc.returncode}: "
+                    f"{err[:300] or 'kein stderr'}"
+                )
+                logger.warning(result["error"])
+                self._last_result = result
+                return result
 
             packages: List[Dict[str, str]] = []
             security_count = 0

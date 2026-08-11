@@ -148,6 +148,17 @@
     </div>
 </section>
 
+<!-- System-Neustart -->
+<section class="config-section">
+    <h2 class="section-title">Server-Neustart</h2>
+    <div id="reboot-area"
+         hx-get="/api/system/reboot/status"
+         hx-trigger="load, packageListChanged from:body"
+         hx-swap="innerHTML">
+        <p style="color: var(--text-muted);">Lade Neustart-Status...</p>
+    </div>
+</section>
+
 <!-- Webmin Link -->
 <section class="config-section">
     <h2 class="section-title">Webmin Server-Administration</h2>

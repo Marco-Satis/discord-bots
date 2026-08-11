@@ -323,45 +323,116 @@ def _parse_apt_sim(output: str) -> list[dict]:
     return packages
 
 
-async def _apt_sim(mode: str) -> str:
+async def _apt_sim(mode: str) -> tuple[str, str]:
     """Fuehrt `apt-get -s <mode>` aus (Simulation, read-only, kein sudo noetig).
 
     LANG=C erzwingt parsbaren englischen Output (sonst Server-Locale).
+
+    Returns:
+        (stdout, error). error != "" wenn apt-get scheitert (Exit-Code != 0,
+        Timeout, OSError). Wichtig: bei kaputtem dpkg-Zustand ("BrokenCount > 0",
+        halb-installierte Pakete) liefert apt-get KEINE Inst-Zeilen und bricht
+        mit Exit-Code 100 ab. Frueher wurde stderr verworfen und der Parser sah
+        eine leere Liste -> das Dashboard meldete faelschlich "Alle Pakete sind
+        aktuell", waehrend Webmin 55 offene Updates zeigte (2026-08-11).
     """
     try:
         proc = await asyncio.create_subprocess_exec(
             "apt-get", "-s", mode,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
             env={"LANG": "C", "LC_ALL": "C", "PATH": "/usr/sbin:/usr/bin:/sbin:/bin"},
         )
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30.0)
-        return stdout.decode("utf-8", errors="replace")
-    except (asyncio.TimeoutError, OSError) as e:
-        logger.warning(f"apt-get -s {mode} fehlgeschlagen: {e}")
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30.0)
+        out = stdout.decode("utf-8", errors="replace")
+        err = stderr.decode("utf-8", errors="replace").strip()
+
+        if proc.returncode != 0:
+            msg = err or f"apt-get -s {mode} endete mit Exit-Code {proc.returncode}"
+            logger.warning(f"apt-get -s {mode} fehlgeschlagen: {msg[:400]}")
+            return out, msg
+        return out, ""
+    except asyncio.TimeoutError:
+        msg = f"apt-get -s {mode}: Timeout nach 30s"
+        logger.warning(msg)
+        return "", msg
+    except OSError as e:
+        msg = f"apt-get -s {mode} fehlgeschlagen: {e}"
+        logger.warning(msg)
+        return "", msg
+
+
+def _dpkg_broken_hint(error: str) -> str:
+    """Zusatz-Hinweis wenn der apt-Fehler auf einen kaputten dpkg-Zustand deutet."""
+    markers = ("--fix-broken", "fix-broken", "BrokenCount", "Unmet dependencies",
+               "unerfüllte Abhängigkeiten", "dpkg was interrupted",
+               "dpkg --configure -a")
+    if not any(m.lower() in error.lower() for m in markers):
         return ""
+    return (
+        '<p style="margin-top:8px;font-size:12px;color:var(--text-secondary)">'
+        'Der Paketmanager steht auf halb-installierten Paketen. Solange das gilt, '
+        'meldet apt <strong>keine</strong> Updates &mdash; die Zahl 0 ist dann '
+        'unwahr, nicht beruhigend. Reparatur unten oder auf der Shell: '
+        '<code>sudo dpkg --configure -a &amp;&amp; sudo apt --fix-broken install</code>.'
+        '</p>'
+        '<button class="btn btn-sm btn-warning" style="margin-top:10px"'
+        ' hx-post="/api/system/packages/fix-broken"'
+        ' hx-target="#package-update-result" hx-swap="innerHTML"'
+        ' hx-confirm="Paketmanager reparieren? Laeuft dpkg --configure -a,'
+        ' apt --fix-broken install, Reinstall der defekten Pakete und danach'
+        ' ein full-upgrade. Kann mehrere Minuten dauern und Pakete entfernen.">'
+        'Paketmanager reparieren</button>'
+    )
 
 
-async def _get_upgradable_packages() -> list[dict]:
+def _apt_error_html(error: str) -> str:
+    """Rendert einen apt-Fehler prominent — nie still als '0 Updates' schlucken."""
+    if not error:
+        return ""
+    cleaned = _clean_apt_output(error)
+    return (
+        '<div class="alert alert-danger" style="margin-bottom:12px">'
+        '<strong>Update-Erkennung fehlgeschlagen</strong> &mdash; apt konnte die '
+        'verfuegbaren Updates nicht ermitteln. Die angezeigte Liste ist '
+        '<strong>unvollstaendig</strong>.'
+        f'{_dpkg_broken_hint(error)}'
+        '</div>'
+        f'<pre class="code-block" style="white-space:pre-wrap;word-break:break-word;'
+        f'max-height:200px;overflow:auto">{html.escape(cleaned[:1200])}</pre>'
+    )
+
+
+async def _get_upgradable_packages() -> tuple[list[dict], str]:
     """Pakete die `apt upgrade` installieren wuerde.
 
     Nutzt `apt-get -s upgrade` (Simulation) statt `apt list --upgradable` —
     letzteres versteckt Phased-Updates + zeigt Pakete die gar nicht installiert
     werden, was zu falschen Zaehlungen fuehrt. `-s upgrade` matcht exakt den
     Upgrade-Button (`apt upgrade -y`).
+
+    Returns: (packages, error) — bei error != "" ist die Liste nicht belastbar.
     """
-    return _parse_apt_sim(await _apt_sim("upgrade"))
+    out, err = await _apt_sim("upgrade")
+    return _parse_apt_sim(out), err
 
 
-async def _get_heldback_packages() -> list[dict]:
+async def _get_heldback_packages() -> tuple[list[dict], str]:
     """Pakete die nur via `apt full-upgrade`/`dist-upgrade` kommen (held-back).
 
     Diff dist-upgrade − upgrade. Diese brauchen neue Dependencies und werden
     von `apt upgrade` zurueckgehalten. Erklaeren die Differenz zu Webmins Zaehlung.
+
+    Returns: (packages, error)
     """
-    upgrade_names = {p["name"] for p in await _get_upgradable_packages()}
-    dist = _parse_apt_sim(await _apt_sim("dist-upgrade"))
-    return [p for p in dist if p["name"] not in upgrade_names]
+    upgrade_pkgs, err_up = await _get_upgradable_packages()
+    upgrade_names = {p["name"] for p in upgrade_pkgs}
+    out, err_dist = await _apt_sim("dist-upgrade")
+    dist = _parse_apt_sim(out)
+    return (
+        [p for p in dist if p["name"] not in upgrade_names],
+        err_up or err_dist,
+    )
 
 
 async def _heldback_html() -> str:
@@ -370,7 +441,7 @@ async def _heldback_html() -> str:
     Diese Pakete erscheinen NICHT in `apt upgrade` (Button), brauchen neue
     Dependencies. Erklaert die Differenz zu Webmins hoeherer Zaehlung.
     """
-    held = await _get_heldback_packages()
+    held, _err = await _get_heldback_packages()
     if not held:
         return ""
     rows = "".join(
@@ -455,8 +526,13 @@ def _reboot_banner_html() -> str:
 @router.get("/api/system/packages/list", response_class=HTMLResponse)
 async def get_package_list(current_user: dict = Depends(require_auth_api)):
     """Gibt die Liste verfuegbarer Updates als HTML-Partial zurueck."""
-    packages = await _get_upgradable_packages()
+    packages, apt_error = await _get_upgradable_packages()
     reboot_banner = _reboot_banner_html()
+
+    # Bei apt-Fehler NICHT "alles aktuell" behaupten — Fehler zeigen.
+    if apt_error:
+        return HTMLResponse(f'{reboot_banner}{_apt_error_html(apt_error)}')
+
     heldback = await _heldback_html()
 
     if not packages:
@@ -506,8 +582,16 @@ async def check_package_updates(current_user: dict = Depends(require_perm("syste
         return HTMLResponse(f'<div class="alert alert-danger">apt update fehlgeschlagen: {html.escape(str(e)[:200])}</div>')
 
     # Jetzt aktualisierte Liste abrufen
-    packages = await _get_upgradable_packages()
+    packages, apt_error = await _get_upgradable_packages()
     reboot_banner = _reboot_banner_html()
+
+    if apt_error:
+        return HTMLResponse(
+            f'{reboot_banner}'
+            '<div class="alert alert-success" style="margin-bottom: 0.75rem;">Paketlisten aktualisiert.</div>'
+            f'{_apt_error_html(apt_error)}'
+        )
+
     heldback = await _heldback_html()
 
     if not packages:
@@ -550,8 +634,9 @@ async def _run_apt_upgrade(wrapper: str, label: str) -> HTMLResponse:
     Beide Wrapper sind root-owned, fixe Command, keine User-Args → injection-sicher.
     """
     # Vor-Snapshot fuer Diff (dist-upgrade-Snapshot deckt beide Faelle ab)
-    pre_names = {p["name"] for p in await _get_upgradable_packages()}
-    pre_names |= {p["name"] for p in await _get_heldback_packages()}
+    pre_up, _e1 = await _get_upgradable_packages()
+    pre_held, _e2 = await _get_heldback_packages()
+    pre_names = {p["name"] for p in pre_up} | {p["name"] for p in pre_held}
 
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -564,8 +649,9 @@ async def _run_apt_upgrade(wrapper: str, label: str) -> HTMLResponse:
         _stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=600.0)
 
         if proc.returncode == 0:
-            post_names = {p["name"] for p in await _get_upgradable_packages()}
-            post_names |= {p["name"] for p in await _get_heldback_packages()}
+            post_up, _e3 = await _get_upgradable_packages()
+            post_held, _e4 = await _get_heldback_packages()
+            post_names = {p["name"] for p in post_up} | {p["name"] for p in post_held}
             installed = sorted(pre_names - post_names)
             count = len(installed)
 
@@ -627,6 +713,170 @@ async def full_upgrade_packages(current_user: dict = Depends(require_perm("syste
     """Fuehrt `apt full-upgrade -y` aus (inkl. held-back, kann Pakete entfernen)."""
     logger.info(f"Package-Full-Upgrade gestartet von {current_user.get('username', 'Unbekannt')}")
     return await _run_apt_upgrade("/usr/local/sbin/dashboard-apt-fullupgrade", "Full-Upgrade")
+
+
+@router.post("/api/system/packages/fix-broken", response_class=HTMLResponse)
+async def fix_broken_packages(current_user: dict = Depends(require_perm("system", "control"))):
+    """Repariert einen unterbrochenen dpkg-Zustand (`dpkg --configure -a` + `--fix-broken`).
+
+    Noetig wenn ein abgebrochenes Upgrade halb-installierte Pakete hinterlaesst —
+    dann meldet apt gar keine Updates mehr (siehe _apt_sim-Docstring).
+    """
+    logger.info(f"apt fix-broken gestartet von {current_user.get('username', 'Unbekannt')}")
+    return await _run_apt_upgrade(
+        "/usr/local/sbin/dashboard-apt-fixbroken", "Paketmanager-Reparatur"
+    )
+
+
+# ==============================================================
+#  System-Reboot (root-Wrapper, +1 Min. verzoegert, abbrechbar)
+# ==============================================================
+
+
+async def _run_root_wrapper(wrapper: str, timeout: float = 30.0) -> tuple[int, str]:
+    """Fuehrt einen root-owned Wrapper via `sudo -n` aus.
+
+    Returns: (returncode, stderr-Text). returncode -1 = Timeout/OSError.
+    """
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "sudo", "-n", wrapper,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            stdin=asyncio.subprocess.DEVNULL,
+            env={"LANG": "C", "LC_ALL": "C", "PATH": "/usr/sbin:/usr/bin:/sbin:/bin"},
+        )
+        _out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        return proc.returncode or 0, err.decode("utf-8", errors="replace").strip()
+    except asyncio.TimeoutError:
+        return -1, f"Timeout nach {timeout:.0f}s"
+    except OSError as e:
+        return -1, str(e)
+
+
+def _pending_shutdown() -> bool:
+    """Prueft ob bereits ein Reboot/Shutdown geplant ist.
+
+    systemd legt dafuer /run/systemd/shutdown/scheduled an (shutdown(8) mit
+    Zeitangabe). Read-only, kein sudo noetig.
+    """
+    return Path("/run/systemd/shutdown/scheduled").exists()
+
+
+@router.get("/api/system/reboot/status", response_class=HTMLResponse)
+async def reboot_status(current_user: dict = Depends(require_auth_api)):
+    """Zeigt den Reboot-Bereich: Hinweis-Banner, geplanter Reboot, Buttons."""
+    return HTMLResponse(_reboot_section_html())
+
+
+def _reboot_section_html() -> str:
+    """Rendert den Reboot-Block (Status + Buttons)."""
+    if _pending_shutdown():
+        return (
+            '<div class="alert alert-warning" style="margin-bottom:12px">'
+            '<strong>Neustart ist geplant.</strong> Der Server faehrt in Kuerze '
+            'herunter. Gameserver werden von systemd sauber gestoppt '
+            '(Minecraft via RCON <code>stop</code>).'
+            '</div>'
+            '<button class="btn btn-sm btn-secondary"'
+            ' hx-post="/api/system/reboot/cancel"'
+            ' hx-target="#reboot-area" hx-swap="innerHTML">'
+            'Neustart abbrechen</button>'
+        )
+
+    status = _check_reboot_required()
+    hint = ""
+    if status["required"]:
+        pkgs = status["packages"]
+        pkg_txt = (
+            f' Ausloeser: <code>{html.escape(", ".join(pkgs[:6]))}'
+            f'{"…" if len(pkgs) > 6 else ""}</code>.'
+            if pkgs else ""
+        )
+        hint = (
+            '<div class="alert alert-warning" style="margin-bottom:12px">'
+            '<strong>Neustart noetig</strong> &mdash; ein Kernel- oder '
+            f'Kern-Bibliothek-Update wartet auf einen Reboot.{pkg_txt}'
+            '</div>'
+        )
+    else:
+        hint = (
+            '<p style="color:var(--text-secondary);font-size:0.85rem;margin-bottom:0.75rem">'
+            'Aktuell ist kein Neustart erforderlich. Ein manueller Neustart ist '
+            'trotzdem moeglich.</p>'
+        )
+
+    return (
+        f'{hint}'
+        '<button class="btn btn-sm btn-danger"'
+        ' hx-post="/api/system/reboot"'
+        ' hx-target="#reboot-area" hx-swap="innerHTML"'
+        ' hx-confirm="Kompletten Server neu starten? Alle Gameserver und Bots'
+        ' werden gestoppt. Der Neustart startet in 1 Minute und kann bis dahin'
+        ' abgebrochen werden.">'
+        'Server neu starten</button>'
+        '<p style="color:var(--text-muted);font-size:0.8rem;margin-top:0.6rem">'
+        'Der Neustart wird um 1 Minute verzoegert und bleibt bis dahin abbrechbar. '
+        'Minecraft- und Satisfactory-Server werden von systemd sauber beendet.'
+        '</p>'
+    )
+
+
+@router.post("/api/system/reboot", response_class=HTMLResponse)
+async def reboot_system(current_user: dict = Depends(require_perm("system", "control"))):
+    """Plant einen System-Reboot in 1 Minute (root-Wrapper, abbrechbar)."""
+    user = current_user.get("username", "Unbekannt")
+    logger.warning(f"SYSTEM-REBOOT angefordert von {user}")
+
+    rc, err = await _run_root_wrapper("/usr/local/sbin/dashboard-reboot")
+    if rc != 0:
+        logger.error(f"Reboot fehlgeschlagen (rc={rc}): {err[:300]}")
+        missing = "sudo: a password is required" in err or "not allowed" in err
+        extra = (
+            '<p style="margin-top:8px;font-size:12px">Der Root-Wrapper ist noch '
+            'nicht installiert. Einrichtung siehe '
+            '<code>scripts/dashboard-system.sudoers</code>.</p>'
+            if missing else ""
+        )
+        return HTMLResponse(
+            f'<div class="alert alert-danger">Neustart konnte nicht geplant werden '
+            f'(Exit-Code {rc}).{extra}</div>'
+            f'<pre class="code-block" style="white-space:pre-wrap">{html.escape(err[:600])}</pre>'
+            f'{_reboot_section_html()}'
+        )
+
+    return HTMLResponse(
+        '<div class="alert alert-warning" style="margin-bottom:12px">'
+        '<strong>Neustart geplant.</strong> Der Server startet in 1 Minute neu. '
+        'Das Dashboard ist waehrend des Neustarts nicht erreichbar.'
+        '</div>'
+        '<button class="btn btn-sm btn-secondary"'
+        ' hx-post="/api/system/reboot/cancel"'
+        ' hx-target="#reboot-area" hx-swap="innerHTML">'
+        'Neustart abbrechen</button>'
+    )
+
+
+@router.post("/api/system/reboot/cancel", response_class=HTMLResponse)
+async def cancel_reboot(current_user: dict = Depends(require_perm("system", "control"))):
+    """Bricht einen geplanten Reboot ab."""
+    user = current_user.get("username", "Unbekannt")
+    logger.warning(f"Reboot-Abbruch von {user}")
+
+    rc, err = await _run_root_wrapper("/usr/local/sbin/dashboard-reboot-cancel")
+    if rc != 0:
+        logger.error(f"Reboot-Abbruch fehlgeschlagen (rc={rc}): {err[:300]}")
+        return HTMLResponse(
+            f'<div class="alert alert-danger">Abbruch fehlgeschlagen '
+            f'(Exit-Code {rc}). Auf der Shell: <code>sudo shutdown -c</code></div>'
+            f'{_reboot_section_html()}'
+        )
+
+    return HTMLResponse(
+        '<div class="alert alert-success" style="margin-bottom:12px">'
+        'Geplanter Neustart abgebrochen.</div>'
+        f'{_reboot_section_html()}'
+    )
 
 
 # ==============================================================
