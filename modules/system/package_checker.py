@@ -112,6 +112,25 @@ class PackageChecker:
             "error": None,
         }
 
+        # Vorpruefung: ist der dpkg-Zustand ueberhaupt intakt?
+        # 'apt list --upgradable' bricht bei halb-installierten Paketen NICHT
+        # ab (Exit-Code 0, null Zeilen) — anders als 'apt-get -s upgrade'.
+        # Ohne diesen Check meldete der Checker am 2026-08-11 "0 Updates",
+        # waehrend 55 offen waren und Webmin sie korrekt zeigte.
+        broken = await self._broken_packages()
+        if broken:
+            result["error"] = (
+                f"dpkg-Zustand defekt ({len(broken)} Paket(e) nicht sauber "
+                f"installiert: {', '.join(broken[:8])}"
+                f"{' …' if len(broken) > 8 else ''}). Update-Zahl ist "
+                f"unzuverlaessig — Reparatur noetig "
+                f"(dpkg --configure -a + apt --fix-broken install)."
+            )
+            result["dpkg_broken"] = broken
+            logger.warning(result["error"])
+            self._last_result = result
+            return result
+
         # Paketlisten aktualisiert das System selbst (apt-daily.timer als
         # root). Kein 'sudo apt update' -> botuser hat dafuer kein sudo
         # (vermied PAM-auth-fail-Logspam jeden Zyklus). 'apt list
@@ -189,6 +208,39 @@ class PackageChecker:
         return result
 
     @staticmethod
+    async def _broken_packages() -> List[str]:
+        """Liefert Pakete, die dpkg nicht als sauber installiert fuehrt.
+
+        Status-Abbrev != ii/un/rc/pn bedeutet halb-installiert, halb-
+        konfiguriert, entpackt-aber-unkonfiguriert oder reinstall-required.
+        In diesem Zustand sind alle apt-Zaehlungen wertlos.
+
+        Read-only (dpkg-query), kein sudo noetig. Fehler beim Aufruf werden
+        als "nicht defekt" gewertet — der Check darf den Update-Check nicht
+        seinerseits blockieren.
+        """
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "dpkg-query", "-W", "-f=${db:Status-Abbrev} ${binary:Package}\n",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30.0)
+        except (asyncio.TimeoutError, OSError) as e:
+            logger.debug(f"dpkg-query Zustandspruefung fehlgeschlagen: {e}")
+            return []
+
+        broken: List[str] = []
+        for line in stdout.decode("utf-8", errors="replace").splitlines():
+            parts = line.split()
+            if len(parts) < 2:
+                continue
+            # Status-Abbrev ist 2-3 Zeichen (z.B. "ii ", "iU ", "iF ", "iHR")
+            if parts[0].strip() not in ("ii", "un", "rc", "pn"):
+                broken.append(parts[1])
+        return broken
+
+    @staticmethod
     def _is_security(suite: str) -> bool:
         """Prüft ob eine Suite ein Security-Update enthält."""
         return "security" in suite.lower()
@@ -199,11 +251,14 @@ class PackageChecker:
 
     async def _handle_result(self, result: Dict[str, Any]) -> None:
         """Verarbeitet das Prüfungsergebnis: Callbacks und Persistierung."""
+        # JSON IMMER schreiben — auch (gerade) im Fehlerfall. Frueher wurde
+        # hier bei error sofort returned; dadurch blieb der letzte
+        # erfolgreiche Stand im Dashboard stehen und ein kaputter apt-/dpkg-
+        # Zustand sah aus wie "0 Updates, alles gut" (2026-08-11).
+        self._write_status_json(result)
+
         if result.get("error"):
             return
-
-        # JSON fuer Dashboard schreiben
-        self._write_status_json(result)
 
         # In SQLite speichern
         await self._persist_to_db(result)
