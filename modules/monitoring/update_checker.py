@@ -18,6 +18,35 @@ logger = get_logger("update_checker")
 SATISFACTORY_APP_ID = "1690800"
 
 
+def _steamcmd_error_summary(returncode: int, stdout: str, stderr: str) -> str:
+    """Zieht die aussagekraeftige Fehlerzeile aus dem SteamCMD-Output.
+
+    Vorher wurde stumpf `stderr[:300]` gemeldet. Auf stderr steht bei jedem Lauf
+    aber nur die harmlose Relaunch-Zeile ("Starting /home/.../linux32/steamcmd"),
+    weshalb im Dashboard und in Discord eine Nicht-Meldung als Fehlerursache
+    stand (beobachtet 2026-08-11). Die echte Ursache steht auf stdout.
+    """
+    interesting = [
+        line.strip()
+        for line in (stdout or "").splitlines()
+        if re.search(r"error|failed|fehlgeschlagen|invalid|no subscription|disk",
+                     line, re.IGNORECASE)
+    ]
+    if interesting:
+        return " | ".join(interesting[-3:])[:300]
+
+    if returncode == 8:
+        return (
+            "SteamCMD hat sich selbst aktualisiert und beide Versuche abgebrochen "
+            "(Code 8). Der naechste Lauf nutzt das aktualisierte SteamCMD."
+        )
+
+    tail = [line.strip() for line in (stdout or "").splitlines() if line.strip()]
+    if tail:
+        return " | ".join(tail[-3:])[:300]
+    return (stderr or "").strip()[:300] or "keine Ausgabe"
+
+
 class UpdateChecker:
     """
     Checks for game server updates using SteamCMD.
@@ -333,7 +362,9 @@ class UpdateChecker:
 
             # Schritt 4: Exit-Code UND Output prüfen
             if proc.returncode != 0:
-                error_msg = err_output[:300] if err_output else output[:300]
+                error_msg = _steamcmd_error_summary(
+                    proc.returncode, output, err_output
+                )
                 logger.error(f"SteamCMD Fehler (Code {proc.returncode}): {error_msg}")
                 # Server trotzdem starten
                 await self._safe_start(server)
