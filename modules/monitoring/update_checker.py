@@ -80,6 +80,13 @@ class UpdateChecker:
         # _safe_start cleart den Marker nur dann -> verhindert Loeschen eines
         # manuell von Marco gesetzten Stop-Markers (L1).
         self._update_marked_stop: bool = False
+        # perform_update hat ZWEI Aufrufer: den Scheduler (Auto-Update) und
+        # /update start aus dem Discord-Cog. Am 2026-08-11 liefen beide 22
+        # Sekunden versetzt los und starteten zwei parallele SteamCMD-Prozesse
+        # auf demselben Install-Verzeichnis; der zweite Lauf hat dem ersten
+        # den Server unter den Fuessen weggestartet ("Server Start nach Update
+        # fehlgeschlagen: Server laeuft bereits"). Der Lock serialisiert das.
+        self._update_lock: asyncio.Lock = asyncio.Lock()
 
     async def check(self) -> Tuple[bool, Dict[str, Any]]:
         """
@@ -260,6 +267,22 @@ class UpdateChecker:
 
     async def perform_update(self, server: Any = None,
                              har: Any = None) -> Tuple[bool, str]:
+        """Serialisierender Wrapper um den eigentlichen Update-Lauf.
+
+        Zwei parallele Laeufe wuerden zwei SteamCMD-Prozesse auf dasselbe
+        Install-Verzeichnis loslassen und sich gegenseitig den Server starten
+        und stoppen. Der zweite Aufruf wartet deshalb nicht, sondern bekommt
+        eine klare Absage — sonst haengt ein Discord-Command minutenlang.
+        """
+        if self._update_lock.locked():
+            logger.warning("Update-Anfrage abgelehnt — es laeuft bereits ein Update")
+            return False, "Es laeuft bereits ein Update. Bitte warten."
+
+        async with self._update_lock:
+            return await self._perform_update_locked(server, har)
+
+    async def _perform_update_locked(self, server: Any = None,
+                                     har: Any = None) -> Tuple[bool, str]:
         """
         Vollständiges SAT-Update via SteamCMD.
 
