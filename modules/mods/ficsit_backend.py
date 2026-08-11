@@ -328,6 +328,57 @@ async def apply(server_running: bool = False) -> Tuple[bool, str]:
     return True, "; ".join(parts)
 
 
+async def get_game_version() -> Optional[int]:
+    """Liest die Changelist-Nummer (CL) der Server-Installation.
+
+    Quelle ist die Zeile `LogInit: Build: ++FactoryGame+rel-main-1.2.0-CL-495413`
+    aus dem Server-Log — das ist dieselbe Zahl, die SMM als `gameVersion` fuehrt.
+    Die Datei gehoert satisfactory, ist aber gruppenlesbar (botuser ist Mitglied).
+    """
+    log_path = Path(SERVER_PATH) / "FactoryGame/Saved/Logs/FactoryGame.log"
+    try:
+        with log_path.open("r", encoding="utf-8", errors="replace") as fh:
+            # Die Build-Zeile steht im Kopf des Logs — nicht die ganze Datei lesen.
+            for _ in range(400):
+                line = fh.readline()
+                if not line:
+                    break
+                m = re.search(r"-CL-(\d+)", line)
+                if m:
+                    return int(m.group(1))
+    except OSError as e:
+        logger.debug(f"Game-Version nicht lesbar: {e}")
+    return None
+
+
+async def export_smm_profile(
+    profile: str = "Default", export_name: Optional[str] = None
+) -> Dict[str, Any]:
+    """Baut ein SMM-importierbares Profil (.smmprofile) aus dem Server-Profil.
+
+    Format laut SMM-Quelltext (backend/ficsitcli/profiles.go, ExportedProfile):
+    `{"profile": {...}, "lockfile": {...}, "metadata": {"gameVersion": <CL>}}`.
+    Die Lockfile bleibt leer — SMM loest beim Import selbst auf und zieht dabei
+    die fuer Windows passenden Dateien. `required_targets` steht auf Windows,
+    weil das Ziel der Spiel-Client ist, nicht der Linux-Server.
+    """
+    prof = await get_profile(profile)
+    mods = {
+        ref: {"version": meta.get("version", ">=0.0.0"),
+              "enabled": bool(meta.get("enabled", True))}
+        for ref, meta in prof["mods"].items()
+    }
+    return {
+        "profile": {
+            "mods": mods,
+            "name": export_name or f"{profile}-Server",
+            "required_targets": ["Windows"],
+        },
+        "lockfile": {},
+        "metadata": {"gameVersion": await get_game_version() or 0},
+    }
+
+
 async def installed_on_disk() -> List[str]:
     """Liest die tatsaechlich im Serververzeichnis liegenden Mods.
 

@@ -160,11 +160,21 @@
         <div id="mod-search-results"></div>
     </div>
 
-    <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-color);">
+    <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-color);
+                display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
         <a href="/api/server/{{ server_id }}/mods/export"
            class="btn btn-secondary btn-sm" download="mods_{{ server_id }}.json">
             Mod-Liste exportieren
         </a>
+        {% if server_type == 'satisfactory' %}
+        <a href="/api/server/{{ server_id }}/mods/export?format=smm"
+           class="btn btn-secondary btn-sm" download="Server.smmprofile">
+            Als SMM-Profil exportieren
+        </a>
+        <span style="color: var(--text-muted); font-size: 0.8rem;">
+            &rarr; im Satisfactory Mod Manager unter Profiles &rarr; Import Profile laden
+        </span>
+        {% endif %}
     </div>
 </div>
 

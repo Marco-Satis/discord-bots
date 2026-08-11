@@ -1053,14 +1053,37 @@ async def server_mods_apply(
 
 
 @router.get("/api/server/{server_id}/mods/export")
-async def server_mods_export(request: Request, server_id: str, current_user: dict = Depends(require_auth_api)):
+async def server_mods_export(
+    request: Request, server_id: str, format: str = "json",
+    current_user: dict = Depends(require_auth_api),
+):
     """
-    Exportiert die installierte Mod-Liste als JSON-Download.
+    Exportiert die installierte Mod-Liste als Download.
+
+    `format=json` (Default): Uebersichts-Export dieses Dashboards.
+    `format=smm`: `.smmprofile` fuer den Satisfactory Mod Manager auf dem PC —
+        damit laesst sich die Server-Mod-Liste als Client-Profil importieren.
     """
     from fastapi.responses import JSONResponse
 
     if server_id not in VALID_SERVER_IDS:
         return JSONResponse(content={"error": "Unbekannter Server"}, status_code=404)
+
+    if format == "smm":
+        if _get_server_type(server_id) != "satisfactory":
+            return JSONResponse(
+                content={"error": "smmprofile gibt es nur fuer Satisfactory"},
+                status_code=400,
+            )
+        from modules.mods import ficsit_backend
+
+        payload = await ficsit_backend.export_smm_profile(export_name="Server")
+        return JSONResponse(
+            content=payload,
+            headers={
+                "Content-Disposition": 'attachment; filename="Server.smmprofile"'
+            },
+        )
 
     server_type = _get_server_type(server_id)
     mods: list[dict] = []
