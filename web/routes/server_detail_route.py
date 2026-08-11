@@ -841,6 +841,11 @@ async def server_action(request: Request, server_id: str, current_user: dict = D
     if action == "maintenance":
         systemctl_action = "stop"
 
+    # Nach einem Start/Stop haengt die Mod-Ansicht davon ab (das Anwenden des
+    # ficsit-Profils ist nur bei gestopptem Server erlaubt) — deshalb wird der
+    # Mods-Tab bei Erfolg mit neu geladen.
+    reload_mods = False
+
     try:
         proc = await asyncio.create_subprocess_exec(
             "sudo", "systemctl", systemctl_action, service_name,
@@ -866,6 +871,7 @@ async def server_action(request: Request, server_id: str, current_user: dict = D
                 {action_display} fuer <strong>{display_name}</strong> wurde ausgefuehrt.
             </div>
             """
+            reload_mods = action in ("start", "stop", "restart", "maintenance")
             logger.info(f"Server-Aktion erfolgreich: {action} {service_name}")
         else:
             error_text = stderr.decode("utf-8", errors="replace").strip()
@@ -895,7 +901,10 @@ async def server_action(request: Request, server_id: str, current_user: dict = D
         """
         logger.error(f"Server-Aktion Exception: {action} {service_name} — {e}")
 
-    return HTMLResponse(content=html)
+    return HTMLResponse(
+        content=html,
+        headers={"HX-Trigger": "modListChanged"} if reload_mods else {},
+    )
 
 
 @router.get("/api/server/{server_id}/mods", response_class=HTMLResponse)

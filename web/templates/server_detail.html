@@ -135,6 +135,7 @@
   <button class="tab" data-tab="world">Welt-Info</button>
   <button class="tab" data-tab="config">Server-Config</button>
   <button class="tab" data-tab="updates">Updates</button>
+  <button class="tab" data-tab="mods">Mods</button>
   <button class="tab" data-tab="blacklist">Blacklist</button>
   <button class="tab" data-tab="analyse">Analyse</button>
 </div>
@@ -258,12 +259,27 @@
       </div>
     </div>
     <div class="stat-card">
-      <h4>{% if server.type == 'minecraft' %}Modpack-Version{% else %}Game-Status{% endif %}</h4>
-      <div hx-get="/api/server/{{ server.server_id }}/mods"
-           hx-trigger="load"
-           hx-swap="innerHTML">
-        <p class="empty-text">Mod-/Update-Info wird geladen...</p>
-      </div>
+      <h4>Mods</h4>
+      <p class="empty-text" style="margin:0 0 .5rem;">
+        Mod-Verwaltung liegt im eigenen Tab &mdash; installieren, ein-/ausschalten, entfernen.
+      </p>
+      <button type="button" class="btn btn-secondary btn-sm" onclick="sdOpenTab('mods')">Zum Mods-Tab</button>
+    </div>
+  </div>
+</div>
+
+<!-- TAB: Mods -->
+{# Laedt erst beim ersten Oeffnen des Tabs (sdOpenTab feuert 'loadMods').
+   Grund: die Mod-Liste startet fuer Satisfactory einen ficsit-Subprozess —
+   das gehoert nicht in jeden Seitenaufruf. 'modListChanged' kommt als
+   HX-Trigger aus _mod_result_html und laedt die Liste nach jeder Aktion neu. #}
+<div class="tab-panel" id="tab-mods">
+  <div class="tile">
+    <div id="mods-container"
+         hx-get="/api/server/{{ server.server_id }}/mods"
+         hx-trigger="loadMods from:body, modListChanged from:body"
+         hx-swap="innerHTML">
+      <p class="empty-text">Mod-Verwaltung wird geladen...</p>
     </div>
   </div>
 </div>
@@ -379,7 +395,22 @@ document.addEventListener('click', function(e) {
   var target = document.getElementById('tab-' + tab.dataset.tab);
   if (target) target.classList.add('active');
   if (tab.dataset.tab === 'analyse') sdLoadAnalytics();
+  if (tab.dataset.tab === 'mods') sdLoadModsOnce();
 });
+
+// Mod-Liste genau einmal nachladen (danach uebernimmt 'modListChanged')
+var sdModsLoaded = false;
+function sdLoadModsOnce() {
+  if (sdModsLoaded) return;
+  sdModsLoaded = true;
+  htmx.trigger(document.body, 'loadMods');
+}
+
+// Tab von aussen oeffnen (z.B. Button im Updates-Tab)
+function sdOpenTab(name) {
+  var btn = document.querySelector('.tabs .tab[data-tab="' + name + '"]');
+  if (btn) btn.click();
+}
 
 // Time-Range Toggle -> Analytics mit neuem Zeitraum neu laden
 function sdSetTimeRange(btn) {
