@@ -363,7 +363,9 @@ class HealthAutoRestart:
             from modules.monitoring import manual_stop_state
             if manual_stop_state.is_service_manually_stopped(probe.service_name):
                 if probe.reachable:
-                    server_id = manual_stop_state.SERVICE_TO_SERVER_ID.get(probe.service_name)
+                    # normalisiert das .service-Suffix (MC-Units kommen aus der
+                    # ENV und koennen ohne Suffix konfiguriert sein)
+                    server_id = manual_stop_state.server_id_for_service(probe.service_name)
                     if server_id:
                         await manual_stop_state.mark_started(server_id)
                     logger.info(

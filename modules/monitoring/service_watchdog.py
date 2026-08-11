@@ -215,9 +215,12 @@ class ServiceWatchdog:
             try:
                 from modules.monitoring import manual_stop_state
                 if manual_stop_state.is_service_manually_stopped(name):
+                    # server_id_for_service normalisiert das .service-Suffix —
+                    # der Watchdog fuehrt seine Units ohne, die Mapping-Tabelle mit.
+                    server_id = manual_stop_state.server_id_for_service(name) or ""
                     logger.info(
                         f"Auto-Restart fuer '{name}' ({label}) uebersprungen — "
-                        f"manuell gestoppt (markiert {manual_stop_state.stopped_at(manual_stop_state.SERVICE_TO_SERVER_ID.get(name, ''))})"
+                        f"manuell gestoppt (markiert {manual_stop_state.stopped_at(server_id)})"
                     )
                     continue
             except Exception as e:

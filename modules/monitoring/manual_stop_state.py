@@ -103,13 +103,31 @@ def is_manually_stopped(server_id: str) -> bool:
     return server_id in _read_state()
 
 
+def server_id_for_service(service_name: str) -> Optional[str]:
+    """Uebersetzt einen systemd-Service-Namen in die Server-ID.
+
+    Akzeptiert BEIDE Schreibweisen — mit und ohne `.service`. Der
+    service_watchdog fuehrt seine Units ohne Suffix ("satisfactory"), der
+    health_checker mit ("satisfactory.service"). Vor diesem Fix traf nur die
+    zweite Variante die Mapping-Tabelle: der Watchdog fragte mit
+    "satisfactory", bekam None und damit False — und startete den Server
+    mitten im laufenden SteamCMD-Update neu (2026-08-11).
+    """
+    name = (service_name or "").strip()
+    if not name:
+        return None
+    if not name.endswith(".service"):
+        name = f"{name}.service"
+    return SERVICE_TO_SERVER_ID.get(name)
+
+
 def is_service_manually_stopped(service_name: str) -> bool:
     """Wie is_manually_stopped, aber mit systemd-Service-Namen als Input.
 
     Fuer Watchdog der mit Service-Namen arbeitet. Unbekannte Services -> False
     (nicht blocken, kein Override).
     """
-    server_id = SERVICE_TO_SERVER_ID.get(service_name)
+    server_id = server_id_for_service(service_name)
     if not server_id:
         return False
     return is_manually_stopped(server_id)
