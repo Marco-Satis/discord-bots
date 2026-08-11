@@ -101,7 +101,10 @@ async def is_available() -> Tuple[bool, str]:
                 "'botuser ALL=(satisfactory) NOPASSWD: /home/satisfactory/bin/ficsit *'"
             )
         return False, f"ficsit nicht aufrufbar{hint}: {err.strip()[:200]}"
-    return True, out.strip().splitlines()[0] if out.strip() else "unbekannt"
+    # `ficsit version` schreibt die Version auf stderr, nicht auf stdout
+    # (verifiziert mit v0.7.1) — deshalb beide Streams auswerten.
+    banner = (out.strip() or err.strip()).splitlines()
+    return True, f"ficsit-cli {banner[0]}" if banner else "ficsit-cli einsatzbereit"
 
 
 # ----------------------------------------------------------------------
