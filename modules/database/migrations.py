@@ -11,7 +11,7 @@ from utils.logger import get_logger
 logger = get_logger("database.migrations")
 
 # Aktuelle Schema-Version
-CURRENT_VERSION = 9
+CURRENT_VERSION = 10
 
 
 # Komplettes Schema (23 Tabellen + Indices + FTS5)
@@ -425,6 +425,13 @@ async def run_migrations(db: aiosqlite.Connection) -> None:
         await set_schema_version(db, 9)
         logger.info("Migration v8 → v9 abgeschlossen")
 
+    # Version 9 → 10: To-Do-Board (/todo)
+    if current < 10:
+        logger.info("Migration v9 → v10: todos + todo_board")
+        await _apply_migration_v10(db)
+        await set_schema_version(db, 10)
+        logger.info("Migration v9 → v10 abgeschlossen")
+
     final = await get_schema_version(db)
     logger.info(f"Alle Migrationen abgeschlossen. Schema-Version: {final}")
 
@@ -453,6 +460,7 @@ async def _apply_schema_v1(db: aiosqlite.Connection) -> None:
     await _apply_migration_v7(db)
     await _apply_migration_v8(db)
     await _apply_migration_v9(db)
+    await _apply_migration_v10(db)
 
     # Tabellen zaehlen zur Verifikation
     cursor = await db.execute(
@@ -854,3 +862,49 @@ async def _apply_migration_v9(db: aiosqlite.Connection) -> None:
     await db.executescript(SCHEMA_V9_RBAC)
     await db.commit()
     logger.info("Migration v9: rbac_role_map + dashboard_audit fertig")
+
+
+SCHEMA_V10_TODOS = """
+-- =====================================================
+-- To-Do-Board (/todo) — gemeinsame Bau-Ziele pro Board
+-- board      = 'satisfactory' (weitere Boards ohne Schema-Aenderung moeglich)
+-- created_by = Discord-User-ID als TEXT (Schema-Konvention, s. dashboard_audit)
+-- done       = 0/1; abhaken darf jeder Spieler, bearbeiten/loeschen nur der
+--              Ersteller (Owner/Admin ausgenommen)
+-- =====================================================
+CREATE TABLE IF NOT EXISTS todos (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    board           TEXT NOT NULL DEFAULT 'satisfactory',
+    text            TEXT NOT NULL,
+    created_by      TEXT NOT NULL,
+    created_by_name TEXT,
+    created_at      TIMESTAMP NOT NULL,
+    edited_at       TIMESTAMP,
+    done            INTEGER NOT NULL DEFAULT 0,
+    done_by         TEXT,
+    done_by_name    TEXT,
+    done_at         TIMESTAMP
+);
+-- Deckt den Haupt-Lookup ab: offene/erledigte Eintraege eines Boards in Reihenfolge
+CREATE INDEX IF NOT EXISTS idx_todos_board_done
+    ON todos(board, done, id);
+
+-- =====================================================
+-- Sticky-Board: wo haengt das Board, welche Nachricht ist die aktuelle
+-- Genau eine Zeile pro Board (PK board)
+-- =====================================================
+CREATE TABLE IF NOT EXISTS todo_board (
+    board      TEXT PRIMARY KEY,
+    guild_id   TEXT NOT NULL,
+    channel_id TEXT NOT NULL,
+    message_id TEXT,
+    updated_at TIMESTAMP
+);
+"""
+
+
+async def _apply_migration_v10(db: aiosqlite.Connection) -> None:
+    """To-Do-Board fuer /todo. Additiv, idempotent."""
+    await db.executescript(SCHEMA_V10_TODOS)
+    await db.commit()
+    logger.info("Migration v10: todos + todo_board fertig")

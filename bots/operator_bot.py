@@ -200,6 +200,8 @@ features = bot.config.get("features", {})
 INITIAL_COGS = [
     # Unified Satisfactory cog (all /sat commands with sub-groups)
     "cogs.satisfactory_cog",
+    # To-Do-Board (/todo) — gemeinsame Bau-Ziele
+    "cogs.todo_cog",
     # General commands (/help, /server, /ping, /reload)
     "cogs.general_cog",
     # Moderation (/timeout)
