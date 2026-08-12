@@ -413,7 +413,8 @@ class ToDoCog(commands.Cog, name="ToDo"):
                     "Nur in einem Server nutzbar.", ephemeral=True
                 )
                 return
-            # Noch nicht verankert -> hier posten, ohne Sticky zu aktivieren.
+            # Noch nirgends verankert -> dieser Kanal wird der Board-Kanal.
+            # Damit ist auch das Sticky aktiv; abschalten via /todo unstick.
             await self._set_board_ref(
                 interaction.guild.id, interaction.channel.id, None
             )
