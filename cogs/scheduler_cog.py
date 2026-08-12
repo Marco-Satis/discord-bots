@@ -105,6 +105,15 @@ class SchedulerCog(commands.Cog):
             "modpack_update_max_attempts", 2
         )
 
+        # Server-Pack-Blocker (2026-08-12): eine Version die beim Anbieter KEIN
+        # Server-Pack hat (CurseForge serverPackFileId = null) ist kein
+        # Fehlschlag, sondern ein Wartezustand — kein run_update-Versuch, keine
+        # Fehlversuchs-Zaehlung, genau EINE Benachrichtigung pro Ziel-Version.
+        # Persistiert in modpack_updates (status='blocked'), damit ein
+        # Bot-Restart die Meldung nicht erneut ausloest.
+        self._mc_update_blocked_version: dict[str, Optional[str]] = {}
+        self._mc_blocked_state_loaded: bool = False
+
         # Modpack-Update-Check (Phase 8h) — LEGACY: durch zeitplanbasierte Checks ersetzt
         self._modpack_check_interval_hours = sched.get("modpack_check_interval_hours", 12)
         self._last_modpack_check: Optional[datetime] = None
@@ -223,6 +232,7 @@ class SchedulerCog(commands.Cog):
     async def cog_load(self):
         """Start all scheduled tasks when cog loads"""
         await self._load_scheduled_messages()
+        await self._load_blocked_modpack_versions()
         self.scheduler_tick.start()
         logger.info("Scheduler started")
 
@@ -1143,6 +1153,17 @@ class SchedulerCog(commands.Cog):
                 )
                 return
 
+            # Server-Pack-Preflight: ohne Server-Pack ist das Update gar nicht
+            # ausfuehrbar (update_manager.run_update bricht sofort ab). Das ist
+            # ein Wartezustand beim Anbieter, kein Fehlschlag — also weder
+            # run_update-Versuch noch Fehlversuchs-Zaehlung, und genau EINE
+            # Benachrichtigung pro Ziel-Version.
+            if not version_info.get("server_pack"):
+                await self._register_missing_server_pack(
+                    server_id, str(new_version), version_info
+                )
+                return
+
             if now.hour == self._mc_modpack_immediate_hour:
                 # 12:00-Check: Sofort Auto-Update mit 10-Min-Countdown
                 logger.info(
@@ -1310,6 +1331,129 @@ class SchedulerCog(commands.Cog):
                 )
             except Exception as e:
                 logger.debug(f"[{server_id}] Giveup-Notify fehlgeschlagen: {e}")
+
+    async def _register_missing_server_pack(
+        self,
+        server_id: str,
+        target: str,
+        version_info: Dict[str, Any],
+    ) -> None:
+        """Merkt eine Version, fuer die der Anbieter kein Server-Pack liefert.
+
+        Benachrichtigt genau EINMAL pro Ziel-Version (INFO, kein Ping) und
+        haelt den Zustand in der DB, damit ein Bot-Restart die Meldung nicht
+        erneut ausloest. Erscheint spaeter eine neuere Version, wird der alte
+        Blocked-Eintrag verworfen und die neue Version normal behandelt.
+        """
+        # Key immer upper — die DB speichert server_id ebenfalls upper.
+        sid_key = server_id.upper()
+        if self._mc_update_blocked_version.get(sid_key) == target:
+            logger.debug(
+                f"[{server_id}] Modpack {target}: weiterhin kein Server-Pack "
+                f"— bereits gemeldet, keine erneute Benachrichtigung."
+            )
+            return
+
+        self._mc_update_blocked_version[sid_key] = target
+        logger.warning(
+            f"[{server_id}] Modpack-Update auf {target} pausiert: der Anbieter "
+            f"hat kein Server-Pack veroeffentlicht (serverPackFileId ist null). "
+            f"Kein Auto-Versuch bis das Pack erscheint oder eine neuere Version "
+            f"kommt."
+        )
+
+        await self._mark_modpack_blocked_in_db(server_id, target, version_info)
+
+        if not self.notifier:
+            return
+
+        srv = self.mc_servers.get(server_id)
+        label = srv.display_name if srv else f"MC {server_id}"
+        try:
+            await self.notifier.send_admin(
+                f"MC {label} — Modpack {target}: kein Server-Pack",
+                f"**{version_info.get('current', '?')}** → **{target}** ist "
+                f"verfuegbar, aber der Anbieter hat dazu kein Server-Pack "
+                f"hochgeladen.\n"
+                f"Das Auto-Update pausiert deshalb. Es laeuft von selbst weiter, "
+                f"sobald das Pack nachgereicht wird oder eine neuere Version "
+                f"erscheint. Der taegliche Restart ist nicht betroffen.\n"
+                f"Diese Meldung kommt nur einmal pro Version.",
+                NotifyLevel.INFO,
+            )
+        except Exception as e:
+            logger.debug(f"[{server_id}] Blocked-Notify fehlgeschlagen: {e}")
+
+    async def _mark_modpack_blocked_in_db(
+        self,
+        server_id: str,
+        target: str,
+        version_info: Dict[str, Any],
+    ) -> None:
+        """Schreibt den Blocked-Zustand nach modpack_updates (status='blocked').
+
+        Aeltere Blocked-Eintraege desselben Servers werden vorher entfernt —
+        relevant ist immer nur die aktuellste Ziel-Version.
+        """
+        try:
+            db_conn = await get_db()
+            await db_conn.execute(
+                "DELETE FROM modpack_updates WHERE server_id = ? AND status = 'blocked'",
+                (server_id.upper(),),
+            )
+            await db_conn.execute(
+                """INSERT INTO modpack_updates
+                   (server_id, old_version, new_version,
+                    old_curseforge_id, new_curseforge_id,
+                    update_type, status, update_phase,
+                    error_message, started_at, attempts)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    server_id.upper(),
+                    version_info.get("current", "?"),
+                    target,
+                    version_info.get("current_file_id"),
+                    version_info.get("latest_file_id"),
+                    "auto_daily",
+                    "blocked",
+                    "waiting_for_server_pack",
+                    "Kein Server Pack beim Anbieter (serverPackFileId ist null)",
+                    datetime.now().isoformat(),
+                    0,
+                ),
+            )
+            await db_conn.commit()
+        except Exception as e:
+            logger.error(
+                f"[{server_id}] DB-Eintrag für blockiertes Update fehlgeschlagen: {e}"
+            )
+
+    async def _load_blocked_modpack_versions(self) -> None:
+        """Laedt beim Cog-Start die blockierten Ziel-Versionen aus der DB.
+
+        Ohne das wuerde jeder Bot-Restart die 'kein Server-Pack'-Meldung
+        erneut ausloesen.
+        """
+        try:
+            db_conn = await get_db()
+            cursor = await db_conn.execute(
+                """SELECT server_id, new_version FROM modpack_updates
+                   WHERE status = 'blocked'"""
+            )
+            rows = await cursor.fetchall()
+            for row in rows:
+                row = dict(row)
+                sid = str(row.get("server_id", "")).upper()
+                if sid:
+                    self._mc_update_blocked_version[sid] = row.get("new_version")
+            self._mc_blocked_state_loaded = True
+            if rows:
+                logger.info(
+                    f"Modpack-Blocked-State geladen: "
+                    f"{len(rows)} Version(en) ohne Server-Pack"
+                )
+        except Exception as e:
+            logger.debug(f"Modpack-Blocked-State laden fehlgeschlagen: {e}")
 
     async def _run_scheduled_modpack_update(
         self, server_id: str, scheduled_row: Dict[str, Any]
@@ -1990,18 +2134,18 @@ class SchedulerCog(commands.Cog):
         try:
             available, info = await updater.check()
 
-            if available and self.notifier:
-                await self.notifier.send_admin(
-                    "BMC Modpack-Update verfügbar!",
-                    f"**Aktuell:** {info.get('current', '?')}\n"
-                    f"**Neu:** {info.get('latest', '?')}\n"
-                    f"**Name:** {info.get('name', '?')}\n"
-                    f"**Quelle:** {info.get('source', '?')}\n"
-                    f"**Changelog:** {info.get('changelog_url', '?')}",
-                    NotifyLevel.WARNING,
-                )
-                logger.info(
-                    f"Modpack-Update: {info.get('current')} -> {info.get('latest')}"
+            # KEINE Benachrichtigung mehr aus diesem Pfad (2026-08-12):
+            # dieser Legacy-Intervall-Check lief alle 12 h und meldete
+            # bedingungslos, ohne Dedup und ohne Kenntnis der Giveup-/
+            # Blocked-Logik. Da `_last_modpack_check` nur im RAM liegt, loeste
+            # zusaetzlich jeder Bot-Restart sofort eine weitere Meldung aus.
+            # Das Melden uebernimmt vollstaendig der zeitplanbasierte Pfad
+            # `_check_mc_modpack_auto_update` (00:00/12:00).
+            if available:
+                logger.debug(
+                    f"Modpack-Check (legacy): "
+                    f"{info.get('current')} -> {info.get('latest')} "
+                    f"— Meldung laeuft ueber den 00:00/12:00-Check"
                 )
         except Exception as e:
             logger.debug(f"Modpack-Check Fehler: {e}")
