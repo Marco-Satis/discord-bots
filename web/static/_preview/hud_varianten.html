@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HUD — Ausprägungen &amp; Beispiel-Panels</title>
+<style>
+  :root{
+    --chat-bg:#313338; --card-bg:#2B2D31; --code-bg:#1E1F22;
+    --text:#DBDEE1; --text-strong:#F2F3F5; --text-muted:#949BA4;
+    --btn-secondary:#4E5058; --btn-success:#248046; --btn-primary:#5865F2;
+    --btn-danger:#DA373C; --divider:#3F4147;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:24px 16px 64px; background:#1A1B1E; color:var(--text);
+    font-family:"gg sans","Noto Sans",-apple-system,"Segoe UI",Roboto,sans-serif;
+    font-size:16px; line-height:1.375;
+  }
+  h1{font-size:22px;color:var(--text-strong);margin:0 0 4px}
+  .lead{color:var(--text-muted);font-size:14px;margin:0 0 26px;max-width:62ch}
+  h3.group{
+    font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-muted);
+    margin:34px 0 14px;padding-top:16px;border-top:1px solid #2b2c31;font-weight:700;
+  }
+  .grid{display:flex;flex-wrap:wrap;gap:26px;align-items:flex-start}
+  .variant{width:400px;max-width:100%}
+  .variant > h2{font-size:15px;color:var(--text-strong);margin:0 0 2px;font-weight:600}
+  .variant > .note{font-size:13px;color:var(--text-muted);margin:0 0 10px}
+  .chat{background:var(--chat-bg);border-radius:10px;padding:14px 12px}
+
+  .container{
+    background:var(--card-bg);border-radius:8px;
+    border-left:4px solid var(--accent,#4E5058);
+    padding:14px 16px;display:flex;flex-direction:column;gap:8px;
+  }
+  h2.d1{font-size:24px;font-weight:700;color:var(--text-strong);margin:0}
+  h2.d2{font-size:20px;font-weight:700;color:var(--text-strong);margin:0}
+  h2.d3{font-size:16px;font-weight:700;color:var(--text-strong);margin:0}
+  .caps{letter-spacing:.06em}
+  .sub{font-size:13px;color:var(--text-muted)}
+  .strong{font-weight:600;color:var(--text-strong)}
+  s{color:var(--text-muted)}
+  code{background:var(--code-bg);border-radius:3px;padding:1px 4px;
+       font-family:Consolas,"Courier New",monospace;font-size:14px}
+  .sep{height:1px;background:var(--divider);border:0;margin:4px 0}
+  .bar{font-family:Consolas,"Courier New",monospace;letter-spacing:-.5px}
+  .section{display:flex;align-items:center;gap:12px}
+  .section .body{flex:1;min-width:0}
+  .btn{border:0;border-radius:8px;padding:0 14px;height:32px;font-size:14px;font-weight:500;
+       color:#fff;background:var(--btn-secondary);display:inline-flex;align-items:center;
+       gap:6px;cursor:default;white-space:nowrap}
+  .btn.success{background:var(--btn-success)}
+  .btn.primary{background:var(--btn-primary)}
+  .btn.danger{background:var(--btn-danger)}
+  .btn.box{padding:0;width:40px;justify-content:center;font-size:17px}
+  .row{display:flex;gap:8px;flex-wrap:wrap}
+  .tag{display:inline-block;background:var(--code-bg);border-radius:4px;padding:1px 6px;
+       font-family:Consolas,monospace;font-size:13px}
+  .metarow{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:var(--text-muted)}
+  .metarow b{color:var(--text-strong);font-weight:600}
+  .thumb{width:56px;height:56px;border-radius:8px;background:#1E1F22;display:flex;
+         align-items:center;justify-content:center;font-size:26px;flex:none}
+  .head{display:flex;gap:12px;align-items:center}
+  .legend{margin:34px 0 0;padding-top:18px;border-top:1px solid #2b2c31;
+          color:var(--text-muted);font-size:13px;max-width:74ch}
+  .legend b{color:var(--text)}
+  .legend td{padding:3px 14px 3px 0;vertical-align:top}
+</style>
+</head>
+<body>
+
+<h1>HUD — fünf Ausprägungen und neun Beispiel-Panels</h1>
+<p class="lead">
+  Die HUD-Sprache aus deiner Wahl, in fünf Abstufungen von „viel Signal" bis „sehr ruhig".
+  Darunter dieselbe Sprache auf echte Bot-Funktionen angewandt.
+  In Discord live: <code>/design hud &lt;variante&gt;</code> und <code>/design beispiel &lt;typ&gt;</code>
+</p>
+
+<h3 class="group">Ausprägungen der HUD-Sprache</h3>
+<div class="grid">
+
+  <!-- HUD A -->
+  <div class="variant">
+    <h2>A · Pur</h2>
+    <p class="note">Die Fassung, die du gewählt hast. Emoji im Titel, Balken, Statuszeile, Aktionen oben.</p>
+    <div class="chat">
+      <div class="container" style="--accent:#F2C14E">
+        <h2 class="d2">💛 BAU-ZIELE</h2>
+        <div><span class="bar">▬▬▬▬▭▭▭▭▭▭</span> ✅ <span class="tag">2/5</span><br>
+             🟡 In Arbeit · 3 offen</div>
+        <div class="row"><button class="btn">+ Eintrag</button>
+          <button class="btn">Erledigte ausblenden</button></div>
+        <hr class="sep">
+        <div class="section"><div class="body"><span class="strong">Kohlekraftwerk Süd erweitern</span><br><span class="sub">#1 · Marco</span></div><button class="btn box">⬜</button></div>
+        <div class="section"><div class="body"><span class="strong">Zugstrecke zur Ölquelle</span><br><span class="sub">#2 · Lena</span></div><button class="btn box">⬜</button></div>
+        <div class="section"><div class="body"><s>Bauxit-Außenposten sichern</s><br><span class="sub">#4 · Marco</span></div><button class="btn box success">✅</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- HUD B -->
+  <div class="variant">
+    <h2>B · Kennzahlen-Kopf</h2>
+    <p class="note">Kein Emoji im Titel, dafür drei Kennzahlen in einer Zeile. Ruhiger und schneller zu erfassen.</p>
+    <div class="chat">
+      <div class="container" style="--accent:#F2C14E">
+        <h2 class="d2 caps">BAU-ZIELE</h2>
+        <div class="metarow">
+          <span><b>3</b> offen</span><span><b>2</b> erledigt</span><span><b>40%</b> fertig</span>
+        </div>
+        <div class="bar">▬▬▬▬▭▭▭▭▭▭</div>
+        <hr class="sep">
+        <div class="section"><div class="body"><span class="strong">Kohlekraftwerk Süd erweitern</span><br><span class="sub">Marco · vor 2 Tagen</span></div><button class="btn box">⬜</button></div>
+        <div class="section"><div class="body"><span class="strong">Zugstrecke zur Ölquelle</span><br><span class="sub">Lena · vor 5 Stunden</span></div><button class="btn box">⬜</button></div>
+        <div class="section"><div class="body"><s>Bauxit-Außenposten sichern</s><br><span class="sub">Marco · vor 1 Tag</span></div><button class="btn box success">✅</button></div>
+        <hr class="sep">
+        <div class="row"><button class="btn primary">+ Eintrag</button><button class="btn">Aufräumen</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- HUD C -->
+  <div class="variant">
+    <h2>C · Gruppiert</h2>
+    <p class="note">Zwischenüberschriften mit Zähler. Skaliert am besten, wenn die Liste wächst.</p>
+    <div class="chat">
+      <div class="container" style="--accent:#F2C14E">
+        <div class="head">
+          <div style="flex:1"><h2 class="d2 caps">BAU-ZIELE</h2>
+            <div class="sub">Satisfactory · Ostfront</div></div>
+          <span class="tag">40%</span>
+        </div>
+        <div class="bar">▬▬▬▬▭▭▭▭▭▭</div>
+        <hr class="sep">
+        <div class="sub">OFFEN · 3</div>
+        <div class="section"><div class="body"><span class="strong">Kohlekraftwerk Süd erweitern</span><br><span class="sub">Marco</span></div><button class="btn box">⬜</button></div>
+        <div class="section"><div class="body"><span class="strong">Zugstrecke zur Ölquelle</span><br><span class="sub">Lena</span></div><button class="btn box">⬜</button></div>
+        <hr class="sep">
+        <div class="sub">ERLEDIGT · 2</div>
+        <div class="section"><div class="body"><s>Bauxit-Außenposten sichern</s><br><span class="sub">Marco</span></div><button class="btn box success">✅</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- HUD D -->
+  <div class="variant">
+    <h2>D · Dicht</h2>
+    <p class="note">Eine Zeile pro Eintrag, Meta als Chip rechts. Für lange Listen auf kleinem Display.</p>
+    <div class="chat">
+      <div class="container" style="--accent:#F2C14E">
+        <div class="head">
+          <div style="flex:1"><h2 class="d3 caps">BAU-ZIELE</h2></div>
+          <span class="sub bar">━━━━───── 40%</span>
+        </div>
+        <hr class="sep">
+        <div class="section"><div class="body"><span class="strong">Kohlekraftwerk Süd erweitern</span> <span class="tag">Marco</span></div><button class="btn box">⬜</button></div>
+        <div class="section"><div class="body"><span class="strong">Zugstrecke zur Ölquelle</span> <span class="tag">Lena</span></div><button class="btn box">⬜</button></div>
+        <div class="section"><div class="body"><span class="strong">Stahlträger-Fabrik automatisieren</span> <span class="tag">Tom</span></div><button class="btn box">⬜</button></div>
+        <div class="section"><div class="body"><s>Bauxit-Außenposten sichern</s></div><button class="btn box success">✅</button></div>
+        <div class="section"><div class="body"><s>Lagerhalle sortieren</s></div><button class="btn box success">✅</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- HUD E -->
+  <div class="variant">
+    <h2>E · Mit Icon-Kopf</h2>
+    <p class="note">Icon-Kachel links, Titel und Kennzahlen rechts. Gut, wenn mehrere Panels im selben Kanal stehen.</p>
+    <div class="chat">
+      <div class="container" style="--accent:#F2C14E">
+        <div class="head">
+          <div class="thumb">🏭</div>
+          <div style="flex:1">
+            <h2 class="d3 caps">BAU-ZIELE</h2>
+            <div class="sub">3 offen · 2 erledigt · zuletzt vor 12 Minuten</div>
+            <div class="bar" style="font-size:13px">▬▬▬▬▭▭▭▭▭▭</div>
+          </div>
+        </div>
+        <hr class="sep">
+        <div class="section"><div class="body"><span class="strong">Kohlekraftwerk Süd erweitern</span><br><span class="sub">Marco</span></div><button class="btn box">⬜</button></div>
+        <div class="section"><div class="body"><span class="strong">Zugstrecke zur Ölquelle</span><br><span class="sub">Lena</span></div><button class="btn box">⬜</button></div>
+        <div class="section"><div class="body"><s>Lagerhalle sortieren</s><br><span class="sub">Lena</span></div><button class="btn box success">✅</button></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<h3 class="group">Dieselbe Sprache auf andere Bot-Funktionen</h3>
+<div class="grid">
+
+  <!-- Serverstatus -->
+  <div class="variant">
+    <h2>Serverstatus</h2>
+    <p class="note">Ein Panel für alle Server, Balken zeigt Auslastung. Kandidat für Auto-Refresh im Kanal.</p>
+    <div class="chat">
+      <div class="container" style="--accent:#F2C14E">
+        <h2 class="d2 caps">SERVERSTATUS</h2>
+        <div class="sub">3 Server · 4 Spieler online</div>
+        <hr class="sep">
+        <div class="section"><div class="body">
+          🟢 <span class="strong">Satisfactory</span> · <span class="tag">3/8</span><br>
+          <span class="bar sub">▰▰▰▰▱▱▱▱▱▱</span> <span class="sub">Uptime 4d 2h</span>
+        </div><button class="btn">Neustart</button></div>
+        <div class="section"><div class="body">
+          🟢 <span class="strong">Minecraft BMC5</span> · <span class="tag">1/20</span><br>
+          <span class="bar sub">▰▱▱▱▱▱▱▱▱▱</span> <span class="sub">Uptime 12h</span>
+        </div><button class="btn">Neustart</button></div>
+        <div class="section"><div class="body">
+          ⚫ <span class="strong">Minecraft Vanilla</span> · <span class="tag">0/20</span><br>
+          <span class="bar sub">▱▱▱▱▱▱▱▱▱▱</span> <span class="sub">gestoppt</span>
+        </div><button class="btn success">Starten</button></div>
+        <hr class="sep">
+        <div class="sub">aktualisiert vor 30 Sekunden</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Restart-Timer -->
+  <div class="variant">
+    <h2>Neustart-Countdown</h2>
+    <p class="note">Balken läuft leer, Zeitangabe zählt von selbst herunter — ohne dass der Bot editiert.</p>
+    <div class="chat">
+      <div class="container" style="--accent:#E5484D">
+        <h2 class="d2 caps">NEUSTART GEPLANT</h2>
+        <div class="bar">▬▬▬▬▬▬▬▭▭▭</div>
+        <div>🔴 <span class="strong">in 7 Minuten</span> <span class="sub">· 03:00 Uhr</span></div>
+        <div class="sub">Satisfactory · Speichern läuft automatisch · 3 Spieler online</div>
+        <hr class="sep">
+        <div class="row">
+          <button class="btn danger">Jetzt neu starten</button>
+          <button class="btn">+15 Minuten</button>
+          <button class="btn">Abbrechen</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Backup -->
+  <div class="variant">
+    <h2>Backup</h2>
+    <p class="note">Erfolgsquote als Balken, letzter Lauf relativ. Fehler fällt sofort auf.</p>
+    <div class="chat">
+      <div class="container" style="--accent:#2ECC71">
+        <div class="head">
+          <div class="thumb">💾</div>
+          <div style="flex:1"><h2 class="d3 caps">BACKUP</h2>
+            <div class="sub">letzter Lauf vor 4 Stunden · 1,2 GB</div></div>
+        </div>
+        <div class="metarow"><span><b>28</b> gespeichert</span><span><b>0</b> Fehler</span><span><b>34 GB</b> belegt</span></div>
+        <div class="bar">▰▰▰▰▰▰▰▰▰▰ <span class="sub">30/30 erfolgreich</span></div>
+        <hr class="sep">
+        <div class="row"><button class="btn primary">Jetzt sichern</button><button class="btn">Liste</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mod-Update -->
+  <div class="variant">
+    <h2>Mod-Update</h2>
+    <p class="note">Pro Mod eine Zeile mit Aktion daneben. Version alt → neu als Chip.</p>
+    <div class="chat">
+      <div class="container" style="--accent:#1F6FEB">
+        <h2 class="d2 caps">MOD-UPDATES</h2>
+        <div class="sub">Satisfactory · 3 von 24 Mods veraltet</div>
+        <hr class="sep">
+        <div class="section"><div class="body"><span class="strong">Ficsit Remote Monitoring</span><br>
+          <span class="sub"><span class="tag">1.4.2</span> → <span class="tag">1.5.0</span></span></div>
+          <button class="btn primary">Update</button></div>
+        <div class="section"><div class="body"><span class="strong">Structural Solutions</span><br>
+          <span class="sub"><span class="tag">2.1.0</span> → <span class="tag">2.2.1</span></span></div>
+          <button class="btn primary">Update</button></div>
+        <div class="section"><div class="body"><span class="strong">Refined Power</span><br>
+          <span class="sub">⚠ benötigt Spielversion 1.1</span></div>
+          <button class="btn">Details</button></div>
+        <hr class="sep">
+        <div class="row"><button class="btn success">Alle aktualisieren</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Level-Up -->
+  <div class="variant">
+    <h2>Level-Up</h2>
+    <p class="note">Fortschritt zum nächsten Level als Balken statt nur Zahl.</p>
+    <div class="chat">
+      <div class="container" style="--accent:#7C5CFF">
+        <div class="head">
+          <div class="thumb">🏆</div>
+          <div style="flex:1"><h2 class="d3">Level 12 erreicht</h2>
+            <div class="sub">Marco · Rang 4 von 38</div></div>
+        </div>
+        <div><span class="bar">▰▰▰▱▱▱▱▱▱▱</span> <span class="sub">340 / 1100 XP bis Level 13</span></div>
+        <div class="metarow"><span><b>12.480</b> XP gesamt</span><span><b>+55</b> heute</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Giveaway -->
+  <div class="variant">
+    <h2>Giveaway</h2>
+    <p class="note">Teilnehmerzahl als Kapazität, Ende als relative Zeit, ein einziger großer Knopf.</p>
+    <div class="chat">
+      <div class="container" style="--accent:#F2C14E">
+        <h2 class="d2 caps">🎁 GIVEAWAY</h2>
+        <div><span class="strong">Satisfactory Steam-Key</span><br>
+          <span class="sub">endet in 2 Stunden · 1 Gewinner</span></div>
+        <div><span class="bar">▬▬▬▬▬▬▭▭▭▭</span> 👥 <span class="tag">14/25</span></div>
+        <hr class="sep">
+        <div class="row"><button class="btn primary">Teilnehmen</button><button class="btn">Teilnehmer</button></div>
+        <div class="sub">Von Marco · gestartet vor 22 Stunden</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Ticket -->
+  <div class="variant">
+    <h2>Ticket</h2>
+    <p class="note">Zustand als Punkt, Zuständigkeit und Alter direkt im Kopf.</p>
+    <div class="chat">
+      <div class="container" style="--accent:#1F6FEB">
+        <div class="head">
+          <div style="flex:1"><h2 class="d3 caps">TICKET #148</h2>
+            <div class="sub">Serverabsturz beim Zugbau · von Lena</div></div>
+          <span class="tag">offen</span>
+        </div>
+        <div class="metarow"><span>🟡 <b>wartet</b> auf Antwort</span><span>seit <b>3 Stunden</b></span><span>zuständig <b>Marco</b></span></div>
+        <hr class="sep">
+        <div class="row"><button class="btn primary">Übernehmen</button><button class="btn">Schließen</button>
+          <button class="btn">Transkript</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Moderation -->
+  <div class="variant">
+    <h2>Moderation</h2>
+    <p class="note">Sachlich, ohne Deko. Verwarnungsstand als Balken macht Eskalation sichtbar.</p>
+    <div class="chat">
+      <div class="container" style="--accent:#E5484D">
+        <h2 class="d3 caps">VERWARNUNG</h2>
+        <div><span class="strong">@Spieler123</span> <span class="sub">· Werbung im Chat</span></div>
+        <div><span class="bar">▰▰▱</span> <span class="sub">2 von 3 Verwarnungen · nächste bedeutet Bann</span></div>
+        <div class="metarow"><span>durch <b>Marco</b></span><span>vor <b>1 Minute</b></span><span>Fall <b>#77</b></span></div>
+        <hr class="sep">
+        <div class="row"><button class="btn">Aufheben</button><button class="btn danger">Bannen</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Alarm -->
+  <div class="variant">
+    <h2>Monitoring-Alarm</h2>
+    <p class="note">Ein Panel, das sich bei Entwarnung selbst umfärbt statt eine zweite Nachricht zu posten.</p>
+    <div class="chat" style="display:flex;flex-direction:column;gap:10px">
+      <div class="container" style="--accent:#E5484D">
+        <h2 class="d3 caps">🔴 ALARM · RAM</h2>
+        <div><span class="bar">▰▰▰▰▰▰▰▰▰▱</span> <span class="strong">92%</span> <span class="sub">von 8 GB</span></div>
+        <div class="sub">Schwelle 85% seit 6 Minuten überschritten · Minecraft BMC5</div>
+        <hr class="sep">
+        <div class="row"><button class="btn">Stumm 1h</button><button class="btn danger">Server neu starten</button></div>
+      </div>
+      <div class="container" style="--accent:#2ECC71">
+        <h2 class="d3 caps">🟢 ENTWARNUNG · RAM</h2>
+        <div><span class="bar">▰▰▰▰▰▱▱▱▱▱</span> <span class="strong">54%</span> <span class="sub">von 8 GB</span></div>
+        <div class="sub">wieder im grünen Bereich · Dauer des Vorfalls 14 Minuten</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<h3 class="group">Baukasten</h3>
+<div class="legend">
+  <p>Alles unten steckt in <b>utils/ui_kit.py</b>, damit jedes Panel dieselbe Sprache spricht.</p>
+  <table>
+    <tr><td><b>Balken</b></td><td><code>▬▭</code> Umriss (HUD-Standard) · <code>▰▱</code> kompakt ·
+      <code>█░</code> kräftig · <code>━─</code> fein · <code>●○</code> dezent</td></tr>
+    <tr><td><b>Statuspunkte</b></td><td>🟢 läuft · 🟡 Achtung · 🔴 kritisch · ⚪ unbekannt · ⚫ gestoppt · 🔵 Info</td></tr>
+    <tr><td><b>Chips</b></td><td><code>3/8</code> Zahlenpaare, Versionen, Zustände — Monospace, damit Ziffern nicht springen</td></tr>
+    <tr><td><b>Zeit</b></td><td><code>vor 12 Minuten</code> läuft ohne Bot-Edit weiter, <code>03:00 Uhr</code> für feste Termine</td></tr>
+    <tr><td><b>Farbe</b></td><td>Gold = Normalbetrieb · Grün = Erfolg · Rot = kritisch · Blau = Information · Violett = Fortschritt</td></tr>
+  </table>
+  <p><b>Grenzen, die das Layout bestimmen:</b> 40 Komponenten pro Nachricht, eine Zeile mit Button
+     kostet drei davon. Variante D passt deshalb am meisten Einträge in eine Nachricht, Variante E am
+     wenigsten. Balken bleiben bei zehn bis zwölf Zeichen, sonst brechen sie auf dem Handy um.</p>
+</div>
+
+</body>
+</html>

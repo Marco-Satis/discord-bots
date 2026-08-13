@@ -110,6 +110,19 @@ def capacity(value: int, maximum: int, icon: str = "👥") -> str:
     return f"{icon} `{value}/{maximum}`"
 
 
+def chip(text: str) -> str:
+    """Kleiner Monospace-Chip — fuer Zahlenpaare, Versionen, Zustaende.
+
+    Monospace, damit Ziffern beim Aktualisieren nicht springen.
+    """
+    return f"`{text}`"
+
+
+def meta_row(pairs: Iterable[Tuple[str, str]], sep: str = " · ") -> str:
+    """Kennzahlen-Zeile: ``**3** offen · **2** erledigt · **40%** fertig``."""
+    return sep.join(f"**{value}** {label}" for value, label in pairs)
+
+
 def kv_line(label: str, value: str, pad: int = 0) -> str:
     """Beschriftete Zeile ``Label · Wert``, optional auf ``pad`` ausgerichtet."""
     return f"{label.ljust(pad) if pad else label} · {value}"

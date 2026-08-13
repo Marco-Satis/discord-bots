@@ -25,7 +25,9 @@ from utils import admin_only, get_logger
 from utils.ui_kit import (
     RULE_THIN,
     capacity,
+    chip,
     heading,
+    meta_row,
     progress_bar,
     rel_time,
     status_dot,
@@ -320,6 +322,390 @@ def vergleich_neu() -> discord.ui.LayoutView:
     return _demo_view(c)
 
 
+# ======================================================================
+# Auspraegungen der HUD-Sprache (Marcos Wahl) — A bis E
+# ======================================================================
+
+
+def _todo_zeile(t: Dict[str, Any], meta: bool = True) -> discord.ui.Section:
+    """Eine Eintragszeile im HUD-Stil: Text links, Checkbox rechts."""
+    kopf = f"~~{t['text']}~~" if t["done"] else f"**{t['text']}**"
+    body = kopf + ("\n" + subtext(t["wer"]) if meta else "")
+    return discord.ui.Section(
+        discord.ui.TextDisplay(body),
+        accessory=InertButton(
+            emoji="✅" if t["done"] else "⬜",
+            style=discord.ButtonStyle.success if t["done"] else discord.ButtonStyle.secondary,
+        ),
+    )
+
+
+def hud_b() -> discord.ui.LayoutView:
+    """Kennzahlen-Kopf — kein Emoji im Titel, drei Zahlen in einer Zeile."""
+    c = discord.ui.Container(accent_colour=discord.Colour(C_HUD))
+    c.add_item(discord.ui.TextDisplay(heading("BAU-ZIELE", 2)))
+    c.add_item(
+        discord.ui.TextDisplay(
+            meta_row(
+                [
+                    (str(len(OFFEN)), "offen"),
+                    (str(len(FERTIG)), "erledigt"),
+                    (f"{int(len(FERTIG) / len(DEMO_TODOS) * 100)}%", "fertig"),
+                ]
+            )
+            + "\n"
+            + progress_bar(len(FERTIG), len(DEMO_TODOS), 10, "outline")
+        )
+    )
+    c.add_item(discord.ui.Separator())
+    for t in DEMO_TODOS:
+        c.add_item(_todo_zeile(t))
+    c.add_item(discord.ui.Separator())
+    row = discord.ui.ActionRow()
+    row.add_item(InertButton(label="+ Eintrag", style=discord.ButtonStyle.primary))
+    row.add_item(InertButton(label="Aufraeumen", style=discord.ButtonStyle.secondary))
+    c.add_item(row)
+    return _demo_view(c)
+
+
+def hud_c() -> discord.ui.LayoutView:
+    """Gruppiert — Zwischenueberschriften mit Zaehler, skaliert bei langen Listen."""
+    c = discord.ui.Container(accent_colour=discord.Colour(C_HUD))
+    c.add_item(
+        discord.ui.Section(
+            discord.ui.TextDisplay(
+                heading("BAU-ZIELE", 2) + "\n" + subtext("Satisfactory · Ostfront")
+            ),
+            accessory=InertButton(label=f"{int(len(FERTIG) / len(DEMO_TODOS) * 100)}%"),
+        )
+    )
+    c.add_item(
+        discord.ui.TextDisplay(progress_bar(len(FERTIG), len(DEMO_TODOS), 10, "outline"))
+    )
+    c.add_item(discord.ui.Separator())
+    c.add_item(discord.ui.TextDisplay(subtext(f"OFFEN · {len(OFFEN)}")))
+    for t in OFFEN:
+        c.add_item(_todo_zeile(t))
+    c.add_item(discord.ui.Separator())
+    c.add_item(discord.ui.TextDisplay(subtext(f"ERLEDIGT · {len(FERTIG)}")))
+    for t in FERTIG:
+        c.add_item(_todo_zeile(t))
+    return _demo_view(c)
+
+
+def hud_d() -> discord.ui.LayoutView:
+    """Dicht — eine Zeile pro Eintrag, Meta als Chip, feiner Balken im Kopf."""
+    c = discord.ui.Container(accent_colour=discord.Colour(C_HUD))
+    c.add_item(
+        discord.ui.TextDisplay(
+            heading("BAU-ZIELE", 3)
+            + "  "
+            + subtext(
+                progress_bar(len(FERTIG), len(DEMO_TODOS), 9, "line")
+                + f" {int(len(FERTIG) / len(DEMO_TODOS) * 100)}%"
+            )
+        )
+    )
+    c.add_item(discord.ui.Separator())
+    for t in DEMO_TODOS:
+        text = f"~~{t['text']}~~" if t["done"] else f"**{t['text']}** {chip(t['wer'])}"
+        c.add_item(
+            discord.ui.Section(
+                discord.ui.TextDisplay(text),
+                accessory=InertButton(
+                    emoji="✅" if t["done"] else "⬜",
+                    style=discord.ButtonStyle.success
+                    if t["done"]
+                    else discord.ButtonStyle.secondary,
+                ),
+            )
+        )
+    return _demo_view(c)
+
+
+def hud_e(icon_url: str = "") -> discord.ui.LayoutView:
+    """Icon-Kopf — Bildkachel links, Titel und Kennzahlen rechts."""
+    c = discord.ui.Container(accent_colour=discord.Colour(C_HUD))
+    kopf = (
+        heading("BAU-ZIELE", 3)
+        + "\n"
+        + subtext(
+            f"{len(OFFEN)} offen · {len(FERTIG)} erledigt · "
+            f"zuletzt {rel_time(datetime.now() - timedelta(minutes=12))}"
+        )
+        + "\n"
+        + progress_bar(len(FERTIG), len(DEMO_TODOS), 10, "outline")
+    )
+    if icon_url:
+        # Thumbnail als Accessory — die einzige Bildkachel, die Discord neben
+        # Text erlaubt.
+        c.add_item(
+            discord.ui.Section(
+                discord.ui.TextDisplay(kopf),
+                accessory=discord.ui.Thumbnail(media=icon_url),
+            )
+        )
+    else:
+        c.add_item(discord.ui.TextDisplay(kopf))
+    c.add_item(discord.ui.Separator())
+    for t in DEMO_TODOS:
+        c.add_item(_todo_zeile(t))
+    return _demo_view(c)
+
+
+HUD_VARIANTEN = {
+    "a": ("A · Pur (deine Wahl)", v_hud),
+    "b": ("B · Kennzahlen-Kopf", hud_b),
+    "c": ("C · Gruppiert", hud_c),
+    "d": ("D · Dicht", hud_d),
+    "e": ("E · Icon-Kopf", hud_e),
+}
+
+
+# ======================================================================
+# Beispiel-Panels — dieselbe Sprache auf echte Bot-Funktionen
+# ======================================================================
+
+
+def bsp_serverstatus() -> discord.ui.LayoutView:
+    c = discord.ui.Container(accent_colour=discord.Colour(C_HUD))
+    c.add_item(discord.ui.TextDisplay(heading("SERVERSTATUS", 2)))
+    c.add_item(discord.ui.TextDisplay(subtext("3 Server · 4 Spieler online")))
+    c.add_item(discord.ui.Separator())
+    for name, state, spieler, maxs, extra, aktion in (
+        ("Satisfactory", "ok", 3, 8, "Uptime 4d 2h", ("Neustart", discord.ButtonStyle.secondary)),
+        ("Minecraft BMC5", "ok", 1, 20, "Uptime 12h", ("Neustart", discord.ButtonStyle.secondary)),
+        ("Minecraft Vanilla", "off", 0, 20, "gestoppt", ("Starten", discord.ButtonStyle.success)),
+    ):
+        c.add_item(
+            discord.ui.Section(
+                discord.ui.TextDisplay(
+                    f"{status_dot(state)} **{name}** · {capacity(spieler, maxs)}\n"
+                    f"{progress_bar(spieler, maxs, 10)} {subtext(extra)}"
+                ),
+                accessory=InertButton(label=aktion[0], style=aktion[1]),
+            )
+        )
+    c.add_item(discord.ui.Separator())
+    c.add_item(
+        discord.ui.TextDisplay(
+            subtext(f"aktualisiert {rel_time(datetime.now() - timedelta(seconds=30))}")
+        )
+    )
+    return _demo_view(c)
+
+
+def bsp_neustart() -> discord.ui.LayoutView:
+    c = discord.ui.Container(accent_colour=discord.Colour(0xE5484D))
+    c.add_item(discord.ui.TextDisplay(heading("NEUSTART GEPLANT", 2)))
+    c.add_item(
+        discord.ui.TextDisplay(
+            progress_bar(7, 10, 10, "outline")
+            + f"\n{status_dot('crit')} **{rel_time(datetime.now() + timedelta(minutes=7))}** "
+            + subtext("· 03:00 Uhr")
+            + "\n"
+            + subtext("Satisfactory · Speichern läuft automatisch · 3 Spieler online")
+        )
+    )
+    c.add_item(discord.ui.Separator())
+    row = discord.ui.ActionRow()
+    row.add_item(InertButton(label="Jetzt neu starten", style=discord.ButtonStyle.danger))
+    row.add_item(InertButton(label="+15 Minuten"))
+    row.add_item(InertButton(label="Abbrechen"))
+    c.add_item(row)
+    return _demo_view(c)
+
+
+def bsp_backup() -> discord.ui.LayoutView:
+    c = discord.ui.Container(accent_colour=discord.Colour(0x2ECC71))
+    c.add_item(
+        discord.ui.TextDisplay(
+            heading("💾 BACKUP", 3)
+            + "\n"
+            + subtext(f"letzter Lauf {rel_time(datetime.now() - timedelta(hours=4))} · 1,2 GB")
+            + "\n"
+            + meta_row([("28", "gespeichert"), ("0", "Fehler"), ("34 GB", "belegt")])
+            + "\n"
+            + progress_bar(30, 30, 10)
+            + " "
+            + subtext("30/30 erfolgreich")
+        )
+    )
+    c.add_item(discord.ui.Separator())
+    row = discord.ui.ActionRow()
+    row.add_item(InertButton(label="Jetzt sichern", style=discord.ButtonStyle.primary))
+    row.add_item(InertButton(label="Liste"))
+    c.add_item(row)
+    return _demo_view(c)
+
+
+def bsp_mods() -> discord.ui.LayoutView:
+    c = discord.ui.Container(accent_colour=discord.Colour(C_PANEL))
+    c.add_item(discord.ui.TextDisplay(heading("MOD-UPDATES", 2)))
+    c.add_item(discord.ui.TextDisplay(subtext("Satisfactory · 3 von 24 Mods veraltet")))
+    c.add_item(discord.ui.Separator())
+    for name, alt, neu, hinweis in (
+        ("Ficsit Remote Monitoring", "1.4.2", "1.5.0", ""),
+        ("Structural Solutions", "2.1.0", "2.2.1", ""),
+        ("Refined Power", "", "", "⚠ benötigt Spielversion 1.1"),
+    ):
+        zeile = f"**{name}**\n" + subtext(
+            hinweis if hinweis else f"{chip(alt)} → {chip(neu)}"
+        )
+        c.add_item(
+            discord.ui.Section(
+                discord.ui.TextDisplay(zeile),
+                accessory=InertButton(
+                    label="Details" if hinweis else "Update",
+                    style=discord.ButtonStyle.secondary
+                    if hinweis
+                    else discord.ButtonStyle.primary,
+                ),
+            )
+        )
+    c.add_item(discord.ui.Separator())
+    row = discord.ui.ActionRow()
+    row.add_item(InertButton(label="Alle aktualisieren", style=discord.ButtonStyle.success))
+    c.add_item(row)
+    return _demo_view(c)
+
+
+def bsp_levelup() -> discord.ui.LayoutView:
+    c = discord.ui.Container(accent_colour=discord.Colour(C_NEON))
+    c.add_item(
+        discord.ui.TextDisplay(
+            heading("🏆 Level 12 erreicht", 3)
+            + "\n"
+            + subtext("Marco · Rang 4 von 38")
+            + "\n"
+            + progress_bar(340, 1100, 10)
+            + " "
+            + subtext("340 / 1100 XP bis Level 13")
+            + "\n"
+            + meta_row([("12.480", "XP gesamt"), ("+55", "heute")])
+        )
+    )
+    return _demo_view(c)
+
+
+def bsp_giveaway() -> discord.ui.LayoutView:
+    c = discord.ui.Container(accent_colour=discord.Colour(C_HUD))
+    c.add_item(discord.ui.TextDisplay(heading("🎁 GIVEAWAY", 2)))
+    c.add_item(
+        discord.ui.TextDisplay(
+            "**Satisfactory Steam-Key**\n"
+            + subtext(f"endet {rel_time(datetime.now() + timedelta(hours=2))} · 1 Gewinner")
+            + "\n"
+            + progress_bar(14, 25, 10, "outline")
+            + " "
+            + capacity(14, 25)
+        )
+    )
+    c.add_item(discord.ui.Separator())
+    row = discord.ui.ActionRow()
+    row.add_item(InertButton(label="Teilnehmen", style=discord.ButtonStyle.primary))
+    row.add_item(InertButton(label="Teilnehmer"))
+    c.add_item(row)
+    c.add_item(
+        discord.ui.TextDisplay(
+            subtext(f"von Marco · gestartet {rel_time(datetime.now() - timedelta(hours=22))}")
+        )
+    )
+    return _demo_view(c)
+
+
+def bsp_ticket() -> discord.ui.LayoutView:
+    c = discord.ui.Container(accent_colour=discord.Colour(C_PANEL))
+    c.add_item(
+        discord.ui.Section(
+            discord.ui.TextDisplay(
+                heading("TICKET #148", 3)
+                + "\n"
+                + subtext("Serverabsturz beim Zugbau · von Lena")
+            ),
+            accessory=InertButton(label="offen"),
+        )
+    )
+    c.add_item(
+        discord.ui.TextDisplay(
+            f"{status_dot('warn')} **wartet** auf Antwort · seit **3 Stunden** · "
+            f"zuständig **Marco**"
+        )
+    )
+    c.add_item(discord.ui.Separator())
+    row = discord.ui.ActionRow()
+    row.add_item(InertButton(label="Übernehmen", style=discord.ButtonStyle.primary))
+    row.add_item(InertButton(label="Schließen"))
+    row.add_item(InertButton(label="Transkript"))
+    c.add_item(row)
+    return _demo_view(c)
+
+
+def bsp_moderation() -> discord.ui.LayoutView:
+    c = discord.ui.Container(accent_colour=discord.Colour(0xE5484D))
+    c.add_item(discord.ui.TextDisplay(heading("VERWARNUNG", 3)))
+    c.add_item(
+        discord.ui.TextDisplay(
+            "**@Spieler123** " + subtext("· Werbung im Chat") + "\n"
+            + progress_bar(2, 3, 3)
+            + " "
+            + subtext("2 von 3 Verwarnungen · nächste bedeutet Bann")
+            + "\n"
+            + subtext("durch Marco · vor 1 Minute · Fall #77")
+        )
+    )
+    c.add_item(discord.ui.Separator())
+    row = discord.ui.ActionRow()
+    row.add_item(InertButton(label="Aufheben"))
+    row.add_item(InertButton(label="Bannen", style=discord.ButtonStyle.danger))
+    c.add_item(row)
+    return _demo_view(c)
+
+
+def bsp_alarm() -> discord.ui.LayoutView:
+    """Alarm und Entwarnung — dasselbe Panel, nur umgefaerbt statt zweiter Nachricht."""
+    view = discord.ui.LayoutView(timeout=900)
+
+    alarm = discord.ui.Container(accent_colour=discord.Colour(0xE5484D))
+    alarm.add_item(discord.ui.TextDisplay(heading("🔴 ALARM · RAM", 3)))
+    alarm.add_item(
+        discord.ui.TextDisplay(
+            f"{progress_bar(92, 100, 10)} **92%** {subtext('von 8 GB')}\n"
+            + subtext("Schwelle 85% seit 6 Minuten überschritten · Minecraft BMC5")
+        )
+    )
+    alarm.add_item(discord.ui.Separator())
+    row = discord.ui.ActionRow()
+    row.add_item(InertButton(label="Stumm 1h"))
+    row.add_item(InertButton(label="Server neu starten", style=discord.ButtonStyle.danger))
+    alarm.add_item(row)
+    view.add_item(alarm)
+
+    ok = discord.ui.Container(accent_colour=discord.Colour(0x2ECC71))
+    ok.add_item(discord.ui.TextDisplay(heading("🟢 ENTWARNUNG · RAM", 3)))
+    ok.add_item(
+        discord.ui.TextDisplay(
+            f"{progress_bar(54, 100, 10)} **54%** {subtext('von 8 GB')}\n"
+            + subtext("wieder im grünen Bereich · Dauer des Vorfalls 14 Minuten")
+        )
+    )
+    view.add_item(ok)
+    return view
+
+
+BEISPIELE = {
+    "serverstatus": ("Serverstatus (mehrere Server)", bsp_serverstatus),
+    "neustart": ("Neustart-Countdown", bsp_neustart),
+    "backup": ("Backup-Status", bsp_backup),
+    "mods": ("Mod-Updates", bsp_mods),
+    "levelup": ("Level-Up", bsp_levelup),
+    "giveaway": ("Giveaway", bsp_giveaway),
+    "ticket": ("Ticket", bsp_ticket),
+    "moderation": ("Verwarnung", bsp_moderation),
+    "alarm": ("Monitoring-Alarm + Entwarnung", bsp_alarm),
+}
+
+
 class DesignPreviewCog(commands.Cog, name="Design"):
     """Vorschau der Embed-/Panel-Stile — reine Anschauung, ohne Nebenwirkung."""
 
@@ -349,6 +735,42 @@ class DesignPreviewCog(commands.Cog, name="Design"):
             await interaction.response.send_message(view=result, ephemeral=True)
         else:
             await interaction.response.send_message(embed=result, ephemeral=True)
+
+    @design.command(name="hud", description="HUD-Auspraegungen A-E des To-Do-Boards")
+    @app_commands.describe(variante="Welche Auspraegung?")
+    @app_commands.choices(
+        variante=[
+            app_commands.Choice(name=label, value=key)
+            for key, (label, _) in HUD_VARIANTEN.items()
+        ]
+    )
+    @admin_only()
+    async def design_hud(
+        self, interaction: discord.Interaction, variante: app_commands.Choice[str]
+    ) -> None:
+        _, builder = HUD_VARIANTEN[variante.value]
+        if variante.value == "e":
+            # Variante E lebt von der Bildkachel — Bot-Avatar als Platzhalter.
+            icon = interaction.client.user.display_avatar.url if interaction.client.user else ""
+            view = builder(icon)
+        else:
+            view = builder()
+        await interaction.response.send_message(view=view, ephemeral=True)
+
+    @design.command(name="beispiel", description="HUD-Sprache auf andere Bot-Funktionen")
+    @app_commands.describe(typ="Welches Panel?")
+    @app_commands.choices(
+        typ=[
+            app_commands.Choice(name=label, value=key)
+            for key, (label, _) in BEISPIELE.items()
+        ]
+    )
+    @admin_only()
+    async def design_beispiel(
+        self, interaction: discord.Interaction, typ: app_commands.Choice[str]
+    ) -> None:
+        _, builder = BEISPIELE[typ.value]
+        await interaction.response.send_message(view=builder(), ephemeral=True)
 
     @design.command(name="meldungen", description="Erfolg/Fehler/Warnung/Info im neuen Stil")
     @admin_only()
