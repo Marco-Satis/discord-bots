@@ -12,11 +12,14 @@ To-Do-Board Cog — gemeinsame Bau-Ziele fuer den Satisfactory-Server.
 Abhaken per Klick auf die Checkbox neben dem Eintrag darf jeder Spieler, auch
 bei fremden Eintraegen. Bearbeiten und Loeschen bleibt dem Ersteller vorbehalten.
 
-Darstellung: Components V2 (LayoutView + Section) — jeder Eintrag ist eine eigene
-Zeile mit Text links und Checkbox-Button rechts, wie in einer Notiz-App. Discord
-begrenzt eine Nachricht auf 40 Komponenten; eine Section kostet 3 (Section +
-Text + Button), daher stehen MAX_SECTIONS Eintraege als Checkbox-Zeile da und
-alles darueber laeuft ueber das Auswahl-Menue am Ende.
+Darstellung: HUD-Stil (Marcos Wahl 2026-08-13) als Components V2 —
+Kennzahlen-Kopf mit Fortschrittsbalken, Zwischenueberschriften je Gruppe, je
+Eintrag eine Zeile mit Text links und Checkbox-Button rechts, Aktionen unten.
+
+Discord begrenzt eine Nachricht auf 40 Komponenten und eine Eintragszeile kostet
+drei davon. Wie viele Zeilen passen, rechnet :func:`ToDoCog._section_budget`
+abhaengig davon aus, was sonst noch im Panel steht; der Rest laeuft ueber das
+Auswahl-Menue.
 
 Das Board ist eine Sticky-Message: schreibt jemand in den Board-Kanal, wird es
 nach kurzer Ruhe geloescht und neu gepostet, damit es immer die letzte
@@ -33,6 +36,7 @@ from discord.ext import commands
 
 from modules.database.db_manager import get_db, get_read_db
 from utils import get_logger, is_admin, is_spieler, admin_only, spieler_only
+from utils.ui_kit import heading, meta_row, progress_bar, subtext
 
 logger = get_logger("cogs.todo")
 
@@ -40,11 +44,10 @@ logger = get_logger("cogs.todo")
 # bewusst nur dieses eine an.
 BOARD = "satisfactory"
 
-# Eine Components-V2-Nachricht darf 40 Komponenten haben. Fix belegt sind
-# Container (1) + Ueberschrift (1) + Fusszeile (1); im Ueberlauf-Fall zusaetzlich
-# Trenner (1) + ActionRow mit Auswahl-Menue (2) + Hinweiszeile (1) = 7. Eine
-# Checkbox-Zeile kostet 3 (Section + Text + Button) -> 10 Zeilen mit Puffer.
-MAX_SECTIONS = 10
+# Harte Discord-Grenze: 40 Komponenten je Nachricht. Eine Eintragszeile kostet 3
+# (Section + Text + Button); ein Sicherheitsabstand bleibt fuer kuenftige Zusaetze.
+COMPONENT_LIMIT = 40
+COMPONENTS_PER_ROW = 3
 
 # Discord-Limit fuer ein Auswahl-Menue.
 MAX_SELECT_OPTIONS = 25
@@ -52,6 +55,9 @@ MAX_SELECT_OPTIONS = 25
 # Emoji der Checkbox — leer/abgehakt.
 BOX_OPEN = "⬜"
 BOX_DONE = "✅"
+
+# Akzentfarbe des Panels (HUD-Gold).
+ACCENT = 0xF2C14E
 
 # Sekunden Ruhe im Kanal, bevor das Board neu gepostet wird. Ohne diesen
 # Debounce erzeugt eine lebhafte Unterhaltung einen Repost pro Nachricht und
@@ -187,6 +193,102 @@ class TodoOverflowSelect(
         await _handle_toggle(interaction, picked)
 
 
+class TodoAddModal(discord.ui.Modal, title="Neuer Eintrag"):
+    """Eingabefeld hinter dem ``+ Eintrag``-Button."""
+
+    text = discord.ui.TextInput(
+        label="Was soll gebaut werden?",
+        placeholder="z.B. Kohlekraftwerk Sued erweitern",
+        max_length=MAX_TEXT_LEN,
+        required=True,
+    )
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        cog = interaction.client.get_cog("ToDo")
+        if cog is None:
+            await interaction.response.send_message(
+                "To-Do-Cog ist nicht geladen.", ephemeral=True
+            )
+            return
+
+        neu_id = await cog.add_todo(str(self.text), interaction.user)
+        await interaction.response.send_message(
+            f"Eintrag `#{neu_id}` angelegt.", ephemeral=True
+        )
+        await cog.refresh_board()
+
+
+class TodoAddButton(discord.ui.DynamicItem[discord.ui.Button], template=r"todo:new"):
+    """``+ Eintrag`` — oeffnet das Eingabefeld, ohne Slash-Command."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            discord.ui.Button(
+                label="+ Eintrag",
+                style=discord.ButtonStyle.primary,
+                custom_id="todo:new",
+            )
+        )
+
+    @classmethod
+    async def from_custom_id(cls, interaction, item, match) -> "TodoAddButton":
+        return cls()
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        if not is_spieler(interaction):
+            await interaction.response.send_message(
+                "Du brauchst die Satisfactory-Rolle um Eintraege anzulegen.",
+                ephemeral=True,
+            )
+            return
+        await interaction.response.send_modal(TodoAddModal())
+
+
+class TodoClearButton(discord.ui.DynamicItem[discord.ui.Button], template=r"todo:clear"):
+    """``Aufraeumen`` — loescht alle erledigten Eintraege (Admin)."""
+
+    def __init__(self, erledigt: int = 0) -> None:
+        super().__init__(
+            discord.ui.Button(
+                label="Aufraeumen" if not erledigt else f"Aufraeumen ({erledigt})",
+                style=discord.ButtonStyle.secondary,
+                custom_id="todo:clear",
+                disabled=erledigt == 0,
+            )
+        )
+
+    @classmethod
+    async def from_custom_id(cls, interaction, item, match) -> "TodoClearButton":
+        return cls()
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        if not is_admin(interaction):
+            await interaction.response.send_message(
+                "Aufraeumen darf nur die Serverleitung.", ephemeral=True
+            )
+            return
+
+        cog = interaction.client.get_cog("ToDo")
+        if cog is None:
+            await interaction.response.send_message(
+                "To-Do-Cog ist nicht geladen.", ephemeral=True
+            )
+            return
+
+        geloescht = await cog.clear_done()
+        view = await cog.build_board()
+        try:
+            await interaction.response.edit_message(view=view)
+        except discord.HTTPException as e:
+            logger.warning(f"Board-Edit nach Aufraeumen fehlgeschlagen ({e}) — reposte.")
+            if not interaction.response.is_done():
+                await interaction.response.defer()
+            await cog.refresh_board(repost=True)
+        await interaction.followup.send(
+            f"{geloescht} erledigte Eintraege geloescht.", ephemeral=True
+        )
+
+
 class ToDoCog(commands.Cog, name="ToDo"):
     """Gemeinsames To-Do-Board fuer den Satisfactory-Server."""
 
@@ -203,7 +305,9 @@ class ToDoCog(commands.Cog, name="ToDo"):
         self._sticky_disabled: bool = False
 
     async def cog_load(self) -> None:
-        self.bot.add_dynamic_items(TodoToggleButton, TodoOverflowSelect)
+        self.bot.add_dynamic_items(
+            TodoToggleButton, TodoOverflowSelect, TodoAddButton, TodoClearButton
+        )
         logger.info("ToDoCog geladen — /todo registriert")
 
     async def cog_unload(self) -> None:
@@ -255,6 +359,32 @@ class ToDoCog(commands.Cog, name="ToDo"):
         await conn.commit()
         return True
 
+    async def add_todo(self, text: str, user: discord.abc.User) -> int:
+        """Eintrag anlegen, ID zurueckgeben. Aufrufer prueft Rechte und Laenge."""
+        conn = await get_db()
+        cursor = await conn.execute(
+            """INSERT INTO todos (board, text, created_by, created_by_name, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (
+                BOARD,
+                text.strip(),
+                str(user.id),
+                user.display_name,
+                datetime.now().isoformat(),
+            ),
+        )
+        await conn.commit()
+        return int(cursor.lastrowid)
+
+    async def clear_done(self) -> int:
+        """Alle erledigten Eintraege loeschen, Anzahl zurueckgeben."""
+        conn = await get_db()
+        cursor = await conn.execute(
+            "DELETE FROM todos WHERE board = ? AND done = 1", (BOARD,)
+        )
+        await conn.commit()
+        return cursor.rowcount
+
     async def _get_board_ref(self) -> Optional[Dict[str, Any]]:
         conn = await get_read_db()
         cursor = await conn.execute(
@@ -304,56 +434,101 @@ class ToDoCog(commands.Cog, name="ToDo"):
             )
         return f"**{text}**\n-# #{row['id']} · von {_fmt_user(row, 'created_by_name')}"
 
+    def _kopf(self, offen: int, erledigt: int) -> str:
+        """Kennzahlen-Kopf mit Fortschrittsbalken."""
+        gesamt = offen + erledigt
+        prozent = int(erledigt / gesamt * 100) if gesamt else 0
+        kennzahlen = meta_row(
+            [(str(offen), "offen"), (str(erledigt), "erledigt"), (f"{prozent}%", "fertig")]
+        )
+        return f"{kennzahlen}\n{progress_bar(erledigt, gesamt, 10, 'outline')}"
+
+    @staticmethod
+    def _section_budget(hat_offen: bool, hat_erledigt: bool, mit_ueberlauf: bool) -> int:
+        """Wie viele Eintragszeilen ins 40-Komponenten-Budget passen.
+
+        Wird gerechnet statt geraten, damit ein zusaetzliches Element im Panel
+        nicht stillschweigend Eintraege verschluckt.
+        """
+        fest = 1 + 1 + 1 + 1          # Container, Ueberschrift, Kopf, Trenner
+        fest += 3                      # ActionRow + zwei Aktions-Buttons
+        if hat_offen:
+            fest += 1                  # Zwischenueberschrift OFFEN
+        if hat_erledigt:
+            fest += 2                  # Trenner + Zwischenueberschrift ERLEDIGT
+        if mit_ueberlauf:
+            fest += 3                  # Trenner + ActionRow + Auswahl-Menue
+        return max((COMPONENT_LIMIT - fest) // COMPONENTS_PER_ROW, 0)
+
+    def _zeile(self, row: Dict[str, Any]) -> discord.ui.Section:
+        """Eine Eintragszeile: Text links, Checkbox rechts."""
+        return discord.ui.Section(
+            discord.ui.TextDisplay(self._section_text(row)),
+            accessory=TodoToggleButton(row["id"], done=bool(row["done"])),
+        )
+
     async def build_board(self) -> discord.ui.LayoutView:
         """Board als Components-V2-Layout aus dem aktuellen DB-Stand bauen.
 
-        Jeder Eintrag ist eine Section: Text links, Checkbox-Button rechts.
-        Offene stehen oben — die will man am ehesten anklicken.
+        HUD-Stil: Kennzahlen-Kopf mit Balken, Gruppen ``OFFEN``/``ERLEDIGT`` mit
+        Zaehler, je Eintrag eine Zeile mit Checkbox, Aktionen unten.
         """
         rows = await self._fetch_todos()
         offen = [r for r in rows if not r["done"]]
         erledigt = [r for r in rows if r["done"]]
 
-        sichtbar = (offen + erledigt)[:MAX_SECTIONS]
-        rest = (offen + erledigt)[MAX_SECTIONS:]
+        # Budget zweistufig: erst ohne Ueberlauf rechnen, und nur wenn es dann
+        # nicht reicht, mit Auswahl-Menue neu rechnen (das kostet selbst Platz).
+        budget = self._section_budget(bool(offen), bool(erledigt), False)
+        mit_ueberlauf = len(rows) > budget
+        if mit_ueberlauf:
+            budget = self._section_budget(bool(offen), bool(erledigt), True)
 
-        container = discord.ui.Container(accent_colour=discord.Colour(0x2B9348))
-        container.add_item(discord.ui.TextDisplay("## To-Do — Satisfactory"))
+        sichtbar_offen = offen[:budget]
+        sichtbar_erledigt = erledigt[: max(budget - len(sichtbar_offen), 0)]
+        rest = offen[len(sichtbar_offen):] + erledigt[len(sichtbar_erledigt):]
+
+        kopf = self._kopf(len(offen), len(erledigt))
+        if len(rest) > MAX_SELECT_OPTIONS:
+            # Nicht stillschweigend abschneiden: was das Menue nicht fasst, wird
+            # benannt statt verschwiegen.
+            kopf += "\n" + subtext(
+                f"{len(rest) - MAX_SELECT_OPTIONS} weitere nur ueber `/todo` erreichbar"
+            )
+
+        container = discord.ui.Container(accent_colour=discord.Colour(ACCENT))
+        container.add_item(discord.ui.TextDisplay(heading("TODO", 2)))
+        container.add_item(discord.ui.TextDisplay(kopf))
+        container.add_item(discord.ui.Separator())
 
         if not rows:
             container.add_item(
-                discord.ui.TextDisplay(
-                    "-# Noch nichts eingetragen — `/todo add <text>`"
-                )
+                discord.ui.TextDisplay(subtext("Noch nichts eingetragen."))
             )
 
-        for r in sichtbar:
+        if offen:
+            container.add_item(discord.ui.TextDisplay(subtext(f"OFFEN · {len(offen)}")))
+            for r in sichtbar_offen:
+                container.add_item(self._zeile(r))
+
+        if erledigt:
+            container.add_item(discord.ui.Separator())
             container.add_item(
-                discord.ui.Section(
-                    discord.ui.TextDisplay(self._section_text(r)),
-                    accessory=TodoToggleButton(r["id"], done=bool(r["done"])),
-                )
+                discord.ui.TextDisplay(subtext(f"ERLEDIGT · {len(erledigt)}"))
             )
+            for r in sichtbar_erledigt:
+                container.add_item(self._zeile(r))
 
         if rest:
             container.add_item(discord.ui.Separator())
-            row = discord.ui.ActionRow()
-            row.add_item(TodoOverflowSelect(rest))
-            container.add_item(row)
-            if len(rest) > MAX_SELECT_OPTIONS:
-                container.add_item(
-                    discord.ui.TextDisplay(
-                        f"-# {len(rest) - MAX_SELECT_OPTIONS} weitere Eintraege sind "
-                        f"nur ueber `/todo` erreichbar — erledigte mit `/todo clear` "
-                        f"aufraeumen."
-                    )
-                )
+            auswahl = discord.ui.ActionRow()
+            auswahl.add_item(TodoOverflowSelect(rest))
+            container.add_item(auswahl)
 
-        container.add_item(
-            discord.ui.TextDisplay(
-                f"-# {len(offen)} offen · {len(erledigt)} erledigt"
-            )
-        )
+        aktionen = discord.ui.ActionRow()
+        aktionen.add_item(TodoAddButton())
+        aktionen.add_item(TodoClearButton(len(erledigt)))
+        container.add_item(aktionen)
 
         view = discord.ui.LayoutView(timeout=None)
         view.add_item(container)
@@ -533,21 +708,7 @@ class ToDoCog(commands.Cog, name="ToDo"):
             )
             return
 
-        conn = await get_db()
-        cursor = await conn.execute(
-            """INSERT INTO todos (board, text, created_by, created_by_name, created_at)
-               VALUES (?, ?, ?, ?, ?)""",
-            (
-                BOARD,
-                text,
-                str(interaction.user.id),
-                interaction.user.display_name,
-                datetime.now().isoformat(),
-            ),
-        )
-        await conn.commit()
-        new_id = cursor.lastrowid
-
+        new_id = await self.add_todo(text, interaction.user)
         await interaction.response.send_message(
             f"Eintrag `#{new_id}` angelegt.", ephemeral=True
         )
@@ -623,14 +784,9 @@ class ToDoCog(commands.Cog, name="ToDo"):
     @todo.command(name="clear", description="Alle erledigten Eintraege loeschen")
     @admin_only()
     async def todo_clear(self, interaction: discord.Interaction) -> None:
-        conn = await get_db()
-        cursor = await conn.execute(
-            "DELETE FROM todos WHERE board = ? AND done = 1", (BOARD,)
-        )
-        await conn.commit()
-
+        geloescht = await self.clear_done()
         await interaction.response.send_message(
-            f"{cursor.rowcount} erledigte Eintraege geloescht.", ephemeral=True
+            f"{geloescht} erledigte Eintraege geloescht.", ephemeral=True
         )
         await self.refresh_board()
 
