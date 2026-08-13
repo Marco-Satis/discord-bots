@@ -18,6 +18,7 @@ from typing import Optional, Dict, Any
 from utils import get_logger
 from utils.permissions import admin_only, owner_only, is_admin
 from modules.database.db_manager import get_db
+from utils.embeds import COLOR_ERROR, COLOR_INFO, COLOR_SUCCESS, COLOR_WARNING
 
 logger = get_logger("cogs.update")
 
@@ -134,7 +135,7 @@ class UpdateCog(commands.Cog):
 
         embed = discord.Embed(
             title=f"\U0001f4e6 Modpack-Status: {server_id}",
-            color=0x3498db,
+            color=COLOR_INFO,
             timestamp=datetime.now(),
         )
 
@@ -148,7 +149,7 @@ class UpdateCog(commands.Cog):
                 phase_text = "\U0001f504 Update läuft..."
                 if timer_active:
                     phase_text = "\u23f3 Countdown läuft..."
-                embed.color = 0xf39c12
+                embed.color = COLOR_WARNING
             else:
                 phase_text = "\u2705 Kein Update aktiv"
 
@@ -275,7 +276,7 @@ class UpdateCog(commands.Cog):
                 f"**Gestartet von:** {interaction.user.mention}\n\n"
                 f"Abbrechen mit `/modpack cancel`"
             ),
-            color=0xf39c12,
+            color=COLOR_WARNING,
             timestamp=datetime.now(),
         )
         await interaction.followup.send(embed=embed)
@@ -292,14 +293,14 @@ class UpdateCog(commands.Cog):
                 result_embed = discord.Embed(
                     title=f"\u2705 Update erfolgreich: {server_id}",
                     description=f"Version: {new_ver}",
-                    color=0x2ecc71,
+                    color=COLOR_SUCCESS,
                 )
             else:
                 error = result.get("error", "Unbekannter Fehler") if isinstance(result, dict) else str(result)
                 result_embed = discord.Embed(
                     title=f"\u274c Update fehlgeschlagen: {server_id}",
                     description=f"Fehler: {error}",
-                    color=0xe74c3c,
+                    color=COLOR_ERROR,
                 )
 
             # Ergebnis in den Kanal posten
@@ -379,7 +380,7 @@ class UpdateCog(commands.Cog):
                 f"**Gestartet von:** {interaction.user.mention}\n\n"
                 f"⚠️ Server wird SOFORT gestoppt!"
             ),
-            color=0xe74c3c,
+            color=COLOR_ERROR,
             timestamp=datetime.now(),
         )
         await interaction.followup.send(embed=embed)
@@ -396,14 +397,14 @@ class UpdateCog(commands.Cog):
                 result_embed = discord.Embed(
                     title=f"✅ Force-Update erfolgreich: {server_id}",
                     description=f"Version: {new_ver}",
-                    color=0x2ecc71,
+                    color=COLOR_SUCCESS,
                 )
             else:
                 error = result.get("error", "Unbekannter Fehler") if isinstance(result, dict) else str(result)
                 result_embed = discord.Embed(
                     title=f"❌ Force-Update fehlgeschlagen: {server_id}",
                     description=f"Fehler: {error}",
-                    color=0xe74c3c,
+                    color=COLOR_ERROR,
                 )
 
             await interaction.channel.send(embed=result_embed)
@@ -449,7 +450,7 @@ class UpdateCog(commands.Cog):
             embed = discord.Embed(
                 title=f"\u23f9\ufe0f Update abgebrochen: {server_id}",
                 description=f"Abgebrochen von {interaction.user.mention}",
-                color=0xe67e22,
+                color=COLOR_WARNING,
                 timestamp=datetime.now(),
             )
             # Oeffentlich im Kanal posten
@@ -566,7 +567,7 @@ class UpdateCog(commands.Cog):
                 f"**Von:** {new_ver} **Auf:** {old_ver}\n"
                 f"**Gestartet von:** {interaction.user.mention}"
             ),
-            color=0xe67e22,
+            color=COLOR_WARNING,
             timestamp=datetime.now(),
         )
         await interaction.followup.send(embed=embed)
@@ -599,7 +600,7 @@ class UpdateCog(commands.Cog):
             result_embed = discord.Embed(
                 title=f"\u2705 Rollback erfolgreich: {server_id}",
                 description=f"Version: {old_ver}",
-                color=0x2ecc71,
+                color=COLOR_SUCCESS,
             )
             await interaction.channel.send(embed=result_embed)
 
@@ -608,7 +609,7 @@ class UpdateCog(commands.Cog):
             error_embed = discord.Embed(
                 title=f"\u274c Rollback fehlgeschlagen: {server_id}",
                 description=str(e),
-                color=0xe74c3c,
+                color=COLOR_ERROR,
             )
             await interaction.channel.send(embed=error_embed)
 
@@ -656,7 +657,7 @@ class UpdateCog(commands.Cog):
 
         embed = discord.Embed(
             title=f"\U0001f4dc Update-Historie: {server_id}",
-            color=0x3498db,
+            color=COLOR_INFO,
             timestamp=datetime.now(),
         )
 
@@ -757,7 +758,7 @@ class UpdateCog(commands.Cog):
                     f"**Aktuell:** {current}\n"
                     f"**Neu:** {latest}\n"
                 ),
-                color=0xf39c12,
+                color=COLOR_WARNING,
                 timestamp=datetime.now(),
             )
 
@@ -781,7 +782,7 @@ class UpdateCog(commands.Cog):
             embed = discord.Embed(
                 title=f"\u2705 Keine neue Version: {server_id}",
                 description=f"Aktuelle Version: {current}",
-                color=0x2ecc71,
+                color=COLOR_SUCCESS,
                 timestamp=datetime.now(),
             )
 
@@ -840,7 +841,7 @@ class UpdateCog(commands.Cog):
                 f"**Gestartet von:** {interaction.user.mention}\n\n"
                 f"Abbrechen mit `/update cancel`"
             ),
-            color=0xf39c12,
+            color=COLOR_WARNING,
             timestamp=datetime.now(),
         )
         await interaction.followup.send(embed=embed)
@@ -897,13 +898,13 @@ class UpdateCog(commands.Cog):
                         f"**Alte Build-ID:** {installed}\n"
                         f"**Neue Build-ID:** {new_info_build}"
                     ),
-                    color=0x2ecc71,
+                    color=COLOR_SUCCESS,
                 )
             else:
                 result_embed = discord.Embed(
                     title="\u274c SAT-Update fehlgeschlagen",
                     description=update_msg,
-                    color=0xe74c3c,
+                    color=COLOR_ERROR,
                 )
 
             await interaction.channel.send(embed=result_embed)
@@ -950,7 +951,7 @@ class UpdateCog(commands.Cog):
                 f"Update-Flag zurückgesetzt. Falls SteamCMD bereits läuft, "
                 f"muss der Prozess manuell gestoppt werden."
             ),
-            color=0xe67e22,
+            color=COLOR_WARNING,
             timestamp=datetime.now(),
         )
         await interaction.followup.send("\u2705 SAT-Update abgebrochen.")

@@ -21,6 +21,7 @@ from utils import (
     is_owner, is_admin, is_spieler,
 )
 from utils.config import DATA_DIR
+from utils.embeds import COLOR_ERROR, COLOR_INFO, COLOR_SUCCESS, COLOR_WARNING
 
 logger = get_logger("cogs.general")
 
@@ -379,13 +380,13 @@ class GeneralCog(commands.Cog):
                 try:
                     if failed_count > 0:
                         title = "⚠️ Clear-Befehl unvollstaendig"
-                        color = 0xf39c12
+                        color = COLOR_WARNING
                     elif is_resume:
                         title = "🔄 Clear-Befehl fortgesetzt & abgeschlossen"
-                        color = 0x3498db
+                        color = COLOR_INFO
                     else:
                         title = "✅ Clear-Befehl abgeschlossen"
-                        color = 0x2ecc71
+                        color = COLOR_SUCCESS
                     embed = discord.Embed(
                         title=title,
                         color=color,
@@ -456,7 +457,7 @@ class GeneralCog(commands.Cog):
                     embed = discord.Embed(
                         title="❌ Clear-Befehl fehlgeschlagen",
                         description=error_msg,
-                        color=0xe74c3c,
+                        color=COLOR_ERROR,
                         timestamp=datetime.now(timezone.utc),
                     )
                     embed.add_field(
@@ -620,7 +621,7 @@ class GeneralCog(commands.Cog):
         embed = discord.Embed(
             title=f"Befehls-Übersicht — {role_name}",
             description="Nur Commands die du ausführen darfst werden angezeigt.",
-            color=0x5865F2,
+            color=COLOR_INFO,
         )
 
         # MC-Server vorhanden?

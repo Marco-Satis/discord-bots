@@ -33,6 +33,7 @@ from discord.ext import commands
 
 from modules.database.db_manager import get_db
 from utils.logger import get_logger
+from utils.embeds import COLOR_INFO, COLOR_SUCCESS
 
 logger = get_logger("cogs.welcome")
 
@@ -210,7 +211,7 @@ class WelcomeCog(commands.Cog):
         embed = discord.Embed(
             title=f"Willkommen, {member.display_name}!",
             description=message_text,
-            color=0x2ECC71,
+            color=COLOR_SUCCESS,
         )
         embed.set_thumbnail(url=member.display_avatar.url)
         embed.set_footer(
@@ -307,7 +308,7 @@ class WelcomeCog(commands.Cog):
                 dm_embed = discord.Embed(
                     title=f"Willkommen auf {member.guild.name}!",
                     description=dm_text,
-                    color=0x5865F2,
+                    color=COLOR_INFO,
                 )
                 dm_embed.set_thumbnail(url=member.guild.icon.url if member.guild.icon else "")
                 await member.send(embed=dm_embed)
@@ -361,7 +362,7 @@ class WelcomeCog(commands.Cog):
         embed = discord.Embed(
             title="Willkommens-Kanal gesetzt",
             description=f"Neue Mitglieder werden in {channel.mention} begruesst.",
-            color=0x2ECC71,
+            color=COLOR_SUCCESS,
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
 
@@ -425,7 +426,7 @@ class WelcomeCog(commands.Cog):
         embed = discord.Embed(
             title="Auto-Rolle gesetzt",
             description=f"Neue Mitglieder erhalten automatisch die Rolle **{role.name}**.",
-            color=0x2ECC71,
+            color=COLOR_SUCCESS,
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
 
@@ -476,7 +477,7 @@ class WelcomeCog(commands.Cog):
 
         embed = discord.Embed(
             title="Willkommensnachricht gesetzt",
-            color=0x2ECC71,
+            color=COLOR_SUCCESS,
         )
         embed.add_field(name="Vorlage", value=f"```{text}```", inline=False)
         embed.add_field(name="Vorschau", value=preview, inline=False)
@@ -526,7 +527,7 @@ class WelcomeCog(commands.Cog):
             return
 
         status_text = "aktiviert" if new_enabled else "deaktiviert"
-        status_color = 0x2ECC71 if new_enabled else 0xE74C3C
+        status_color = COLOR_SUCCESS if new_enabled else 0xE74C3C
 
         embed = discord.Embed(
             title="Willkommenssystem",
@@ -598,7 +599,7 @@ class WelcomeCog(commands.Cog):
         status_embed = discord.Embed(
             title="Welcome-System Konfiguration",
             description="\n".join(status_lines),
-            color=0x3498DB,
+            color=COLOR_INFO,
         )
         await interaction.followup.send(embed=status_embed, ephemeral=True)
 

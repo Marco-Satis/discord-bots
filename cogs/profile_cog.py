@@ -20,6 +20,7 @@ from datetime import datetime, timedelta, timezone
 
 from modules.database.db_manager import get_db
 from utils.logger import get_logger
+from utils.embeds import COLOR_SUCCESS, COLOR_WARNING
 
 logger = get_logger("cogs.profile")
 
@@ -284,7 +285,7 @@ class ProfileCog(commands.Cog):
             # Embed erstellen
             embed = discord.Embed(
                 title=f"Profil — {spieler}",
-                color=0x2ecc71 if current_session else 0x5865F2,
+                color=COLOR_SUCCESS if current_session else 0x5865F2,
             )
 
             # Online-Status
@@ -400,7 +401,7 @@ class ProfileCog(commands.Cog):
 
             embed = discord.Embed(
                 title=f"Spieler-Leaderboard — {zeitraum_text}",
-                color=0xf1c40f,
+                color=COLOR_WARNING,
             )
 
             # Nummerierte Liste mit Medaillen für Top 3

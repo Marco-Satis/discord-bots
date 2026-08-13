@@ -31,6 +31,7 @@ from modules.tickets import TicketManager
 from utils.logger import get_logger
 from utils.config import ADMIN_DATA_DIR
 from utils.permissions import admin_only
+from utils.embeds import COLOR_ERROR, COLOR_INFO, COLOR_NEUTRAL
 
 logger = get_logger("cogs.tickets")
 
@@ -337,7 +338,7 @@ class TicketsCog(commands.Cog):
                 f"Ein Teammitglied wird sich in Kuerze um dein Anliegen kuemmern.\n\n"
                 f"Beschreibe dein Problem so detailliert wie möglich."
             ),
-            color=0x5865F2,
+            color=COLOR_INFO,
             timestamp=datetime.now(),
         )
         embed.set_footer(text=f"Ticket erstellt von {user.display_name}")
@@ -480,7 +481,7 @@ class TicketsCog(commands.Cog):
                 + (f"\n**Grund:** {reason}" if reason else "")
                 + "\n\nDer Channel wird in 5 Sekunden gelöscht."
             ),
-            color=0xe74c3c,
+            color=COLOR_ERROR,
             timestamp=datetime.now(),
         )
 
@@ -552,7 +553,7 @@ class TicketsCog(commands.Cog):
         # Log-Embed
         embed = discord.Embed(
             title=f"Ticket #{ticket_id} — Transcript",
-            color=0x95a5a6,
+            color=COLOR_NEUTRAL,
             timestamp=datetime.now(),
         )
         embed.add_field(name="Betreff", value=subject, inline=True)
@@ -643,7 +644,7 @@ class TicketsCog(commands.Cog):
                 "Ein Teammitglied wird sich so schnell wie möglich um dich kuemmern.\n\n"
                 "**Bitte erstelle für jedes Anliegen ein eigenes Ticket.**"
             ),
-            color=0x5865F2,
+            color=COLOR_INFO,
         )
         embed.set_footer(text="Support-Ticket-System")
 
@@ -723,7 +724,7 @@ class TicketsCog(commands.Cog):
 
         embed = discord.Embed(
             title=f"Offene Tickets ({len(open_tickets)})",
-            color=0x5865F2,
+            color=COLOR_INFO,
         )
 
         for ticket in open_tickets[:20]:  # Maximal 20 im Embed

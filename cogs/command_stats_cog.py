@@ -24,6 +24,7 @@ from discord.ext import commands
 
 from modules.database.db_manager import get_db
 from utils.logger import get_logger
+from utils.embeds import COLOR_INFO, COLOR_SUCCESS, COLOR_WARNING
 
 logger = get_logger("cogs.command_stats")
 
@@ -190,7 +191,7 @@ class CommandStatsCog(commands.Cog):
         # Embed erstellen
         embed = discord.Embed(
             title=f"Top 10 Commands (letzte {tage} Tage)",
-            color=0x5865F2,
+            color=COLOR_INFO,
             timestamp=datetime.now(),
         )
 
@@ -314,7 +315,7 @@ class CommandStatsCog(commands.Cog):
         # Embed erstellen
         embed = discord.Embed(
             title=f"Command-Statistiken: {user.display_name}",
-            color=0x5865F2,
+            color=COLOR_INFO,
             timestamp=datetime.now(),
         )
 
@@ -406,7 +407,7 @@ class CommandStatsCog(commands.Cog):
                     f"Alle {len(registered_commands)} registrierten Commands "
                     f"wurden in den letzten 30 Tagen mindestens einmal ausgefuehrt."
                 ),
-                color=0x2ECC71,
+                color=COLOR_SUCCESS,
                 timestamp=datetime.now(),
             )
         else:
@@ -418,7 +419,7 @@ class CommandStatsCog(commands.Cog):
             embed = discord.Embed(
                 title=f"Ungenutzte Commands ({len(unused)}/{len(registered_commands)})",
                 description=description,
-                color=0xFF9900,
+                color=COLOR_WARNING,
                 timestamp=datetime.now(),
             )
             embed.set_footer(

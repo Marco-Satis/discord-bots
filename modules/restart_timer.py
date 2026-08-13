@@ -21,6 +21,7 @@ import enum
 from typing import Optional, List, Callable, Awaitable
 import discord
 from utils.logger import get_logger
+from utils.embeds import COLOR_NEUTRAL, COLOR_WARNING
 
 logger = get_logger("restart_timer")
 
@@ -192,7 +193,7 @@ class RestartTimer:
                     embed = discord.Embed(
                         title=f"⏰ {message}",
                         description="Nutze `/sat cancel` zum Abbrechen.",
-                        color=0xe67e22
+                        color=COLOR_WARNING
                     )
                     await self.channel.send(embed=embed)
                 elif is_final:
@@ -221,7 +222,7 @@ class RestartTimer:
             try:
                 embed = discord.Embed(
                     title=f"❌ {self._action_name} abgebrochen",
-                    color=0x95a5a6
+                    color=COLOR_NEUTRAL
                 )
                 await self.channel.send(embed=embed)
             except discord.DiscordException as e:

@@ -11,6 +11,7 @@ from typing import Optional, List, Tuple
 from enum import Enum
 
 from utils.logger import get_logger
+from utils.embeds import COLOR_INFO
 
 logger = get_logger("discord_notifier")
 
@@ -349,7 +350,7 @@ class DiscordNotifier:
         embed = discord.Embed(
             title="📋 Täglicher Status-Report",
             description=report_text,
-            color=0x5865F2,
+            color=COLOR_INFO,
             timestamp=datetime.now(),
         )
         try:
@@ -372,7 +373,7 @@ class DiscordNotifier:
         embed = discord.Embed(
             title="📊 Wochenbericht",
             description=report_text,
-            color=0x5865F2,
+            color=COLOR_INFO,
             timestamp=datetime.now(),
         )
         try:

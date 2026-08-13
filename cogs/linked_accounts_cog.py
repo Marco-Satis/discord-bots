@@ -21,6 +21,7 @@ from modules.linked_accounts import (
     LinkedAccountsManager, PLATFORMS, platform_display, MAX_ACCOUNT_ID_LEN,
 )
 from utils.logger import get_logger
+from utils.embeds import COLOR_INFO
 
 logger = get_logger("cogs.linked_accounts")
 
@@ -134,7 +135,7 @@ class LinkedAccountsCog(commands.Cog):
 
         embed = discord.Embed(
             title=f"Verlinkte Accounts — {target.display_name}",
-            color=0x5865F2,
+            color=COLOR_INFO,
         )
         if not links:
             embed.description = (

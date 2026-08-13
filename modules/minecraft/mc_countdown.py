@@ -23,6 +23,7 @@ import discord
 
 from modules.restart_timer import RestartTimer, TimerResult
 from utils.logger import get_logger
+from utils.embeds import COLOR_WARNING
 
 logger = get_logger("minecraft.mc_countdown")
 
@@ -111,7 +112,7 @@ class MCCountdownTimer(RestartTimer):
                     embed = discord.Embed(
                         title=f"\u23f0 {message}",
                         description=desc,
-                        color=0xe67e22,
+                        color=COLOR_WARNING,
                     )
                     await self.channel.send(embed=embed)
                 elif is_final:

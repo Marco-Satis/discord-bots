@@ -25,6 +25,7 @@ from discord.ext import commands, tasks
 
 from modules.database.db_manager import get_db
 from utils.logger import get_logger
+from utils.embeds import COLOR_ERROR, COLOR_SUCCESS, COLOR_WARNING
 
 logger = get_logger("cogs.shutdown")
 
@@ -164,7 +165,7 @@ class ShutdownCog(commands.Cog):
                     embed = discord.Embed(
                         title=f"Shutdown-Warnung: {display}",
                         description=warning_msg,
-                        color=0xFF6600 if minutes_left > 1 else 0xFF0000,
+                        color=COLOR_WARNING if minutes_left > 1 else 0xFF0000,
                         timestamp=datetime.now(),
                     )
                     embed.set_footer(text=f"Geplant von {info.get('planned_by', 'System')}")
@@ -287,14 +288,14 @@ class ShutdownCog(commands.Cog):
                         embed = discord.Embed(
                             title=f"{display} heruntergefahren",
                             description="Server wurde erfolgreich gestoppt.",
-                            color=0x2ECC71,
+                            color=COLOR_SUCCESS,
                             timestamp=datetime.now(),
                         )
                     else:
                         embed = discord.Embed(
                             title=f"{display} Shutdown fehlgeschlagen",
                             description="Der Server konnte nicht gestoppt werden. Siehe Logs.",
-                            color=0xFF0000,
+                            color=COLOR_ERROR,
                             timestamp=datetime.now(),
                         )
                     embed.set_footer(
@@ -374,7 +375,7 @@ class ShutdownCog(commands.Cog):
         shutdown_time_str = shutdown_at.strftime("%H:%M:%S")
         embed = discord.Embed(
             title=f"Shutdown geplant: {display}",
-            color=0xFF9900,
+            color=COLOR_WARNING,
             timestamp=datetime.now(),
         )
         embed.add_field(name="Countdown", value=f"{minuten} Minute(n)", inline=True)
@@ -401,7 +402,7 @@ class ShutdownCog(commands.Cog):
                 f"Der Server wird in **{minuten} Minute(n)** "
                 f"heruntergefahren.{reason_text}"
             ),
-            color=0xFF9900,
+            color=COLOR_WARNING,
             timestamp=datetime.now(),
         )
         public_embed.set_footer(
@@ -448,7 +449,7 @@ class ShutdownCog(commands.Cog):
         embed = discord.Embed(
             title=f"Shutdown abgebrochen: {display}",
             description="Der geplante Shutdown wurde abgebrochen.",
-            color=0x2ECC71,
+            color=COLOR_SUCCESS,
             timestamp=datetime.now(),
         )
         embed.set_footer(
@@ -466,7 +467,7 @@ class ShutdownCog(commands.Cog):
                     public_embed = discord.Embed(
                         title=f"Shutdown abgebrochen: {display}",
                         description="Der geplante Server-Shutdown wurde abgebrochen.",
-                        color=0x2ECC71,
+                        color=COLOR_SUCCESS,
                         timestamp=datetime.now(),
                     )
                     public_embed.set_footer(
@@ -512,7 +513,7 @@ class ShutdownCog(commands.Cog):
 
         embed = discord.Embed(
             title="Geplante Shutdowns",
-            color=0xFF9900,
+            color=COLOR_WARNING,
             timestamp=datetime.now(),
         )
 

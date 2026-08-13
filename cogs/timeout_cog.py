@@ -27,6 +27,7 @@ from discord.ext import commands, tasks
 
 from modules.timeout_manager import TimeoutManager
 from utils import get_logger, admin_only, DATA_DIR, is_admin
+from utils.embeds import COLOR_ERROR, COLOR_INFO, COLOR_SUCCESS, COLOR_WARNING
 
 
 def _sanitize_input(text: str, max_length: int = 100) -> str:
@@ -106,7 +107,7 @@ class TimeoutCog(commands.Cog):
                 discord_id,
                 "Dein Timeout ist abgelaufen",
                 "Du kannst wieder auf allen Servern spielen.",
-                color=0x2ecc71,
+                color=COLOR_SUCCESS,
             )
 
     @check_expired_timeouts.before_loop
@@ -198,7 +199,7 @@ class TimeoutCog(commands.Cog):
                 discord_member.id,
                 f"Du wurdest für {display_dur} von allen Servern gesperrt",
                 f"**Grund:** {grund}\n\nDein Zugang wird automatisch wiederhergestellt.",
-                color=0xe74c3c,
+                color=COLOR_ERROR,
             )
 
         # Response-Embed erstellen
@@ -255,7 +256,7 @@ class TimeoutCog(commands.Cog):
         # Timeout-Info Embed
         embed = discord.Embed(
             title="Aktiver Timeout",
-            color=0xe74c3c,
+            color=COLOR_ERROR,
         )
 
         embed.add_field(
@@ -368,7 +369,7 @@ class TimeoutCog(commands.Cog):
             spieler.id,
             "Dein Timeout wurde vorzeitig aufgehoben",
             "Du kannst wieder auf allen Servern spielen.",
-            color=0x2ecc71,
+            color=COLOR_SUCCESS,
         )
 
         embed = discord.Embed(
@@ -377,7 +378,7 @@ class TimeoutCog(commands.Cog):
                 f"Timeout für **{player_name}** wurde vorzeitig aufgehoben.\n"
                 f"Alle Server-Bans wurden entfernt."
             ),
-            color=0x2ecc71,
+            color=COLOR_SUCCESS,
         )
         embed.set_footer(text=f"von {interaction.user.display_name}")
         await interaction.followup.send(embed=embed)
@@ -408,7 +409,7 @@ class TimeoutCog(commands.Cog):
 
         embed = discord.Embed(
             title=f"Aktive Timeouts ({len(active)})",
-            color=0xe67e22,
+            color=COLOR_WARNING,
         )
 
         for entry in active:
@@ -474,7 +475,7 @@ class TimeoutCog(commands.Cog):
             if spieler
             else "Timeout-Historie (letzte 20)"
         )
-        embed = discord.Embed(title=title, color=0x5865F2)
+        embed = discord.Embed(title=title, color=COLOR_INFO)
 
         for entry in history[:10]:  # Max 10 im Embed
             player_name = entry.get("player_name", "?")
@@ -714,7 +715,7 @@ class TimeoutCog(commands.Cog):
         """Response-Embed für /timeout setzen erstellen"""
         embed = discord.Embed(
             title="Timeout gesetzt",
-            color=0xe67e22,
+            color=COLOR_WARNING,
         )
         embed.add_field(name="Spieler", value=player_name, inline=True)
 
@@ -739,11 +740,11 @@ class TimeoutCog(commands.Cog):
             if any(w in r for w in ["Gekickt", "gesperrt", "Ban", "gesetzt"])
         )
         if success_count == len(action_results):
-            embed.color = 0x2ecc71  # Gruen
+            embed.color = COLOR_SUCCESS  # Gruen
         elif success_count > 0:
-            embed.color = 0xe67e22  # Orange
+            embed.color = COLOR_WARNING  # Orange
         else:
-            embed.color = 0xe74c3c  # Rot
+            embed.color = COLOR_ERROR  # Rot
 
         embed.set_footer(text=f"von {admin.display_name}")
         return embed

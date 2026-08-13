@@ -87,6 +87,7 @@ from modules.database.json_importer import import_all, check_import_needed
 from modules.security.ban_manager import BanManager
 from modules.database.maintenance import DatabaseMaintenance
 from modules.system.package_checker import PackageChecker
+from utils.embeds import COLOR_ERROR, COLOR_INFO, COLOR_SUCCESS, COLOR_WARNING
 
 load_env()
 
@@ -659,7 +660,7 @@ async def _on_crash(crash_event):
                         embed = discord.Embed(
                             title="⚠️ Savegame Integritaetsproblem",
                             description="\n".join(integrity["issues"]),
-                            color=0xff6600,
+                            color=COLOR_WARNING,
                             timestamp=datetime.now(),
                         )
                         rollback_info = savegame_protection.get_rollback_info()
@@ -689,7 +690,7 @@ async def _on_crash(crash_event):
                         f"Letzte {crash_replay.context_lines} Log-Zeilen vor dem Crash:\n"
                         f"```\n{summary}\n```"
                     ),
-                    color=0xe74c3c,
+                    color=COLOR_ERROR,
                     timestamp=datetime.now(),
                 )
                 embed.set_footer(text="Vollständiges Log als Datei angehängt")
@@ -776,7 +777,7 @@ async def _on_player_join(name):
             for alert in alerts:
                 desc += alert
             embed = discord.Embed(
-                description=desc, color=0xe74c3c,
+                description=desc, color=COLOR_ERROR,
                 timestamp=datetime.now(),
             )
             await channel.send(
@@ -791,7 +792,7 @@ async def _on_player_join(name):
                     f"IP: {ip_str}\n"
                     f"Automatisch zur Whitelist hinzugefügt."
                 ),
-                color=0x3498db,
+                color=COLOR_INFO,
                 timestamp=datetime.now(),
             )
             await channel.send(embed=embed)
@@ -826,7 +827,7 @@ async def _on_service_failed(name, error):
                 embed = discord.Embed(
                     title=f"\u26a0\ufe0f Service ausgefallen: {name}",
                     description=f"Fehler: {error}\n\nBot laeuft weiter mit eingeschraenkter Funktionalitaet.\nAutomatischer Retry aktiv.",
-                    color=0xf39c12,
+                    color=COLOR_WARNING,
                     timestamp=datetime.now(),
                 )
                 await channel.send(embed=embed)
@@ -841,7 +842,7 @@ async def _on_service_recovered(name):
             try:
                 embed = discord.Embed(
                     title=f"\u2705 Service wiederhergestellt: {name}",
-                    color=0x2ecc71,
+                    color=COLOR_SUCCESS,
                     timestamp=datetime.now(),
                 )
                 await channel.send(embed=embed)
@@ -872,7 +873,7 @@ async def _on_crash_loop(result):
                         f"Bitte manuell pruefen und mit `/sat start` neu starten."
                         f"{lkg_text}"
                     ),
-                    color=0xe74c3c,
+                    color=COLOR_ERROR,
                     timestamp=datetime.now(),
                 )
                 content = f"<@&{NOTIFY_ROLE_ID}>" if NOTIFY_ROLE_ID else None
@@ -898,7 +899,7 @@ async def _on_service_down(service_name: str, label: str):
                         f"Status: nicht aktiv\n\n"
                         f"Automatischer Neustart wird versucht..."
                     ),
-                    color=0xe74c3c,
+                    color=COLOR_ERROR,
                     timestamp=datetime.now(),
                 )
                 await channel.send(embed=embed)
@@ -917,7 +918,7 @@ async def _on_sw_restart_success(service_name: str, label: str):
                         f"**Service:** `{service_name}`\n"
                         f"Automatischer Neustart war erfolgreich."
                     ),
-                    color=0x2ecc71,
+                    color=COLOR_SUCCESS,
                     timestamp=datetime.now(),
                 )
                 await channel.send(embed=embed)
@@ -937,7 +938,7 @@ async def _on_sw_restart_failed(service_name: str, label: str, error_msg: str):
                         f"**Fehler:** {error_msg}\n\n"
                         f"Manuelles Eingreifen erforderlich!"
                     ),
-                    color=0xe74c3c,
+                    color=COLOR_ERROR,
                     timestamp=datetime.now(),
                 )
                 await channel.send(embed=embed)
@@ -957,7 +958,7 @@ async def _on_sw_cooldown_reached(service_name: str, label: str, restart_count: 
                         f"**Restarts letzte Stunde:** {restart_count}\n\n"
                         f"Maximale Anzahl automatischer Restarts erreicht."
                     ),
-                    color=0xf39c12,
+                    color=COLOR_WARNING,
                     timestamp=datetime.now(),
                 )
                 await channel.send(embed=embed)
@@ -1013,7 +1014,7 @@ async def _on_disk_critical(result: dict):
                 embed = discord.Embed(
                     title="KRITISCH: Speicherplatz fast voll!",
                     description=disk_guard.format_status(result),
-                    color=0xe74c3c,
+                    color=COLOR_ERROR,
                     timestamp=datetime.now(),
                 )
                 content = f"<@&{NOTIFY_ROLE_ID}>" if NOTIFY_ROLE_ID else None
@@ -1050,7 +1051,7 @@ async def _on_duckdns_mismatch(result: dict):
                 embed = discord.Embed(
                     title="DuckDNS: IP-Abweichung erkannt!",
                     description=desc,
-                    color=0xe74c3c,
+                    color=COLOR_ERROR,
                     timestamp=datetime.now(),
                 )
                 content = f"<@&{NOTIFY_ROLE_ID}>" if NOTIFY_ROLE_ID else None
@@ -1075,7 +1076,7 @@ async def _on_port_closed(result: dict):
                         f"**Host:Port:** `{result.get('host', '?')}:{result.get('port', '?')}`\n"
                         f"**Fehler:** {result.get('error', 'unbekannt')}"
                     ),
-                    color=0xe74c3c,
+                    color=COLOR_ERROR,
                     timestamp=datetime.now(),
                 )
                 await channel.send(embed=embed)
@@ -1094,7 +1095,7 @@ async def _on_port_recovered(result: dict):
                         f"**Host:Port:** `{result.get('host', '?')}:{result.get('port', '?')}`\n"
                         f"**Antwortzeit:** {result.get('response_ms', '?')}ms"
                     ),
-                    color=0x2ecc71,
+                    color=COLOR_SUCCESS,
                     timestamp=datetime.now(),
                 )
                 await channel.send(embed=embed)
@@ -1130,7 +1131,7 @@ async def _on_updates_available(result: dict):
                         f"**{total}** Paket-Updates verfuegbar"
                         f" ({security} Security)\n\n{pkg_list}"
                     ),
-                    color=0xf39c12,
+                    color=COLOR_WARNING,
                     timestamp=datetime.now(),
                 )
                 await channel.send(embed=embed)
@@ -1156,7 +1157,7 @@ async def _on_security_updates(result: dict):
                         f"{pkg_list}\n\n"
                         f"Bitte zeitnah aktualisieren."
                     ),
-                    color=0xe74c3c,
+                    color=COLOR_ERROR,
                     timestamp=datetime.now(),
                 )
                 content = f"<@&{NOTIFY_ROLE_ID}>" if NOTIFY_ROLE_ID else None
@@ -1183,7 +1184,7 @@ async def _on_unknown_login(alert):
                         f"**IP:** `{alert['ip']}`\n"
                         f"**Zeit:** {alert['timestamp'][:19]}"
                     ),
-                    color=0xe74c3c,
+                    color=COLOR_ERROR,
                     timestamp=datetime.now(),
                 )
                 content = f"<@&{NOTIFY_ROLE_ID}>" if NOTIFY_ROLE_ID else None
@@ -1208,7 +1209,7 @@ async def _on_failed_login_burst(alert):
                         f"**Versuche:** {alert['count']}+\n"
                         f"Fail2Ban sollte diese IP sperren."
                     ),
-                    color=0xf39c12,
+                    color=COLOR_WARNING,
                     timestamp=datetime.now(),
                 )
                 await channel.send(embed=embed)
@@ -1456,7 +1457,7 @@ async def mc_health_check_task():
                                     f"nicht erreichbar.\n"
                                     f"Service: `{srv.service_name}`"
                                 ),
-                                color=0xe74c3c,
+                                color=COLOR_ERROR,
                                 timestamp=datetime.now(),
                             )
                             await admin_ch.send(embed=embed)
@@ -1477,7 +1478,7 @@ async def mc_health_check_task():
                                         f"Server ist wieder erreichbar.\n"
                                         f"War {_mc_consecutive_offline[sid] * 2} Minuten offline."
                                     ),
-                                    color=0x2ecc71,
+                                    color=COLOR_SUCCESS,
                                     timestamp=datetime.now(),
                                 )
                                 await admin_ch.send(embed=embed)
@@ -1577,7 +1578,7 @@ async def ssl_check_task():
                 if channel:
                     days = result.get("days_remaining", "?")
                     status = result.get("status", "unbekannt")
-                    color = 0xf39c12 if status == "warning" else 0xe74c3c
+                    color = COLOR_WARNING if status == "warning" else 0xe74c3c
                     embed = discord.Embed(
                         title=f"SSL-Zertifikat: {status.upper()}",
                         description=(
@@ -1645,7 +1646,7 @@ async def health_check_task():
                                 f"{_consecutive_offline_checks * 2} Minuten nicht erreichbar.\n"
                                 f"Erkannt um {datetime.now().strftime('%H:%M:%S')}."
                             ),
-                            color=0xe74c3c,
+                            color=COLOR_ERROR,
                             timestamp=datetime.now(),
                         )
                         await channel.send(embed=embed)
@@ -1667,7 +1668,7 @@ async def health_check_task():
                                     f"Server ist um {datetime.now().strftime('%H:%M:%S')} wieder erreichbar.\n"
                                     f"War {_consecutive_offline_checks * 2} Minuten offline."
                                 ),
-                                color=0x2ecc71,
+                                color=COLOR_SUCCESS,
                                 timestamp=datetime.now(),
                             )
                             await channel.send(embed=embed)
@@ -1951,7 +1952,7 @@ async def _update_status_embed_impl():
 
     embed = discord.Embed(
         description="\n".join(lines),
-        color=0x2ecc71 if running else 0xe74c3c,
+        color=COLOR_SUCCESS if running else 0xe74c3c,
     )
 
     # -- Send or Edit (Lock schuetzt _status_message_id) --

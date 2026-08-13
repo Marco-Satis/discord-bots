@@ -37,6 +37,7 @@ from utils.logger import get_logger
 from utils.config import ADMIN_DATA_DIR
 from utils.permissions import admin_only
 from utils.formatting import progress_bar
+from utils.embeds import COLOR_WARNING
 
 logger = get_logger("cogs.leveling")
 
@@ -109,7 +110,7 @@ def build_leaderboard_embed(
 
     embed = discord.Embed(
         title="Leaderboard",
-        color=0xF1C40F,
+        color=COLOR_WARNING,
         description="\n".join(lines) if lines else "Noch keine Daten.",
     )
     footer = f"Seite {page + 1}/{max_page + 1} · {total} Spieler"
@@ -554,7 +555,7 @@ class LevelingCog(commands.Cog):
                         try:
                             color = int(accent.lstrip("#"), 16)
                         except ValueError:
-                            color = 0xF1C40F
+                            color = COLOR_WARNING
                         embed = discord.Embed(color=color)
                         embed.set_image(url="attachment://levelup.png")
                         return file, embed
@@ -570,7 +571,7 @@ class LevelingCog(commands.Cog):
             description=(
                 f"{member.mention} hat{suffix} **Level {new_level}** erreicht!"
             ),
-            color=0xF1C40F,
+            color=COLOR_WARNING,
         )
         bar = progress_bar(xp_in_level, xp_for_next, length=10)
         embed.add_field(
@@ -1368,7 +1369,7 @@ class LevelingCog(commands.Cog):
         embed = discord.Embed(
             title="Level-Belohnungen",
             description="\n".join(lines),
-            color=0xF1C40F,
+            color=COLOR_WARNING,
         )
         if self.leveling.is_remove_lower_enabled(interaction.guild.id):
             embed.set_footer(text="Nur die höchste erreichte Rolle wird behalten.")

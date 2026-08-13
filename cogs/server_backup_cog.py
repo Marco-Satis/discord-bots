@@ -32,6 +32,7 @@ from modules.server_backup import ServerBackupManager
 from utils.logger import get_logger
 from utils.config import ADMIN_DATA_DIR
 from utils.permissions import admin_only, owner_only
+from utils.embeds import COLOR_ERROR, COLOR_INFO, COLOR_NEUTRAL, COLOR_SUCCESS, COLOR_WARNING
 
 logger = get_logger("cogs.server_backup")
 
@@ -282,7 +283,7 @@ class ServerBackupCog(commands.Cog):
         embed = discord.Embed(
             title="Wiederherstellung abgeschlossen" if success
             else "Wiederherstellung fehlgeschlagen",
-            color=0x2ecc71 if success else 0xe74c3c,
+            color=COLOR_SUCCESS if success else 0xe74c3c,
             timestamp=datetime.now(timezone.utc),
         )
 
@@ -372,7 +373,7 @@ class ServerBackupCog(commands.Cog):
         embed = discord.Embed(
             title="Server-Backup erstellt",
             description=f"Backup-ID: `{backup['backup_id']}`",
-            color=0x2ecc71,
+            color=COLOR_SUCCESS,
             timestamp=datetime.now(timezone.utc),
         )
         embed.add_field(
@@ -443,7 +444,7 @@ class ServerBackupCog(commands.Cog):
         embed = discord.Embed(
             title=f"Server-Backups ({len(backups)})",
             description="Alle gespeicherten Server-Struktur-Backups:",
-            color=0x3498db,
+            color=COLOR_INFO,
             timestamp=datetime.now(timezone.utc),
         )
 
@@ -518,7 +519,7 @@ class ServerBackupCog(commands.Cog):
 
         embed = discord.Embed(
             title=f"Backup-Details: `{backup_id}`",
-            color=0x3498db,
+            color=COLOR_INFO,
             timestamp=datetime.now(timezone.utc),
         )
 
@@ -647,7 +648,7 @@ class ServerBackupCog(commands.Cog):
         embed = discord.Embed(
             title=f"Vergleich mit Backup `{backup_id}`",
             description="Unterschiede zwischen dem Backup und dem aktuellen Server:",
-            color=0xf39c12,
+            color=COLOR_WARNING,
             timestamp=datetime.now(timezone.utc),
         )
 
@@ -804,7 +805,7 @@ class ServerBackupCog(commands.Cog):
                 f"- {len(backup.get('roles', []))} Rollen\n"
                 f"- {len(backup.get('emojis', []))} Emojis"
             ),
-            color=0xe74c3c if mode == "full" else 0xf39c12,
+            color=COLOR_ERROR if mode == "full" else 0xf39c12,
             timestamp=datetime.now(timezone.utc),
         )
 
@@ -867,7 +868,7 @@ class ServerBackupCog(commands.Cog):
             embed = discord.Embed(
                 title="Backup gelöscht",
                 description=f"Backup `{backup_id}` wurde endgueltig gelöscht.",
-                color=0x2ecc71,
+                color=COLOR_SUCCESS,
                 timestamp=datetime.now(timezone.utc),
             )
             logger.info(
@@ -877,7 +878,7 @@ class ServerBackupCog(commands.Cog):
             embed = discord.Embed(
                 title="Fehler",
                 description=f"Backup `{backup_id}` nicht gefunden.",
-                color=0xe74c3c,
+                color=COLOR_ERROR,
             )
 
         await interaction.followup.send(embed=embed, ephemeral=True)
@@ -917,7 +918,7 @@ class ServerBackupCog(commands.Cog):
 
             embed = discord.Embed(
                 title="Auto-Backup Status",
-                color=0x2ecc71 if enabled else 0x95a5a6,
+                color=COLOR_SUCCESS if enabled else 0x95a5a6,
                 timestamp=datetime.now(timezone.utc),
             )
             embed.add_field(
@@ -958,7 +959,7 @@ class ServerBackupCog(commands.Cog):
             embed = discord.Embed(
                 title="Auto-Backup deaktiviert",
                 description="Automatische Server-Backups wurden deaktiviert.",
-                color=0x95a5a6,
+                color=COLOR_NEUTRAL,
                 timestamp=datetime.now(timezone.utc),
             )
             await interaction.followup.send(embed=embed, ephemeral=True)
@@ -989,7 +990,7 @@ class ServerBackupCog(commands.Cog):
                 f"Automatische Server-Backups alle **{intervall_tage} Tag(e)**.\n"
                 f"Server: **{interaction.guild.name}**"
             ),
-            color=0x2ecc71,
+            color=COLOR_SUCCESS,
             timestamp=datetime.now(timezone.utc),
         )
         await interaction.followup.send(embed=embed, ephemeral=True)

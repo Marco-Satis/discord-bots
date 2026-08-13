@@ -24,6 +24,7 @@ from pathlib import Path
 from utils import get_logger, format_uptime, format_bytes, status_emoji
 from utils.permissions import admin_only, spieler_only, owner_only, is_admin, server_online_required
 from modules.restart_timer import TimerResult
+from utils.embeds import COLOR_ERROR, COLOR_INFO, COLOR_SUCCESS, COLOR_WARNING
 
 logger = get_logger("cogs.satisfactory")
 
@@ -87,7 +88,7 @@ class SatisfactoryCog(commands.Cog):
 
         embed = discord.Embed(
             title=f"{status_emoji(online)} Satisfactory Server",
-            color=0x2ecc71 if online else 0xe74c3c,
+            color=COLOR_SUCCESS if online else 0xe74c3c,
         )
 
         if online:
@@ -151,7 +152,7 @@ class SatisfactoryCog(commands.Cog):
             state = await self.api.query_server_state()
             embed = discord.Embed(
                 title=f"Spieler ({state.num_players}/{state.player_limit})",
-                color=0x3498db,
+                color=COLOR_INFO,
             )
 
             if state.num_players == 0:
@@ -230,7 +231,7 @@ class SatisfactoryCog(commands.Cog):
             embed = discord.Embed(
                 title="🚫 Spieler gebannt",
                 description=msg,
-                color=0xe74c3c,
+                color=COLOR_ERROR,
             )
             if not save_ok:
                 embed.add_field(
@@ -279,7 +280,7 @@ class SatisfactoryCog(commands.Cog):
             embed = discord.Embed(
                 title="✅ Ban aufgehoben",
                 description=msg,
-                color=0x2ecc71,
+                color=COLOR_SUCCESS,
             )
             embed.set_footer(text=f"von {interaction.user.display_name}")
             await interaction.followup.send(embed=embed)
@@ -315,7 +316,7 @@ class SatisfactoryCog(commands.Cog):
 
         embed = discord.Embed(
             title=f"🚫 Aktive Bans ({len(bans)})",
-            color=0xe74c3c,
+            color=COLOR_ERROR,
         )
 
         if not bans:
@@ -353,7 +354,7 @@ class SatisfactoryCog(commands.Cog):
                 embed = discord.Embed(
                     title="Spiel gespeichert",
                     description="Savegame wurde erfolgreich gespeichert.",
-                    color=0x2ecc71,
+                    color=COLOR_SUCCESS,
                 )
                 embed.set_footer(text=f"von {interaction.user.display_name}")
                 await interaction.followup.send(embed=embed)
@@ -390,7 +391,7 @@ class SatisfactoryCog(commands.Cog):
             embed = discord.Embed(
                 title="Savegame Download",
                 description=f"**{_md(latest['name'])}**",
-                color=0x3498db,
+                color=COLOR_INFO,
             )
             embed.add_field(
                 name="Größe", value=latest["size_human"], inline=True
@@ -419,7 +420,7 @@ class SatisfactoryCog(commands.Cog):
             return
 
         embed = discord.Embed(
-            title=f"Backups ({len(backups)})", color=0x3498db
+            title=f"Backups ({len(backups)})", color=COLOR_INFO
         )
 
         entries = []
@@ -473,7 +474,7 @@ class SatisfactoryCog(commands.Cog):
                 f"**ACHTUNG: Aktuelle Savegames werden überschrieben!**\n"
                 f"*(Ein Pre-Restore Backup wird automatisch erstellt)*"
             ),
-            color=0xe74c3c,
+            color=COLOR_ERROR,
         )
         await interaction.followup.send(embed=embed, view=view)
 
@@ -504,7 +505,7 @@ class SatisfactoryCog(commands.Cog):
         await interaction.response.defer()
 
         embed = discord.Embed(
-            title="Satisfactory Servereinstellungen", color=0x3498db
+            title="Satisfactory Servereinstellungen", color=COLOR_INFO
         )
 
         if not await self.server.is_running():
@@ -597,7 +598,7 @@ class SatisfactoryCog(commands.Cog):
                 f"Alle verbundenen Spieler werden getrennt.\n"
                 f"Der aktuelle Spielstand geht verloren wenn nicht gespeichert!"
             ),
-            color=0xe67e22,
+            color=COLOR_WARNING,
         )
         await interaction.followup.send(embed=embed, view=view)
 
@@ -634,7 +635,7 @@ class SatisfactoryCog(commands.Cog):
 
             embed = discord.Embed(
                 title=f"Savegame: {_md(stats.get('name', 'Unbekannt'))}",
-                color=0x3498db,
+                color=COLOR_INFO,
             )
             embed.add_field(
                 name="Größe", value=stats.get("size", "?"), inline=True
@@ -738,7 +739,7 @@ class SatisfactoryCog(commands.Cog):
             embed = discord.Embed(
                 title="Savegame Upload bestaetigen",
                 description=desc,
-                color=0xe67e22 if exists else 0x3498db,
+                color=COLOR_WARNING if exists else 0x3498db,
             )
             embed.set_footer(text=f"von {interaction.user.display_name}")
             await interaction.followup.send(embed=embed, view=view)
@@ -809,7 +810,7 @@ class SatisfactoryCog(commands.Cog):
             embed = discord.Embed(
                 title=f"{count} Blueprint(s) hochgeladen",
                 description="\n".join(f"\u2022 {_md(n)}" for n in added),
-                color=0x2ecc71,
+                color=COLOR_SUCCESS,
             )
             embed.add_field(name="Kategorie", value=kategorie, inline=True)
             embed.set_footer(text=f"von {interaction.user.display_name}")
@@ -854,7 +855,7 @@ class SatisfactoryCog(commands.Cog):
         embed = discord.Embed(
             title="Blueprint hochgeladen",
             description="\n".join(f"\u2022 **{_md(n)}**" for n in added_names),
-            color=0x2ecc71,
+            color=COLOR_SUCCESS,
         )
         embed.add_field(name="Kategorie", value=kategorie, inline=True)
         embed.set_footer(text=f"von {interaction.user.display_name}")
@@ -1016,7 +1017,7 @@ class SatisfactoryCog(commands.Cog):
                     if len(batch_names) == 1
                     else f"{len(batch_names)} Blueprints"
                 )
-                embed = discord.Embed(title=title, color=0x3498db)
+                embed = discord.Embed(title=title, color=COLOR_INFO)
                 embed.add_field(
                     name="Enthalten",
                     value="\n".join(f"• {n}" for n in batch_names)[:1024],
@@ -1145,7 +1146,7 @@ class SatisfactoryCog(commands.Cog):
             embed = discord.Embed(
                 title="Loeschen bestaetigen",
                 description=desc,
-                color=0xe74c3c,
+                color=COLOR_ERROR,
             )
             await interaction.followup.send(embed=embed, view=view)
         else:
@@ -1158,7 +1159,7 @@ class SatisfactoryCog(commands.Cog):
                 embed = discord.Embed(
                     title="Blueprint gelöscht",
                     description=f"**{_md(name)}** wurde gelöscht (.sbp + .sbpcfg).",
-                    color=0xe74c3c,
+                    color=COLOR_ERROR,
                 )
                 embed.set_footer(text=f"von {interaction.user.display_name}")
                 await interaction.followup.send(embed=embed)
@@ -1238,7 +1239,7 @@ class SatisfactoryCog(commands.Cog):
         embed = discord.Embed(
             title="Blueprint-Migration",
             description=f"**{von}** → **{nach}**",
-            color=0x2ecc71 if not (conflict or copy_errors) else 0xf39c12,
+            color=COLOR_SUCCESS if not (conflict or copy_errors) else 0xf39c12,
         )
         if copied:
             embed.add_field(
@@ -1305,7 +1306,7 @@ class SatisfactoryCog(commands.Cog):
                 embed=discord.Embed(
                     title="Server neugestartet",
                     description=success_desc,
-                    color=0x2ecc71,
+                    color=COLOR_SUCCESS,
                 )
             )
         else:
@@ -1389,7 +1390,7 @@ class SatisfactoryCog(commands.Cog):
     async def whitelist_list(self, interaction: discord.Interaction):
         players = self.bot.whitelist_mgr.get_list()
         embed = discord.Embed(
-            title=f"Whitelist ({len(players)} Spieler)", color=0x2ecc71
+            title=f"Whitelist ({len(players)} Spieler)", color=COLOR_SUCCESS
         )
         embed.add_field(
             name="Status",
@@ -1430,7 +1431,7 @@ class SatisfactoryCog(commands.Cog):
         )
         if added:
             embed = discord.Embed(
-                title="Spieler zur Blacklist hinzugefuegt", color=0xe74c3c
+                title="Spieler zur Blacklist hinzugefuegt", color=COLOR_ERROR
             )
             embed.add_field(name="Spieler", value=_md(player), inline=True)
             embed.add_field(name="Grund", value=_md(reason), inline=True)
@@ -1468,7 +1469,7 @@ class SatisfactoryCog(commands.Cog):
     async def blacklist_list(self, interaction: discord.Interaction):
         players = self.bot.blacklist_mgr.get_list()
         embed = discord.Embed(
-            title=f"Blacklist ({len(players)} Spieler)", color=0xe74c3c
+            title=f"Blacklist ({len(players)} Spieler)", color=COLOR_ERROR
         )
 
         if players:
@@ -1546,7 +1547,7 @@ class RestoreConfirmView(discord.ui.View):
             embed = discord.Embed(
                 title="Restore erfolgreich",
                 description=msg,
-                color=0x2ecc71,
+                color=COLOR_SUCCESS,
             )
             embed.set_footer(text="Starte den Server über das Dashboard")
             await interaction.edit_original_response(
@@ -1609,7 +1610,7 @@ class LoadConfirmView(discord.ui.View):
                     f"**{_md(self.savename)}** wird geladen.\n"
                     f"Spieler werden kurzzeitig getrennt."
                 ),
-                color=0x2ecc71,
+                color=COLOR_SUCCESS,
             )
             if result:
                 embed.add_field(
@@ -1695,7 +1696,7 @@ class BlueprintRestartView(discord.ui.View):
                 embed = discord.Embed(
                     title="Server neugestartet",
                     description="Blueprints sind jetzt verfügbar!",
-                    color=0x2ecc71,
+                    color=COLOR_SUCCESS,
                 )
                 await interaction.channel.send(embed=embed)
             else:
@@ -1763,7 +1764,7 @@ class MigrateConflictView(discord.ui.View):
             desc += f"\n{len(errors)} Fehler: " + "; ".join(errors[:3])
         await interaction.followup.send(
             embed=discord.Embed(
-                title="Überschrieben", description=desc, color=0xf39c12
+                title="Überschrieben", description=desc, color=COLOR_WARNING
             )
         )
         logger.info(
@@ -1795,7 +1796,7 @@ class MigrateConflictView(discord.ui.View):
             desc += f"\n{len(errors)} Fehler: " + "; ".join(errors[:3])
         await interaction.followup.send(
             embed=discord.Embed(
-                title="Gelöscht", description=desc, color=0xe74c3c
+                title="Gelöscht", description=desc, color=COLOR_ERROR
             )
         )
         logger.info(
@@ -1822,7 +1823,7 @@ class MigrateConflictView(discord.ui.View):
             embed=discord.Embed(
                 title="Behalten",
                 description="Ziel-Versionen bleiben unverändert.",
-                color=0x2ecc71,
+                color=COLOR_SUCCESS,
             )
         )
         logger.info(
@@ -1887,7 +1888,7 @@ class UploadConfirmView(discord.ui.View):
                     f"Größe: {format_bytes(len(file_data))}\n"
                     f"Ziel: `{self.target_path.parent.name}/{self.target_path.name}`"
                 ),
-                color=0x2ecc71,
+                color=COLOR_SUCCESS,
             )
             if backed_up:
                 embed.add_field(
@@ -1940,7 +1941,7 @@ class BlueprintListView(discord.ui.View):
         embed = discord.Embed(
             title=f"Blueprints ({self.total_count}) \u2014 Welt: {self.active_world}",
             description=self.pages[page],
-            color=0x3498db,
+            color=COLOR_INFO,
         )
         embed.set_footer(
             text=f"Seite {page + 1}/{len(self.pages)} | "
@@ -2031,7 +2032,7 @@ class BlueprintDeleteConfirmView(discord.ui.View):
         embed = discord.Embed(
             title="Blueprints gelöscht",
             description=desc,
-            color=0xe74c3c if not failed else 0xe67e22,
+            color=COLOR_ERROR if not failed else 0xe67e22,
         )
         embed.set_footer(text=f"von {interaction.user.display_name}")
 

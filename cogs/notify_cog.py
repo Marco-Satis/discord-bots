@@ -32,6 +32,7 @@ from discord.ext import commands
 
 from modules.database.db_manager import get_db
 from utils.logger import get_logger
+from utils.embeds import COLOR_ERROR, COLOR_INFO, COLOR_SUCCESS
 
 # Throttle zwischen DMs (Discord empfiehlt ≤5 DMs/sec, sicher: 100ms = 10/sec).
 _DM_THROTTLE_S = 0.1
@@ -269,7 +270,7 @@ class NotifyCog(commands.Cog):
                 f"Events: Server Online/Offline, Updates, geplante Neustarts\n\n"
                 f"Abmelden mit: `/notify unsubscribe {server_id}`"
             ),
-            color=0x2ECC71,
+            color=COLOR_SUCCESS,
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
 
@@ -329,7 +330,7 @@ class NotifyCog(commands.Cog):
         embed = discord.Embed(
             title="Benachrichtigung abbestellt",
             description=f"Du erhältst keine DMs mehr für **{server.name}**.",
-            color=0xE74C3C,
+            color=COLOR_ERROR,
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
 
@@ -361,7 +362,7 @@ class NotifyCog(commands.Cog):
 
         embed = discord.Embed(
             title=f"Deine Benachrichtigungen ({len(subscriptions)})",
-            color=0x5865F2,
+            color=COLOR_INFO,
         )
 
         lines: list[str] = []

@@ -26,6 +26,7 @@ from modules.warn_manager import WarnManager
 from utils.logger import get_logger
 from utils.config import ADMIN_DATA_DIR
 from utils.permissions import admin_only
+from utils.embeds import COLOR_ERROR, COLOR_SUCCESS, COLOR_WARNING
 
 logger = get_logger("cogs.warn")
 
@@ -127,7 +128,7 @@ class WarnCog(commands.Cog):
         # Response-Embed
         embed = discord.Embed(
             title="Verwarnung erteilt",
-            color=0xe67e22,
+            color=COLOR_WARNING,
             timestamp=datetime.now(),
         )
         embed.add_field(name="User", value=user.mention, inline=True)
@@ -202,7 +203,7 @@ class WarnCog(commands.Cog):
                     f"Warn `{resolved_id[:8]}...` von {user.mention} entfernt.\n"
                     f"Verbleibende Punkte: **{total_points}**"
                 ),
-                color=0x2ecc71,
+                color=COLOR_SUCCESS,
             )
             embed.set_footer(text=f"von {interaction.user.display_name}")
             await interaction.followup.send(embed=embed, ephemeral=True)
@@ -417,7 +418,7 @@ class WarnCog(commands.Cog):
                     f"Grund: {total_points} Warn-Punkte "
                     f"(Schwelle: {self.warn_mgr.thresholds.get('mute', 3)})"
                 ),
-                color=0xf39c12,
+                color=COLOR_WARNING,
             )
             await interaction.followup.send(embed=embed)
             logger.info(f"Auto-Mute: {user} ({total_points} Punkte)")
@@ -452,7 +453,7 @@ class WarnCog(commands.Cog):
                     f"Du kannst dem Server erneut beitreten, "
                     f"aber weitere Verwarnungen fuehren zum Ban."
                 ),
-                color=0xe74c3c,
+                color=COLOR_ERROR,
             )
             await user.send(embed=dm_embed)
         except (discord.Forbidden, discord.HTTPException):
@@ -468,7 +469,7 @@ class WarnCog(commands.Cog):
                     f"Grund: {total_points} Warn-Punkte "
                     f"(Schwelle: {self.warn_mgr.thresholds.get('kick', 6)})"
                 ),
-                color=0xe74c3c,
+                color=COLOR_ERROR,
             )
             await interaction.followup.send(embed=embed)
             logger.info(f"Auto-Kick: {user} ({total_points} Punkte)")
@@ -503,7 +504,7 @@ class WarnCog(commands.Cog):
                     f"Wende dich an einen Admin, falls du denkst, "
                     f"dass dies ein Fehler ist."
                 ),
-                color=0xe74c3c,
+                color=COLOR_ERROR,
             )
             await user.send(embed=dm_embed)
         except (discord.Forbidden, discord.HTTPException):
@@ -523,7 +524,7 @@ class WarnCog(commands.Cog):
                     f"Grund: {total_points} Warn-Punkte "
                     f"(Schwelle: {self.warn_mgr.thresholds.get('ban', 10)})"
                 ),
-                color=0xe74c3c,
+                color=COLOR_ERROR,
             )
             await interaction.followup.send(embed=embed)
             logger.info(f"Auto-Ban: {user} ({total_points} Punkte)")
@@ -586,7 +587,7 @@ class WarnCog(commands.Cog):
         try:
             embed = discord.Embed(
                 title="Du wurdest verwarnt",
-                color=0xe67e22,
+                color=COLOR_WARNING,
                 timestamp=datetime.now(),
             )
             embed.add_field(name="Grund", value=grund, inline=False)

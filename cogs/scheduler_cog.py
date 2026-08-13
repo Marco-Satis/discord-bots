@@ -25,6 +25,7 @@ from utils.config import get_config, get_env, DATA_DIR
 from utils.permissions import is_admin, admin_only
 from modules.notifications.discord_notifier import NotifyLevel
 from modules.database.db_manager import get_db, DBHelper
+from utils.embeds import COLOR_INFO, COLOR_SUCCESS, COLOR_WARNING
 
 BERLIN_TZ = ZoneInfo("Europe/Berlin")
 SCHEDULED_MESSAGES_FILE = DATA_DIR / "scheduled_messages.json"
@@ -1934,7 +1935,7 @@ class SchedulerCog(commands.Cog):
 
         embed = discord.Embed(
             title="⏰ Scheduler Status",
-            color=0x5865F2,
+            color=COLOR_INFO,
             timestamp=datetime.now(),
         )
 
@@ -2101,7 +2102,7 @@ class SchedulerCog(commands.Cog):
                     f"**Verfuegbar:** Build {info.get('available_buildid', '?')}\n\n"
                     f"Verwende `/update start` um zu aktualisieren."
                 ),
-                color=0xf39c12,
+                color=COLOR_WARNING,
             )
         else:
             embed = discord.Embed(
@@ -2110,7 +2111,7 @@ class SchedulerCog(commands.Cog):
                     f"Build: {info.get('installed_buildid', '?')}\n"
                     f"Geprueft: {info.get('checked_at', '?')[:16]}"
                 ),
-                color=0x2ecc71,
+                color=COLOR_SUCCESS,
             )
 
         await interaction.followup.send(embed=embed)
@@ -2377,7 +2378,7 @@ class SchedulerCog(commands.Cog):
         repeat_str = {"einmalig": "Einmalig", "taeglich": "Taeglich", "woechentlich": "Woechentlich"}
         embed = discord.Embed(
             title=f"Nachricht geplant (#{schedule_id})",
-            color=0x00cc66,
+            color=COLOR_SUCCESS,
         )
         embed.add_field(name="Nachricht", value=nachricht[:1024], inline=False)
         embed.add_field(name="Zeitpunkt", value=time_str, inline=True)
@@ -2425,7 +2426,7 @@ class SchedulerCog(commands.Cog):
         embed = discord.Embed(
             title=f"Geplante Nachrichten ({len(self._scheduled_messages)})",
             description=text,
-            color=0x5865F2,
+            color=COLOR_INFO,
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
 

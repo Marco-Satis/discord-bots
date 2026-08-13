@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 import discord
 
 from utils.logger import get_logger
+from utils.embeds import COLOR_ERROR, COLOR_INFO
 
 if TYPE_CHECKING:
     from modules.temp_voice import TempVoiceManager
@@ -63,7 +64,7 @@ def build_panel_embed(
 
     embed = discord.Embed(
         title=f"🎮 {channel.name}",
-        color=0xE74C3C if private else 0x5865F2,
+        color=COLOR_ERROR if private else 0x5865F2,
         timestamp=datetime.now(timezone.utc),
     )
 
@@ -126,7 +127,7 @@ def build_interface_embed() -> discord.Embed:
             "👤 **Übertragen** · 🔨 **Bannen** · ♻️ **Entbannen** · 🙋 **Übernehmen**\n"
             "📜 **Logs** · 🎮 **Accounts**"
         ),
-        color=0x5865F2,
+        color=COLOR_INFO,
     )
     embed.set_footer(text="Nur der Channel-Owner kann steuern (Claim wenn Owner weg).")
     return embed
@@ -806,7 +807,7 @@ class TempVoiceControlView(discord.ui.View):
         embed = discord.Embed(
             title="\U0001f4ca Letzte Events",
             description="\n".join(lines),
-            color=0x5865F2,
+            color=COLOR_INFO,
         )
         await interaction.response.send_message(
             embed=embed, ephemeral=True,
@@ -847,7 +848,7 @@ class TempVoiceControlView(discord.ui.View):
             return
 
         embed = discord.Embed(
-            title="\U0001f3ae Deine verlinkten Accounts", color=0x5865F2
+            title="\U0001f3ae Deine verlinkten Accounts", color=COLOR_INFO
         )
         for platform, account_id in links.items():
             embed.add_field(

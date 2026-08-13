@@ -27,6 +27,7 @@ from discord.ext import commands, tasks
 from modules.database.db_manager import get_db
 from utils.config import MONITOR_DATA_DIR
 from utils.logger import get_logger
+from utils.embeds import COLOR_SUCCESS, COLOR_WARNING
 
 logger = get_logger("cogs.maintenance_mode")
 
@@ -266,7 +267,7 @@ class MaintenanceModeCog(commands.Cog):
         # Embed für die Bestaetigung
         embed = discord.Embed(
             title="Wartungsmodus aktiviert",
-            color=0xFF9900,
+            color=COLOR_WARNING,
             timestamp=datetime.now(),
         )
         embed.add_field(
@@ -290,7 +291,7 @@ class MaintenanceModeCog(commands.Cog):
                 f"Alle Server befinden sich im Wartungsmodus.\n"
                 f"**Grund:** {grund or 'Nicht angegeben'}"
             ),
-            color=0xFF9900,
+            color=COLOR_WARNING,
             timestamp=datetime.now(),
         )
         public_embed.set_footer(
@@ -329,7 +330,7 @@ class MaintenanceModeCog(commands.Cog):
         embed = discord.Embed(
             title="Wartungsmodus deaktiviert",
             description="Alle Server zeigen wieder den normalen Status an.",
-            color=0x2ECC71,
+            color=COLOR_SUCCESS,
             timestamp=datetime.now(),
         )
         embed.set_footer(
@@ -342,7 +343,7 @@ class MaintenanceModeCog(commands.Cog):
         public_embed = discord.Embed(
             title="Wartungsmodus beendet",
             description="Alle Server sind wieder im Normalbetrieb.",
-            color=0x2ECC71,
+            color=COLOR_SUCCESS,
             timestamp=datetime.now(),
         )
         public_embed.set_footer(
@@ -368,7 +369,7 @@ class MaintenanceModeCog(commands.Cog):
         if state["active"]:
             embed = discord.Embed(
                 title="Wartungsmodus: AKTIV",
-                color=0xFF9900,
+                color=COLOR_WARNING,
                 timestamp=datetime.now(),
             )
             embed.add_field(
@@ -413,7 +414,7 @@ class MaintenanceModeCog(commands.Cog):
             embed = discord.Embed(
                 title="Wartungsmodus: INAKTIV",
                 description="Alle Server zeigen den normalen Status an.",
-                color=0x2ECC71,
+                color=COLOR_SUCCESS,
                 timestamp=datetime.now(),
             )
 

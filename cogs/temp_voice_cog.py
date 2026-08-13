@@ -42,6 +42,7 @@ from utils.logger import get_logger
 from utils.config import ADMIN_DATA_DIR
 from utils.permissions import admin_only
 from utils.async_tasks import track_task
+from utils.embeds import COLOR_INFO, COLOR_SUCCESS
 
 logger = get_logger("cogs.temp_voice")
 
@@ -518,7 +519,7 @@ class TempVoiceCog(commands.Cog):
         embed = discord.Embed(
             title="Temp-Voice Setup",
             description="\n".join(f"- {line}" for line in info_lines),
-            color=0x2ecc71,
+            color=COLOR_SUCCESS,
             timestamp=datetime.now(timezone.utc),
         )
         embed.set_footer(text=f"Konfiguriert von {interaction.user.display_name}")
@@ -595,7 +596,7 @@ class TempVoiceCog(commands.Cog):
                 + (f"\n- Spiel: {discord.utils.escape_markdown(hub.get('game', ''))}"
                    if hub.get("game") else "")
             ),
-            color=0x2ecc71,
+            color=COLOR_SUCCESS,
             timestamp=datetime.now(timezone.utc),
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
@@ -655,7 +656,7 @@ class TempVoiceCog(commands.Cog):
         hubs = self.manager.get_hubs()
         embed = discord.Embed(
             title="Temp-Voice Hubs",
-            color=0x5865F2,
+            color=COLOR_INFO,
             timestamp=datetime.now(timezone.utc),
         )
         if not hubs:
@@ -803,7 +804,7 @@ class TempVoiceCog(commands.Cog):
 
         embed = discord.Embed(
             title="Temp-Voice Informationen",
-            color=0x5865F2,
+            color=COLOR_INFO,
             timestamp=datetime.now(timezone.utc),
         )
 

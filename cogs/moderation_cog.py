@@ -34,6 +34,7 @@ from modules.guild_context import GuildConfig
 from utils.config import get_env
 from utils.logger import get_logger
 from utils.permissions import admin_only, is_admin
+from utils.embeds import COLOR_SUCCESS
 
 logger = get_logger("cogs.moderation")
 
@@ -477,7 +478,7 @@ class ModerationCog(commands.Cog):
 
         embed = discord.Embed(
             title=f"Wortfilter ({status})",
-            color=0x2ecc71 if self.word_filter.enabled else 0x95a5a6,
+            color=COLOR_SUCCESS if self.word_filter.enabled else 0x95a5a6,
         )
 
         if normal_words:

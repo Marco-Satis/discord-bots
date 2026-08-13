@@ -20,6 +20,7 @@ from utils.logger import get_logger
 from utils.formatting import format_uptime, format_bytes, progress_bar
 from utils.permissions import is_admin, is_owner
 from utils.config import PROJECT_ROOT
+from utils.embeds import COLOR_ERROR, COLOR_INFO, COLOR_SUCCESS, COLOR_WARNING
 
 logger = get_logger("monitor_cog")
 
@@ -68,7 +69,7 @@ class MonitorCog(commands.Cog):
         embed = discord.Embed(
             title="📊 System-Performance",
             description=f"Netcup RS 4000 G12 | Uptime: {format_uptime(sys_uptime)}",
-            color=0x5865F2,
+            color=COLOR_INFO,
             timestamp=datetime.now(),
         )
 
@@ -194,7 +195,7 @@ class MonitorCog(commands.Cog):
 
             embed = discord.Embed(
                 title=f"📊 Statistiken: {stats['name']}",
-                color=0x2ecc71 if stats["is_online"] else 0x888888,
+                color=COLOR_SUCCESS if stats["is_online"] else 0x888888,
                 timestamp=datetime.now(),
             )
             embed.add_field(name="Status", value=online_str, inline=True)
@@ -248,7 +249,7 @@ class MonitorCog(commands.Cog):
             embed = discord.Embed(
                 title="📊 Spieler-Übersicht",
                 description=f"{len(all_stats)} Spieler erfasst",
-                color=0x5865F2,
+                color=COLOR_INFO,
                 timestamp=datetime.now(),
             )
 
@@ -289,7 +290,7 @@ class MonitorCog(commands.Cog):
         embed = discord.Embed(
             title=f"📋 {title_prefix}bericht",
             description=f"{start_date} — {end_date} ({days} Tage)",
-            color=0x5865F2,
+            color=COLOR_INFO,
             timestamp=now,
         )
 
@@ -517,7 +518,7 @@ class MonitorCog(commands.Cog):
             embed = discord.Embed(
                 title="🌍 Welt-Statistiken",
                 description=f"**{world_stats.session_name}**",
-                color=0x5865F2,
+                color=COLOR_INFO,
                 timestamp=datetime.now(),
             )
 
@@ -772,7 +773,7 @@ class MonitorCog(commands.Cog):
                     f"**Ergebnis:** {passed}/{total} bestanden\n"
                     f"✅ {passed} | ❌ {failed}"
                 ),
-                color=0x2ecc71 if failed == 0 else 0xf39c12 if failed <= 2 else 0xe74c3c,
+                color=COLOR_SUCCESS if failed == 0 else 0xf39c12 if failed <= 2 else 0xe74c3c,
                 timestamp=datetime.now(),
             )
 
@@ -853,7 +854,7 @@ class MonitorCog(commands.Cog):
             # Build embed with latest entries
             embed = discord.Embed(
                 title=f"📋 Letzte Commands ({len(entries)})",
-                color=0x5865F2,
+                color=COLOR_INFO,
                 timestamp=datetime.now(),
             )
 
@@ -949,7 +950,7 @@ class MonitorCog(commands.Cog):
 
         embed = discord.Embed(
             title="⛏️ Minecraft Server-Statistiken",
-            color=0x5865F2,
+            color=COLOR_INFO,
             timestamp=datetime.now(),
         )
 
@@ -1060,7 +1061,7 @@ class MonitorCog(commands.Cog):
         embed = discord.Embed(
             title="📋 Minecraft Bericht",
             description=f"{start_date} — {end_date} ({days} Tage)",
-            color=0x5865F2,
+            color=COLOR_INFO,
             timestamp=now,
         )
 
@@ -1196,7 +1197,7 @@ class MonitorCog(commands.Cog):
             embed = discord.Embed(
                 title=f"🔍 MC Crash Replays — {sid} ({len(replays)})",
                 description="\n".join(lines),
-                color=0xff6600,
+                color=COLOR_WARNING,
                 timestamp=datetime.now(),
             )
             embed.set_footer(
@@ -1277,7 +1278,7 @@ class MonitorCog(commands.Cog):
 
         embed = discord.Embed(
             title="📧 Email-Konfiguration",
-            color=0x2ecc71 if notifier.enabled else 0xe74c3c,
+            color=COLOR_SUCCESS if notifier.enabled else 0xe74c3c,
             timestamp=datetime.now(),
         )
         embed.add_field(
@@ -1355,13 +1356,13 @@ class MonitorCog(commands.Cog):
 
         # Embed-Farbe basierend auf Speicherplatz
         if disk_percent >= 95:
-            color = 0xe74c3c  # Rot: Kritisch
+            color = COLOR_ERROR  # Rot: Kritisch
             disk_status = "KRITISCH"
         elif disk_percent >= 80:
-            color = 0xf39c12  # Gelb: Warnung
+            color = COLOR_WARNING  # Gelb: Warnung
             disk_status = "Warnung"
         else:
-            color = 0x2ecc71  # Gruen: OK
+            color = COLOR_SUCCESS  # Gruen: OK
             disk_status = "OK"
 
         embed = discord.Embed(
@@ -1464,7 +1465,7 @@ class MonitorCog(commands.Cog):
 
         embed = discord.Embed(
             title="☁️ OneDrive Backup",
-            color=0x2ecc71 if od.enabled and configured else 0xe74c3c,
+            color=COLOR_SUCCESS if od.enabled and configured else 0xe74c3c,
             timestamp=datetime.now(),
         )
         embed.add_field(
@@ -1565,7 +1566,7 @@ class MonitorCog(commands.Cog):
         embed = discord.Embed(
             title=f"☁️ Cloud-Backups ({len(files)})",
             description="\n".join(lines),
-            color=0x5865F2,
+            color=COLOR_INFO,
             timestamp=datetime.now(),
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
@@ -1649,7 +1650,7 @@ class MonitorCog(commands.Cog):
             embed = discord.Embed(
                 title=f"🔍 Crash Replays ({len(replays)})",
                 description="\n".join(lines),
-                color=0xff6600,
+                color=COLOR_WARNING,
                 timestamp=datetime.now(),
             )
             embed.set_footer(
@@ -1676,7 +1677,7 @@ class MonitorCog(commands.Cog):
 
         embed = discord.Embed(
             title="🔄 Rollback-Status",
-            color=0xff6600 if info["crash_loop_active"] else 0x5865F2,
+            color=COLOR_WARNING if info["crash_loop_active"] else 0x5865F2,
             timestamp=datetime.now(),
         )
 

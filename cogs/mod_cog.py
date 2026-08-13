@@ -15,6 +15,7 @@ from typing import Optional
 
 from utils import get_logger, spieler_only, truncate
 from modules.mod_manager import ModManager
+from utils.embeds import COLOR_SUCCESS, COLOR_WARNING
 
 logger = get_logger("cogs.mod")
 
@@ -69,14 +70,14 @@ class ModCog(commands.Cog):
                 embed = discord.Embed(
                     title=f"{game.capitalize()} - Mods",
                     description="Keine Mods installiert",
-                    color=0xFFA500
+                    color=COLOR_WARNING
                 )
                 await interaction.followup.send(embed=embed)
                 return
 
             embed = discord.Embed(
                 title=f"{game.capitalize()} - Installierte Mods ({len(mods)})",
-                color=0x00FF00
+                color=COLOR_SUCCESS
             )
 
             for i, mod_entry in enumerate(mods[:25], 1):
@@ -140,7 +141,7 @@ class ModCog(commands.Cog):
             embed = discord.Embed(
                 title=f"Mod: {mod_entry.get('name')}",
                 description=mod_entry.get("description", "Keine Beschreibung"),
-                color=0x00FF00
+                color=COLOR_SUCCESS
             )
 
             embed.add_field(

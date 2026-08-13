@@ -32,6 +32,7 @@ from utils.logger import get_logger
 from utils.permissions import admin_only
 from utils.async_tasks import track_task
 from modules.database.db_manager import get_db
+from utils.embeds import COLOR_INFO
 
 logger = get_logger("cogs.reaction_roles")
 
@@ -282,7 +283,7 @@ class ReactionRolesCog(commands.Cog):
         embed = discord.Embed(
             title=titel,
             description=beschreibung,
-            color=0x5865F2,
+            color=COLOR_INFO,
         )
         embed.set_footer(
             text="Reagiere mit einem Emoji um dir eine Rolle zuzuweisen!"
@@ -539,7 +540,7 @@ class ReactionRolesCog(commands.Cog):
 
         embed = discord.Embed(
             title=f"Reaction Roles ({len(self._data)} Nachricht(en))",
-            color=0x5865F2,
+            color=COLOR_INFO,
         )
 
         for msg_id_str, entry in self._data.items():
