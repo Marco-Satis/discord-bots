@@ -202,6 +202,8 @@ INITIAL_COGS = [
     "cogs.satisfactory_cog",
     # To-Do-Board (/todo) — gemeinsame Bau-Ziele
     "cogs.todo_cog",
+    # Design-Vorschau (/design) — Stil-Varianten, ephemeral, ohne Nebenwirkung
+    "cogs.design_preview_cog",
     # General commands (/help, /server, /ping, /reload)
     "cogs.general_cog",
     # Moderation (/timeout)
