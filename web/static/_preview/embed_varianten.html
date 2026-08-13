@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Embed-Design — Varianten</title>
+<style>
+  :root{
+    /* Discord-Farben (Dark, Stand 2026) */
+    --chat-bg:#313338; --card-bg:#2B2D31; --code-bg:#1E1F22;
+    --text:#DBDEE1; --text-strong:#F2F3F5; --text-muted:#949BA4;
+    --btn-secondary:#4E5058; --btn-success:#248046; --btn-primary:#5865F2;
+    --divider:#3F4147;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:24px 16px 64px;
+    background:#1A1B1E; color:var(--text);
+    font-family:"gg sans","Noto Sans",-apple-system,"Segoe UI",Roboto,sans-serif;
+    font-size:16px; line-height:1.375;
+  }
+  h1{font-size:22px;color:var(--text-strong);margin:0 0 4px}
+  .lead{color:var(--text-muted);font-size:14px;margin:0 0 28px;max-width:60ch}
+  .grid{display:flex;flex-wrap:wrap;gap:28px;align-items:flex-start}
+  .variant{width:400px;max-width:100%}
+  .variant > h2{
+    font-size:13px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--text-muted);margin:0 0 2px;font-weight:700;
+  }
+  .variant > .note{font-size:13px;color:var(--text-muted);margin:0 0 10px}
+  .chat{background:var(--chat-bg);border-radius:10px;padding:14px 12px}
+
+  /* --- Components V2: Container mit Akzentleiste ------------------- */
+  .container{
+    background:var(--card-bg);border-radius:8px;
+    border-left:4px solid var(--accent,#4E5058);
+    padding:14px 16px;display:flex;flex-direction:column;gap:8px;
+  }
+  /* --- klassisches Embed ------------------------------------------- */
+  .embed{
+    background:var(--card-bg);border-radius:4px;
+    border-left:4px solid var(--accent,#5865F2);
+    padding:12px 16px 14px;display:flex;flex-direction:column;gap:8px;
+  }
+  .embed .etitle{font-weight:600;color:var(--text-strong);font-size:16px}
+  .embed .field-name{font-size:14px;font-weight:600;color:var(--text-strong);margin-bottom:2px}
+  .embed .efooter{font-size:12px;color:var(--text-muted);margin-top:4px}
+
+  h2.d1{font-size:24px;font-weight:700;color:var(--text-strong);margin:0}
+  h2.d2{font-size:20px;font-weight:700;color:var(--text-strong);margin:0}
+  h2.d3{font-size:16px;font-weight:700;color:var(--text-strong);margin:0}
+  .sub{font-size:13px;color:var(--text-muted)}
+  .strong{font-weight:600;color:var(--text-strong)}
+  s{color:var(--text-muted)}
+  code{
+    background:var(--code-bg);border-radius:3px;padding:1px 4px;
+    font-family:Consolas,"Courier New",monospace;font-size:14px;
+  }
+  pre{
+    background:var(--code-bg);border-radius:4px;padding:10px 12px;margin:0;
+    font-family:Consolas,"Courier New",monospace;font-size:13px;line-height:1.4;
+    color:var(--text);overflow-x:auto;
+  }
+  .sep{height:1px;background:var(--divider);border:0;margin:4px 0}
+  .bar{font-family:Consolas,"Courier New",monospace;letter-spacing:-.5px}
+
+  /* --- Section: Text links, Accessory rechts ------------------------ */
+  .section{display:flex;align-items:center;gap:12px}
+  .section .body{flex:1;min-width:0}
+  .btn{
+    border:0;border-radius:8px;padding:0 14px;height:32px;
+    font-size:14px;font-weight:500;color:#fff;background:var(--btn-secondary);
+    display:inline-flex;align-items:center;gap:6px;cursor:default;white-space:nowrap;
+  }
+  .btn.success{background:var(--btn-success)}
+  .btn.primary{background:var(--btn-primary)}
+  .btn.box{padding:0;width:40px;justify-content:center;font-size:17px}
+  .row{display:flex;gap:8px;flex-wrap:wrap}
+  .tag{
+    display:inline-block;background:var(--code-bg);border-radius:4px;
+    padding:1px 6px;font-family:Consolas,monospace;font-size:13px;
+  }
+  .legend{margin:34px 0 0;padding-top:18px;border-top:1px solid #2b2c31;
+          color:var(--text-muted);font-size:13px;max-width:70ch}
+  .legend b{color:var(--text)}
+</style>
+</head>
+<body>
+
+<h1>Embed-Design — 6 Varianten</h1>
+<p class="lead">
+  Dieselben Beispiel-Daten in sechs Design-Sprachen, gerendert wie Discord im Dark-Mode.
+  Varianten 1–3 nutzen Components V2 (Text links, Button rechts in derselben Zeile) —
+  das ist die Technik hinter deinem Referenz-Panel. Varianten 4–6 sind klassische Embeds.
+  In Discord live: <code>/design board &lt;variante&gt;</code>
+</p>
+
+<div class="grid">
+
+  <!-- ================= 1 HUD ================= -->
+  <div class="variant">
+    <h2>1 · HUD</h2>
+    <p class="note">Formsprache deines Referenz-Panels: Balken, Status-Zeile, Aktionen oben.</p>
+    <div class="chat">
+      <div class="container" style="--accent:#F2C14E">
+        <h2 class="d2">💛 BAU-ZIELE</h2>
+        <div>
+          <span class="bar">▬▬▬▬▭▭▭▭▭▭</span> ✅ <span class="tag">2/5</span><br>
+          🟡 In Arbeit · 3 offen
+        </div>
+        <div class="row">
+          <button class="btn">+ Eintrag</button>
+          <button class="btn">Erledigte ausblenden</button>
+        </div>
+        <hr class="sep">
+        <div class="section"><div class="body"><span class="strong">Kohlekraftwerk Süd erweitern</span><br><span class="sub">#1 · Marco</span></div><button class="btn box">⬜</button></div>
+        <div class="section"><div class="body"><span class="strong">Zugstrecke zur Ölquelle</span><br><span class="sub">#2 · Lena</span></div><button class="btn box">⬜</button></div>
+        <div class="section"><div class="body"><span class="strong">Stahlträger-Fabrik automatisieren</span><br><span class="sub">#3 · Tom</span></div><button class="btn box">⬜</button></div>
+        <div class="section"><div class="body"><s>Bauxit-Außenposten sichern</s><br><span class="sub">#4 · Marco</span></div><button class="btn box success">✅</button></div>
+        <div class="section"><div class="body"><s>Lagerhalle sortieren</s><br><span class="sub">#5 · Lena</span></div><button class="btn box success">✅</button></div>
+        <hr class="sep">
+        <div class="sub">Tippe die Box neben einem Eintrag zum Abhaken.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= 2 KARTE ================= -->
+  <div class="variant">
+    <h2>2 · Karte</h2>
+    <p class="note">Ruhig, textzentriert. Offene oben, Erledigtes optisch zurückgenommen.</p>
+    <div class="chat">
+      <div class="container" style="--accent:#2B9348">
+        <h2 class="d2">To-Do — Satisfactory</h2>
+        <div class="sub">3 offen · 2 erledigt · zuletzt vor 12 Minuten</div>
+        <hr class="sep">
+        <div class="section"><div class="body"><span class="strong">Kohlekraftwerk Süd erweitern</span><br><span class="sub">Marco</span></div><button class="btn box">⬜</button></div>
+        <div class="section"><div class="body"><span class="strong">Zugstrecke zur Ölquelle</span><br><span class="sub">Lena</span></div><button class="btn box">⬜</button></div>
+        <div class="section"><div class="body"><span class="strong">Stahlträger-Fabrik automatisieren</span><br><span class="sub">Tom</span></div><button class="btn box">⬜</button></div>
+        <div class="sub" style="margin-top:6px">ERLEDIGT</div>
+        <div class="section"><div class="body"><s>Bauxit-Außenposten sichern</s><br><span class="sub">Marco</span></div><button class="btn box success">✅</button></div>
+        <div class="section"><div class="body"><s>Lagerhalle sortieren</s><br><span class="sub">Lena</span></div><button class="btn box success">✅</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= 3 NEON ================= -->
+  <div class="variant">
+    <h2>3 · Neon</h2>
+    <p class="note">Kräftiger Akzent, Blockbalken mit Prozent, Buttons mit Text statt Emoji.</p>
+    <div class="chat">
+      <div class="container" style="--accent:#7C5CFF">
+        <h2 class="d1">▌ BAUPLAN</h2>
+        <div><code class="bar">█████░░░░░░░</code> <span class="strong">40%</span></div>
+        <hr class="sep">
+        <div class="section"><div class="body"><code>▱</code> Kohlekraftwerk Süd erweitern</div><button class="btn primary">AB</button></div>
+        <div class="section"><div class="body"><code>▱</code> Zugstrecke zur Ölquelle</div><button class="btn primary">AB</button></div>
+        <div class="section"><div class="body"><code>▱</code> Stahlträger-Fabrik automatisieren</div><button class="btn primary">AB</button></div>
+        <div class="section"><div class="body"><code>▰</code> <s>Bauxit-Außenposten sichern</s></div><button class="btn">AUF</button></div>
+        <div class="section"><div class="body"><code>▰</code> <s>Lagerhalle sortieren</s></div><button class="btn">AUF</button></div>
+        <hr class="sep">
+        <div class="sub">aktualisiert gerade eben</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= 4 PANEL ================= -->
+  <div class="variant">
+    <h2>4 · Panel</h2>
+    <p class="note">Klassisches Embed — aber mit Fortschrittsbalken und Feldern. Keine Buttons pro Zeile möglich.</p>
+    <div class="chat">
+      <div class="embed" style="--accent:#1F6FEB">
+        <div class="etitle">Bau-Ziele</div>
+        <div>
+          <span class="bar">▰▰▰▰▱▱▱▱▱▱</span> <span class="strong">2/5</span><br>
+          🟡 3 offen · zuletzt vor 12 Minuten
+        </div>
+        <div>
+          <div class="field-name">Offen</div>
+          <div><code> 1</code> Kohlekraftwerk Süd erweitern<br><span class="sub">Marco</span></div>
+          <div><code> 2</code> Zugstrecke zur Ölquelle<br><span class="sub">Lena</span></div>
+          <div><code> 3</code> Stahlträger-Fabrik automatisieren<br><span class="sub">Tom</span></div>
+        </div>
+        <div>
+          <div class="field-name">Erledigt</div>
+          <div><code> 4</code> <s>Bauxit-Außenposten sichern</s></div>
+          <div><code> 5</code> <s>Lagerhalle sortieren</s></div>
+        </div>
+        <div class="efooter">Satisfactory · Ostfront</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= 5 MONO ================= -->
+  <div class="variant">
+    <h2>5 · Mono</h2>
+    <p class="note">Technischer Look, null Emoji. Achtung: Codeblöcke scrollen auf dem Handy seitlich.</p>
+    <div class="chat">
+      <div class="embed" style="--accent:#2B2D31">
+        <div class="etitle">TO-DO / SATISFACTORY</div>
+<pre>ST NR  AUFGABE
+----------------------------------
+[ ] 1   Kohlekraftwerk Süd erwei…
+[ ] 2   Zugstrecke zur Ölquelle
+[ ] 3   Stahlträger-Fabrik autom…
+[x] 4   Bauxit-Außenposten siche…
+[x] 5   Lagerhalle sortieren</pre>
+        <div class="sub">3 offen · 2 erledigt</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= 6 MINIMAL ================= -->
+  <div class="variant">
+    <h2>6 · Minimal</h2>
+    <p class="note">Randfarbe = Hintergrund, alles über Typografie. Sehr ruhig, wenig Signalwirkung.</p>
+    <div class="chat">
+      <div class="embed" style="--accent:#2B2D31">
+        <h2 class="d3">Bau-Ziele</h2>
+        <div><span class="strong">Kohlekraftwerk Süd erweitern</span><br><span class="sub">Marco · #1</span></div>
+        <div><span class="strong">Zugstrecke zur Ölquelle</span><br><span class="sub">Lena · #2</span></div>
+        <div><span class="strong">Stahlträger-Fabrik automatisieren</span><br><span class="sub">Tom · #3</span></div>
+        <div class="sub">──────────────────</div>
+        <div><s>Bauxit-Außenposten sichern</s><br><span class="sub">Marco · #4</span></div>
+        <div><s>Lagerhalle sortieren</s><br><span class="sub">Lena · #5</span></div>
+        <div class="efooter">3 offen · 2 erledigt</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= MELDUNGEN ================= -->
+  <div class="variant">
+    <h2>Meldungen — neuer Stil</h2>
+    <p class="note">Farbe trägt die Bedeutung, Punkt wiederholt sie für Farbfehlsichtige. <code>/design meldungen</code></p>
+    <div class="chat" style="display:flex;flex-direction:column;gap:8px">
+      <div class="container" style="--accent:#2ECC71">
+        <div>🟢 <span class="strong">Server gestartet</span><br>
+          <span class="sub">Satisfactory läuft wieder · 12s Startzeit</span><br>
+          <span class="sub">vor wenigen Sekunden</span></div>
+      </div>
+      <div class="container" style="--accent:#E5484D">
+        <div>🔴 <span class="strong">RCON nicht erreichbar</span><br>
+          <span class="sub">3 Versuche gescheitert · Port 15777</span><br>
+          <span class="sub">vor 2 Minuten</span></div>
+      </div>
+      <div class="container" style="--accent:#F2C14E">
+        <div>🟡 <span class="strong">Speicher knapp</span><br>
+          <span class="sub">RAM 87% · Backup verschoben</span><br>
+          <span class="sub">vor 8 Minuten</span></div>
+      </div>
+      <div class="container" style="--accent:#1F6FEB">
+        <div>🔵 <span class="strong">Wartung geplant</span><br>
+          <span class="sub">Sonntag 03:00 · ca. 20 Minuten</span><br>
+          <span class="sub">in 2 Tagen</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= VERGLEICH ================= -->
+  <div class="variant">
+    <h2>Serverstatus — heute vs. neu</h2>
+    <p class="note">Identischer Inhalt. Oben der aktuelle Stil, unten die neue Formsprache. <code>/design vergleich</code></p>
+    <div class="chat" style="display:flex;flex-direction:column;gap:12px">
+      <div class="embed" style="--accent:#5865F2">
+        <div class="etitle">Server-Status</div>
+        <div>Status der Gameserver</div>
+        <div style="display:flex;gap:18px;flex-wrap:wrap">
+          <div><div class="field-name">Satisfactory</div>Online<br>3/8 Spieler</div>
+          <div><div class="field-name">Minecraft BMC5</div>Online<br>1/20 Spieler</div>
+          <div><div class="field-name">Vanilla</div>Offline</div>
+        </div>
+        <div class="efooter">Discord Bots · heute um 07:41</div>
+      </div>
+      <div class="container" style="--accent:#F2C14E">
+        <h2 class="d2">SERVERSTATUS</h2>
+        <div>🟢 <span class="strong">Satisfactory</span> · 👥 <span class="tag">3/8</span><br>
+          <code class="bar">▰▰▰▰▱▱▱▱▱▱</code> <span class="sub">Uptime 4d 2h</span></div>
+        <div>🟢 <span class="strong">Minecraft BMC5</span> · 👥 <span class="tag">1/20</span><br>
+          <code class="bar">▰▱▱▱▱▱▱▱▱▱</code> <span class="sub">Uptime 12h</span></div>
+        <div>⚫ <span class="strong">Minecraft Vanilla</span> · 👥 <span class="tag">0/20</span><br>
+          <code class="bar">▱▱▱▱▱▱▱▱▱▱</code> <span class="sub">gestoppt</span></div>
+        <hr class="sep">
+        <div class="sub">aktualisiert gerade eben</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="legend">
+  <p><b>Was technisch geht — und was nicht.</b></p>
+  <p><b>Components V2</b> (Varianten 1–3): Button neben einer Textzeile, Trenner, Akzentleiste,
+     Überschriften-Ebenen. Grenze: 40 Komponenten pro Nachricht, eine Zeile mit Button kostet 3 →
+     ~10 Zeilen. Eine Nachricht kann nicht zwischen Embed und V2 wechseln — Umstieg heißt neu posten.</p>
+  <p><b>Klassische Embeds</b> (4–6): bis zu 25 Felder, Thumbnail, Bild, Autor-Zeile — aber alle
+     Buttons landen unter dem Embed, nie neben einer Zeile.</p>
+  <p><b>Beides:</b> <code>&lt;t:…:R&gt;</code> zeigt „vor 12 Minuten" und läuft von selbst weiter,
+     ohne dass der Bot die Nachricht anfasst. <code>-#</code> erzeugt den kleinen grauen Subtext.</p>
+  <p><b>Handy zuerst:</b> Discord bricht auf dem Handy früh um. Balken bleiben ≤ 12 Zeichen,
+     keine breiten Tabellen — deshalb ist Variante 5 dort am schwächsten.</p>
+</div>
+
+</body>
+</html>
