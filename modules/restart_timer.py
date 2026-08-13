@@ -18,10 +18,12 @@ Usage:
 
 import asyncio
 import enum
+from datetime import datetime, timedelta
 from typing import Optional, List, Callable, Awaitable
 import discord
 from utils.logger import get_logger
-from utils.embeds import COLOR_NEUTRAL, COLOR_WARNING
+from utils.embeds import hud_embed
+from utils.ui_kit import rel_time, subtext
 
 logger = get_logger("restart_timer")
 
@@ -44,6 +46,10 @@ class RestartTimer:
     - Progress updates
     """
 
+    # Abbruch-Hinweis im Panel. Subklassen mit anderem Befehl ueberschreiben ihn
+    # (MCCountdownTimer: /modpack cancel), sonst stuende dort der falsche Weg.
+    cancel_hint: str = "`/sat cancel` bricht ab"
+
     def __init__(self, api=None, channel: Optional[discord.TextChannel] = None) -> None:
         """
         Args:
@@ -55,6 +61,11 @@ class RestartTimer:
         self._cancel_event = asyncio.Event()
         self._active = False
         self._action_name = ""
+        # Ein Countdown ist EIN Panel, das sich aktualisiert — nicht vier
+        # Nachrichten hintereinander. Merkt sich Nachricht, Ende und Dauer.
+        self._panel: Optional[discord.Message] = None
+        self._deadline: Optional[datetime] = None
+        self._total_seconds: int = 0
 
     @property
     def is_active(self) -> bool:  # type: ignore
@@ -118,6 +129,11 @@ class RestartTimer:
         try:
             total_seconds = duration_minutes * 60
             elapsed = 0
+
+            # Panel-Zustand: Ende steht fest, der Client zaehlt selbst herunter.
+            self._total_seconds = total_seconds
+            self._deadline = datetime.now() + timedelta(seconds=total_seconds)
+            self._panel = None
 
             # Send initial message
             await self._send_warning(
@@ -186,25 +202,71 @@ class RestartTimer:
     async def _send_warning(self, message: str, is_initial: bool = False,
                             is_final: bool = False) -> None:  # type: ignore
         """Send warning to both Discord and in-game"""
-        # Discord message
+        # Discord: ein Panel, das aktualisiert wird
         if self.channel:
             try:
-                if is_initial:
-                    embed = discord.Embed(
-                        title=f"⏰ {message}",
-                        description="Nutze `/sat cancel` zum Abbrechen.",
-                        color=COLOR_WARNING
-                    )
-                    await self.channel.send(embed=embed)
-                elif is_final:
-                    await self.channel.send(f"🔄 {message}")
-                else:
-                    await self.channel.send(f"⏰ {message}")
+                await self._update_panel(message, is_initial=is_initial, is_final=is_final)
             except discord.DiscordException as e:
                 logger.debug(f"Discord message failed: {e}")
 
         # In-game message (I6: extrahiert fuer Override durch MCCountdownTimer)
         await self._send_ingame_warning(message, is_initial, is_final)
+
+    def _countdown_embed(
+        self, message: str, *, is_final: bool = False, cancelled: bool = False
+    ) -> discord.Embed:
+        """Countdown als HUD-Panel: Balken leert sich, Zeit zaehlt im Client."""
+        if cancelled:
+            return hud_embed(
+                f"{self._action_name.upper()} ABGEBROCHEN",
+                state="idle",
+                description=message,
+            )
+
+        if is_final:
+            return hud_embed(
+                f"{self._action_name.upper()} LÄUFT",
+                state="error",
+                description=message,
+            )
+
+        rest = 0.0
+        if self._deadline:
+            rest = max((self._deadline - datetime.now()).total_seconds(), 0.0)
+
+        zeilen = []
+        if self._deadline:
+            # Relative Zeit laeuft im Client weiter — ohne dass der Bot editiert.
+            zeilen.append(f"**{rel_time(self._deadline)}**")
+        zeilen.append(subtext(self.cancel_hint))
+
+        return hud_embed(
+            f"{self._action_name.upper()} GEPLANT",
+            state="warn",
+            bar=(rest, self._total_seconds or 1),
+            description=message,
+            lines=zeilen,
+        )
+
+    async def _update_panel(
+        self, message: str, *, is_initial: bool = False, is_final: bool = False,
+        cancelled: bool = False,
+    ) -> None:
+        """Panel anlegen oder aktualisieren; bei geloeschter Nachricht neu posten."""
+        if not self.channel:
+            return
+
+        embed = self._countdown_embed(message, is_final=is_final, cancelled=cancelled)
+
+        if is_initial or self._panel is None:
+            self._panel = await self.channel.send(embed=embed)
+            return
+
+        try:
+            await self._panel.edit(embed=embed)
+        except discord.NotFound:
+            # Jemand hat das Panel geloescht — neu posten statt still verstummen.
+            self._panel = await self.channel.send(embed=embed)
 
     async def _send_ingame_warning(self, message: str, is_initial: bool = False,
                                    is_final: bool = False) -> None:
@@ -220,11 +282,9 @@ class RestartTimer:
         """Send cancellation message"""
         if self.channel:
             try:
-                embed = discord.Embed(
-                    title=f"❌ {self._action_name} abgebrochen",
-                    color=COLOR_NEUTRAL
+                await self._update_panel(
+                    f"{self._action_name} wurde abgebrochen.", cancelled=True
                 )
-                await self.channel.send(embed=embed)
             except discord.DiscordException as e:
                 logger.debug(f"Failed to send cancel embed: {e}")
 

@@ -18,13 +18,14 @@ import asyncio
 import discord
 from discord import app_commands
 from discord.ext import commands
-from typing import Optional  # noqa: F401 (genutzt in Subklassen)
+from typing import List, Optional, Tuple  # noqa: F401 (genutzt in Subklassen)
 from pathlib import Path
 
 from utils import get_logger, format_uptime, format_bytes, status_emoji
 from utils.permissions import admin_only, spieler_only, owner_only, is_admin, server_online_required
 from modules.restart_timer import TimerResult
-from utils.embeds import COLOR_ERROR, COLOR_INFO, COLOR_SUCCESS, COLOR_WARNING
+from utils.embeds import COLOR_ERROR, COLOR_INFO, COLOR_SUCCESS, COLOR_WARNING, hud_embed
+from utils.ui_kit import subtext
 
 logger = get_logger("cogs.satisfactory")
 
@@ -86,47 +87,42 @@ class SatisfactoryCog(commands.Cog):
         status = await self.server.get_status()
         online = status["running"]
 
-        embed = discord.Embed(
-            title=f"{status_emoji(online)} Satisfactory Server",
-            color=COLOR_SUCCESS if online else 0xe74c3c,
-        )
+        # HUD-Stil: Kennzahlen-Kopf mit Spieler-Balken, Details als Felder.
+        kennzahlen: List[Tuple[str, str]] = []
+        balken: Optional[Tuple[float, float]] = None
+        details: List[str] = []
+        state = None
 
         if online:
             try:
                 state = await self.api.query_server_state()
-                embed.add_field(
-                    name="Spieler",
-                    value=f"{state.num_players}/{state.player_limit}",
-                    inline=True,
-                )
-                embed.add_field(
-                    name="Tick Rate",
-                    value=f"{state.average_tick_rate:.1f} FPS",
-                    inline=True,
-                )
-                if state.active_session:
-                    embed.add_field(
-                        name="Session", value=_md(state.active_session), inline=True
-                    )
-                if state.tech_tier > 0:
-                    embed.add_field(
-                        name="Tech-Tier", value=str(state.tech_tier), inline=True
-                    )
+                kennzahlen.append((f"{state.num_players}/{state.player_limit}", "Spieler"))
+                balken = (state.num_players, state.player_limit)
+                kennzahlen.append((f"{state.average_tick_rate:.0f}", "FPS"))
             except Exception as e:
                 logger.debug(f"API not available: {e}")
-                embed.add_field(name="API", value="Nicht erreichbar", inline=True)
+                details.append(subtext("API nicht erreichbar"))
 
-            embed.add_field(
-                name="Uptime", value=format_uptime(status["uptime"]), inline=True
+            kennzahlen.append((format_uptime(status["uptime"]), "Uptime"))
+            details.append(
+                subtext(
+                    f"CPU {status['cpu_percent']:.1f}% · RAM {status['memory_mb']} MB"
+                )
             )
-            embed.add_field(
-                name="CPU", value=f"{status['cpu_percent']:.1f}%", inline=True
-            )
-            embed.add_field(
-                name="RAM", value=f"{status['memory_mb']} MB", inline=True
-            )
-        else:
-            embed.description = "Server ist offline."
+            if state is not None:
+                if state.active_session:
+                    details.append(subtext(f"Session {_md(state.active_session)}"))
+                if state.tech_tier > 0:
+                    details.append(subtext(f"Tech-Tier {state.tech_tier}"))
+
+        embed = hud_embed(
+            "SATISFACTORY",
+            state="ok" if online else "off",
+            meta=kennzahlen or None,
+            bar=balken,
+            lines=details or None,
+            description=None if online else "Server ist offline.",
+        )
 
         active_timer = self.timer_mgr.get_active()
         if active_timer:

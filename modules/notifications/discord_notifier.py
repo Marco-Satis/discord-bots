@@ -11,17 +11,25 @@ from typing import Optional, List, Tuple
 from enum import Enum
 
 from utils.logger import get_logger
-from utils.embeds import COLOR_INFO
+from utils.embeds import COLOR_ERROR, COLOR_INFO, COLOR_SUCCESS, COLOR_WARNING
 
 logger = get_logger("discord_notifier")
 
 
 class NotifyLevel(Enum):
-    INFO = ("info", 0x5865F2, "ℹ️")
-    SUCCESS = ("success", 0x2ecc71, "✅")
-    WARNING = ("warning", 0xf39c12, "⚠️")
-    ERROR = ("error", 0xe74c3c, "❌")
-    CRITICAL = ("critical", 0xe74c3c, "🚨")
+    """Meldungsstufe -> (Name, Farbe, Zeichen).
+
+    Farben kommen aus der zentralen HUD-Palette, das Zeichen ist der
+    Statuspunkt: Farbe allein traegt die Aussage nicht (Rot-Gruen-Schwaeche).
+    Nur CRITICAL behaelt bewusst das Alarm-Zeichen — die Stufe soll sich vom
+    normalen Fehler abheben.
+    """
+
+    INFO = ("info", COLOR_INFO, "🔵")
+    SUCCESS = ("success", COLOR_SUCCESS, "🟢")
+    WARNING = ("warning", COLOR_WARNING, "🟡")
+    ERROR = ("error", COLOR_ERROR, "🔴")
+    CRITICAL = ("critical", COLOR_ERROR, "🚨")
 
 
 class DiscordNotifier:

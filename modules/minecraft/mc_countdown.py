@@ -23,7 +23,7 @@ import discord
 
 from modules.restart_timer import RestartTimer, TimerResult
 from utils.logger import get_logger
-from utils.embeds import COLOR_WARNING
+from utils.ui_kit import subtext
 
 logger = get_logger("minecraft.mc_countdown")
 
@@ -35,6 +35,8 @@ class MCCountdownTimer(RestartTimer):
     Erweitert RestartTimer und überschreibt die In-Game-Nachrichten-Logik.
     Discord-Nachrichten werden vom RestartTimer geerbt.
     """
+
+    cancel_hint = "`/modpack cancel` oder In-Game `!cancel` bricht ab"
 
     def __init__(
         self,
@@ -102,23 +104,12 @@ class MCCountdownTimer(RestartTimer):
         Ueberschreibt Discord-Text fuer MC-spezifische Cancel-Hinweise.
         In-Game-Logik wird ueber _send_ingame_warning() dispatched (I6).
         """
-        # Discord-Nachricht (MC-spezifisch: extra_info + !cancel Hinweis)
+        # Discord: dasselbe Panel wie beim Basis-Timer, nur mit MC-Hinweisen
         if self.channel:
             try:
-                if is_initial:
-                    desc = "Nutze `/modpack cancel` oder In-Game `!cancel` zum Abbrechen."
-                    if self.extra_info:
-                        desc = f"{self.extra_info}\n{desc}"
-                    embed = discord.Embed(
-                        title=f"\u23f0 {message}",
-                        description=desc,
-                        color=COLOR_WARNING,
-                    )
-                    await self.channel.send(embed=embed)
-                elif is_final:
-                    await self.channel.send(f"\U0001f504 {message}")
-                else:
-                    await self.channel.send(f"\u23f0 {message}")
+                await self._update_panel(
+                    message, is_initial=is_initial, is_final=is_final
+                )
             except discord.DiscordException as e:
                 logger.debug(f"Discord-Nachricht fehlgeschlagen: {e}")
 
@@ -196,6 +187,21 @@ class MCCountdownTimer(RestartTimer):
             pass
         except Exception as e:
             logger.debug(f"30s-Warnung fehlgeschlagen: {e}")
+
+    def _countdown_embed(self, message: str, **kwargs):
+        """Panel des Basis-Timers, ergaenzt um die Zusatzinfo (z.B. Zielversion).
+
+        Der Abbruch-Weg unterscheidet sich ebenfalls; der steckt in
+        :attr:`cancel_hint` und wird vom Basis-Panel gesetzt.
+        """
+        embed = super()._countdown_embed(message, **kwargs)
+        if kwargs.get("is_final") or kwargs.get("cancelled") or not self.extra_info:
+            return embed
+
+        embed.description = "\n".join(
+            [t for t in (embed.description, subtext(self.extra_info)) if t]
+        )
+        return embed
 
     async def _send_cancel_message(self) -> None:
         """Sendet Abbruch-Nachricht (BUG-1: 30s-Task abbrechen, I6: super nutzen)."""
