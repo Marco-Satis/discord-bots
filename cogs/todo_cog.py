@@ -9,8 +9,14 @@ To-Do-Board Cog — gemeinsame Bau-Ziele fuer den Satisfactory-Server.
   /todo remove <nr>     — Eintrag loeschen (nur eigener; Admin/Owner ueberall)
   /todo clear           — alle erledigten Eintraege loeschen (Admin)
 
-Abhaken per Button darf jeder Spieler, auch bei fremden Eintraegen.
-Bearbeiten und Loeschen bleibt dem Ersteller vorbehalten.
+Abhaken per Klick auf die Checkbox neben dem Eintrag darf jeder Spieler, auch
+bei fremden Eintraegen. Bearbeiten und Loeschen bleibt dem Ersteller vorbehalten.
+
+Darstellung: Components V2 (LayoutView + Section) — jeder Eintrag ist eine eigene
+Zeile mit Text links und Checkbox-Button rechts, wie in einer Notiz-App. Discord
+begrenzt eine Nachricht auf 40 Komponenten; eine Section kostet 3 (Section +
+Text + Button), daher stehen MAX_SECTIONS Eintraege als Checkbox-Zeile da und
+alles darueber laeuft ueber das Auswahl-Menue am Ende.
 
 Das Board ist eine Sticky-Message: schreibt jemand in den Board-Kanal, wird es
 nach kurzer Ruhe geloescht und neu gepostet, damit es immer die letzte
@@ -34,8 +40,18 @@ logger = get_logger("cogs.todo")
 # bewusst nur dieses eine an.
 BOARD = "satisfactory"
 
-# Discord erlaubt max. 25 Components (5 Reihen x 5) pro Nachricht.
-MAX_BUTTONS = 25
+# Eine Components-V2-Nachricht darf 40 Komponenten haben. Fix belegt sind
+# Container (1) + Ueberschrift (1) + Fusszeile (1); im Ueberlauf-Fall zusaetzlich
+# Trenner (1) + ActionRow mit Auswahl-Menue (2) + Hinweiszeile (1) = 7. Eine
+# Checkbox-Zeile kostet 3 (Section + Text + Button) -> 10 Zeilen mit Puffer.
+MAX_SECTIONS = 10
+
+# Discord-Limit fuer ein Auswahl-Menue.
+MAX_SELECT_OPTIONS = 25
+
+# Emoji der Checkbox — leer/abgehakt.
+BOX_OPEN = "⬜"
+BOX_DONE = "✅"
 
 # Sekunden Ruhe im Kanal, bevor das Board neu gepostet wird. Ohne diesen
 # Debounce erzeugt eine lebhafte Unterhaltung einen Repost pro Nachricht und
@@ -51,22 +67,64 @@ def _fmt_user(row: Dict[str, Any], key: str) -> str:
     return discord.utils.escape_markdown(str(name))
 
 
+async def _handle_toggle(
+    interaction: discord.Interaction, todo_ids: List[int]
+) -> None:
+    """Gemeinsamer Ablauf fuer Checkbox-Klick und Auswahl-Menue.
+
+    Rechte pruefen, umschalten, Board neu aufbauen und dieselbe Nachricht
+    ersetzen. Scheitert das Ersetzen (z.B. weil die Nachricht noch die alte
+    Embed-Darstellung ist, in die sich kein Components-V2-Layout editieren
+    laesst), wird das Board neu gepostet.
+    """
+    if not is_spieler(interaction):
+        await interaction.response.send_message(
+            "Du brauchst die Satisfactory-Rolle um Eintraege abzuhaken.",
+            ephemeral=True,
+        )
+        return
+
+    cog = interaction.client.get_cog("ToDo")
+    if cog is None:
+        await interaction.response.send_message(
+            "To-Do-Cog ist nicht geladen.", ephemeral=True
+        )
+        return
+
+    missing = [i for i in todo_ids if not await cog.toggle_todo(i, interaction.user)]
+    if len(missing) == len(todo_ids):
+        await interaction.response.send_message(
+            f"Eintrag `#{todo_ids[0]}` existiert nicht mehr.", ephemeral=True
+        )
+        await cog.refresh_board()
+        return
+
+    view = await cog.build_board()
+    try:
+        await interaction.response.edit_message(view=view)
+    except discord.HTTPException as e:
+        logger.warning(f"Board-Edit nach Klick fehlgeschlagen ({e}) — reposte.")
+        if not interaction.response.is_done():
+            await interaction.response.defer()
+        await cog.refresh_board(repost=True)
+
+
 class TodoToggleButton(
     discord.ui.DynamicItem[discord.ui.Button],
     template=r"todo:toggle:(?P<todo_id>\d+)",
 ):
-    """Button zum Abhaken eines Eintrags.
+    """Checkbox neben einem Eintrag — ein Klick hakt ab bzw. wieder auf.
 
     DynamicItem statt gewoehnlicher View: die Board-Nachricht steht dauerhaft im
     Kanal und muss einen Bot-Neustart ueberleben. Bei einer normalen View waeren
     die Buttons nach jedem Restart tot.
     """
 
-    def __init__(self, todo_id: int, label: str, done: bool):
+    def __init__(self, todo_id: int, done: bool):
         self.todo_id = todo_id
         super().__init__(
             discord.ui.Button(
-                label=label,
+                emoji=BOX_DONE if done else BOX_OPEN,
                 style=discord.ButtonStyle.success if done else discord.ButtonStyle.secondary,
                 custom_id=f"todo:toggle:{todo_id}",
             )
@@ -79,37 +137,54 @@ class TodoToggleButton(
         item: discord.ui.Button,
         match,
     ) -> "TodoToggleButton":
-        """Rekonstruktion nach Bot-Neustart — Label/Style kommen von Discord."""
-        return cls(
-            int(match["todo_id"]),
-            label=item.label or "?",
-            done=item.style == discord.ButtonStyle.success,
-        )
+        """Rekonstruktion nach Bot-Neustart — der Zustand kommt ohnehin aus der DB."""
+        return cls(int(match["todo_id"]), done=item.style == discord.ButtonStyle.success)
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        if not is_spieler(interaction):
-            await interaction.response.send_message(
-                "Du brauchst die Satisfactory-Rolle um Eintraege abzuhaken.",
-                ephemeral=True,
-            )
-            return
+        await _handle_toggle(interaction, [self.todo_id])
 
-        cog = interaction.client.get_cog("ToDo")
-        if cog is None:
-            await interaction.response.send_message(
-                "To-Do-Cog ist nicht geladen.", ephemeral=True
-            )
-            return
 
-        toggled = await cog.toggle_todo(self.todo_id, interaction.user)
-        if not toggled:
-            await interaction.response.send_message(
-                f"Eintrag `#{self.todo_id}` existiert nicht mehr.", ephemeral=True
-            )
-            return
+class TodoOverflowSelect(
+    discord.ui.DynamicItem[discord.ui.Select],
+    template=r"todo:pick",
+):
+    """Auswahl-Menue fuer die Eintraege, fuer die keine Checkbox-Zeile mehr passt."""
 
-        embed, view = await cog.build_board()
-        await interaction.response.edit_message(embed=embed, view=view)
+    def __init__(self, rows: Optional[List[Dict[str, Any]]] = None):
+        options = [
+            discord.SelectOption(
+                label=f"#{r['id']} {r['text']}"[:100],
+                value=str(r["id"]),
+                emoji=BOX_DONE if r["done"] else BOX_OPEN,
+            )
+            for r in (rows or [])[:MAX_SELECT_OPTIONS]
+        ] or [discord.SelectOption(label="—", value="0")]
+
+        super().__init__(
+            discord.ui.Select(
+                custom_id="todo:pick",
+                placeholder="Weitere Eintraege abhaken …",
+                options=options,
+                min_values=1,
+                max_values=1,
+            )
+        )
+
+    @classmethod
+    async def from_custom_id(
+        cls,
+        interaction: discord.Interaction,
+        item: discord.ui.Select,
+        match,
+    ) -> "TodoOverflowSelect":
+        return cls()
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        picked = [int(v) for v in self.item.values if v.isdigit() and v != "0"]
+        if not picked:
+            await interaction.response.defer()
+            return
+        await _handle_toggle(interaction, picked)
 
 
 class ToDoCog(commands.Cog, name="ToDo"):
@@ -128,7 +203,7 @@ class ToDoCog(commands.Cog, name="ToDo"):
         self._sticky_disabled: bool = False
 
     async def cog_load(self) -> None:
-        self.bot.add_dynamic_items(TodoToggleButton)
+        self.bot.add_dynamic_items(TodoToggleButton, TodoOverflowSelect)
         logger.info("ToDoCog geladen — /todo registriert")
 
     async def cog_unload(self) -> None:
@@ -219,55 +294,70 @@ class ToDoCog(commands.Cog, name="ToDo"):
     # Darstellung
     # ==================================================================
 
-    async def build_board(self) -> tuple[discord.Embed, discord.ui.View]:
-        """Embed + Button-View aus dem aktuellen DB-Stand bauen."""
+    def _section_text(self, row: Dict[str, Any]) -> str:
+        """Zeilentext eines Eintrags — abgehaktes durchgestrichen."""
+        text = discord.utils.escape_markdown(row["text"])
+        if row["done"]:
+            return (
+                f"~~{text}~~\n"
+                f"-# #{row['id']} · abgehakt von {_fmt_user(row, 'done_by_name')}"
+            )
+        return f"**{text}**\n-# #{row['id']} · von {_fmt_user(row, 'created_by_name')}"
+
+    async def build_board(self) -> discord.ui.LayoutView:
+        """Board als Components-V2-Layout aus dem aktuellen DB-Stand bauen.
+
+        Jeder Eintrag ist eine Section: Text links, Checkbox-Button rechts.
+        Offene stehen oben — die will man am ehesten anklicken.
+        """
         rows = await self._fetch_todos()
         offen = [r for r in rows if not r["done"]]
         erledigt = [r for r in rows if r["done"]]
 
-        lines: List[str] = []
-        if offen:
-            lines.append("**Offen**")
-            for r in offen:
-                lines.append(
-                    f"☐ `#{r['id']}` {discord.utils.escape_markdown(r['text'])} "
-                    f"— *{_fmt_user(r, 'created_by_name')}*"
-                )
-        else:
-            lines.append("*Keine offenen Eintraege.*")
+        sichtbar = (offen + erledigt)[:MAX_SECTIONS]
+        rest = (offen + erledigt)[MAX_SECTIONS:]
 
-        if erledigt:
-            lines.append("")
-            lines.append("**Erledigt**")
-            for r in erledigt:
-                lines.append(
-                    f"☑ `#{r['id']}` ~~{discord.utils.escape_markdown(r['text'])}~~ "
-                    f"— abgehakt von *{_fmt_user(r, 'done_by_name')}*"
-                )
+        container = discord.ui.Container(accent_colour=discord.Colour(0x2B9348))
+        container.add_item(discord.ui.TextDisplay("## To-Do — Satisfactory"))
 
-        view = discord.ui.View(timeout=None)
-        # Offene zuerst mit Button belegen — die will man am ehesten abhaken.
-        for r in (offen + erledigt)[:MAX_BUTTONS]:
-            view.add_item(
-                TodoToggleButton(r["id"], label=f"#{r['id']}", done=bool(r["done"]))
+        if not rows:
+            container.add_item(
+                discord.ui.TextDisplay(
+                    "-# Noch nichts eingetragen — `/todo add <text>`"
+                )
             )
 
-        if len(rows) > MAX_BUTTONS:
-            lines.append("")
-            lines.append(
-                f"*Discord erlaubt nur {MAX_BUTTONS} Buttons — fuer die restlichen "
-                f"{len(rows) - MAX_BUTTONS} Eintraege `/todo list` nutzen, sobald "
-                f"vorne etwas abgehakt ist.*"
+        for r in sichtbar:
+            container.add_item(
+                discord.ui.Section(
+                    discord.ui.TextDisplay(self._section_text(r)),
+                    accessory=TodoToggleButton(r["id"], done=bool(r["done"])),
+                )
             )
 
-        embed = discord.Embed(
-            title="To-Do — Satisfactory",
-            description="\n".join(lines)[:4000],
-            color=0x2B9348,
-            timestamp=datetime.now(),
+        if rest:
+            container.add_item(discord.ui.Separator())
+            row = discord.ui.ActionRow()
+            row.add_item(TodoOverflowSelect(rest))
+            container.add_item(row)
+            if len(rest) > MAX_SELECT_OPTIONS:
+                container.add_item(
+                    discord.ui.TextDisplay(
+                        f"-# {len(rest) - MAX_SELECT_OPTIONS} weitere Eintraege sind "
+                        f"nur ueber `/todo` erreichbar — erledigte mit `/todo clear` "
+                        f"aufraeumen."
+                    )
+                )
+
+        container.add_item(
+            discord.ui.TextDisplay(
+                f"-# {len(offen)} offen · {len(erledigt)} erledigt"
+            )
         )
-        embed.set_footer(text=f"{len(offen)} offen · {len(erledigt)} erledigt")
-        return embed, view
+
+        view = discord.ui.LayoutView(timeout=None)
+        view.add_item(container)
+        return view
 
     # ==================================================================
     # Board posten / auffrischen
@@ -288,14 +378,30 @@ class ToDoCog(commands.Cog, name="ToDo"):
             if channel is None:
                 return None
 
-            embed, view = await self.build_board()
+            view = await self.build_board()
             old_id = int(ref["message_id"]) if ref.get("message_id") else None
+
+            async def _send_new() -> discord.Message:
+                msg = await channel.send(
+                    view=view,
+                    allowed_mentions=discord.AllowedMentions.none(),
+                )
+                await self._set_board_ref(int(ref["guild_id"]), channel.id, msg.id)
+                return msg
 
             try:
                 if not repost and old_id:
-                    msg = await channel.fetch_message(old_id)
-                    await msg.edit(embed=embed, view=view)
-                    return msg
+                    try:
+                        msg = await channel.fetch_message(old_id)
+                        await msg.edit(view=view)
+                        return msg
+                    except discord.HTTPException as e:
+                        if isinstance(e, discord.NotFound):
+                            raise
+                        # Alte Board-Nachricht ist noch die Embed-Variante — in die
+                        # laesst sich kein Components-V2-Layout hineineditieren.
+                        logger.info(f"Board-Edit nicht moeglich ({e}) — reposte.")
+                        repost = True
 
                 if old_id:
                     try:
@@ -305,23 +411,11 @@ class ToDoCog(commands.Cog, name="ToDo"):
                         # Nachricht wurde manuell geloescht — Normalfall.
                         pass
 
-                msg = await channel.send(
-                    embed=embed,
-                    view=view,
-                    allowed_mentions=discord.AllowedMentions.none(),
-                )
-                await self._set_board_ref(int(ref["guild_id"]), channel.id, msg.id)
-                return msg
+                return await _send_new()
 
             except discord.NotFound:
                 # Editieren schlug fehl, weil die Nachricht weg ist -> neu senden.
-                msg = await channel.send(
-                    embed=embed,
-                    view=view,
-                    allowed_mentions=discord.AllowedMentions.none(),
-                )
-                await self._set_board_ref(int(ref["guild_id"]), channel.id, msg.id)
-                return msg
+                return await _send_new()
             except discord.Forbidden as e:
                 self._sticky_disabled = True
                 logger.warning(
