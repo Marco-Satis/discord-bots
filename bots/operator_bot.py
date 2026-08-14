@@ -72,14 +72,37 @@ bot = commands.Bot(
 )
 
 # Attach shared instances to bot for cog access
-bot.sat_server = SatisfactoryServer(
-    service_name=get_env("SATISFACTORY_SERVICE", "satisfactory.service"),
-    server_user=get_env("SATISFACTORY_USER", "satisfactory"),
-    server_path=get_env("SATISFACTORY_SERVER_PATH",
-                        "/home/satisfactory/SatisfactoryDedicatedServer")
-)
+#
+# Der Satisfactory-Cog laeuft in diesem Bot und loest seinen Zielserver ueber
+# `bot.sat_servers` auf. Ohne diese Registry haette die Server-Auswahl in
+# /sat status & Co. nichts zum Auswaehlen — sie faellt dann auf die erste
+# Instanz zurueck, und ein zweiter Server waere nie steuerbar.
+SAT_SERVER_IDS = server_ids("SAT_SERVER_IDS", "MAIN")
+bot.sat_servers: dict[str, SatisfactoryServer] = {}
+bot.sat_apis: dict[str, SatisfactoryAPI] = {}
 
-bot.sat_api = SatisfactoryAPI(
+for _sat_sid in SAT_SERVER_IDS:
+    _sat_srv = SatisfactoryServer(_sat_sid)
+    if not _sat_srv.enabled:
+        continue
+    bot.sat_servers[_sat_sid] = _sat_srv
+    _erster = _sat_sid == SAT_SERVER_IDS[0]
+    _praefix = f"SAT_{_sat_sid}_"
+    bot.sat_apis[_sat_sid] = SatisfactoryAPI(
+        host=get_env(f"{_praefix}API_HOST", "") or get_env("API_HOST", "127.0.0.1"),
+        port=(get_env(f"{_praefix}API_PORT", 0, cast=int)
+              or get_env("API_PORT", 7777, cast=int) if _erster
+              else get_env(f"{_praefix}API_PORT", 7778, cast=int)),
+        token=get_env(f"{_praefix}API_TOKEN", "") or (get_env("API_TOKEN") if _erster else ""),
+        verify_ssl=get_env("API_VERIFY_SSL", False, cast=bool),
+    )
+    logger.info(f"Satisfactory-Server aktiviert: {_sat_srv.display_name} ({_sat_sid})")
+
+# Erste Instanz unter den gewohnten Namen — die uebrigen Cogs und Manager
+# unten haengen daran.
+_SAT_ERSTER = next(iter(bot.sat_servers), "MAIN")
+bot.sat_server = bot.sat_servers.get(_SAT_ERSTER) or SatisfactoryServer("MAIN")
+bot.sat_api = bot.sat_apis.get(_SAT_ERSTER) or SatisfactoryAPI(
     host=get_env("API_HOST", "127.0.0.1"),
     port=get_env("API_PORT", 7777, cast=int),
     token=get_env("API_TOKEN"),

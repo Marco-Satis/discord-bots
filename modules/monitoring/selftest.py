@@ -36,10 +36,14 @@ class SelfTest:
         results.append(await self._test_discord_channels())
 
         # --- Satisfactory API ---
-        results.append(await self._test_api())
+        # Je Satisfactory-Instanz eine eigene Zeile — eine gemeinsame Aussage
+        # waere bei zwei Servern eine Aussage ueber den falschen.
+        for _sid in (list(getattr(self.bot, "sat_servers", {}) or {}) or [None]):
+            results.append(await self._test_api(_sid))
 
         # --- Server Process ---
-        results.append(await self._test_server_process())
+        for _sid in (list(getattr(self.bot, "sat_servers", {}) or {}) or [None]):
+            results.append(await self._test_server_process(_sid))
 
         # --- UFW / Sudo ---
         results.append(await self._test_ufw())
@@ -91,47 +95,58 @@ class SelfTest:
             return {"name": "Discord Channels", "ok": False,
                     "detail": str(e)[:100], "category": "Discord"}
 
-    async def _test_api(self) -> Dict[str, Any]:
+    def _sat_name(self, sid) -> str:
+        """Anzeigename einer Instanz — ohne Instanzen der alte Sammelname."""
+        if sid is None:
+            return "Satisfactory"
+        srv = (getattr(self.bot, "sat_servers", {}) or {}).get(sid)
+        return srv.display_name if srv else f"Satisfactory {sid}"
+
+    async def _test_api(self, sid=None) -> Dict[str, Any]:
         """Test Satisfactory API connection"""
+        name = f"{self._sat_name(sid)} API"
         try:
-            api = getattr(self.bot, "sat_api", None)
+            apis = getattr(self.bot, "sat_apis", {}) or {}
+            api = apis.get(sid) if sid else getattr(self.bot, "sat_api", None)
             if not api:
-                return {"name": "Satisfactory API", "ok": False,
+                return {"name": name, "ok": False,
                         "detail": "API Client nicht konfiguriert", "category": "Server"}
 
             state = await api.query_server_state()
             if state:
                 ver = getattr(state, "game_version", "?")
-                return {"name": "Satisfactory API", "ok": True,
+                return {"name": name, "ok": True,
                         "detail": f"Verbunden (Version: {ver})", "category": "Server"}
             else:
-                return {"name": "Satisfactory API", "ok": False,
+                return {"name": name, "ok": False,
                         "detail": "Keine Antwort", "category": "Server"}
         except Exception as e:
-            return {"name": "Satisfactory API", "ok": False,
+            return {"name": name, "ok": False,
                     "detail": str(e)[:100], "category": "Server"}
 
-    async def _test_server_process(self) -> Dict[str, Any]:
+    async def _test_server_process(self, sid=None) -> Dict[str, Any]:
         """Test if server process is running"""
+        name = f"{self._sat_name(sid)} Prozess"
         try:
-            server = getattr(self.bot, "sat_server", None)
+            server = ((getattr(self.bot, "sat_servers", {}) or {}).get(sid) if sid
+                      else getattr(self.bot, "sat_server", None))
             if not server:
-                return {"name": "Server-Prozess", "ok": False,
+                return {"name": name, "ok": False,
                         "detail": "Server-Modul fehlt", "category": "Server"}
 
             running = await server.is_running()
             if running:
                 status = await server.get_status()
-                return {"name": "Server-Prozess", "ok": True,
+                return {"name": name, "ok": True,
                         "detail": f"PID {status.get('pid', '?')}, "
                                   f"CPU {status.get('cpu_percent', 0):.1f}%, "
                                   f"RAM {status.get('memory_mb', 0)} MB",
                         "category": "Server"}
             else:
-                return {"name": "Server-Prozess", "ok": False,
+                return {"name": name, "ok": False,
                         "detail": "Nicht gestartet", "category": "Server"}
         except Exception as e:
-            return {"name": "Server-Prozess", "ok": False,
+            return {"name": name, "ok": False,
                     "detail": str(e)[:100], "category": "Server"}
 
     async def _test_ufw(self) -> Dict[str, Any]:

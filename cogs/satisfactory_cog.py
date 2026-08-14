@@ -181,7 +181,7 @@ class SatisfactoryCog(commands.Cog):
                         (f"{state.num_players}/{state.player_limit}", "Spieler")
                     )
                     balken = (state.num_players, state.player_limit)
-                    kennzahlen.append((f"{state.average_tick_rate:.0f}", "FPS"))
+                    kennzahlen.append((f"{state.average_tick_rate:.0f}", "Ticks/s"))
             except Exception as e:
                 logger.debug(f"API not available: {e}")
                 details.append(subtext("API nicht erreichbar"))
@@ -310,7 +310,7 @@ class SatisfactoryCog(commands.Cog):
             )
             embed.add_field(
                 name="Tick Rate",
-                value=f"{state.average_tick_rate:.1f} FPS",
+                value=f"{state.average_tick_rate:.1f} Ticks/s",
                 inline=True,
             )
             await interaction.followup.send(embed=embed)
@@ -698,7 +698,7 @@ class SatisfactoryCog(commands.Cog):
             )
             embed.add_field(
                 name="Tick Rate",
-                value=f"{state.average_tick_rate:.1f} FPS",
+                value=f"{state.average_tick_rate:.1f} Ticks/s",
                 inline=True,
             )
 

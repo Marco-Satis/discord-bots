@@ -1339,9 +1339,12 @@ login_audit.on_failed_login_burst = _on_failed_login_burst
 # nie eine Abmeldung — Spieler blieben fuer immer als online gefuehrt.
 sat_log_players = SatLogPlayerParser()
 
-_sat_log_path = (
-    sat_server.server_path / "FactoryGame" / "Saved" / "Logs" / "FactoryGame.log"
-)
+# Logdatei der ersten Instanz. Zwei Instanzen haben getrennte
+# Installationsverzeichnisse und damit getrennte Logs — das Spieler-Panel
+# zeigt heute die Spieler des ersten Servers. Kommt ein zweiter dazu, braucht
+# er einen eigenen Parser und eine eigene Leseposition; ein gemeinsamer
+# Parser wuerde die Namen beider Welten in einen Topf werfen.
+_sat_log_path = sat_server.log_path
 _log_last_pos: int = 0
 _log_last_size: int = 0
 _log_lock = asyncio.Lock()
@@ -2044,9 +2047,13 @@ async def _update_status_embed_impl():
         elif status.tick_rate > 0:
             tick_rate = status.tick_rate
         if tick_rate > 0:
-            # 30 Ticks sind das Soll; darunter ruckelt es spuerbar.
+            # Kein erfundener Nenner: der Server meldet ueber
+            # averageTickRate Werte um 39, waehrend hier "/30" stand — das ergab
+            # Anzeigen wie "39/30 Ticks", die sich selbst widersprechen.
+            # Die Schwellen bleiben Untergrenzen (darunter ruckelt es spuerbar),
+            # eine Obergrenze gibt es nicht.
             tick_zustand = "ok" if tick_rate >= 25 else "warn" if tick_rate >= 15 else "crit"
-            notiz += f" · {status_dot(tick_zustand)} {tick_rate:.0f}/30 Ticks"
+            notiz += f" · {status_dot(tick_zustand)} {tick_rate:.0f} Ticks/s"
 
         details: List[str] = []
         online = player_tracker.get_online_players()

@@ -86,6 +86,10 @@ class SchedulerCog(commands.Cog):
         self._last_config_backup: Optional[datetime] = None
         self._last_update_check: Optional[datetime] = None
         self._last_daily_restart: Optional[datetime] = None
+        # Je Satisfactory-Instanz eigener Stand: laeuft auf einem Server jemand,
+        # wird nur dessen Neustart verschoben, nicht der des anderen.
+        # `_last_daily_restart` bleibt als gemeinsamer Anzeigewert fuer /scheduler.
+        self._last_daily_restart_je: dict[str, datetime] = {}
         self._last_auto_update: Optional[datetime] = None
         self._last_daily_report: Optional[datetime] = None
         self._pending_update: bool = False
@@ -170,6 +174,45 @@ class SchedulerCog(commands.Cog):
     @property
     def backup_manager(self):
         return getattr(self.bot, "backup_manager", None)
+
+    # -- Zugriff je Satisfactory-Instanz --------------------------------
+    #
+    # Die Eigenschaften darueber liefern weiter die erste Instanz; die
+    # Methoden hier liefern eine bestimmte. Damit koennen die geplanten
+    # Aufgaben ueber alle Server laufen, ohne dass der bestehende Pfad
+    # sein Verhalten aendert.
+
+    @property
+    def sat_instanzen(self) -> list:
+        """IDs aller konfigurierten Satisfactory-Instanzen."""
+        return list(getattr(self.bot, "sat_servers", {}) or {})
+
+    def sat_server_von(self, sid: str):
+        return (getattr(self.bot, "sat_servers", {}) or {}).get(sid) or self.sat_server
+
+    def sat_api_von(self, sid: str):
+        return (getattr(self.bot, "sat_apis", {}) or {}).get(sid) or self.sat_api
+
+    def backup_manager_von(self, sid: str):
+        return (getattr(self.bot, "sat_backup_mgrs", {}) or {}).get(sid) or self.backup_manager
+
+    def update_checker_von(self, sid: str):
+        return (getattr(self.bot, "sat_update_checkers", {}) or {}).get(sid) or self.update_checker
+
+    def health_checker_von(self, sid: str):
+        return (getattr(self.bot, "sat_health_checkers", {}) or {}).get(sid) \
+            or self.health_checker
+
+    def sat_name_von(self, sid: str) -> str:
+        srv = (getattr(self.bot, "sat_servers", {}) or {}).get(sid)
+        return srv.display_name if srv else "Satisfactory"
+
+    def sat_kennung_von(self, sid: str) -> str:
+        """Kennung fuer manual_stop_state — erste Instanz heisst 'satisfactory'."""
+        instanzen = self.sat_instanzen
+        if not instanzen or sid == instanzen[0]:
+            return "satisfactory"
+        return f"sat_{sid.lower()}"
 
     @property
     def onedrive(self):
@@ -331,76 +374,105 @@ class SchedulerCog(commands.Cog):
     # ------------------------------------------------------------------
 
     async def _check_auto_backup(self, now: datetime):
-        """Check if auto-backup should run"""
-        if not self.backup_manager or not self.sat_server:
+        """
+        Auto-Backup fuer jede Satisfactory-Instanz.
+
+        Das Zeitfenster gilt gemeinsam (ein Durchlauf je Intervall), gesichert
+        wird aber jede Instanz einzeln in ihr eigenes Ziel. Ein Fehlschlag bei
+        einer darf die anderen nicht ueberspringen — sonst haengt die Sicherung
+        des zweiten Servers am Zustand des ersten.
+        """
+        if not self.sat_instanzen and not (self.backup_manager and self.sat_server):
             return
 
         interval = timedelta(hours=self._auto_backup_interval_hours)
-
         if self._last_auto_backup and (now - self._last_auto_backup) < interval:
             return
 
-        # Only backup if server is running
-        running = await self.sat_server.is_running()
-        if not running:
-            return
+        instanzen = self.sat_instanzen or ["MAIN"]
 
-        logger.info("Auto-Backup starting...")
-        self._last_auto_backup = now
+        # Nur wenn mindestens ein Server laeuft, gilt das Intervall als
+        # verbraucht — sonst wuerde ein durchgehend gestoppter Server das
+        # Fenster fuer die anderen mitverbrauchen.
+        etwas_gesichert = False
 
-        try:
-            # Save game first
+        for sid in instanzen:
+            srv = self.sat_server_von(sid)
+            mgr = self.backup_manager_von(sid)
+            api = self.sat_api_von(sid)
+            if not srv or not mgr:
+                continue
             try:
-                await self.sat_api.save_game()
-                await asyncio.sleep(5)  # Wait for save to complete
+                if not await srv.is_running():
+                    continue
+                etwas_gesichert = True
+                await self._auto_backup_einer(sid, srv, mgr, api, now)
             except Exception as e:
-                logger.warning(f"save_game() vor Auto-Backup fehlgeschlagen: {e}")
+                logger.error(f"[{sid}] Auto-Backup fehlgeschlagen: {e}", exc_info=True)
 
-            # Create backup (mit Timestamp um Duplikate zu vermeiden)
-            timestamp = now.strftime("%Y%m%d_%H%M%S")
-            success, msg, backup_path = await self.backup_manager.create_backup(
-                name=f"auto-backup_{timestamp}", created_by="scheduler"
-            )
+        if etwas_gesichert:
+            self._last_auto_backup = now
 
-            if success and backup_path:
-                # Rotation happens automatically inside create_backup()
+    async def _auto_backup_einer(self, sid: str, srv, mgr, api, now: datetime) -> None:
+        """Eine Instanz sichern — Speichern, Backup, Cloud, Meldung."""
+        name = self.sat_name_von(sid)
+        logger.info(f"[{sid}] Auto-Backup startet...")
 
-                # OneDrive upload
-                if self.onedrive and self.onedrive.enabled:
-                    cloud_ok, cloud_msg = await self.onedrive.upload(str(backup_path))
-                    if cloud_ok:
-                        await self.onedrive.rotate()
-                        logger.info(f"Cloud backup: {cloud_msg}")
-                    else:
-                        logger.warning(f"Cloud backup failed: {cloud_msg}")
-
-                # Notify
-                if self.notifier:
-                    size_mb = round(backup_path.stat().st_size / (1024 * 1024), 1) if backup_path.exists() else 0
-                    await self.notifier.notify_backup_success(
-                        filename=backup_path.name,
-                        size_mb=size_mb,
-                        backup_type="Auto",
-                    )
-
-                logger.info(f"Auto-Backup erfolgreich: {backup_path.name}")
-            else:
-                if self.notifier:
-                    await self.notifier.notify_backup_failed(
-                        msg, backup_type="Auto"
-                    )
-                logger.error(f"Auto-Backup fehlgeschlagen: {msg}")
-
+        # Erst im Spiel speichern, damit das Backup den aktuellen Stand traegt.
+        try:
+            if api:
+                await api.save_game()
+                await asyncio.sleep(5)
         except Exception as e:
-            logger.error(f"Auto-Backup error: {e}", exc_info=True)
+            logger.warning(f"[{sid}] save_game() vor Auto-Backup fehlgeschlagen: {e}")
+
+        # Timestamp gegen Duplikate; die Server-ID, damit zwei Instanzen im
+        # selben Cloud-Ordner unterscheidbar bleiben.
+        timestamp = now.strftime("%Y%m%d_%H%M%S")
+        kennung = f"auto-backup_{timestamp}" if len(self.sat_instanzen) <= 1 \
+            else f"auto-backup_{sid.lower()}_{timestamp}"
+        success, msg, backup_path = await mgr.create_backup(
+            name=kennung, created_by="scheduler"
+        )
+
+        if success and backup_path:
+            # Rotation passiert in create_backup()
+            if self.onedrive and self.onedrive.enabled:
+                cloud_ok, cloud_msg = await self.onedrive.upload(str(backup_path))
+                if cloud_ok:
+                    await self.onedrive.rotate()
+                    logger.info(f"[{sid}] Cloud-Backup: {cloud_msg}")
+                else:
+                    logger.warning(f"[{sid}] Cloud-Backup fehlgeschlagen: {cloud_msg}")
+
+            if self.notifier:
+                size_mb = (round(backup_path.stat().st_size / (1024 * 1024), 1)
+                           if backup_path.exists() else 0)
+                await self.notifier.notify_backup_success(
+                    filename=backup_path.name,
+                    size_mb=size_mb,
+                    backup_type=f"Auto ({name})",
+                )
+            logger.info(f"[{sid}] Auto-Backup erfolgreich: {backup_path.name}")
+        else:
+            if self.notifier:
+                await self.notifier.notify_backup_failed(
+                    msg, backup_type=f"Auto ({name})")
+            logger.error(f"[{sid}] Auto-Backup fehlgeschlagen: {msg}")
 
     # ------------------------------------------------------------------
     # Daily Restart
     # ------------------------------------------------------------------
 
     async def _check_daily_restart(self, now: datetime):
-        """Check if daily restart should run"""
-        if not self.sat_server:
+        """
+        Taeglicher Neustart — je Satisfactory-Instanz einzeln geprueft.
+
+        Zeitfenster und Mindest-Laufzeit gelten fuer alle gleich, der Zustand
+        aber nicht: laeuft auf einem Server jemand, wird nur dessen Neustart
+        verschoben, nicht der des anderen.
+        """
+        if not self.sat_server and not self.sat_instanzen:
             return
 
         # Check if it's the right time
@@ -414,62 +486,81 @@ class SchedulerCog(commands.Cog):
         if abs((now - target).total_seconds()) > 60:
             return
 
+        for sid in (self.sat_instanzen or ["MAIN"]):
+            try:
+                await self._daily_restart_einer(sid, now)
+            except Exception as e:
+                logger.error(f"[{sid}] Daily-Restart fehlgeschlagen: {e}", exc_info=True)
+
+    async def _daily_restart_einer(self, sid: str, now: datetime) -> None:
+        """Taeglichen Neustart einer Instanz pruefen und ggf. ausfuehren."""
+        srv = self.sat_server_von(sid)
+        if not srv:
+            return
+        api = self.sat_api_von(sid)
+        mgr = self.backup_manager_von(sid)
+        checker = self.health_checker_von(sid)
+        name = self.sat_name_von(sid)
+
         # Already restarted today?
-        if self._last_daily_restart and self._last_daily_restart.date() == now.date():
+        letzter = self._last_daily_restart_je.get(sid)
+        if letzter and letzter.date() == now.date():
             return
 
         # User-Override: Server manuell gestoppt → kein Auto-Restart
         try:
             from modules.monitoring import manual_stop_state
-            if manual_stop_state.is_manually_stopped("satisfactory"):
-                logger.info("Daily-Restart fuer Satisfactory uebersprungen — manuell gestoppt")
-                self._last_daily_restart = now
+            if manual_stop_state.is_manually_stopped(self.sat_kennung_von(sid)):
+                logger.info(f"[{sid}] Daily-Restart uebersprungen — manuell gestoppt")
+                self._last_daily_restart_je[sid] = now
                 return
         except Exception as e:
-            logger.debug(f"manual_stop_state-Check (sat) fehlgeschlagen: {e}")
+            logger.debug(f"[{sid}] manual_stop_state-Check fehlgeschlagen: {e}")
 
         # Server running?
-        running = await self.sat_server.is_running()
-        if not running:
-            self._last_daily_restart = now
+        if not await srv.is_running():
+            self._last_daily_restart_je[sid] = now
             return
 
         # Check minimum uptime
-        if self.health_checker and self.health_checker.status.uptime > 0:
-            uptime_hours = self.health_checker.status.uptime / 3600
+        if checker and checker.status.uptime > 0:
+            uptime_hours = checker.status.uptime / 3600
             if uptime_hours < self._min_uptime_for_restart_hours:
                 logger.info(
-                    f"Skipping daily restart: uptime {uptime_hours:.1f}h "
-                    f"< minimum {self._min_uptime_for_restart_hours}h"
+                    f"[{sid}] Neustart uebersprungen: Laufzeit {uptime_hours:.1f}h "
+                    f"< Minimum {self._min_uptime_for_restart_hours}h"
                 )
-                self._last_daily_restart = now
+                self._last_daily_restart_je[sid] = now
                 return
 
         # Check if players are online - delay if so
-        if self.health_checker and self.health_checker.status.players_online > 0:
+        if checker and checker.status.players_online > 0:
             logger.info(
-                f"Delaying daily restart: {self.health_checker.status.players_online} "
-                f"players online"
+                f"[{sid}] Neustart verschoben: {checker.status.players_online} "
+                f"Spieler online"
             )
             return  # Will try again next minute
 
-        logger.info("Daily restart starting...")
+        logger.info(f"[{sid}] Taeglicher Neustart startet...")
+        self._last_daily_restart_je[sid] = now
         self._last_daily_restart = now
 
         try:
             # Backup before restart
-            if self._backup_before_restart and self.backup_manager:
+            if self._backup_before_restart and mgr:
                 try:
-                    await self.sat_api.save_game()
-                    await asyncio.sleep(5)
+                    if api:
+                        await api.save_game()
+                        await asyncio.sleep(5)
                 except Exception as e:
-                    logger.warning(f"save_game() vor Daily Restart fehlgeschlagen: {e}")
+                    logger.warning(f"[{sid}] save_game() vor Neustart fehlgeschlagen: {e}")
 
-                success, msg, backup_path = await self.backup_manager.create_backup(
+                success, msg, backup_path = await mgr.create_backup(
                     name="pre-restart", created_by="scheduler"
                 )
                 if success:
-                    logger.info(f"Pre-restart backup: {backup_path.name if backup_path else msg}")
+                    logger.info(f"[{sid}] Pre-Restart-Backup: "
+                                f"{backup_path.name if backup_path else msg}")
 
             # Use restart timer for in-game warnings before restart
             from modules.restart_timer import RestartTimer, TimerResult
@@ -480,10 +571,10 @@ class SchedulerCog(commands.Cog):
             if admin_ch_id:
                 game_ch = self.bot.get_channel(admin_ch_id)
 
-            timer = RestartTimer(api=self.sat_api, channel=game_ch)
+            timer = RestartTimer(api=api, channel=game_ch)
             result = await timer.countdown(
                 duration_minutes=15,
-                action_name="Neustart",
+                action_name=f"Neustart ({name})",
                 warnings=[15, 5, 1],
             )
 
@@ -494,33 +585,39 @@ class SchedulerCog(commands.Cog):
                 # ueberfluessiger Auto-Restart in den noch bootenden Server.
                 har = getattr(self.bot, "health_auto_restart", None)
                 if har:
-                    har.suppress("sat", "main", duration_seconds=900)
-                success, msg = await self.sat_server.restart()
+                    har.suppress("sat", sid.lower(), duration_seconds=900)
+                success, msg = await srv.restart()
             elif result == TimerResult.CANCELLED:
-                logger.info("Daily restart timer cancelled")
+                logger.info(f"[{sid}] Neustart-Countdown abgebrochen")
                 return
             else:
-                logger.warning(f"Daily restart timer error: {result}")
+                logger.warning(f"[{sid}] Neustart-Countdown Fehler: {result}")
                 # Try direct restart as fallback
                 har = getattr(self.bot, "health_auto_restart", None)
                 if har:
-                    har.suppress("sat", "main", duration_seconds=900)
-                success, msg = await self.sat_server.restart()
+                    har.suppress("sat", sid.lower(), duration_seconds=900)
+                success, msg = await srv.restart()
 
             if self.notifier:
                 time_str = f"{self._daily_restart_hour:02d}:{self._daily_restart_minute:02d}"
                 await self.notifier.notify_scheduled_restart(time_str)
 
         except Exception as e:
-            logger.error(f"Daily restart error: {e}", exc_info=True)
+            logger.error(f"[{sid}] Neustart-Fehler: {e}", exc_info=True)
 
     # ------------------------------------------------------------------
     # Update Check
     # ------------------------------------------------------------------
 
     async def _check_update(self, now: datetime):
-        """Periodically check for server updates"""
-        if not self.update_checker:
+        """
+        Update-Pruefung fuer jede Satisfactory-Installation.
+
+        Die Instanzen haben getrennte Installationsverzeichnisse und koennen
+        auf unterschiedlichen Staenden stehen — eine gemeinsame Pruefung waere
+        eine Aussage ueber den falschen Server.
+        """
+        if not self.update_checker and not self.sat_instanzen:
             return
 
         interval = timedelta(hours=self._update_check_interval_hours)
@@ -528,35 +625,46 @@ class SchedulerCog(commands.Cog):
             return
 
         self._last_update_check = now
+        instanzen = self.sat_instanzen or ["MAIN"]
+        irgendwo_update = False
 
-        try:
-            available, info = await self.update_checker.check()
+        for sid in instanzen:
+            checker = self.update_checker_von(sid)
+            if not checker:
+                continue
+            try:
+                available, info = await checker.check()
+            except Exception as e:
+                logger.debug(f"[{sid}] Update-Pruefung fehlgeschlagen: {e}")
+                continue
 
-            if available:
-                self._pending_update = True
+            if not available:
+                continue
 
-                if self.notifier:
-                    auto_hint = ""
-                    if self._auto_update_enabled:
-                        auto_hint = (
-                            "\n\nAuto-Update ist aktiv und wird beim nächsten "
-                            "'Server leer'-Moment installiert."
-                        )
+            irgendwo_update = True
+            name = self.sat_name_von(sid)
+            installiert = info.get("installed_buildid", "?")
+            verfuegbar = info.get("available_buildid", "?")
+
+            if self.notifier:
+                zusatz = f"\n\nServer: **{name}**"
+                if self._auto_update_enabled:
+                    zusatz += ("\n\nAuto-Update ist aktiv und wird beim nächsten "
+                               "'Server leer'-Moment installiert.")
+                try:
                     await self.notifier.notify_update_available(
-                        info.get("installed_buildid", "?"),
-                        info.get("available_buildid", "?"),
-                        extra_text=auto_hint,
-                    )
+                        installiert, verfuegbar, extra_text=zusatz)
+                except Exception as e:
+                    logger.warning(f"[{sid}] Update-Meldung fehlgeschlagen: {e}")
 
-                if self.email_notifier:
+            if self.email_notifier:
+                try:
                     await self.email_notifier.send_update_available(
-                        info.get("installed_buildid", "?"),
-                        info.get("available_buildid", "?"),
-                    )
-            else:
-                self._pending_update = False
-        except Exception as e:
-            logger.debug(f"Update check error: {e}")
+                        installiert, verfuegbar)
+                except Exception as e:
+                    logger.warning(f"[{sid}] Update-Mail fehlgeschlagen: {e}")
+
+        self._pending_update = irgendwo_update
 
     # ------------------------------------------------------------------
     # Auto-Update Install
