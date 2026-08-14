@@ -121,6 +121,12 @@ class SatisfactoryCog(commands.Cog):
         """
         apis = getattr(self.bot, "sat_apis", {}) or {}
         if not self.servers:
+            # Registry leer (degradierter Start). Ohne Angabe ist die einzige
+            # bekannte Instanz gemeint; MIT Angabe waere es eine Luege, den
+            # Befehl auf ihr auszufuehren und das Ergebnis unter fremdem Namen
+            # zu zeigen.
+            if server:
+                return None, None, None
             return self.server, self.api, "MAIN"
         sid = (server or next(iter(self.servers))).upper()
         srv = self.servers.get(sid)

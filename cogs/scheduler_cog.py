@@ -93,6 +93,9 @@ class SchedulerCog(commands.Cog):
         self._last_auto_update: Optional[datetime] = None
         self._last_daily_report: Optional[datetime] = None
         self._pending_update: bool = False
+        # Je Instanz, nur zur Anzeige/Diagnose — den Installer steuert
+        # weiterhin ausschliesslich `_pending_update` der ersten Instanz.
+        self._pending_update_je: dict[str, bool] = {}
         # Loop-Guard (2026-06-25): nach 3 Fehlversuchen denselben Ziel-Build
         # nicht mehr endlos alle 30min retryn — aufgeben bis ein NEUER Build kommt.
         self._auto_update_fail_count: int = 0
@@ -486,11 +489,19 @@ class SchedulerCog(commands.Cog):
         if abs((now - target).total_seconds()) > 60:
             return
 
-        for sid in (self.sat_instanzen or ["MAIN"]):
-            try:
-                await self._daily_restart_einer(sid, now)
-            except Exception as e:
-                logger.error(f"[{sid}] Daily-Restart fehlgeschlagen: {e}", exc_info=True)
+        # Parallel, nicht nacheinander: der Neustart wartet einen
+        # 15-Minuten-Countdown ab, und der blockiert den 60-Sekunden-Takt des
+        # Schedulers ohnehin schon (bekannter Befund). Seriell waeren es bei
+        # zwei Instanzen 30 Minuten — und der zweite Server startete eine
+        # Viertelstunde nach der eingestellten Zeit neu.
+        instanzen = self.sat_instanzen or ["MAIN"]
+        ergebnisse = await asyncio.gather(
+            *(self._daily_restart_einer(sid, now) for sid in instanzen),
+            return_exceptions=True,
+        )
+        for sid, e in zip(instanzen, ergebnisse):
+            if isinstance(e, Exception):
+                logger.error(f"[{sid}] Daily-Restart fehlgeschlagen: {e}", exc_info=e)
 
     async def _daily_restart_einer(self, sid: str, now: datetime) -> None:
         """Taeglichen Neustart einer Instanz pruefen und ggf. ausfuehren."""
@@ -626,7 +637,13 @@ class SchedulerCog(commands.Cog):
 
         self._last_update_check = now
         instanzen = self.sat_instanzen or ["MAIN"]
-        irgendwo_update = False
+        erste = instanzen[0]
+        # `_pending_update` steuert den Auto-Installer, und der arbeitet auf der
+        # ERSTEN Instanz. Deshalb darf nur ein Update DIESER Instanz ihn
+        # ausloesen — sonst faehrt er den falschen Server herunter, findet dort
+        # nichts zu tun und loescht dabei die Markierung, sodass das echte
+        # Update des anderen Servers still verlorengeht.
+        update_je_instanz: dict[str, bool] = {}
 
         for sid in instanzen:
             checker = self.update_checker_von(sid)
@@ -638,10 +655,10 @@ class SchedulerCog(commands.Cog):
                 logger.debug(f"[{sid}] Update-Pruefung fehlgeschlagen: {e}")
                 continue
 
+            update_je_instanz[sid] = bool(available)
             if not available:
                 continue
 
-            irgendwo_update = True
             name = self.sat_name_von(sid)
             installiert = info.get("installed_buildid", "?")
             verfuegbar = info.get("available_buildid", "?")
@@ -664,7 +681,18 @@ class SchedulerCog(commands.Cog):
                 except Exception as e:
                     logger.warning(f"[{sid}] Update-Mail fehlgeschlagen: {e}")
 
-        self._pending_update = irgendwo_update
+        # Nur die erste Instanz steuert den Auto-Installer (siehe oben).
+        self._pending_update = update_je_instanz.get(erste, False)
+        self._pending_update_je = update_je_instanz
+
+        # Ein Update auf einer weiteren Instanz wird gemeldet, aber nicht
+        # automatisch installiert — der Installer ist noch nicht mehrinstanzfaehig.
+        weitere = [s for s, offen in update_je_instanz.items() if offen and s != erste]
+        if weitere and self._auto_update_enabled:
+            logger.info(
+                f"Update verfuegbar auf {', '.join(weitere)} — Auto-Installation "
+                f"laeuft nur fuer {erste}, bitte dort von Hand aktualisieren"
+            )
 
     # ------------------------------------------------------------------
     # Auto-Update Install

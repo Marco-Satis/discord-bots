@@ -864,6 +864,19 @@ health_checker.on_restart_failed = _on_restart_failed
 # bestehende HAR-Suppression; perform_update ruft har.suppress("sat","main")).
 health_checker.suppress_crash_check = lambda: health_auto_restart.is_suppressed("sat", "main")
 
+# Dieselbe Unterdrueckung fuer JEDE weitere Instanz — mit ihrem eigenen
+# Schluessel, so wie der Scheduler ihn setzt (`har.suppress("sat", sid.lower())`).
+# Ohne das faehrt ein zweiter Server sich waehrend seines eigenen geplanten
+# Neustarts selbst wieder hoch und kaempft gegen den Scheduler: genau der
+# Fehler, der oben fuer den ersten Server beschrieben ist (taeglich ein
+# ueberfluessiger Auto-Restart in den noch bootenden Server).
+for _hc_sid, _hc in sat_health_checkers.items():
+    if _hc is health_checker:
+        continue
+    _hc.suppress_crash_check = (
+        lambda _s=_hc_sid: health_auto_restart.is_suppressed("sat", _s.lower())
+    )
+
 
 async def _on_player_join(name):
     # No public join notification - status embed shows who's online

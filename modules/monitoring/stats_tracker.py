@@ -212,7 +212,7 @@ class StatsTracker:
         """Calculate uptime percentage over the last N days"""
         klausel, params = self._filter("uptime", days)
         zeile = await self._eine_zeile(
-            f"SELECT COUNT(*), SUM(value_int) FROM server_stats_tracker WHERE {klausel}",
+            f"SELECT COUNT(*), SUM(value_int) FROM server_stats_tracker WHERE {klausel}",  # nosec B608 - klausel ist konstant, Werte via ?-Parameter
             params,
         )
         if not zeile or not zeile[0]:
@@ -224,7 +224,7 @@ class StatsTracker:
         """Get peak concurrent player count over the last N days"""
         klausel, params = self._filter("player_count", days)
         zeile = await self._eine_zeile(
-            f"SELECT MAX(value_int) FROM server_stats_tracker WHERE {klausel}",
+            f"SELECT MAX(value_int) FROM server_stats_tracker WHERE {klausel}",  # nosec B608 - klausel ist konstant, Werte via ?-Parameter
             params,
         )
         return int(zeile[0]) if zeile and zeile[0] is not None else 0
@@ -237,18 +237,18 @@ class StatsTracker:
         klausel, params = self._filter("savegame_size", days)
 
         zeile = await self._eine_zeile(
-            f"SELECT COUNT(*) FROM server_stats_tracker WHERE {klausel}", params
+            f"SELECT COUNT(*) FROM server_stats_tracker WHERE {klausel}", params  # nosec B608 - klausel ist konstant, Werte via ?-Parameter
         )
         if not zeile or zeile[0] < 2:
             return None
 
         erste = await self._eine_zeile(
-            f"SELECT value_real FROM server_stats_tracker WHERE {klausel} "
+            f"SELECT value_real FROM server_stats_tracker WHERE {klausel} "  # nosec B608 - klausel ist konstant, Werte via ?-Parameter
             "ORDER BY timestamp ASC LIMIT 1",
             params,
         )
         letzte = await self._eine_zeile(
-            f"SELECT value_real FROM server_stats_tracker WHERE {klausel} "
+            f"SELECT value_real FROM server_stats_tracker WHERE {klausel} "  # nosec B608 - klausel ist konstant, Werte via ?-Parameter
             "ORDER BY timestamp DESC LIMIT 1",
             params,
         )
@@ -273,7 +273,7 @@ class StatsTracker:
         try:
             conn = await get_read_db()
             cursor = await conn.execute(
-                "SELECT timestamp, value_int FROM server_stats_tracker "
+                "SELECT timestamp, value_int FROM server_stats_tracker "  # nosec B608 - klausel ist konstant, Werte via ?-Parameter
                 f"WHERE {klausel} ORDER BY timestamp ASC",
                 params,
             )
@@ -287,7 +287,7 @@ class StatsTracker:
         """Total uptime checks in period"""
         klausel, params = self._filter("uptime", days)
         zeile = await self._eine_zeile(
-            f"SELECT COUNT(*) FROM server_stats_tracker WHERE {klausel}", params
+            f"SELECT COUNT(*) FROM server_stats_tracker WHERE {klausel}", params  # nosec B608 - klausel ist konstant, Werte via ?-Parameter
         )
         return int(zeile[0]) if zeile else 0
 
