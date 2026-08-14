@@ -11,7 +11,7 @@ from utils.logger import get_logger
 logger = get_logger("database.migrations")
 
 # Aktuelle Schema-Version
-CURRENT_VERSION = 11
+CURRENT_VERSION = 12
 
 
 # Komplettes Schema (23 Tabellen + Indices + FTS5)
@@ -439,6 +439,13 @@ async def run_migrations(db: aiosqlite.Connection) -> None:
         await set_schema_version(db, 11)
         logger.info("Migration v10 → v11 abgeschlossen")
 
+    # Version 11 → 12: Satisfactory-Messwerte bekommen eine Server-ID
+    if current < 12:
+        logger.info("Migration v11 → v12: server_id fuer Satisfactory-Messwerte")
+        await _apply_migration_v12(db)
+        await set_schema_version(db, 12)
+        logger.info("Migration v11 → v12 abgeschlossen")
+
     final = await get_schema_version(db)
     logger.info(f"Alle Migrationen abgeschlossen. Schema-Version: {final}")
 
@@ -469,6 +476,7 @@ async def _apply_schema_v1(db: aiosqlite.Connection) -> None:
     await _apply_migration_v9(db)
     await _apply_migration_v10(db)
     await _apply_migration_v11(db)
+    await _apply_migration_v12(db)
 
     # Tabellen zaehlen zur Verifikation
     cursor = await db.execute(
@@ -949,3 +957,34 @@ async def _apply_migration_v11(db: aiosqlite.Connection) -> None:
     await db.execute("DROP INDEX IF EXISTS idx_sst_server")
     await db.commit()
     logger.info("Migration v11: idx_sst_server entfernt (ungenutzt)")
+
+
+# =====================================================
+# Migration v12: Server-ID fuer Satisfactory-Messwerte
+# =====================================================
+
+
+async def _apply_migration_v12(db: aiosqlite.Connection) -> None:
+    """
+    Traegt fuer die vorhandenen Satisfactory-Messwerte die Server-ID nach.
+
+    Solange es genau einen Satisfactory-Server gab, blieb `server_id` leer —
+    Minecraft fuellte sie von Anfang an ('bmc', 'vanilla'). Mit einem zweiten
+    Satisfactory-Server braucht jede Instanz ihre ID, sonst laufen beide
+    Verlaeufe in einen Topf und weder Uptime noch Spitzenbelegung stimmen
+    danach fuer einen von beiden.
+
+    Die vorhandene Historie gehoert dem heutigen Server, also bekommt sie
+    dessen ID. Die ID ist bewusst fest verdrahtet und wird NICHT aus
+    SAT_SERVER_IDS gelesen: eine Migration muss auf jeder Datenbank dasselbe
+    tun, unabhaengig davon, wie die Umgebung gerade aussieht.
+
+    Minecraft-Zeilen (auch die 62.593 des stillgelegten Vanilla) bleiben
+    unberuehrt.
+    """
+    cursor = await db.execute(
+        "UPDATE server_stats_tracker SET server_id = 'MAIN' "
+        "WHERE server_type = 'sat' AND server_id IS NULL"
+    )
+    await db.commit()
+    logger.info(f"Migration v12: {cursor.rowcount} Satisfactory-Messwerte auf server_id='MAIN'")

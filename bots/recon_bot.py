@@ -147,15 +147,50 @@ bot = commands.Bot(
 # Service Initialization
 # ------------------------------------------------------------------
 
-# Game server interfaces
-sat_server = SatisfactoryServer(
-    service_name=get_env("SATISFACTORY_SERVICE", "satisfactory.service"),
-    server_user=get_env("SATISFACTORY_USER", "satisfactory"),
-    server_path=get_env("SATISFACTORY_SERVER_PATH",
-                        "/home/satisfactory/SatisfactoryDedicatedServer"),
-)
+# ------------------------------------------------------------------
+# Satisfactory: eine oder mehrere Instanzen
+# ------------------------------------------------------------------
+#
+# Welche es gibt, steht in SAT_SERVER_IDS — gleiche Mechanik wie bei Minecraft
+# weiter unten. Ein Server zaehlt, wenn seine ID dort steht UND eine Unit
+# konfiguriert ist; ohne SAT_SECOND_* aendert sich am Betrieb nichts.
+#
+# `sat_server` und `sat_api` bleiben als Namen bestehen und zeigen auf die
+# erste Instanz. Ueber achtzig Aufrufstellen sprechen sie an; sie werden Datei
+# fuer Datei auf die Dicts umgestellt, und bis dahin bleibt jeder Zwischenstand
+# lauffaehig.
 
-sat_api = SatisfactoryAPI(
+SAT_SERVER_IDS = server_ids("SAT_SERVER_IDS", "MAIN")
+sat_servers: dict[str, SatisfactoryServer] = {}
+sat_apis: dict[str, SatisfactoryAPI] = {}
+
+for _sat_sid in SAT_SERVER_IDS:
+    _sat_srv = SatisfactoryServer(_sat_sid)
+    if not _sat_srv.enabled:
+        logger.info(f"Satisfactory-Server {_sat_sid} nicht konfiguriert — uebersprungen")
+        continue
+    sat_servers[_sat_sid] = _sat_srv
+
+    # Der erste Server benutzt weiter die alten API_*-Variablen ohne ID.
+    _erster = _sat_sid == SAT_SERVER_IDS[0]
+    _praefix = f"SAT_{_sat_sid}_"
+    sat_apis[_sat_sid] = SatisfactoryAPI(
+        host=get_env(f"{_praefix}API_HOST", "") or get_env("API_HOST", "127.0.0.1"),
+        port=(get_env(f"{_praefix}API_PORT", 0, cast=int)
+              or get_env("API_PORT", 7777, cast=int) if _erster
+              else get_env(f"{_praefix}API_PORT", 7778, cast=int)),
+        token=get_env(f"{_praefix}API_TOKEN", "") or (get_env("API_TOKEN") if _erster else ""),
+        verify_ssl=get_env("API_VERIFY_SSL", False, cast=bool),
+    )
+    logger.info(f"Satisfactory-Server aktiviert: {_sat_srv.display_name} ({_sat_sid})")
+
+bot.sat_servers = sat_servers
+bot.sat_apis = sat_apis
+
+# Erste Instanz als Modulname — Uebergang, siehe Kommentar oben.
+_SAT_ERSTER = next(iter(sat_servers), "MAIN")
+sat_server = sat_servers.get(_SAT_ERSTER) or SatisfactoryServer("MAIN")
+sat_api = sat_apis.get(_SAT_ERSTER) or SatisfactoryAPI(
     host=get_env("API_HOST", "127.0.0.1"),
     port=get_env("API_PORT", 7777, cast=int),
     token=get_env("API_TOKEN"),
@@ -222,8 +257,21 @@ config_backup = ConfigBackup(
     encrypt=_backup_cfg.get("config_encrypt", False),
 )
 
-# Stats tracker (persisted history for reports)
-stats_tracker = StatsTracker(server_type="sat")
+# Stats tracker (persisted history for reports) — einer je Satisfactory-Instanz.
+#
+# Wichtig im Zusammenspiel mit Migration v12: die trug fuer die vorhandenen
+# Satisfactory-Messwerte `server_id='MAIN'` nach. Ein Tracker mit server_id=None
+# fragt danach `server_id IS NULL` ab und faende gar nichts mehr — Uptime und
+# Spitzenbelegung im Bericht waeren still auf null. Deshalb bekommt jede Instanz
+# hier ihre ID, und die IDs muessen zur Migration passen.
+sat_stats_trackers: dict[str, StatsTracker] = {
+    _sid: StatsTracker(server_type="sat", server_id=_sid)
+    for _sid in sat_servers
+}
+bot.sat_stats_trackers = sat_stats_trackers
+
+stats_tracker = sat_stats_trackers.get(
+    _SAT_ERSTER, StatsTracker(server_type="sat", server_id="MAIN"))
 
 # Server optimizer
 optimizer = ServerOptimizer(config)

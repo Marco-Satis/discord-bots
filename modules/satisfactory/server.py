@@ -9,6 +9,8 @@ import psutil
 from pathlib import Path
 from typing import Tuple, Optional, Dict, Any
 from utils.logger import get_logger
+from utils.config import get_env
+from modules.server_registry import SAT_DEFAULT
 
 logger = get_logger("satisfactory.server")
 
@@ -17,16 +19,85 @@ ALLOWED_ACTIONS = {"start", "stop", "restart", "status", "is-active"}
 
 
 class SatisfactoryServer:
-    """Manage Satisfactory Dedicated Server via systemd"""
+    """
+    Manage Satisfactory Dedicated Server via systemd.
 
-    def __init__(self, service_name: str = "satisfactory.service",
-                 server_user: str = "satisfactory",
-                 server_path: str = "/home/satisfactory/SatisfactoryDedicatedServer") -> None:
-        self.service_name = service_name
-        self.server_user = server_user
-        self.server_path = Path(server_path)
-        self.save_path = (Path(f"/home/{server_user}") / ".config" / "Epic" /
-                         "FactoryGame" / "Saved")
+    Mehrere Instanzen laufen unter demselben Linux-Nutzer. Getrennt werden sie
+    ueber drei Dinge, die die Unit setzt: eine eigene Portgruppe
+    (``-Port``/``-BeaconPort``/``-ServerQueryPort``), ein eigenes
+    Installationsverzeichnis (dort liegen Logs und Crashes) und ein eigenes
+    ``HOME`` (darunter liegen Speicherstaende und Einstellungen). Deshalb ist
+    ``home_path`` hier ein eigener Wert und nicht aus ``server_user`` abgeleitet.
+
+    Werte kommen aus ``SAT_<ID>_*``; der erste Server faellt auf die alten
+    Variablennamen ohne ID zurueck, damit sich fuer ihn nichts aendert.
+    """
+
+    def __init__(self, server_id: str = "",
+                 service_name: str = "",
+                 server_user: str = "",
+                 server_path: str = "",
+                 home_path: str = "") -> None:
+        """
+        Args:
+            server_id: ENV-Praefix-ID (``MAIN``, ``SECOND``). Ohne Angabe wird
+                nichts aus der Umgebung gelesen und die uebrigen Argumente
+                gelten unveraendert — so laufen alte Aufrufe weiter.
+            service_name: systemd-Unit. Leer = aus der ENV.
+            server_user: Linux-Nutzer, unter dem der Dienst laeuft.
+            server_path: Installationsverzeichnis (enthaelt FactoryGame/Saved/Logs).
+            home_path: HOME der Instanz (enthaelt .config/Epic/FactoryGame/Saved).
+                Leer = ``/home/<server_user>``.
+        """
+        self.server_id = (server_id or SAT_DEFAULT).upper()
+        praefix = f"SAT_{self.server_id}_"
+        erster = self.server_id == SAT_DEFAULT
+
+        def _wert(name: str, alt_name: str, vorgabe: str) -> str:
+            """ENV mit ID, sonst (nur beim ersten Server) der alte Name, sonst Vorgabe."""
+            wert = get_env(f"{praefix}{name}", "")
+            if not wert and erster:
+                wert = get_env(alt_name, "")
+            return wert or vorgabe
+
+        self.service_name = service_name or _wert(
+            "SERVICE", "SATISFACTORY_SERVICE",
+            "satisfactory.service" if erster else "")
+        self.server_user = server_user or _wert(
+            "USER", "SATISFACTORY_USER", "satisfactory")
+        self.server_path = Path(server_path or _wert(
+            "PATH", "SATISFACTORY_SERVER_PATH",
+            "/home/satisfactory/SatisfactoryDedicatedServer"))
+
+        heim = home_path or _wert("HOME", "", f"/home/{self.server_user}")
+        self.home_path = Path(heim)
+        self.save_path = (self.home_path / ".config" / "Epic" /
+                          "FactoryGame" / "Saved")
+
+    @property
+    def enabled(self) -> bool:
+        """
+        Der Server ist konfiguriert, wenn ein Service-Name vorliegt.
+
+        Gleiche Regel wie bei ``MinecraftServer``: eine Server-ID ohne Unit
+        (etwa ein Tippfehler in ``SAT_SERVER_IDS``) erzeugt keine tote Kachel.
+        """
+        return bool(self.service_name)
+
+    @property
+    def log_path(self) -> Path:
+        """Serverlog dieser Instanz — liegt im Installationsverzeichnis."""
+        return (self.server_path / "FactoryGame" / "Saved" / "Logs" /
+                "FactoryGame.log")
+
+    @property
+    def display_name(self) -> str:
+        """Anzeigename, wie ihn Discord und Dashboard benutzen."""
+        name = get_env(f"SAT_{self.server_id}_DISPLAY_NAME", "")
+        if name:
+            return name
+        return ("Satisfactory" if self.server_id == SAT_DEFAULT
+                else f"Satisfactory {self.server_id.title()}")
 
     # ------------------------------------------------------------------
     # systemctl helpers
@@ -122,6 +193,15 @@ class SatisfactoryServer:
                         or ("FactoryServer" in cmdline_str and user == self.server_user)
                         or ("Satisfactory" in cmdline_str and user == self.server_user)
                     )
+
+                    # Mehrere Instanzen laufen unter DEMSELBEN Nutzer. Ohne den
+                    # Pfadvergleich passt jeder Satisfactory-Prozess auf jede
+                    # Instanz, und der Gewinner ist der mit dem meisten RAM —
+                    # beide Server zeigten dann dieselben Werte. Das
+                    # Installationsverzeichnis steht in der Kommandozeile und
+                    # trennt sie eindeutig.
+                    if is_factory and str(self.server_path) not in cmdline_str:
+                        is_factory = False
 
                     if is_factory:
                         mem_info = proc.info.get("memory_info")
