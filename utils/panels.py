@@ -61,7 +61,8 @@ def hud_container(
     bar: Optional[Tuple[float, float]] = None,
     bar_style: str = "outline",
     rows: Optional[Iterable[discord.ui.Item]] = None,
-    actions: Optional[discord.ui.ActionRow] = None,
+    actions: Optional[Union[discord.ui.ActionRow,
+                            Iterable[discord.ui.ActionRow]]] = None,
     footer_note: str = "",
     accent: Optional[int] = None,
     with_dot: bool = False,
@@ -76,7 +77,8 @@ def hud_container(
         meta: Kennzahlen als ``[(Wert, Beschriftung), …]``.
         bar: ``(Wert, Maximum)`` für den Fortschrittsbalken.
         rows: fertige Zeilen, am besten über :func:`panel_row` gebaut.
-        actions: Aktionszeile über :func:`action_row`.
+        actions: eine Aktionszeile über :func:`action_row` — oder mehrere;
+            Discord nimmt maximal fünf Buttons je Zeile.
         footer_note: kleine Schlusszeile, z.B. „aktualisiert vor 30 Sekunden".
         accent: Akzentfarbe überschreiben (sonst aus ``state``).
         with_dot: Statuspunkt vor den Titel setzen (bei Alarmen sinnvoll).
@@ -107,8 +109,12 @@ def hud_container(
             container.add_item(zeile)
 
     if actions is not None:
-        container.add_item(discord.ui.Separator())
-        container.add_item(actions)
+        aktionen = ([actions] if isinstance(actions, discord.ui.ActionRow)
+                    else list(actions))
+        if aktionen:
+            container.add_item(discord.ui.Separator())
+            for zeile in aktionen:
+                container.add_item(zeile)
 
     if footer_note:
         container.add_item(discord.ui.TextDisplay(subtext(footer_note)))

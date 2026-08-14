@@ -33,7 +33,11 @@ from discord.ext import commands
 
 from modules.database.db_manager import get_db
 from utils.logger import get_logger
-from utils.embeds import COLOR_INFO, COLOR_SUCCESS
+from utils.embeds import (
+    COLOR_SUCCESS,
+    info_embed,
+    success_embed,
+)
 
 logger = get_logger("cogs.welcome")
 
@@ -208,10 +212,9 @@ class WelcomeCog(commands.Cog):
         Returns:
             Fertiges discord.Embed-Objekt
         """
-        embed = discord.Embed(
+        embed = success_embed(
             title=f"Willkommen, {member.display_name}!",
             description=message_text,
-            color=COLOR_SUCCESS,
         )
         embed.set_thumbnail(url=member.display_avatar.url)
         embed.set_footer(
@@ -305,10 +308,9 @@ class WelcomeCog(commands.Cog):
         if dm_message:
             try:
                 dm_text = self._replace_variables(dm_message, member)
-                dm_embed = discord.Embed(
+                dm_embed = info_embed(
                     title=f"Willkommen auf {member.guild.name}!",
                     description=dm_text,
-                    color=COLOR_INFO,
                 )
                 dm_embed.set_thumbnail(url=member.guild.icon.url if member.guild.icon else "")
                 await member.send(embed=dm_embed)
@@ -359,10 +361,9 @@ class WelcomeCog(commands.Cog):
             )
             return
 
-        embed = discord.Embed(
+        embed = success_embed(
             title="Willkommens-Kanal gesetzt",
             description=f"Neue Mitglieder werden in {channel.mention} begruesst.",
-            color=COLOR_SUCCESS,
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
 
@@ -423,10 +424,9 @@ class WelcomeCog(commands.Cog):
             )
             return
 
-        embed = discord.Embed(
+        embed = success_embed(
             title="Auto-Rolle gesetzt",
             description=f"Neue Mitglieder erhalten automatisch die Rolle **{role.name}**.",
-            color=COLOR_SUCCESS,
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
 
@@ -475,9 +475,8 @@ class WelcomeCog(commands.Cog):
         preview = preview.replace("{server}", interaction.guild.name)
         preview = preview.replace("{membercount}", str(interaction.guild.member_count))
 
-        embed = discord.Embed(
+        embed = success_embed(
             title="Willkommensnachricht gesetzt",
-            color=COLOR_SUCCESS,
         )
         embed.add_field(name="Vorlage", value=f"```{text}```", inline=False)
         embed.add_field(name="Vorschau", value=preview, inline=False)
@@ -596,10 +595,9 @@ class WelcomeCog(commands.Cog):
         )
 
         # Status-Embed
-        status_embed = discord.Embed(
+        status_embed = info_embed(
             title="Welcome-System Konfiguration",
             description="\n".join(status_lines),
-            color=COLOR_INFO,
         )
         await interaction.followup.send(embed=status_embed, ephemeral=True)
 

@@ -25,7 +25,7 @@ from discord.ext import commands
 
 from modules.guild_context import GuildConfig
 from utils.logger import get_logger
-from utils.embeds import COLOR_INFO
+from utils.embeds import info_embed
 
 logger = get_logger("cogs.lfg")
 
@@ -190,8 +190,8 @@ class LFGCog(commands.Cog):
         desc = f"{interaction.user.mention} sucht Mitspieler!"
         if text:
             desc += f"\n> {text}"
-        embed = discord.Embed(
-            title="🎮 Looking for Group", description=desc, color=COLOR_INFO
+        embed = info_embed(
+            title="🎮 Looking for Group", description=desc,
         )
 
         # Nur die LFG-Rolle pingen — kein @everyone/@here, keine User-Pings.
@@ -295,13 +295,12 @@ class LFGCog(commands.Cog):
                 "Bitte einen Text-Channel angeben.", ephemeral=True
             )
             return
-        embed = discord.Embed(
+        embed = info_embed(
             title="🎮 LFG — Mitspieler-Pings",
             description=(
                 "Klicke den Button, um **LFG-Pings an/aus** zu schalten.\n"
                 "Wer die Rolle hat, wird bei `/lfg ping` benachrichtigt."
             ),
-            color=COLOR_INFO,
         )
         try:
             await target.send(embed=embed, view=LFGToggleView())
@@ -373,7 +372,7 @@ class LFGCog(commands.Cog):
                 ch = guild.get_channel(int(channel_id))
             except (TypeError, ValueError):
                 ch = None
-        embed = discord.Embed(title="LFG-Status", color=COLOR_INFO)
+        embed = info_embed(title="LFG-Status")
         embed.add_field(
             name="Rolle", value=role.name if role else "Nicht gesetzt", inline=False
         )

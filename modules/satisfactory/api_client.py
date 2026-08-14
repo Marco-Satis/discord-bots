@@ -24,6 +24,11 @@ class ServerState:
     game_duration: float = 0.0
     is_paused: bool = False
     average_tick_rate: float = 0.0
+    # False = die Abfrage ist gescheitert und das hier sind Default-Werte.
+    # Ohne dieses Feld ist ein degradiertes Ergebnis von "0 Spieler online"
+    # nicht zu unterscheiden — genau daran haben Aufrufer den Zaehler auf 0
+    # gesetzt, obwohl Spieler drauf waren.
+    ok: bool = True
 
 
 @dataclass
@@ -159,7 +164,7 @@ class SatisfactoryAPI:
             raise
         except Exception as e:
             logger.error(f"Query state failed: {e}")
-            return ServerState()
+            return ServerState(ok=False)
 
     async def get_server_options(self) -> Dict[str, Any]:
         """Get server settings"""

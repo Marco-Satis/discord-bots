@@ -30,11 +30,20 @@ from pathlib import Path
 import discord
 from discord import app_commands
 from discord.ext import commands
-from typing import Optional, Dict
+from typing import Dict, List, Optional
 
 from utils import get_logger, format_uptime, format_bytes, status_emoji, DATA_DIR
 from utils.permissions import admin_only, spieler_only, owner_only
-from utils.embeds import COLOR_ERROR, COLOR_INFO, COLOR_SUCCESS, COLOR_WARNING
+from utils.embeds import (
+    COLOR_ERROR,
+    COLOR_SUCCESS,
+    error_embed,
+    hud_embed,
+    info_embed,
+    success_embed,
+    warning_embed,
+)
+from utils.ui_kit import subtext
 
 
 def _sanitize_rcon_input(text: str, max_length: int = 100) -> str:
@@ -273,39 +282,28 @@ class MinecraftCog(commands.Cog):
         status = await srv.get_status()
         online = status["running"]
 
-        embed = discord.Embed(
-            title=f"{status_emoji(online)} {srv.display_name}",
-            color=COLOR_SUCCESS if online else 0xe74c3c,
-        )
-
+        # HUD-Stil: Kennzahlen-Kopf mit Spieler-Balken statt drei Einzelfeldern.
+        details: List[str] = []
         if online:
-            embed.add_field(
-                name="Spieler",
-                value=f"{status['players_online']}/{status['players_max']}",
-                inline=True,
-            )
-            embed.add_field(
-                name="Uptime",
-                value=format_uptime(status["uptime"]),
-                inline=True,
-            )
-            embed.add_field(
-                name="PID",
-                value=str(status.get("pid", "—")),
-                inline=True,
-            )
-        else:
-            embed.description = "Server ist offline."
+            pid = status.get("pid") or "\u2014"
+            details.append(subtext(
+                f"Uptime {format_uptime(status['uptime'])} \u00b7 PID {pid}"
+            ))
 
-        # Aktiver Timer?
         timer_key = f"mc_{srv.server_id.lower()}"
         timer = self.timer_mgr._timers.get(timer_key)
         if timer and timer.is_active:
-            embed.add_field(
-                name="\u23f0 Geplant",
-                value=f"{timer.action_name} läuft...",
-                inline=False,
-            )
+            details.append(subtext(f"\u23f0 {timer.action_name} l\u00e4uft"))
+
+        embed = hud_embed(
+            srv.display_name.upper(),
+            state="ok" if online else "off",
+            meta=[(f"{status['players_online']}/{status['players_max']}", "Spieler")]
+            if online else None,
+            bar=(status["players_online"], status["players_max"]) if online else None,
+            description=None if online else "Server ist offline.",
+            lines=details or None,
+        )
 
         await interaction.followup.send(embed=embed)
 
@@ -329,9 +327,8 @@ class MinecraftCog(commands.Cog):
             players = await srv.get_players()
             online, max_players = await srv.get_player_count()
 
-            embed = discord.Embed(
+            embed = info_embed(
                 title=f"Online Spieler — {srv.display_name}",
-                color=COLOR_INFO,
             )
             embed.add_field(
                 name="Spieleranzahl",
@@ -369,10 +366,9 @@ class MinecraftCog(commands.Cog):
             safe_player = _sanitize_rcon_input(player)
             safe_reason = _sanitize_rcon_input(reason, 200)
             await srv.rcon_command(f"kick {safe_player} {safe_reason}")
-            embed = discord.Embed(
+            embed = warning_embed(
                 title="Spieler gekickt",
                 description=f"**{safe_player}** wurde von {srv.display_name} gekickt.",
-                color=COLOR_WARNING,
             )
             embed.set_footer(text=f"von {interaction.user.display_name}")
             await interaction.followup.send(embed=embed)
@@ -430,11 +426,10 @@ class MinecraftCog(commands.Cog):
                     ip=ip_address,
                 )
 
-            embed = discord.Embed(
+            embed = error_embed(
                 title="Spieler gebannt",
                 description=f"**{safe_player}** wurde auf {srv.display_name} gebannt.\n"
                            f"Grund: {safe_reason}",
-                color=COLOR_ERROR,
             )
             embed.add_field(
                 name="RCON-Ban", value="✅ Aktiv" if rcon_ok else "❌ Fehler", inline=True
@@ -492,10 +487,9 @@ class MinecraftCog(commands.Cog):
             else:
                 ip_msg = "IP-Tracker nicht verfügbar"
 
-            embed = discord.Embed(
+            embed = success_embed(
                 title="Spieler entbannt",
                 description=f"**{safe_player}** wurde auf {srv.display_name} entbannt.",
-                color=COLOR_SUCCESS,
             )
             embed.add_field(
                 name="RCON-Pardon", value="✅ Aktiv" if rcon_ok else "❌ Fehler", inline=True
@@ -535,10 +529,9 @@ class MinecraftCog(commands.Cog):
         try:
             safe_player = _sanitize_rcon_input(player)
             response = await srv.rcon_command(f"whitelist add {safe_player}")
-            embed = discord.Embed(
+            embed = success_embed(
                 title="Whitelist aktualisiert",
                 description=f"`{safe_player}` hinzugefuegt.\nAntwort: {response}",
-                color=COLOR_SUCCESS,
             )
             embed.set_footer(text=f"von {interaction.user.display_name}")
             await interaction.followup.send(embed=embed)
@@ -563,10 +556,9 @@ class MinecraftCog(commands.Cog):
         try:
             safe_player = _sanitize_rcon_input(player)
             response = await srv.rcon_command(f"whitelist remove {safe_player}")
-            embed = discord.Embed(
+            embed = warning_embed(
                 title="Whitelist aktualisiert",
                 description=f"`{player}` entfernt.\nAntwort: {response}",
-                color=COLOR_WARNING,
             )
             embed.set_footer(text=f"von {interaction.user.display_name}")
             await interaction.followup.send(embed=embed)
@@ -588,10 +580,9 @@ class MinecraftCog(commands.Cog):
 
         try:
             response = await srv.rcon_command("whitelist list")
-            embed = discord.Embed(
+            embed = info_embed(
                 title=f"Whitelist — {srv.display_name}",
                 description=response or "Whitelist ist leer.",
-                color=COLOR_INFO,
             )
             await interaction.followup.send(embed=embed)
         except Exception as e:
@@ -633,7 +624,7 @@ class MinecraftCog(commands.Cog):
             embed = discord.Embed(
                 title=("Backup erstellt" if success else "Backup fehlgeschlagen"),
                 description=f"**{srv.display_name}**\n{msg}",
-                color=COLOR_SUCCESS if success else 0xe74c3c,
+                color=COLOR_SUCCESS if success else COLOR_ERROR,
             )
             if success:
                 embed.set_footer(text=f"von {interaction.user.display_name}")
@@ -670,9 +661,8 @@ class MinecraftCog(commands.Cog):
             await interaction.followup.send("Keine Backups verfügbar.")
             return
 
-        embed = discord.Embed(
+        embed = info_embed(
             title=f"Backups — {srv.display_name}",
-            color=COLOR_INFO,
         )
 
         for backup in backups[:10]:
@@ -727,7 +717,7 @@ class MinecraftCog(commands.Cog):
                 title=("Wiederhergestellt" if success
                        else "Wiederherstellung fehlgeschlagen"),
                 description=msg,
-                color=COLOR_SUCCESS if success else 0xe74c3c,
+                color=COLOR_SUCCESS if success else COLOR_ERROR,
             )
             await interaction.followup.send(embed=embed)
             logger.info(
@@ -795,14 +785,13 @@ class MinecraftCog(commands.Cog):
             task.add_done_callback(_on_done)
             self._active_announcements[srv.server_id] = task
 
-            embed = discord.Embed(
+            embed = warning_embed(
                 title=f"Wiederholte Ankuendigung gestartet — {srv.display_name}",
                 description=(
                     f"**Nachricht:** {safe_message}\n"
                     f"**Wiederholungen:** {repeat}x (alle 30s)\n"
                     f"**Banner:** {'Ja (erste Nachricht)' if banner else 'Nein'}"
                 ),
-                color=COLOR_WARNING,
             )
             embed.set_footer(text=f"von {interaction.user.display_name}")
             await interaction.edit_original_response(content=None, embed=embed)
@@ -812,10 +801,9 @@ class MinecraftCog(commands.Cog):
         try:
             await self._send_announcement(srv, safe_message, banner)
 
-            embed = discord.Embed(
+            embed = success_embed(
                 title=f"Ankuendigung gesendet — {srv.display_name}",
                 description=f"**Nachricht:** {safe_message}",
-                color=COLOR_SUCCESS,
             )
             if banner:
                 embed.add_field(
@@ -948,9 +936,8 @@ class MinecraftCog(commands.Cog):
                 return
 
             # Wichtigste Einstellungen gruppiert anzeigen
-            embed = discord.Embed(
+            embed = info_embed(
                 title=f"Server-Einstellungen — {srv.display_name}",
-                color=COLOR_INFO,
             )
 
             # Spiel-Einstellungen
@@ -1012,9 +999,8 @@ class MinecraftCog(commands.Cog):
         if not srv:
             return
 
-        embed = discord.Embed(
+        embed = info_embed(
             title=f"Statistiken — {srv.display_name}",
-            color=COLOR_INFO,
         )
 
         # World-Größe
@@ -1083,15 +1069,13 @@ class MinecraftCog(commands.Cog):
             available, info = await updater.check()
 
             if "error" in info:
-                embed = discord.Embed(
+                embed = error_embed(
                     title="Modpack-Check Fehler",
                     description=info["error"],
-                    color=COLOR_ERROR,
                 )
             elif available:
-                embed = discord.Embed(
+                embed = warning_embed(
                     title="Modpack-Update verfügbar!",
-                    color=COLOR_WARNING,
                 )
                 embed.add_field(
                     name="Aktuell", value=info.get("current", "?"), inline=True
@@ -1109,10 +1093,9 @@ class MinecraftCog(commands.Cog):
                         inline=False,
                     )
             else:
-                embed = discord.Embed(
+                embed = success_embed(
                     title="Modpack ist aktuell",
                     description=f"Version: {info.get('current', '?')}",
-                    color=COLOR_SUCCESS,
                 )
                 embed.add_field(
                     name="Quelle", value=info.get("source", "?"), inline=True
@@ -1275,19 +1258,17 @@ class MinecraftCog(commands.Cog):
             if len(response) > 1900:
                 response = response[:1900] + "... (gekuerzt)"
 
-            embed = discord.Embed(
+            embed = info_embed(
                 title=f"RCON — {srv.display_name}",
                 description=f"**Befehl:** `{cmd}`\n\n**Antwort:**\n```\n{response}\n```",
-                color=COLOR_INFO,
             )
             embed.set_footer(text=f"von {interaction.user.display_name}")
             await interaction.followup.send(embed=embed)
             logger.info(f"[{srv.server_id}] RCON von {interaction.user}: {cmd}")
         except Exception as e:
-            embed = discord.Embed(
+            embed = error_embed(
                 title=f"RCON Fehler — {srv.display_name}",
                 description=f"**Befehl:** `{cmd}`\n**Fehler:** {e}",
-                color=COLOR_ERROR,
             )
             await interaction.followup.send(embed=embed)
 
@@ -1346,14 +1327,13 @@ class MinecraftCog(commands.Cog):
             name = self.servers[sid].display_name if sid in self.servers else sid
             server_status.append(f"{'✅' if success else '⚠️'} {name}")
 
-        embed = discord.Embed(
+        embed = error_embed(
             title="Spieler auf Blacklist gesetzt",
             description=(
                 f"**Spieler:** {discord.utils.escape_mentions(safe_player)}\n"
                 f"**Grund:** {discord.utils.escape_mentions(safe_reason)}\n"
                 f"**Server:** {', '.join(server_ids) if server_ids else 'ALLE'}"
             ),
-            color=COLOR_ERROR,
         )
         if server_status:
             embed.add_field(
@@ -1397,10 +1377,9 @@ class MinecraftCog(commands.Cog):
             name = self.servers[sid].display_name if sid in self.servers else sid
             server_status.append(f"{'✅' if success else '⚠️'} {name}")
 
-        embed = discord.Embed(
+        embed = success_embed(
             title="Spieler von Blacklist entfernt",
             description=f"**{discord.utils.escape_mentions(safe_player)}** wurde entbannt.",
-            color=COLOR_SUCCESS,
         )
         if server_status:
             embed.add_field(
@@ -1442,10 +1421,9 @@ class MinecraftCog(commands.Cog):
         if len(text) > 4000:
             text = text[:4000] + "\n…"
 
-        embed = discord.Embed(
+        embed = error_embed(
             title=f"MC Blacklist ({len(active)} aktive Bans)",
             description=text,
-            color=COLOR_ERROR,
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
 
@@ -1497,10 +1475,9 @@ class MinecraftCog(commands.Cog):
         if len(text) > 4000:
             text = text[:4000] + "\n…"
 
-        embed = discord.Embed(
+        embed = warning_embed(
             title=f"Ban-Historie: {discord.utils.escape_mentions(safe_player)}",
             description=text,
-            color=COLOR_WARNING,
         )
         embed.set_footer(text=f"{len(history)} Eintraege gesamt")
         await interaction.followup.send(embed=embed, ephemeral=True)
@@ -1541,9 +1518,8 @@ class MinecraftCog(commands.Cog):
             return
 
         # Ergebnis-Embed erstellen
-        embed = discord.Embed(
+        embed = success_embed(
             title=f"Welt-Analyse — {srv.display_name}",
-            color=COLOR_SUCCESS,
         )
 
         # Welt-Info (level.dat)

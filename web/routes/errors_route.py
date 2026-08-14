@@ -16,7 +16,7 @@ from fastapi.templating import Jinja2Templates
 
 from utils.config import LOG_DIR
 from utils.logger import get_logger
-from web.auth import require_auth, require_auth_api
+from web.auth import require_perm, require_auth, require_auth_api
 
 logger = get_logger("web.routes.errors")
 
@@ -142,7 +142,11 @@ async def errors_page(request: Request, level: str = "", current_user: dict = De
 
 
 @router.post("/api/errors/clear")
-async def clear_error_logs(current_user: dict = Depends(require_auth_api)):
+async def clear_error_logs(
+    # Nicht require_auth_api: das Leeren ALLER Logdateien ist eine
+    # Systemaktion. Vorher genuegte irgendein angemeldeter Nutzer.
+    current_user: dict = Depends(require_perm("system", "control")),
+):
     """
     Leert alle Log-Dateien (truncate), um alte Fehler-Eintraege zu entfernen.
     Neue Fehler werden ab sofort wieder geloggt.

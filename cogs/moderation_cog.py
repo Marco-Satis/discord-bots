@@ -35,6 +35,7 @@ from utils.config import get_env
 from utils.logger import get_logger
 from utils.permissions import admin_only, is_admin
 from utils.embeds import COLOR_SUCCESS
+from utils.loop_guard import guard
 
 logger = get_logger("cogs.moderation")
 
@@ -89,6 +90,7 @@ class ModerationCog(commands.Cog):
         """Persistierte Filterliste laden + Cleanup-Task starten"""
         await self.word_filter.load()
         await self.invite_filter.load()
+        guard(self._cleanup_task, name="_cleanup_task")
         self._cleanup_task.start()
         logger.info(
             f"ModerationCog geladen: {self.word_filter.count} Filterwoerter, "
@@ -107,7 +109,10 @@ class ModerationCog(commands.Cog):
     @tasks.loop(minutes=30)
     async def _cleanup_task(self) -> None:
         """Abgelaufene Anti-Spam Tracking-Daten entfernen"""
-        self.anti_spam.cleanup()
+        try:
+            self.anti_spam.cleanup()
+        except Exception as e:  # noqa: BLE001 — sonst waechst der Tracker ewig
+            logger.error(f"Anti-Spam-Aufraeumen fehlgeschlagen: {e}", exc_info=True)
 
     @_cleanup_task.before_loop
     async def _before_cleanup(self) -> None:

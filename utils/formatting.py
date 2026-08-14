@@ -65,10 +65,21 @@ def status_emoji(online):
 
 
 def progress_bar(current, maximum, length=10):
-    """Create a text progress bar"""
+    """
+    Fortschrittsbalken im Hausstil, mit Prozentangabe dahinter.
+
+    Rendert seit dem HUD-Rollout ``▰▰▰▱▱▱▱▱▱▱ 30%`` statt ``[###-------] 30%``.
+    Die Balken-Logik selbst steht in :func:`utils.ui_kit.progress_bar` — dort
+    liegen auch die anderen Stile. Diese Funktion bleibt als Einstiegspunkt der
+    bestehenden Aufrufer bestehen und haengt die Prozentzahl an, auf die sie
+    sich verlassen.
+
+    Neuer Code nimmt direkt ``utils.ui_kit.progress_bar`` und setzt die
+    Prozentangabe selbst, wenn er sie braucht.
+    """
+    from utils.ui_kit import progress_bar as _bar
+
     if maximum <= 0:
-        return "[" + "-" * length + "]"
+        return _bar(0, 1, length)
     ratio = min(current / maximum, 1.0)
-    filled = int(ratio * length)
-    empty = length - filled
-    return "[" + "#" * filled + "-" * empty + f"] {ratio*100:.0f}%"
+    return f"{_bar(current, maximum, length)} {ratio * 100:.0f}%"

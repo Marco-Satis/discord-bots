@@ -2,7 +2,7 @@
 Dashboard-Live-Daten-Sammler (D3: WebSocket-Push statt SSE).
 
 Sammelt den Echtzeit-Payload für das Dashboard (Server-Status, System-Stats,
-Bot-Status, letzte Events). Früher im SSE-Generator (`web/routes/sse_route.py`,
+Bot-Status, letzte Events). Früher im SSE-Generator (`web/routes/sse_route.py`, 2026-08-14 geloescht,
 2026-06-04 entfernt) — jetzt vom WebSocket-Broadcaster in `web/app.py` genutzt.
 
 Quelle der Daten: `data/monitor/*_status.json`, `data/<bot>/bot_status.json`,
@@ -66,8 +66,12 @@ def collect_server_status() -> list[dict]:
 
 def collect_system_stats() -> dict:
     """System-Performance (CPU/RAM/Disk) via psutil — Fallback-0 ohne psutil."""
+    # cpu_cores gehoert dazu, auch wenn es sich nie aendert: das Template liest
+    # system.cpu_cores, und ohne den Schluessel setzt der 5-Sekunden-Push die
+    # Kernzahl auf 0 zurueck, die der Server-Render gerade richtig gezeigt hat.
     stats: dict[str, float] = {
-        "cpu_percent": 0, "ram_percent": 0, "ram_used_gb": 0, "ram_total_gb": 0,
+        "cpu_percent": 0, "cpu_cores": 0,
+        "ram_percent": 0, "ram_used_gb": 0, "ram_total_gb": 0,
         "disk_percent": 0, "disk_used_gb": 0, "disk_total_gb": 0,
     }
     try:
@@ -75,6 +79,7 @@ def collect_system_stats() -> dict:
 
         # interval=None: cached delta seit letztem Call (kein 100ms-Block).
         stats["cpu_percent"] = psutil.cpu_percent(interval=None)
+        stats["cpu_cores"] = psutil.cpu_count() or 0
         mem = psutil.virtual_memory()
         stats["ram_percent"] = mem.percent
         stats["ram_used_gb"] = round(mem.used / (1024 ** 3), 1)

@@ -30,6 +30,7 @@ from discord.ext import commands, tasks
 from modules.giveaways import GiveawayManager
 from utils.logger import get_logger
 from utils.permissions import admin_only
+from utils.loop_guard import guard
 
 logger = get_logger("cogs.giveaway")
 
@@ -279,7 +280,9 @@ class GiveawayCog(commands.Cog):
             logger.info("Giveaway-Daten aus SQLite geladen")
         except Exception as e:
             logger.warning(f"SQLite-Load fehlgeschlagen: {e}")
+        guard(self.check_giveaways, name="check_giveaways")
         self.check_giveaways.start()
+        guard(self.cleanup_embed_locks, name="cleanup_embed_locks")
         self.cleanup_embed_locks.start()
         logger.info("Giveaway-Background-Tasks gestartet (check + cleanup)")
 
@@ -296,7 +299,11 @@ class GiveawayCog(commands.Cog):
     @tasks.loop(seconds=30)
     async def check_giveaways(self) -> None:
         """Prueft alle 30 Sekunden ob Giveaways abgelaufen sind"""
-        expired = self.manager.get_expired()
+        try:
+            expired = self.manager.get_expired()
+        except Exception as e:  # noqa: BLE001 — sonst enden Giveaways nie
+            logger.error(f"Abgelaufene Giveaways nicht ermittelbar: {e}", exc_info=True)
+            return
         if not expired:
             return
 

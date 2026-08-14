@@ -110,6 +110,15 @@ def capacity(value: int, maximum: int, icon: str = "👥") -> str:
     return f"{icon} `{value}/{maximum}`"
 
 
+def zahl(wert: float) -> str:
+    """Zahl mit deutschem Tausenderpunkt: ``12345`` -> ``12.345``.
+
+    Python formatiert mit ``,`` als Trenner; im deutschen Panel-Text ist das
+    ein Dezimalkomma und liest sich falsch.
+    """
+    return f"{wert:,.0f}".replace(",", ".")
+
+
 def chip(text: str) -> str:
     """Kleiner Monospace-Chip — fuer Zahlenpaare, Versionen, Zustaende.
 

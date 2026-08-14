@@ -58,7 +58,11 @@ app = FastAPI(
     description="Web-Dashboard fuer das Discord Bot System",
     version="1.0.0",
     docs_url=None,      # Swagger-UI deaktivieren in Produktion
-    redoc_url=None       # ReDoc deaktivieren in Produktion
+    redoc_url=None,     # ReDoc deaktivieren in Produktion
+    # Ohne das bleibt /openapi.json anonym abrufbar (rund 50 KB) und liefert
+    # die vollstaendige Landkarte aller Admin-Endpunkte — die abgeschaltete
+    # Swagger-Oberflaeche allein aendert daran nichts.
+    openapi_url=None,
 )
 
 # HTTPS-Modus erkennen (Nginx Reverse-Proxy setzt X-Forwarded-Proto)
@@ -77,7 +81,9 @@ ALLOWED_ORIGINS = [
     f"https://{DOMAIN}",
     f"https://{SERVER_IP}:8443",
     f"https://{SERVER_IP}",
-    f"http://{SERVER_IP}:8080",
+    # Kein "http://<IP>:8080": mit allow_credentials=True waere das ein
+    # Klartext-Pfad fuer Anfragen mit Sitzungscookie. Der Dienst hoert ohnehin
+    # nur auf 127.0.0.1, von aussen kommt alles ueber nginx und TLS.
     "http://127.0.0.1:8080",
 ]
 app.add_middleware(

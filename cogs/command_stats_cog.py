@@ -24,7 +24,11 @@ from discord.ext import commands
 
 from modules.database.db_manager import get_db
 from utils.logger import get_logger
-from utils.embeds import COLOR_INFO, COLOR_SUCCESS, COLOR_WARNING
+from utils.embeds import (
+    info_embed,
+    success_embed,
+    warning_embed,
+)
 
 logger = get_logger("cogs.command_stats")
 
@@ -189,10 +193,8 @@ class CommandStatsCog(commands.Cog):
         success_rate = round(((total - failures) / total) * 100, 1) if total > 0 else 0
 
         # Embed erstellen
-        embed = discord.Embed(
+        embed = info_embed(
             title=f"Top 10 Commands (letzte {tage} Tage)",
-            color=COLOR_INFO,
-            timestamp=datetime.now(),
         )
 
         # Rangliste formatieren
@@ -313,10 +315,8 @@ class CommandStatsCog(commands.Cog):
         recent_count = recent_row[0] if recent_row else 0
 
         # Embed erstellen
-        embed = discord.Embed(
+        embed = info_embed(
             title=f"Command-Statistiken: {user.display_name}",
-            color=COLOR_INFO,
-            timestamp=datetime.now(),
         )
 
         if user.avatar:
@@ -401,14 +401,12 @@ class CommandStatsCog(commands.Cog):
         unused = sorted(registered_commands - used_commands)
 
         if not unused:
-            embed = discord.Embed(
+            embed = success_embed(
                 title="Alle Commands wurden genutzt",
                 description=(
                     f"Alle {len(registered_commands)} registrierten Commands "
                     f"wurden in den letzten 30 Tagen mindestens einmal ausgefuehrt."
                 ),
-                color=COLOR_SUCCESS,
-                timestamp=datetime.now(),
             )
         else:
             lines = [f"- `/{name}`" for name in unused]
@@ -416,11 +414,9 @@ class CommandStatsCog(commands.Cog):
             if len(description) > 4000:
                 description = description[:4000] + "\n..."
 
-            embed = discord.Embed(
+            embed = warning_embed(
                 title=f"Ungenutzte Commands ({len(unused)}/{len(registered_commands)})",
                 description=description,
-                color=COLOR_WARNING,
-                timestamp=datetime.now(),
             )
             embed.set_footer(
                 text="Commands die in den letzten 30 Tagen nicht ausgefuehrt wurden"

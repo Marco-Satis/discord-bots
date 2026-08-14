@@ -32,7 +32,8 @@ from utils.logger import get_logger
 from utils.permissions import admin_only
 from utils.async_tasks import track_task
 from modules.database.db_manager import get_db
-from utils.embeds import COLOR_INFO
+from utils.embeds import info_embed
+from utils.loop_guard import guard
 
 logger = get_logger("cogs.reaction_roles")
 
@@ -77,6 +78,7 @@ class ReactionRolesCog(commands.Cog):
         track_task(self._re_register_reactions(),
                    name="reaction_roles.re_register")
         # Panel-Lock-Cleanup-Loop starten (master-Linie: Memory-Hygiene)
+        guard(self._cleanup_panel_locks_task, name="_cleanup_panel_locks_task")
         self._cleanup_panel_locks_task.start()
         logger.info("Reaction-Roles-Cog geladen")
 
@@ -280,10 +282,9 @@ class ReactionRolesCog(commands.Cog):
             return
 
         # Embed erstellen und senden
-        embed = discord.Embed(
+        embed = info_embed(
             title=titel,
             description=beschreibung,
-            color=COLOR_INFO,
         )
         embed.set_footer(
             text="Reagiere mit einem Emoji um dir eine Rolle zuzuweisen!"
@@ -538,9 +539,8 @@ class ReactionRolesCog(commands.Cog):
             )
             return
 
-        embed = discord.Embed(
+        embed = info_embed(
             title=f"Reaction Roles ({len(self._data)} Nachricht(en))",
-            color=COLOR_INFO,
         )
 
         for msg_id_str, entry in self._data.items():

@@ -14,15 +14,183 @@ from pathlib import Path
 from discord import app_commands
 from discord.ext import commands
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import List, Optional, Tuple
 
 from utils.logger import get_logger
 from utils.formatting import format_uptime, format_bytes, progress_bar
+from utils.ui_kit import progress_bar as ui_progress_bar, subtext, truncate, zahl
 from utils.permissions import is_admin, is_owner
 from utils.config import PROJECT_ROOT
-from utils.embeds import COLOR_ERROR, COLOR_INFO, COLOR_SUCCESS, COLOR_WARNING
+from utils.embeds import (
+    COLOR_ERROR,
+    COLOR_SUCCESS,
+    COLOR_WARNING,
+    hud_embed,
+    info_embed,
+    warning_embed,
+)
 
 logger = get_logger("monitor_cog")
+
+# Discord erlaubt 4096 Zeichen Beschreibung — Puffer fuer den Kopf.
+MAX_BESCHREIBUNG = 4000
+
+
+def build_world_embed(world_stats) -> discord.Embed:
+    """
+    Welt-Statistik als HUD-Panel: Kennzahlen-Kopf, Gruppen als Subtext.
+
+    Getrennt vom Command, damit der gerenderte Text testbar ist
+    (``tests/test_monitor_embeds.py``) — vorher lag alles im Interaction-Pfad.
+    """
+    # Kennzahlen-Kopf statt Feld-Wueste: erst die drei Zahlen, die die
+    # Welt beschreiben, dann Gruppen als Subtext-Ueberschrift + eine Zeile.
+    def _gruppe(titel: str, teile: List[str]) -> List[str]:
+        """Ueberschrift + Werte-Zeile; leere Gruppen entfallen komplett."""
+        if not teile:
+            return []
+        return ["", subtext(titel), " · ".join(teile)]
+
+    kennzahlen = [(zahl(world_stats.total_buildings), "Gebäude")]
+    if world_stats.production_machines > 0:
+        kennzahlen.append((zahl(world_stats.production_machines), "Maschinen"))
+    if world_stats.total_power_mw > 0:
+        kennzahlen.append((zahl(world_stats.total_power_mw), "MW"))
+
+    zeilen: List[str] = [
+        subtext(
+            f"Spielzeit {world_stats.play_hours}h · "
+            f"gespeichert {world_stats.save_date} · {world_stats.save_size}"
+        )
+    ]
+
+    bau: List[str] = []
+    if world_stats.foundations > 0:
+        bau.append(f"Fundamente {zahl(world_stats.foundations)}")
+    if world_stats.walls > 0:
+        bau.append(f"Wände {zahl(world_stats.walls)}")
+    if world_stats.storage > 0:
+        bau.append(f"Speicher {zahl(world_stats.storage)}")
+    if world_stats.power_poles > 0:
+        bau.append(f"Strompole {zahl(world_stats.power_poles)}")
+    zeilen += _gruppe("BAU", bau)
+
+    produktion: List[str] = []
+    for wert, name in (
+        (world_stats.smelters, "Schmelzer"),
+        (world_stats.foundries, "Gießereien"),
+        (world_stats.constructors, "Konstruktoren"),
+        (world_stats.assemblers, "Montagewerke"),
+        (world_stats.manufacturers, "Fabrikmaschinen"),
+        (world_stats.refineries, "Raffinerien"),
+        (world_stats.blenders, "Mixer"),
+    ):
+        if wert > 0:
+            produktion.append(f"{name} {zahl(wert)}")
+    zeilen += _gruppe("PRODUKTION", produktion)
+
+    rohstoffe: List[str] = []
+    for wert, name in (
+        (world_stats.miners, "Bergbau"),
+        (world_stats.oil_extractors, "Öl"),
+        (world_stats.water_extractors, "Wasser"),
+        (world_stats.resource_well_pressurizers, "Bohrlöcher"),
+    ):
+        if wert > 0:
+            rohstoffe.append(f"{name} {zahl(wert)}")
+    zeilen += _gruppe("ROHSTOFFE", rohstoffe)
+
+    strom: List[str] = []
+    if world_stats.generators > 0:
+        strom.append(f"Generatoren {zahl(world_stats.generators)}")
+    for wert, name in (
+        (world_stats.biomass_burners, "Biomasse"),
+        (world_stats.coal_generators, "Kohle"),
+        (world_stats.fuel_generators, "Brennstoff"),
+        (world_stats.geothermal_generators, "Geotherm"),
+        (world_stats.nuclear_plants, "Nuklear"),
+        (world_stats.alien_augmenters, "Alien"),
+        (world_stats.power_storage, "Speicher"),
+    ):
+        if wert > 0:
+            strom.append(f"{name} {zahl(wert)}")
+    zeilen += _gruppe("STROM", strom)
+
+    baender: List[str] = []
+    if world_stats.conveyor_belts > 0:
+        baender.append(f"Bänder {zahl(world_stats.conveyor_belts)}")
+    for wert, name in (
+        (world_stats.belts_mk1, "MK1"),
+        (world_stats.belts_mk2, "MK2"),
+        (world_stats.belts_mk3, "MK3"),
+        (world_stats.belts_mk4, "MK4"),
+        (world_stats.belts_mk5, "MK5"),
+        (world_stats.belts_mk6, "MK6"),
+        (world_stats.lifts_total, "Aufzüge"),
+    ):
+        if wert > 0:
+            baender.append(f"{name} {zahl(wert)}")
+    zeilen += _gruppe("FÖRDERBÄNDER", baender)
+
+    rohre: List[str] = []
+    if world_stats.pipes > 0:
+        rohre.append(f"Rohre {zahl(world_stats.pipes)}")
+    for wert, name in (
+        (world_stats.pipes_mk1, "MK1"),
+        (world_stats.pipes_mk2, "MK2"),
+        (world_stats.pipeline_pumps, "Pumpen"),
+        (world_stats.valves, "Ventile"),
+    ):
+        if wert > 0:
+            rohre.append(f"{name} {zahl(wert)}")
+    zeilen += _gruppe("ROHRLEITUNGEN", rohre)
+
+    verteiler: List[str] = []
+    for wert, name in (
+        (world_stats.splitters, "Splitter"),
+        (world_stats.smart_splitters, "Smart"),
+        (world_stats.programmable_splitters, "Programmierbar"),
+        (world_stats.mergers, "Merger"),
+        (world_stats.priority_mergers, "Priorität"),
+    ):
+        if wert > 0:
+            verteiler.append(f"{name} {zahl(wert)}")
+    zeilen += _gruppe("VERTEILER", verteiler)
+
+    transport: List[str] = []
+    for wert, name in (
+        (world_stats.trains, "Züge"),
+        (world_stats.locomotives, "Loks"),
+        (world_stats.freight_cars, "Waggons"),
+        (world_stats.stations, "Stationen"),
+        (world_stats.vehicles, "Fahrzeuge"),
+        (world_stats.trucks, "Lastwagen"),
+        (world_stats.explorers, "Explorer"),
+        (world_stats.drone_ports, "Drohnen-Ports"),
+    ):
+        if wert > 0:
+            transport.append(f"{name} {zahl(wert)}")
+    zeilen += _gruppe("TRANSPORT", transport)
+
+    embed = hud_embed(
+        "WELTSTATISTIK",
+        state="info",
+        meta=kennzahlen,
+        description=f"**{discord.utils.escape_markdown(str(world_stats.session_name))}**",
+        lines=zeilen,
+        footer=(
+            f"Analysiert: {world_stats.last_analyzed}"
+            if world_stats.last_analyzed
+            else None
+        ),
+    )
+    # Discord nimmt 4096 Zeichen Beschreibung. Eine sehr weit gebaute Fabrik
+    # kaeme in die Naehe — sichtbar kuerzen ist besser als ein HTTPException
+    # beim Senden. Gleicher Riegel wie in den Backup-Panels.
+    if embed.description and len(embed.description) > MAX_BESCHREIBUNG:
+        embed.description = truncate(embed.description, MAX_BESCHREIBUNG)
+
+    return embed
 
 
 class MonitorCog(commands.Cog):
@@ -66,11 +234,9 @@ class MonitorCog(commands.Cog):
         boot = psutil.boot_time()
         sys_uptime = int(time.time() - boot)
 
-        embed = discord.Embed(
+        embed = info_embed(
             title="📊 System-Performance",
             description=f"Netcup RS 4000 G12 | Uptime: {format_uptime(sys_uptime)}",
-            color=COLOR_INFO,
-            timestamp=datetime.now(),
         )
 
         embed.add_field(
@@ -246,18 +412,17 @@ class MonitorCog(commands.Cog):
                 await interaction.followup.send("📊 Noch keine Spielerdaten vorhanden.")
                 return
 
-            embed = discord.Embed(
+            embed = info_embed(
                 title="📊 Spieler-Übersicht",
                 description=f"{len(all_stats)} Spieler erfasst",
-                color=COLOR_INFO,
-                timestamp=datetime.now(),
             )
 
             for i, stats in enumerate(all_stats[:15]):
                 medal = "🥇" if i == 0 else "🥈" if i == 1 else "🥉" if i == 2 else "▫️"
                 status = "🟢" if stats["is_online"] else ""
+                sicherer_name = discord.utils.escape_markdown(str(stats["name"]))
                 embed.add_field(
-                    name=f"{medal} {stats['name']} {status}",
+                    name=f"{medal} {sicherer_name} {status}",
                     value=(
                         f"Spielzeit: {stats['total_playtime_hours']}h | "
                         f"Sessions: {stats['session_count']}"
@@ -287,63 +452,34 @@ class MonitorCog(commands.Cog):
         start_date = (now - timedelta(days=days)).strftime("%d.%m.%Y")
         end_date = now.strftime("%d.%m.%Y")
 
-        embed = discord.Embed(
-            title=f"📋 {title_prefix}bericht",
-            description=f"{start_date} — {end_date} ({days} Tage)",
-            color=COLOR_INFO,
-            timestamp=now,
-        )
-
-        # --- Uptime ---
+        # --- Kennzahlen sammeln (Rendern erst am Ende, HUD-Stil) ---
         stats_tracker = getattr(self.bot, "stats_tracker", None)
+        kennzahlen: List[Tuple[str, str]] = []
+        balken: Optional[Tuple[float, float]] = None
+        zeilen: List[str] = []
+        crash_liste: List[str] = []
+        top_liste: List[str] = []
+
+        # --- Uptime + Peak ---
         if stats_tracker:
             uptime_pct = stats_tracker.get_uptime_percent(days)
-            total_checks = stats_tracker.get_total_checks(days)
-            uptime_bar = self._make_bar(uptime_pct)
-            embed.add_field(
-                name="🟢 Server Uptime",
-                value=(
-                    f"{uptime_bar} **{uptime_pct}%**\n"
-                    f"{total_checks} Checks im Zeitraum"
-                ),
-                inline=True,
-            )
-
-            # Peak players
-            peak_players = stats_tracker.get_peak_players(days)
-            embed.add_field(
-                name="👥 Peak Spieler",
-                value=f"**{peak_players}** gleichzeitig",
-                inline=True,
-            )
-        else:
-            embed.add_field(
-                name="🟢 Uptime",
-                value="Stats Tracker nicht verfügbar",
-                inline=True,
-            )
+            kennzahlen.append((f"{uptime_pct}%", "Uptime"))
+            balken = (uptime_pct, 100)
+            zeilen.append(subtext(
+                f"{start_date} – {end_date} · {days} Tage · "
+                f"{stats_tracker.get_total_checks(days)} Checks · "
+                f"Peak {stats_tracker.get_peak_players(days)} Spieler"
+            ))
 
         # --- Crashes ---
         if stats_tracker:
             crashes = stats_tracker.get_crashes(days)
-            if crashes:
-                crash_lines = []
-                for c in crashes[-5:]:
-                    ts = c["ts"][:16].replace("T", " ")
-                    crash_lines.append(f"`{ts}` — Crash #{c['number']}")
-                if len(crashes) > 5:
-                    crash_lines.append(f"... und {len(crashes) - 5} weitere")
-                embed.add_field(
-                    name=f"🚨 Crashes ({len(crashes)})",
-                    value="\n".join(crash_lines),
-                    inline=False,
-                )
-            else:
-                embed.add_field(
-                    name="🚨 Crashes",
-                    value="✅ Keine Crashes im Zeitraum",
-                    inline=True,
-                )
+            kennzahlen.append((str(len(crashes)), "Crashes"))
+            for c in crashes[-5:]:
+                ts = c["ts"][:16].replace("T", " ")
+                crash_liste.append(f"`{ts}` — Crash #{c['number']}")
+            if len(crashes) > 5:
+                crash_liste.append(f"… und {len(crashes) - 5} weitere")
 
         # --- Spieler-Aktivitaet ---
         if self.player_tracker:
@@ -362,132 +498,114 @@ class MonitorCog(commands.Cog):
                     total_sessions += ws
                     total_time += wt
 
-            # Vorwoche zum Vergleich
+            # Vorperiode zum Vergleich
             prev_cutoff = (now - timedelta(days=days * 2)).isoformat()
-            curr_cutoff = (now - timedelta(days=days)).isoformat()
             prev_time = 0
-            prev_sessions = 0
-            for name, record in self.player_tracker.players.items():
+            for record in self.player_tracker.players.values():
                 for s in record.sessions:
-                    join = s.get("join", "")
-                    if prev_cutoff <= join < curr_cutoff:
-                        prev_sessions += 1
+                    if prev_cutoff <= s.get("join", "") < cutoff_iso:
                         prev_time += s.get("duration_minutes", 0)
 
-            # Trend-Vergleich
             curr_hours = round(total_time / 60, 1)
             prev_hours = round(prev_time / 60, 1)
+            trend = ""
             if prev_hours > 0:
-                change = round(((curr_hours - prev_hours) / prev_hours) * 100, 0)
-                trend = f"📈 +{change:.0f}%" if change > 0 else f"📉 {change:.0f}%" if change < 0 else "➡️ gleich"
-                trend_text = f"\nVorperiode: {prev_hours}h ({trend})"
-            else:
-                trend_text = ""
+                change = ((curr_hours - prev_hours) / prev_hours) * 100
+                pfeil = "\U0001f4c8" if change > 0 else "\U0001f4c9" if change < 0 else "➡️"
+                trend = f" · Vorperiode {prev_hours}h ({pfeil} {change:+.0f}%)"
 
-            embed.add_field(
-                name="🎮 Spieler-Aktivitaet",
-                value=(
-                    f"Aktive Spieler: **{len(active)}**\n"
-                    f"Sessions: **{total_sessions}**\n"
-                    f"Spielzeit: **{curr_hours}h**{trend_text}"
-                ),
-                inline=True,
-            )
+            kennzahlen.insert(1, (str(len(active)), "Spieler"))
+            zeilen.append(subtext(
+                f"\U0001f3ae {total_sessions} Sessions · {curr_hours}h Spielzeit{trend}"
+            ))
 
-            # Top players
-            if active:
-                sorted_players = sorted(active.items(), key=lambda x: x[1]["playtime_hours"], reverse=True)
-                top = []
-                for i, (name, data) in enumerate(sorted_players[:5], 1):
-                    medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
-                    top.append(f"{medal} **{name}** — {data['playtime_hours']}h ({data['sessions']} Sess.)")
-                embed.add_field(
-                    name="🏆 Top Spieler",
-                    value="\n".join(top),
-                    inline=True,
+            for i, (name, data) in enumerate(
+                sorted(active.items(), key=lambda x: x[1]["playtime_hours"], reverse=True)[:5], 1
+            ):
+                medal = "\U0001f947" if i == 1 else "\U0001f948" if i == 2 else "\U0001f949" if i == 3 else f"{i}."
+                top_liste.append(
+                    f"{medal} **{discord.utils.escape_markdown(name)}** — {data['playtime_hours']}h ({data['sessions']} Sess.)"
                 )
-        else:
-            embed.add_field(name="Spieler", value="Tracker nicht verfügbar", inline=True)
 
         # --- Savegame-Wachstum ---
         if stats_tracker:
             growth = stats_tracker.get_savegame_growth(days)
             if growth:
-                growth_icon = "📈" if growth["growth_mb"] > 0 else "📉" if growth["growth_mb"] < 0 else "➡️"
-                embed.add_field(
-                    name="💾 Savegame-Wachstum",
-                    value=(
-                        f"{growth['start_mb']} MB → {growth['end_mb']} MB\n"
-                        f"{growth_icon} {growth['growth_mb']:+.1f} MB ({growth['growth_percent']:+.1f}%)"
-                    ),
-                    inline=True,
-                )
+                pfeil = "\U0001f4c8" if growth["growth_mb"] > 0 else "\U0001f4c9" if growth["growth_mb"] < 0 else "➡️"
+                zeilen.append(subtext(
+                    f"\U0001f4be {growth['start_mb']} → {growth['end_mb']} MB "
+                    f"({pfeil} {growth['growth_mb']:+.1f} MB, {growth['growth_percent']:+.1f}%)"
+                ))
 
-        # --- Performance ---
+        # --- Performance (Schnitt / Spitze) ---
         if self.perf_monitor:
             avg = self.perf_monitor.get_averages(minutes=days * 1440)
             peak = self.perf_monitor.get_peak(minutes=days * 1440)
             if avg.get("samples", 0) > 0:
-                embed.add_field(
-                    name="📊 Performance (Avg/Peak)",
-                    value=(
-                        f"CPU: {avg['cpu']:.1f}% / {peak['cpu']:.1f}%\n"
-                        f"RAM: {avg['ram']:.1f}% / {peak['ram']:.1f}%\n"
-                        f"Disk: {avg['disk']:.1f}% / {peak['disk']:.1f}%\n"
-                        f"SAT: {avg['process_cpu']:.1f}% CPU, {avg['process_ram']} MB RAM"
-                    ),
-                    inline=True,
-                )
+                zeilen.append(subtext(
+                    f"\U0001f4ca CPU {avg['cpu']:.0f}/{peak['cpu']:.0f}% · "
+                    f"RAM {avg['ram']:.0f}/{peak['ram']:.0f}% · "
+                    f"Disk {avg['disk']:.0f}/{peak['disk']:.0f}% · "
+                    f"SAT {avg['process_cpu']:.0f}% CPU, {avg['process_ram']} MB"
+                ))
 
         # --- Health ---
         if self.health_checker:
             summary = self.health_checker.get_summary()
-            embed.add_field(
-                name="🩺 Server Health",
-                value=(
-                    f"Status: {summary.get('state', '?')}\n"
-                    f"Tick Rate: {summary.get('tick_rate', 0):.1f}\n"
-                    f"Crashes gesamt: {summary.get('crashes_total', 0)}"
-                ),
-                inline=True,
-            )
+            zeilen.append(subtext(
+                f"\U0001fa7a {summary.get('state', '?')} · "
+                f"Tick {summary.get('tick_rate', 0):.1f} · "
+                f"{summary.get('crashes_total', 0)} Crashes gesamt"
+            ))
 
         # --- System & Backup ---
         extra_parts = []
         if self.update_checker:
             if self.update_checker.update_available:
-                extra_parts.append("⚠️ Update verfügbar!")
+                extra_parts.append("⚠️ Update verfügbar")
             elif self.update_checker.installed_buildid:
-                extra_parts.append(f"Build: {self.update_checker.installed_buildid}")
+                extra_parts.append(f"Build {self.update_checker.installed_buildid}")
 
         bm = getattr(self.bot, "backup_manager", None)
         if bm:
-            backups = bm.list_backups()
-            extra_parts.append(f"Backups: {len(backups)} lokal")
+            extra_parts.append(f"{len(bm.list_backups())} Backups lokal")
 
         od = getattr(self.bot, "onedrive_backup", None)
         if od and od.enabled:
-            extra_parts.append(f"☁️ OneDrive: Aktiv")
+            extra_parts.append("☁️ OneDrive aktiv")
 
         cb = getattr(self.bot, "config_backup", None)
         if cb and cb.last_backup:
-            extra_parts.append(f"🔧 Config-Backup: {cb.last_backup.strftime('%d.%m. %H:%M')}")
+            extra_parts.append(f"\U0001f527 Config-Backup {cb.last_backup.strftime('%d.%m. %H:%M')}")
 
         if extra_parts:
-            embed.add_field(
-                name="🔧 System",
-                value="\n".join(extra_parts),
-                inline=True,
-            )
+            zeilen.append(subtext(" · ".join(extra_parts)))
 
-        embed.set_footer(text=f"Zeitraum: {days} Tage | /report [tage] für anderen Zeitraum")
+        embed = hud_embed(
+            f"{title_prefix.upper().strip()}BERICHT" if title_prefix else "BERICHT",
+            state="ok",
+            meta=kennzahlen or None,
+            bar=balken,
+            lines=zeilen or None,
+            footer=f"Zeitraum: {days} Tage | /report [tage] für anderen Zeitraum",
+        )
+
+        # Zwei echte Listen bleiben Felder — dafuer sind Felder da.
+        if crash_liste:
+            embed.add_field(name="Crashes", value="\n".join(crash_liste), inline=False)
+        if top_liste:
+            embed.add_field(name="Top Spieler", value="\n".join(top_liste), inline=False)
+
         await interaction.followup.send(embed=embed)
 
     @staticmethod
     def _make_bar(percent: float, length: int = 10) -> str:
-        """Create a simple text progress bar"""
-        filled = int(percent / 100 * length)
-        return "█" * filled + "░" * (length - filled)
+        """Fortschrittsbalken — nutzt den Hausstil statt einer eigenen Optik.
+
+        Vorher rendered diese Methode ``███░░░`` waehrend dieselbe Datei an
+        anderer Stelle ``[###---]`` benutzte: zwei Balken-Optiken in einem Bot.
+        """
+        return ui_progress_bar(percent, 100, length)
 
     # ------------------------------------------------------------------
     # /mon world - World statistics from savegame
@@ -514,214 +632,7 @@ class MonitorCog(commands.Cog):
                 )
                 return
 
-            # Basic info
-            embed = discord.Embed(
-                title="🌍 Welt-Statistiken",
-                description=f"**{world_stats.session_name}**",
-                color=COLOR_INFO,
-                timestamp=datetime.now(),
-            )
-
-            # Session info
-            embed.add_field(
-                name="📋 Session-Info",
-                value=(
-                    f"Spielzeit: {world_stats.play_hours}h\n"
-                    f"Speicherung: {world_stats.save_date}\n"
-                    f"Dateigröße: {world_stats.save_size}"
-                ),
-                inline=False,
-            )
-
-            # Buildings overview
-            if world_stats.total_buildings > 0:
-                embed.add_field(
-                    name="🏭 Gebäude Übersicht",
-                    value=(
-                        f"Gesamt: {world_stats.total_buildings:,}\n"
-                        f"Fundamente: {world_stats.foundations:,} | "
-                        f"Wände: {world_stats.walls:,}\n"
-                        f"Speicher: {world_stats.storage:,} | "
-                        f"Strompole: {world_stats.power_poles:,}"
-                    ),
-                    inline=False,
-                )
-
-            # Power
-            if world_stats.generators > 0 or world_stats.total_power_mw > 0:
-                embed.add_field(
-                    name="⚡ Stromversorgung",
-                    value=(
-                        f"Generatoren: {world_stats.generators}\n"
-                        f"Kapazität: {world_stats.total_power_mw:,.0f} MW"
-                    ),
-                    inline=True,
-                )
-
-            # Production
-            if world_stats.production_machines > 0:
-                prod_lines = []
-                if world_stats.smelters > 0:
-                    prod_lines.append(f"Schmelzer: {world_stats.smelters}")
-                if world_stats.foundries > 0:
-                    prod_lines.append(f"Gießereien: {world_stats.foundries}")
-                if world_stats.constructors > 0:
-                    prod_lines.append(f"Konstruktoren: {world_stats.constructors}")
-                if world_stats.assemblers > 0:
-                    prod_lines.append(f"Montagewerke: {world_stats.assemblers}")
-                if world_stats.manufacturers > 0:
-                    prod_lines.append(f"Fabrikmaschinen: {world_stats.manufacturers}")
-                if world_stats.refineries > 0:
-                    prod_lines.append(f"Raffinieren: {world_stats.refineries}")
-                if world_stats.blenders > 0:
-                    prod_lines.append(f"Mixer: {world_stats.blenders}")
-
-                if prod_lines:
-                    embed.add_field(
-                        name="🏗️ Produktion",
-                        value="\n".join(prod_lines),
-                        inline=True,
-                    )
-
-            # Conveyor Belts
-            if world_stats.conveyor_belts > 0:
-                belt_lines = []
-                belt_lines.append(f"Gesamt: {world_stats.conveyor_belts:,}")
-                if world_stats.belts_mk1 > 0:
-                    belt_lines.append(f"MK1: {world_stats.belts_mk1}")
-                if world_stats.belts_mk2 > 0:
-                    belt_lines.append(f"MK2: {world_stats.belts_mk2}")
-                if world_stats.belts_mk3 > 0:
-                    belt_lines.append(f"MK3: {world_stats.belts_mk3}")
-                if world_stats.belts_mk4 > 0:
-                    belt_lines.append(f"MK4: {world_stats.belts_mk4}")
-                if world_stats.belts_mk5 > 0:
-                    belt_lines.append(f"MK5: {world_stats.belts_mk5}")
-                if world_stats.belts_mk6 > 0:
-                    belt_lines.append(f"MK6: {world_stats.belts_mk6}")
-                if world_stats.lifts_total > 0:
-                    belt_lines.append(f"Aufzüge: {world_stats.lifts_total}")
-
-                embed.add_field(
-                    name="📦 Förderbänder",
-                    value=" | ".join(belt_lines),
-                    inline=False,
-                )
-
-            # Pipes
-            if world_stats.pipes > 0:
-                pipe_lines = [f"Gesamt: {world_stats.pipes:,}"]
-                if world_stats.pipes_mk1 > 0:
-                    pipe_lines.append(f"MK1: {world_stats.pipes_mk1}")
-                if world_stats.pipes_mk2 > 0:
-                    pipe_lines.append(f"MK2: {world_stats.pipes_mk2}")
-                if world_stats.pipeline_pumps > 0:
-                    pipe_lines.append(f"Pumpen: {world_stats.pipeline_pumps}")
-                if world_stats.valves > 0:
-                    pipe_lines.append(f"Ventile: {world_stats.valves}")
-
-                embed.add_field(
-                    name="🔧 Rohrleitungen",
-                    value=" | ".join(pipe_lines),
-                    inline=False,
-                )
-
-            # Transport
-            if world_stats.trains > 0 or world_stats.vehicles > 0:
-                transport_lines = []
-                if world_stats.trains > 0:
-                    transport_lines.append(f"🚂 Züge: {world_stats.trains}")
-                    if world_stats.locomotives > 0:
-                        transport_lines.append(f"   Loks: {world_stats.locomotives}")
-                    if world_stats.freight_cars > 0:
-                        transport_lines.append(f"   Waggons: {world_stats.freight_cars}")
-                if world_stats.stations > 0:
-                    transport_lines.append(f"🚄 Stationen: {world_stats.stations}")
-                if world_stats.vehicles > 0:
-                    transport_lines.append(f"🚗 Fahrzeuge: {world_stats.vehicles}")
-                    if world_stats.trucks > 0:
-                        transport_lines.append(f"   Lastwagen: {world_stats.trucks}")
-                    if world_stats.explorers > 0:
-                        transport_lines.append(f"   Explorer: {world_stats.explorers}")
-                if world_stats.drone_ports > 0:
-                    transport_lines.append(f"🚁 Drohnen-Ports: {world_stats.drone_ports}")
-
-                if transport_lines:
-                    embed.add_field(
-                        name="🚚 Transport & Logistik",
-                        value="\n".join(transport_lines),
-                        inline=False,
-                    )
-
-            # Splitter/Merger
-            if world_stats.splitters > 0 or world_stats.mergers > 0:
-                sm_lines = []
-                if world_stats.splitters > 0:
-                    sm_lines.append(f"Splitter: {world_stats.splitters}")
-                if world_stats.smart_splitters > 0:
-                    sm_lines.append(f"Smart Splitter: {world_stats.smart_splitters}")
-                if world_stats.programmable_splitters > 0:
-                    sm_lines.append(f"Programierbar: {world_stats.programmable_splitters}")
-                if world_stats.mergers > 0:
-                    sm_lines.append(f"Merger: {world_stats.mergers}")
-                if world_stats.priority_mergers > 0:
-                    sm_lines.append(f"Priorität: {world_stats.priority_mergers}")
-
-                if sm_lines:
-                    embed.add_field(
-                        name="🔀 Splitter & Merger",
-                        value=" | ".join(sm_lines),
-                        inline=False,
-                    )
-
-            # Extractors & Mining
-            if world_stats.miners > 0 or world_stats.oil_extractors > 0:
-                ext_lines = []
-                if world_stats.miners > 0:
-                    ext_lines.append(f"Bergleute: {world_stats.miners}")
-                if world_stats.oil_extractors > 0:
-                    ext_lines.append(f"Öl-Förderer: {world_stats.oil_extractors}")
-                if world_stats.water_extractors > 0:
-                    ext_lines.append(f"Wasser: {world_stats.water_extractors}")
-                if world_stats.resource_well_pressurizers > 0:
-                    ext_lines.append(
-                        f"Bohrlöcher: {world_stats.resource_well_pressurizers}"
-                    )
-
-                if ext_lines:
-                    embed.add_field(
-                        name="⛏️ Rohstoffgewinnung",
-                        value=" | ".join(ext_lines),
-                        inline=False,
-                    )
-
-            # Generator details
-            gen_lines = []
-            if world_stats.biomass_burners > 0:
-                gen_lines.append(f"Biomasse: {world_stats.biomass_burners}")
-            if world_stats.coal_generators > 0:
-                gen_lines.append(f"Kohle: {world_stats.coal_generators}")
-            if world_stats.fuel_generators > 0:
-                gen_lines.append(f"Brennstoff: {world_stats.fuel_generators}")
-            if world_stats.geothermal_generators > 0:
-                gen_lines.append(f"Geotherm: {world_stats.geothermal_generators}")
-            if world_stats.nuclear_plants > 0:
-                gen_lines.append(f"Nuklear: {world_stats.nuclear_plants}")
-            if world_stats.alien_augmenters > 0:
-                gen_lines.append(f"Alien: {world_stats.alien_augmenters}")
-            if world_stats.power_storage > 0:
-                gen_lines.append(f"Speicher: {world_stats.power_storage}")
-
-            if gen_lines:
-                embed.add_field(
-                    name="🔋 Generator-Details",
-                    value=" | ".join(gen_lines),
-                    inline=False,
-                )
-
-            # Meta
-            if world_stats.last_analyzed:
-                embed.set_footer(text=f"Analysiert: {world_stats.last_analyzed}")
+            embed = build_world_embed(world_stats)
 
             await interaction.followup.send(embed=embed)
 
@@ -852,10 +763,8 @@ class MonitorCog(commands.Cog):
                 return
 
             # Build embed with latest entries
-            embed = discord.Embed(
+            embed = info_embed(
                 title=f"📋 Letzte Commands ({len(entries)})",
-                color=COLOR_INFO,
-                timestamp=datetime.now(),
             )
 
             # Show entries in reverse order (newest first)
@@ -948,10 +857,8 @@ class MonitorCog(commands.Cog):
         else:
             targets = mc_servers
 
-        embed = discord.Embed(
+        embed = info_embed(
             title="⛏️ Minecraft Server-Statistiken",
-            color=COLOR_INFO,
-            timestamp=datetime.now(),
         )
 
         for sid, srv in targets.items():
@@ -1058,10 +965,9 @@ class MonitorCog(commands.Cog):
         else:
             targets = mc_servers
 
-        embed = discord.Embed(
+        embed = info_embed(
             title="📋 Minecraft Bericht",
             description=f"{start_date} — {end_date} ({days} Tage)",
-            color=COLOR_INFO,
             timestamp=now,
         )
 
@@ -1194,11 +1100,9 @@ class MonitorCog(commands.Cog):
                     f"`{r['filename']}` — {r['size_kb']} KB ({r['date']})"
                 )
 
-            embed = discord.Embed(
+            embed = warning_embed(
                 title=f"🔍 MC Crash Replays — {sid} ({len(replays)})",
                 description="\n".join(lines),
-                color=COLOR_WARNING,
-                timestamp=datetime.now(),
             )
             embed.set_footer(
                 text="Verwende /mccrashlog server:X nummer:N zum Herunterladen"
@@ -1563,11 +1467,9 @@ class MonitorCog(commands.Cog):
             date_str = f["modified"][:10] if f.get("modified") else "?"
             lines.append(f"`{f['name']}` — {f['size_mb']} MB ({date_str})")
 
-        embed = discord.Embed(
+        embed = info_embed(
             title=f"☁️ Cloud-Backups ({len(files)})",
             description="\n".join(lines),
-            color=COLOR_INFO,
-            timestamp=datetime.now(),
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
 
@@ -1647,11 +1549,9 @@ class MonitorCog(commands.Cog):
                     f"`{r['filename']}` — {r['size_kb']} KB ({r['date']})"
                 )
 
-            embed = discord.Embed(
+            embed = warning_embed(
                 title=f"🔍 Crash Replays ({len(replays)})",
                 description="\n".join(lines),
-                color=COLOR_WARNING,
-                timestamp=datetime.now(),
             )
             embed.set_footer(
                 text="Verwende /crashlog nummer:N zum Herunterladen"

@@ -27,7 +27,16 @@ from discord.ext import commands, tasks
 
 from modules.timeout_manager import TimeoutManager
 from utils import get_logger, admin_only, DATA_DIR, is_admin
-from utils.embeds import COLOR_ERROR, COLOR_INFO, COLOR_SUCCESS, COLOR_WARNING
+from utils.embeds import (
+    COLOR_ERROR,
+    COLOR_SUCCESS,
+    COLOR_WARNING,
+    error_embed,
+    info_embed,
+    success_embed,
+    warning_embed,
+)
+from utils.loop_guard import guard
 
 
 def _sanitize_input(text: str, max_length: int = 100) -> str:
@@ -63,6 +72,7 @@ class TimeoutCog(commands.Cog):
 
     async def cog_load(self) -> None:
         """Background-Task starten wenn Cog geladen wird"""
+        guard(self.check_expired_timeouts, name="check_expired_timeouts")
         self.check_expired_timeouts.start()
         logger.info("Timeout-Background-Task gestartet")
 
@@ -89,26 +99,38 @@ class TimeoutCog(commands.Cog):
             if not discord_id:
                 continue
 
-            logger.info(f"Timeout abgelaufen: {player_name} (Discord: {discord_id})")
+            # Je Eintrag kapseln: ein Nutzer mit geschlossenen DMs wirft
+            # discord.Forbidden, und eine unbehandelte Ausnahme beendet die
+            # Schleife dauerhaft — danach laufen ALLE Timeouts nie mehr ab,
+            # ohne dass jemand etwas merkt.
+            try:
+                logger.info(
+                    f"Timeout abgelaufen: {player_name} (Discord: {discord_id})"
+                )
 
-            # Timeout in Manager als abgelaufen markieren
-            was_active, _ = await self.timeout_mgr.lift_timeout(discord_id)
-            if not was_active:
-                continue  # Bereits von anderem Pfad aufgehoben
+                # Timeout in Manager als abgelaufen markieren
+                was_active, _ = await self.timeout_mgr.lift_timeout(discord_id)
+                if not was_active:
+                    continue  # Bereits von anderem Pfad aufgehoben
 
-            # Server-Bans aufheben
-            safe_name = _sanitize_input(player_name)
-            await self._unban_from_servers(safe_name, servers)
+                # Server-Bans aufheben
+                safe_name = _sanitize_input(player_name)
+                await self._unban_from_servers(safe_name, servers)
 
-            # Discord-Timeout wird automatisch von Discord aufgehoben
+                # Discord-Timeout wird automatisch von Discord aufgehoben
 
-            # Spieler per DM benachrichtigen
-            await self._notify_player_dm(
-                discord_id,
-                "Dein Timeout ist abgelaufen",
-                "Du kannst wieder auf allen Servern spielen.",
-                color=COLOR_SUCCESS,
-            )
+                # Spieler per DM benachrichtigen
+                await self._notify_player_dm(
+                    discord_id,
+                    "Dein Timeout ist abgelaufen",
+                    "Du kannst wieder auf allen Servern spielen.",
+                    color=COLOR_SUCCESS,
+                )
+            except Exception as e:  # noqa: BLE001 — Schleife muss weiterlaufen
+                logger.error(
+                    f"Timeout-Ablauf fuer {player_name} fehlgeschlagen: {e}",
+                    exc_info=True,
+                )
 
     @check_expired_timeouts.before_loop
     async def before_check_expired(self) -> None:
@@ -254,9 +276,8 @@ class TimeoutCog(commands.Cog):
             return
 
         # Timeout-Info Embed
-        embed = discord.Embed(
+        embed = error_embed(
             title="Aktiver Timeout",
-            color=COLOR_ERROR,
         )
 
         embed.add_field(
@@ -372,13 +393,12 @@ class TimeoutCog(commands.Cog):
             color=COLOR_SUCCESS,
         )
 
-        embed = discord.Embed(
+        embed = success_embed(
             title="Timeout aufgehoben",
             description=(
                 f"Timeout für **{player_name}** wurde vorzeitig aufgehoben.\n"
                 f"Alle Server-Bans wurden entfernt."
             ),
-            color=COLOR_SUCCESS,
         )
         embed.set_footer(text=f"von {interaction.user.display_name}")
         await interaction.followup.send(embed=embed)
@@ -407,9 +427,8 @@ class TimeoutCog(commands.Cog):
             )
             return
 
-        embed = discord.Embed(
+        embed = warning_embed(
             title=f"Aktive Timeouts ({len(active)})",
-            color=COLOR_WARNING,
         )
 
         for entry in active:
@@ -475,7 +494,7 @@ class TimeoutCog(commands.Cog):
             if spieler
             else "Timeout-Historie (letzte 20)"
         )
-        embed = discord.Embed(title=title, color=COLOR_INFO)
+        embed = info_embed(title=title)
 
         for entry in history[:10]:  # Max 10 im Embed
             player_name = entry.get("player_name", "?")
@@ -713,9 +732,8 @@ class TimeoutCog(commands.Cog):
         admin: discord.Member,
     ) -> discord.Embed:
         """Response-Embed für /timeout setzen erstellen"""
-        embed = discord.Embed(
+        embed = warning_embed(
             title="Timeout gesetzt",
-            color=COLOR_WARNING,
         )
         embed.add_field(name="Spieler", value=player_name, inline=True)
 

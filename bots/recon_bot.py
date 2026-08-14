@@ -28,14 +28,14 @@ import discord
 from discord.ext import commands, tasks
 from pathlib import Path
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import List, Optional
 
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from utils.config import load_env, get_env, get_config
 from utils.logger import get_logger
-from utils.formatting import format_uptime, format_bytes, status_emoji, progress_bar
+from utils.formatting import format_uptime, format_bytes, status_emoji
 from utils.async_tasks import track_task
 
 from modules.satisfactory.server import SatisfactoryServer
@@ -43,6 +43,8 @@ from modules.satisfactory.api_client import SatisfactoryAPI
 from modules.monitoring.health_check import HealthChecker, ServerState
 from modules.monitoring.performance import PerformanceMonitor, PerformanceThresholds
 from modules.monitoring.player_tracker import PlayerTracker
+from modules.monitoring.sat_log_players import SatLogPlayerParser
+from modules.monitoring.status_panel import ServerLine, build_status_panel
 from modules.monitoring.update_checker import UpdateChecker
 from modules.notifications.discord_notifier import DiscordNotifier, NotifyLevel
 from modules.notifications.email_notifier import EmailNotifier
@@ -87,7 +89,15 @@ from modules.database.json_importer import import_all, check_import_needed
 from modules.security.ban_manager import BanManager
 from modules.database.maintenance import DatabaseMaintenance
 from modules.system.package_checker import PackageChecker
-from utils.embeds import COLOR_ERROR, COLOR_INFO, COLOR_SUCCESS, COLOR_WARNING
+from utils.embeds import (
+    COLOR_WARNING,
+    error_embed,
+    info_embed,
+    success_embed,
+    warning_embed,
+)
+from utils.ui_kit import rel_time, status_dot, subtext
+from utils import loop_guard
 
 load_env()
 
@@ -657,11 +667,9 @@ async def _on_crash(crash_event):
                 if ADMIN_LOG_CHANNEL_ID:
                     admin_ch = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
                     if admin_ch:
-                        embed = discord.Embed(
+                        embed = warning_embed(
                             title="⚠️ Savegame Integritaetsproblem",
                             description="\n".join(integrity["issues"]),
-                            color=COLOR_WARNING,
-                            timestamp=datetime.now(),
                         )
                         rollback_info = savegame_protection.get_rollback_info()
                         if rollback_info.get("last_known_good"):
@@ -684,14 +692,12 @@ async def _on_crash(crash_event):
         if channel:
             try:
                 summary = crash_replay.get_summary()
-                embed = discord.Embed(
+                embed = error_embed(
                     title=f"🔍 Crash Replay #{crash_event.crash_number}",
                     description=(
                         f"Letzte {crash_replay.context_lines} Log-Zeilen vor dem Crash:\n"
                         f"```\n{summary}\n```"
                     ),
-                    color=COLOR_ERROR,
-                    timestamp=datetime.now(),
                 )
                 embed.set_footer(text="Vollständiges Log als Datei angehängt")
 
@@ -776,9 +782,8 @@ async def _on_player_join(name):
             desc = f"🚨 **{name}** ist beigetreten\nIP: {ip_str}"
             for alert in alerts:
                 desc += alert
-            embed = discord.Embed(
-                description=desc, color=COLOR_ERROR,
-                timestamp=datetime.now(),
+            embed = error_embed(
+                description=desc,
             )
             await channel.send(
                 content=f"<@&{NOTIFY_ROLE_ID}>" if NOTIFY_ROLE_ID else None,
@@ -786,14 +791,12 @@ async def _on_player_join(name):
             )
         elif is_new:
             # New player - blue embed, no ping
-            embed = discord.Embed(
+            embed = info_embed(
                 description=(
                     f"🆕 Neuer Spieler: **{name}**\n"
                     f"IP: {ip_str}\n"
                     f"Automatisch zur Whitelist hinzugefügt."
                 ),
-                color=COLOR_INFO,
-                timestamp=datetime.now(),
             )
             await channel.send(embed=embed)
     except Exception as e:
@@ -824,11 +827,9 @@ async def _on_service_failed(name, error):
         channel = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
         if channel:
             try:
-                embed = discord.Embed(
+                embed = warning_embed(
                     title=f"\u26a0\ufe0f Service ausgefallen: {name}",
                     description=f"Fehler: {error}\n\nBot laeuft weiter mit eingeschraenkter Funktionalitaet.\nAutomatischer Retry aktiv.",
-                    color=COLOR_WARNING,
-                    timestamp=datetime.now(),
                 )
                 await channel.send(embed=embed)
             except Exception as e:
@@ -840,10 +841,8 @@ async def _on_service_recovered(name):
         channel = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
         if channel:
             try:
-                embed = discord.Embed(
+                embed = success_embed(
                     title=f"\u2705 Service wiederhergestellt: {name}",
-                    color=COLOR_SUCCESS,
-                    timestamp=datetime.now(),
                 )
                 await channel.send(embed=embed)
             except Exception as e:
@@ -865,7 +864,7 @@ async def _on_crash_loop(result):
                 lkg = rollback_info.get("last_known_good")
                 lkg_text = f"\n\nLetztes intaktes Save: `{lkg['name']}` ({lkg['size_mb']} MB, vor {lkg['age_minutes']} Min)" if lkg else ""
 
-                embed = discord.Embed(
+                embed = error_embed(
                     title="\U0001f6a8 CRASH LOOP ERKANNT!",
                     description=(
                         f"{result['crashes_in_window']} Crashes in {result['window_minutes']} Minuten.\n"
@@ -873,8 +872,6 @@ async def _on_crash_loop(result):
                         f"Bitte manuell pruefen und mit `/sat start` neu starten."
                         f"{lkg_text}"
                     ),
-                    color=COLOR_ERROR,
-                    timestamp=datetime.now(),
                 )
                 content = f"<@&{NOTIFY_ROLE_ID}>" if NOTIFY_ROLE_ID else None
                 await channel.send(content=content, embed=embed)
@@ -892,15 +889,13 @@ async def _on_service_down(service_name: str, label: str):
         channel = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
         if channel:
             try:
-                embed = discord.Embed(
+                embed = error_embed(
                     title=f"Service ausgefallen: {label}",
                     description=(
                         f"**Service:** `{service_name}`\n"
                         f"Status: nicht aktiv\n\n"
                         f"Automatischer Neustart wird versucht..."
                     ),
-                    color=COLOR_ERROR,
-                    timestamp=datetime.now(),
                 )
                 await channel.send(embed=embed)
             except Exception as e:
@@ -912,14 +907,12 @@ async def _on_sw_restart_success(service_name: str, label: str):
         channel = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
         if channel:
             try:
-                embed = discord.Embed(
+                embed = success_embed(
                     title=f"Service neugestartet: {label}",
                     description=(
                         f"**Service:** `{service_name}`\n"
                         f"Automatischer Neustart war erfolgreich."
                     ),
-                    color=COLOR_SUCCESS,
-                    timestamp=datetime.now(),
                 )
                 await channel.send(embed=embed)
             except Exception as e:
@@ -931,15 +924,13 @@ async def _on_sw_restart_failed(service_name: str, label: str, error_msg: str):
         channel = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
         if channel:
             try:
-                embed = discord.Embed(
+                embed = error_embed(
                     title=f"Service-Neustart FEHLGESCHLAGEN: {label}",
                     description=(
                         f"**Service:** `{service_name}`\n"
                         f"**Fehler:** {error_msg}\n\n"
                         f"Manuelles Eingreifen erforderlich!"
                     ),
-                    color=COLOR_ERROR,
-                    timestamp=datetime.now(),
                 )
                 await channel.send(embed=embed)
             except Exception as e:
@@ -951,15 +942,13 @@ async def _on_sw_cooldown_reached(service_name: str, label: str, restart_count: 
         channel = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
         if channel:
             try:
-                embed = discord.Embed(
+                embed = warning_embed(
                     title=f"Restart-Cooldown erreicht: {label}",
                     description=(
                         f"**Service:** `{service_name}`\n"
                         f"**Restarts letzte Stunde:** {restart_count}\n\n"
                         f"Maximale Anzahl automatischer Restarts erreicht."
                     ),
-                    color=COLOR_WARNING,
-                    timestamp=datetime.now(),
                 )
                 await channel.send(embed=embed)
             except Exception as e:
@@ -1011,11 +1000,9 @@ async def _on_disk_critical(result: dict):
         channel = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
         if channel:
             try:
-                embed = discord.Embed(
+                embed = error_embed(
                     title="KRITISCH: Speicherplatz fast voll!",
                     description=disk_guard.format_status(result),
-                    color=COLOR_ERROR,
-                    timestamp=datetime.now(),
                 )
                 content = f"<@&{NOTIFY_ROLE_ID}>" if NOTIFY_ROLE_ID else None
                 await channel.send(content=content, embed=embed)
@@ -1048,11 +1035,9 @@ async def _on_duckdns_mismatch(result: dict):
                     except Exception as update_err:
                         desc += f"\n\nAuto-Update Fehler: {update_err}"
 
-                embed = discord.Embed(
+                embed = error_embed(
                     title="DuckDNS: IP-Abweichung erkannt!",
                     description=desc,
-                    color=COLOR_ERROR,
-                    timestamp=datetime.now(),
                 )
                 content = f"<@&{NOTIFY_ROLE_ID}>" if NOTIFY_ROLE_ID else None
                 await channel.send(content=content, embed=embed)
@@ -1070,14 +1055,12 @@ async def _on_port_closed(result: dict):
         channel = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
         if channel:
             try:
-                embed = discord.Embed(
+                embed = error_embed(
                     title=f"Port nicht erreichbar: {result.get('label', '?')}",
                     description=(
                         f"**Host:Port:** `{result.get('host', '?')}:{result.get('port', '?')}`\n"
                         f"**Fehler:** {result.get('error', 'unbekannt')}"
                     ),
-                    color=COLOR_ERROR,
-                    timestamp=datetime.now(),
                 )
                 await channel.send(embed=embed)
             except Exception as e:
@@ -1089,14 +1072,12 @@ async def _on_port_recovered(result: dict):
         channel = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
         if channel:
             try:
-                embed = discord.Embed(
+                embed = success_embed(
                     title=f"Port wieder erreichbar: {result.get('label', '?')}",
                     description=(
                         f"**Host:Port:** `{result.get('host', '?')}:{result.get('port', '?')}`\n"
                         f"**Antwortzeit:** {result.get('response_ms', '?')}ms"
                     ),
-                    color=COLOR_SUCCESS,
-                    timestamp=datetime.now(),
                 )
                 await channel.send(embed=embed)
             except Exception as e:
@@ -1125,14 +1106,12 @@ async def _on_updates_available(result: dict):
                 if len(packages) > 10:
                     pkg_list += f"\n  ... und {len(packages) - 10} weitere"
 
-                embed = discord.Embed(
+                embed = warning_embed(
                     title=f"System-Updates verfuegbar: {total} Pakete",
                     description=(
                         f"**{total}** Paket-Updates verfuegbar"
                         f" ({security} Security)\n\n{pkg_list}"
                     ),
-                    color=COLOR_WARNING,
-                    timestamp=datetime.now(),
                 )
                 await channel.send(embed=embed)
             except Exception as e:
@@ -1150,15 +1129,13 @@ async def _on_security_updates(result: dict):
                     f"  - **{p['name']}** ({p['current']} -> {p['available']})"
                     for p in sec_pkgs[:15]
                 )
-                embed = discord.Embed(
+                embed = error_embed(
                     title=f"Security-Updates: {security} Pakete!",
                     description=(
                         f"**{security}** sicherheitsrelevante Updates verfuegbar!\n\n"
                         f"{pkg_list}\n\n"
                         f"Bitte zeitnah aktualisieren."
                     ),
-                    color=COLOR_ERROR,
-                    timestamp=datetime.now(),
                 )
                 content = f"<@&{NOTIFY_ROLE_ID}>" if NOTIFY_ROLE_ID else None
                 await channel.send(content=content, embed=embed)
@@ -1177,15 +1154,13 @@ async def _on_unknown_login(alert):
         channel = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
         if channel:
             try:
-                embed = discord.Embed(
+                embed = error_embed(
                     title="\U0001f6a8 Unbekannter SSH-Login!",
                     description=(
                         f"**User:** {alert['user']}\n"
                         f"**IP:** `{alert['ip']}`\n"
                         f"**Zeit:** {alert['timestamp'][:19]}"
                     ),
-                    color=COLOR_ERROR,
-                    timestamp=datetime.now(),
                 )
                 content = f"<@&{NOTIFY_ROLE_ID}>" if NOTIFY_ROLE_ID else None
                 await channel.send(content=content, embed=embed)
@@ -1202,15 +1177,13 @@ async def _on_failed_login_burst(alert):
         channel = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
         if channel:
             try:
-                embed = discord.Embed(
+                embed = warning_embed(
                     title="\u26a0\ufe0f SSH Brute-Force erkannt",
                     description=(
                         f"**IP:** `{alert['ip']}`\n"
                         f"**Versuche:** {alert['count']}+\n"
                         f"Fail2Ban sollte diese IP sperren."
                     ),
-                    color=COLOR_WARNING,
-                    timestamp=datetime.now(),
                 )
                 await channel.send(embed=embed)
             except Exception as e:
@@ -1225,12 +1198,11 @@ login_audit.on_failed_login_burst = _on_failed_login_burst
 # Player Detection via Server Log
 # ------------------------------------------------------------------
 
-_PLAYER_JOIN_RE = re.compile(
-    r'LogNet:.*?Join succeeded:\s*(.+?)$', re.MULTILINE
-)
-_PLAYER_LEAVE_RE = re.compile(
-    r'LogNet:.*?UNetConnection::Close.*?PlayerName=(.+?)[\s,]', re.MULTILINE
-)
+# Join/Leave kommen aus dem Log-Parser (Verbindungs-ID statt Spielername): die
+# Abmelde-Zeile des Servers enthaelt keinen Namen, nur Name: IpConnection_<id>.
+# Die frueheren Regexe hier verlangten ein Feld PlayerName= und trafen deshalb
+# nie eine Abmeldung — Spieler blieben fuer immer als online gefuehrt.
+sat_log_players = SatLogPlayerParser()
 
 _sat_log_path = (
     sat_server.server_path / "FactoryGame" / "Saved" / "Logs" / "FactoryGame.log"
@@ -1239,6 +1211,11 @@ _log_last_pos: int = 0
 _log_last_size: int = 0
 _log_lock = asyncio.Lock()
 _status_lock = asyncio.Lock()
+
+# Setzt der API-Abgleich, wenn Zahl und Namensliste auseinanderlaufen. Das Panel
+# kennzeichnet die Liste dann als unvollstaendig, statt sich stumm zu
+# widersprechen (Zahl 2, ein Name).
+_spielerliste_unvollstaendig = False
 
 
 def _init_log_position():
@@ -1257,18 +1234,12 @@ def _init_log_position():
                 with open(_sat_log_path, "r", encoding="utf-8", errors="replace") as f:
                     content = f.read()
 
-                joins = set()
-                leaves = set()
-                for m in _PLAYER_JOIN_RE.finditer(content):
-                    name = m.group(1).strip()
-                    if name:
-                        joins.add(name)
-                for m in _PLAYER_LEAVE_RE.finditer(content):
-                    name = m.group(1).strip()
-                    if name:
-                        leaves.add(name)
+                # Der Parser haelt die Zuordnung Verbindung -> Spieler und
+                # rechnet Abmeldungen korrekt heraus.
+                sat_log_players.reset()
+                sat_log_players.feed(content)
+                still_online = sat_log_players.online
 
-                still_online = joins - leaves
                 if still_online:
                     logger.info(
                         f"Log-Scan: {len(still_online)} Spieler noch online "
@@ -1303,12 +1274,17 @@ async def _poll_player_events():
     """
     global _log_last_pos, _log_last_size
 
-    if not _sat_log_path.exists():
-        return
-
     async with _log_lock:
         try:
-            current_size = _sat_log_path.stat().st_size
+            # exists() und stat() sind ebenfalls blockierende Syscalls — sie
+            # gehoeren in denselben Executor wie der read(), sonst stimmt der
+            # Anspruch "read in executor" nur zur Haelfte.
+            def _groesse():
+                return _sat_log_path.stat().st_size if _sat_log_path.exists() else None
+
+            current_size = await asyncio.to_thread(_groesse)
+            if current_size is None:
+                return
 
             # Log rotated?
             if current_size < _log_last_size:
@@ -1338,19 +1314,8 @@ async def _poll_player_events():
                 if line.strip():
                     player_ip_tracker.process_log_line(line)
 
-            # Detect events and let player_tracker handle them
-            joined = set()
-            left = set()
-
-            for match in _PLAYER_JOIN_RE.finditer(new_content):
-                name = match.group(1).strip()
-                if name:
-                    joined.add(name)
-
-            for match in _PLAYER_LEAVE_RE.finditer(new_content):
-                name = match.group(1).strip()
-                if name:
-                    left.add(name)
+            # Join/Leave ueber die Verbindungs-ID (siehe sat_log_players)
+            joined, left = sat_log_players.feed(new_content)
 
             # Build current set: previous online + joins - leaves
             current = player_tracker.get_online_players()
@@ -1358,7 +1323,10 @@ async def _poll_player_events():
             await player_tracker.update(current)
 
         except Exception as e:
-            logger.debug(f"Player log poll error: {e}")
+            # Vorher debug — und der Logger steht auf INFO, die Meldung kam also
+            # nirgends an. Ein stiller Ausfall des Spieler-Pollings sah damit
+            # genauso aus wie "niemand online".
+            logger.warning(f"Spieler-Log-Auswertung fehlgeschlagen: {e}", exc_info=True)
 
 
 # ------------------------------------------------------------------
@@ -1374,14 +1342,17 @@ async def player_log_task():
     try:
         await _poll_player_events()
     except Exception as e:
-        logger.debug(f"Player log poll error: {e}")
+        logger.warning(f"Spieler-Log-Task fehlgeschlagen: {e}")
 
 
 @player_log_task.before_loop
 async def before_player_log():
     await bot.wait_until_ready()
     await asyncio.sleep(12)
-    _init_log_position()
+    # Der Startscan liest das komplette Serverlog (aktuell rund 10 MB) und
+    # parst es — im Event-Loop waeren das zig Millisekunden Blockade, die mit
+    # der Logdatei weiterwachsen.
+    await asyncio.to_thread(_init_log_position)
 
 
 # ------------------------------------------------------------------
@@ -1450,15 +1421,13 @@ async def mc_health_check_task():
                     admin_ch = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
                     if admin_ch:
                         try:
-                            embed = discord.Embed(
+                            embed = error_embed(
                                 title=f"Minecraft {srv.display_name} offline",
                                 description=(
                                     f"{srv.display_name} ist seit {count * 2} Minuten "
                                     f"nicht erreichbar.\n"
                                     f"Service: `{srv.service_name}`"
                                 ),
-                                color=COLOR_ERROR,
-                                timestamp=datetime.now(),
                             )
                             await admin_ch.send(embed=embed)
                         except Exception as e:
@@ -1472,14 +1441,12 @@ async def mc_health_check_task():
                         admin_ch = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
                         if admin_ch:
                             try:
-                                embed = discord.Embed(
+                                embed = success_embed(
                                     title=f"Minecraft {srv.display_name} wieder online",
                                     description=(
                                         f"Server ist wieder erreichbar.\n"
                                         f"War {_mc_consecutive_offline[sid] * 2} Minuten offline."
                                     ),
-                                    color=COLOR_SUCCESS,
-                                    timestamp=datetime.now(),
                                 )
                                 await admin_ch.send(embed=embed)
                             except Exception as e:
@@ -1541,7 +1508,7 @@ async def login_audit_task():
     try:
         await login_audit.check()
     except Exception as e:
-        logger.debug(f"Login audit error: {e}")
+        logger.warning(f"Login-Audit fehlgeschlagen: {e}")
 
 
 @login_audit_task.before_loop
@@ -1639,15 +1606,13 @@ async def health_check_task():
                 channel = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
                 if channel:
                     try:
-                        embed = discord.Embed(
+                        embed = error_embed(
                             title="🔴 Satisfactory Server ist offline",
                             description=(
                                 f"Der Satisfactory-Server ist seit "
                                 f"{_consecutive_offline_checks * 2} Minuten nicht erreichbar.\n"
                                 f"Erkannt um {datetime.now().strftime('%H:%M:%S')}."
                             ),
-                            color=COLOR_ERROR,
-                            timestamp=datetime.now(),
                         )
                         await channel.send(embed=embed)
                         logger.info("SAT Downtime notification sent to admin channel")
@@ -1662,14 +1627,12 @@ async def health_check_task():
                     channel = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
                     if channel:
                         try:
-                            embed = discord.Embed(
+                            embed = success_embed(
                                 title="🟢 Satisfactory Server ist wieder online",
                                 description=(
                                     f"Server ist um {datetime.now().strftime('%H:%M:%S')} wieder erreichbar.\n"
                                     f"War {_consecutive_offline_checks * 2} Minuten offline."
                                 ),
-                                color=COLOR_SUCCESS,
-                                timestamp=datetime.now(),
                             )
                             await channel.send(embed=embed)
                             logger.info("SAT Recovery notification sent to admin channel")
@@ -1697,16 +1660,65 @@ async def health_check_task():
         # Sanity check: log polling runs in player_log_task (10s)
         # Here we only do the API cross-check every 2 min
         if status.state == ServerState.ONLINE:
-            # Sanity check: if API says 0 players but tracker has some,
-            # close all sessions (server might have restarted without us noticing)
+            # Abgleich gegen die API. Der frühere Check griff nur bei genau 0
+            # Spielern — eine Abweichung wie "API 1, Liste 2" fiel durchs Raster
+            # und blieb stundenlang im Panel stehen.
+            global _spielerliste_unvollstaendig
             api_count = status.players_online
             tracked = player_tracker.get_online_players()
+            _spielerliste_unvollstaendig = False
             if api_count == 0 and len(tracked) > 0:
                 logger.info(
-                    f"API reports 0 players but tracker has {len(tracked)}, "
-                    f"closing stale sessions"
+                    f"API meldet 0 Spieler, Tracker hat {len(tracked)} — "
+                    f"Sitzungen werden geschlossen"
                 )
                 player_tracker.close_all_sessions()
+                sat_log_players.reset()
+            elif api_count != len(tracked):
+                # Der Log-Parser ist die Quelle der Namen; weicht er von der
+                # API ab, hat das Log eine Abmeldung verpasst (Rotation,
+                # Bot-Neustart mitten in der Sitzung).
+                aus_log = sat_log_players.online
+                if aus_log != tracked:
+                    logger.info(
+                        f"Spielerliste folgt dem Log-Parser: {sorted(tracked)} -> "
+                        f"{sorted(aus_log)} (API: {api_count})"
+                    )
+                    await player_tracker.update(aus_log)
+                elif len(tracked) > api_count:
+                    # Zu viele Namen. Wen das Log nie abmelden kann, sind die
+                    # "unbound"-Eintraege: Spieler, deren Verbindungsaufbau der
+                    # Parser nie gesehen hat (Log-Rotation, Bot-Start mitten in
+                    # der Sitzung). Genau die raeumt drop() weg — ohne diesen
+                    # Aufruf gab es den Ausgang zwar, aber niemand nahm ihn,
+                    # und der Abgleich meldete alle zwei Minuten dasselbe.
+                    ueberschuss = len(tracked) - api_count
+                    verwaist = sorted(sat_log_players.unbound)[:ueberschuss]
+                    if verwaist:
+                        logger.info(
+                            f"API meldet {api_count} Spieler, Log-Parser "
+                            f"{len(tracked)} — entferne {verwaist} "
+                            f"(ohne bekannte Verbindung, per Log nicht abmeldbar)"
+                        )
+                        sat_log_players.drop(set(verwaist))
+                        await player_tracker.update(sat_log_players.online)
+                    else:
+                        logger.warning(
+                            f"API meldet {api_count} Spieler, Log-Parser {len(tracked)}: "
+                            f"{sorted(tracked)} — Liste kann veraltete Namen enthalten"
+                        )
+                        _spielerliste_unvollstaendig = True
+                else:
+                    # Spiegelbild: der Parser kennt WENIGER Namen als die API
+                    # zaehlt — dem Log fehlt ein Join (Rotation, Neustart
+                    # mitten in der Sitzung). Ohne diesen Zweig blieb das
+                    # stumm, und das Panel zeigte dauerhaft zu wenige Spieler.
+                    logger.warning(
+                        f"API meldet {api_count} Spieler, Log-Parser nur "
+                        f"{len(tracked)}: {sorted(tracked)} — Namensliste ist "
+                        f"unvollstaendig, die Zahl im Panel fuehrt"
+                    )
+                    _spielerliste_unvollstaendig = True
         else:
             # Server offline - close any open sessions
             if player_tracker.get_online_players():
@@ -1741,7 +1753,14 @@ async def before_health_check():
 async def update_status_embed():
     """Update the dashboard status embed every 5 minutes"""
     global _status_message_id
-    await _update_status_embed_impl()
+    try:
+        await _update_status_embed_impl()
+    except Exception as e:  # noqa: BLE001
+        # Ohne diesen Fang beendet ein einzelner Renderfehler die Schleife
+        # endgueltig. Das Panel bliebe stehen und zeigte den alten Stand als
+        # Wahrheit — der teuerste Ausfall ist der, den man nicht sieht.
+        logger.error(f"Status-Panel konnte nicht aktualisiert werden: {e}",
+                     exc_info=True)
 
 
 async def _update_status_embed_impl():
@@ -1779,68 +1798,50 @@ async def _update_status_embed_impl():
     except Exception as e:
         logger.debug(f"Savegame stats unavailable: {e}")
 
-    # -- Build Embed --
-    lines = []
-    lines.append("▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬")
-    lines.append("**LIVE SERVER STATUS**")
-    lines.append("▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬")
-    lines.append("")
+    # -- Panel im HUD-Stil bauen (siehe docs/DESIGN_HUD.md) --
+    # Hier nur Daten sammeln; das Rendern macht modules/monitoring/status_panel.py
+    # und ist dadurch ohne laufenden Server testbar.
+    server_lines: List[ServerLine] = []
 
-    # -- Satisfactory Server --
-    dot = "🟢" if running else "🔴"
-    state_text = "Online" if running else "Offline"
-
-    lines.append("🏭 **Satisfactory Server**")
-
+    # -- Satisfactory --
     if running:
-        uptime_str = format_uptime(status.uptime)
-        player_count = status.players_online
-        player_limit = status.player_limit
+        sat_count = status.players_online
+        sat_limit = status.player_limit
+        if api_state and api_state.ok:
+            sat_count = api_state.num_players
+            if api_state.player_limit > 0:
+                sat_limit = api_state.player_limit
 
-        # Override with API data if available
-        if api_state and api_state.num_players >= 0:
-            player_count = api_state.num_players
-        if api_state and api_state.player_limit > 0:
-            player_limit = api_state.player_limit
+        notiz = f"Uptime {format_uptime(status.uptime)}"
+        tick_rate = 0.0
+        if api_state and api_state.ok:
+            tick_rate = api_state.average_tick_rate
+        elif status.tick_rate > 0:
+            tick_rate = status.tick_rate
+        if tick_rate > 0:
+            # 30 Ticks sind das Soll; darunter ruckelt es spuerbar.
+            tick_zustand = "ok" if tick_rate >= 25 else "warn" if tick_rate >= 15 else "crit"
+            notiz += f" · {status_dot(tick_zustand)} {tick_rate:.0f}/30 Ticks"
 
-        lines.append(
-            f"{dot} {state_text} | "
-            f"{player_count}/{player_limit} Players | "
-            f"🕐 {uptime_str}"
-        )
-
-        # Online players
+        details: List[str] = []
         online = player_tracker.get_online_players()
         if online:
-            player_list = "\n".join(f"  👤 {name}" for name in sorted(online))
-            lines.append(f"\n{player_list}")
-        else:
-            lines.append("\nKeine Spieler online")
+            # Spielernamen kommen vom Gameserver, nicht von uns — ohne Escaping
+            # koennte ein Name das Panel-Markdown umformatieren.
+            details.append("👤 " + ", ".join(
+                discord.utils.escape_markdown(n) for n in sorted(online)
+            ))
 
-        # -- World Stats (from savegame) --
         if world_stats and world_stats.available:
-            lines.append("")
             power_str = f"{world_stats.total_power_mw:,.0f} MW".replace(",", ".")
-            lines.append(
-                f"🏗️ {world_stats.total_buildings:,} Gebäude | "
-                f"⚡ {world_stats.generators} Gen ({power_str})"
+            details.append(
+                f"🏗️ {world_stats.total_buildings:,} Gebäude · "
+                f"⚡ {world_stats.generators} Gen ({power_str}) · "
+                f"🏭 {world_stats.production_machines} Prod"
             )
-            lines.append(
-                f"🏭 {world_stats.production_machines} Prod | "
-                f"📦 {world_stats.conveyor_belts} Bänder | "
-                f"🔧 {world_stats.pipes} Rohre"
-            )
-            if world_stats.trains > 0 or world_stats.vehicles > 0:
-                lines.append(
-                    f"🚂 {world_stats.trains} Züge | "
-                    f"🚗 {world_stats.vehicles} Fahrzeuge"
-                )
         elif world_stats and world_stats.session_name:
-            lines.append(f"\n📋 Session: {world_stats.session_name}")
-            if world_stats.play_hours > 0:
-                lines.append(f"⏱️ Spielzeit: {world_stats.play_hours}h")
+            details.append(f"📋 Session {world_stats.session_name}")
 
-        # -- Save Info --
         if world_stats:
             save_parts = []
             if world_stats.save_size:
@@ -1848,112 +1849,79 @@ async def _update_status_embed_impl():
             if world_stats.play_hours > 0:
                 save_parts.append(f"⏱️ {world_stats.play_hours}h Spielzeit")
             if save_parts:
-                lines.append("\n" + " | ".join(save_parts))
+                details.append(" · ".join(save_parts))
 
-        # -- Next Restart --
+        # Naechster Neustart als relative Zeit — laeuft im Client weiter, ohne
+        # dass der Bot dafuer editieren muss.
         try:
             scheduler_cog = bot.get_cog("SchedulerCog")
             if scheduler_cog:
-                restart_hour = getattr(scheduler_cog, '_daily_restart_hour', 4)
-                restart_min = getattr(scheduler_cog, '_daily_restart_minute', 0)
+                restart_hour = getattr(scheduler_cog, "_daily_restart_hour", 4)
+                restart_min = getattr(scheduler_cog, "_daily_restart_minute", 0)
                 next_restart = now.replace(
-                    hour=restart_hour, minute=restart_min,
-                    second=0, microsecond=0
+                    hour=restart_hour, minute=restart_min, second=0, microsecond=0
                 )
                 if next_restart <= now:
                     next_restart += timedelta(days=1)
-
-                delta = next_restart - now
-                hours_left = int(delta.total_seconds() // 3600)
-                mins_left = int((delta.total_seconds() % 3600) // 60)
-                lines.append(f"\n🔄 Nächster Restart: {hours_left}h {mins_left}m")
+                details.append(f"🔄 Neustart {rel_time(next_restart)}")
         except Exception as e:
             logger.debug(f"Status-Write/API-Query swallowed (B110-refactor 3.1): {e}")
 
+        if update_checker and update_checker.update_available:
+            details.append("📦 Server-Update verfügbar")
+
+        server_lines.append(ServerLine(
+            liste_unvollstaendig=_spielerliste_unvollstaendig,
+            name="Satisfactory", online=True, players=sat_count,
+            limit=sat_limit or None, note=notiz, details=details,
+        ))
     else:
-        lines.append(f"{dot} {state_text}")
-        lines.append("\nServer ist offline")
+        server_lines.append(ServerLine(name="Satisfactory", online=False))
 
-    # -- Tick Rate (only when online) --
-    if running:
-        tick_rate = 0.0
-        if api_state and hasattr(api_state, 'average_tick_rate'):
-            tick_rate = api_state.average_tick_rate
-        elif status.tick_rate > 0:
-            tick_rate = status.tick_rate
+    # -- Minecraft --
+    for mc_sid, mc_srv in mc_servers.items():
+        try:
+            mc_running = await mc_srv.is_running()
+            if not mc_running:
+                server_lines.append(ServerLine(name=mc_srv.display_name, online=False))
+                continue
 
-        if tick_rate > 0:
-            tick_icon = "🟢" if tick_rate >= 25 else "🟡" if tick_rate >= 15 else "🔴"
-            lines.append(f"\n🎯 Tick Rate: {tick_icon} {tick_rate:.1f}/30")
-
-    # -- Update Available --
-    if update_checker and update_checker.update_available:
-        lines.append("\n📦 **Server-Update verfuegbar!**")
-
-    # -- Minecraft Server --
-    if mc_servers:
-        lines.append("\n▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬")
-        lines.append("")
-
-        for mc_sid, mc_srv in mc_servers.items():
+            mc_count = mc_max = None
             try:
-                mc_running = await mc_srv.is_running()
-                mc_dot = "🟢" if mc_running else "🔴"
-                mc_state = "Online" if mc_running else "Offline"
-
-                lines.append(f"⛏️ **{mc_srv.display_name}**")
-
-                if mc_running:
-                    try:
-                        mc_online, mc_max = await mc_srv.get_player_count()
-                        lines.append(
-                            f"{mc_dot} {mc_state} | "
-                            f"{mc_online}/{mc_max} Spieler"
-                        )
-                    except Exception:
-                        lines.append(f"{mc_dot} {mc_state}")
-
-                    # Online-Spieler anzeigen
-                    mc_pt = mc_player_trackers.get(mc_sid)
-                    if mc_pt:
-                        mc_online_players = mc_pt.get_online_players()
-                        if mc_online_players:
-                            mc_player_list = ", ".join(sorted(mc_online_players))
-                            lines.append(f"  👤 {mc_player_list}")
-
-                    # World-Groesse
-                    try:
-                        world_bytes = await mc_srv.get_world_size()
-                        if world_bytes > 0:
-                            world_mb = world_bytes / (1024 * 1024)
-                            lines.append(f"  🌍 Welt: {world_mb:.1f} MB")
-                    except Exception as e:
-                        logger.debug(f"Sub-task swallowed (B110-refactor 3.1): {e}")
-
-                    # Update verfuegbar?
-                    mc_uc = mc_update_checkers.get(mc_sid)
-                    if mc_uc and mc_uc.update_available:
-                        lines.append(f"  📦 **Paper-Update verfuegbar!**")
-                else:
-                    lines.append(f"{mc_dot} {mc_state}")
-
-                lines.append("")
+                mc_count, mc_max = await mc_srv.get_player_count()
             except Exception as e:
-                logger.debug(f"[{mc_sid}] Status-Embed MC Fehler: {e}")
+                logger.debug(f"[{mc_sid}] Spielerzahl nicht abrufbar: {e}")
 
-    lines.append("▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬")
+            notiz = ""
+            try:
+                world_bytes = await mc_srv.get_world_size()
+                if world_bytes > 0:
+                    notiz = f"Welt {world_bytes / (1024 * 1024):.0f} MB"
+            except Exception as e:
+                logger.debug(f"Sub-task swallowed (B110-refactor 3.1): {e}")
 
-    # -- Footer --
-    lines.append("")
-    lines.append(
-        f"📊 Updates every 5 minutes • "
-        f"Last update • {now.strftime('%d.%m.%Y %H:%M')}"
-    )
+            mc_details: List[str] = []
+            mc_pt = mc_player_trackers.get(mc_sid)
+            if mc_pt:
+                mc_online_players = mc_pt.get_online_players()
+                if mc_online_players:
+                    mc_details.append("👤 " + ", ".join(
+                        discord.utils.escape_markdown(n)
+                        for n in sorted(mc_online_players)
+                    ))
 
-    embed = discord.Embed(
-        description="\n".join(lines),
-        color=COLOR_SUCCESS if running else 0xe74c3c,
-    )
+            mc_uc = mc_update_checkers.get(mc_sid)
+            if mc_uc and mc_uc.update_available:
+                mc_details.append("📦 Paper-Update verfügbar")
+
+            server_lines.append(ServerLine(
+                name=mc_srv.display_name, online=True, players=mc_count,
+                limit=mc_max, note=notiz, details=mc_details,
+            ))
+        except Exception as e:
+            logger.debug(f"[{mc_sid}] Status-Embed MC Fehler: {e}")
+
+    embed = build_status_panel(server_lines)
 
     # -- Send or Edit (Lock schuetzt _status_message_id) --
     async with _status_lock:
@@ -2034,102 +2002,108 @@ async def _get_or_create_voice_channel(
 @tasks.loop(seconds=300)
 async def update_voice_stats():
     """Update voice channel stats every 5 minutes — erstellt Channels automatisch"""
-    if not VOICE_STATS_CATEGORY_ID or not GUILD_ID:
-        return
-
-    guild = bot.get_guild(GUILD_ID)
-    if not guild:
-        return
-
-    category = guild.get_channel(VOICE_STATS_CATEGORY_ID)
-    if not category or not isinstance(category, discord.CategoryChannel):
-        return
-
-    # --- Satisfactory Status ---
+    # Ganzer Koerper gekapselt: ein HTTPException beim Anlegen eines
+    # Voice-Channels beendete die Schleife bisher endgueltig — und mit ihr
+    # sowohl die Voice-Statistik als auch den Minecraft-Spielerabgleich.
     try:
-        sat_running = await sat_server.is_running()
-    except Exception:
-        sat_running = False
+        if not VOICE_STATS_CATEGORY_ID or not GUILD_ID:
+            return
 
-    sat_players = 0
-    sat_limit = 0
-    if sat_running:
-        status = health_checker.status
-        sat_players = status.players_online
-        sat_limit = status.player_limit
+        guild = bot.get_guild(GUILD_ID)
+        if not guild:
+            return
+
+        category = guild.get_channel(VOICE_STATS_CATEGORY_ID)
+        if not category or not isinstance(category, discord.CategoryChannel):
+            return
+
+        # --- Satisfactory Status ---
         try:
-            api_state = await sat_api.query_server_state()
-            if api_state:
-                if api_state.num_players >= 0:
-                    sat_players = api_state.num_players
-                if api_state.player_limit > 0:
-                    sat_limit = api_state.player_limit
-        except Exception as e:
-            logger.debug(f"Status-Write/API-Query swallowed (B110-refactor 3.1): {e}")
+            sat_running = await sat_server.is_running()
+        except Exception:
+            sat_running = False
 
-    # SAT Voice-Channel
-    sat_vc = await _get_or_create_voice_channel(
-        category, "SAT", "SAT-1 | 🔴 Offline"
-    )
-    if sat_vc:
+        sat_players = 0
+        sat_limit = 0
         if sat_running:
-            new_name = f"SAT-1 | 🟢 {sat_players}/{sat_limit}"
-        else:
-            new_name = "SAT-1 | 🔴 Offline"
-        try:
-            if sat_vc.name != new_name:
-                await sat_vc.edit(name=new_name)
-        except discord.Forbidden:
-            logger.warning(f"Keine Berechtigung fuer Voice-Channel: {sat_vc.name}")
-        except Exception as e:
-            logger.error(f"Voice stats SAT error: {e}")
-
-    # --- Minecraft Voice-Channels ---
-    if hasattr(bot, 'mc_servers'):
-        for sid, srv in bot.mc_servers.items():
+            status = health_checker.status
+            sat_players = status.players_online
+            sat_limit = status.player_limit
             try:
-                mc_running = await srv.is_running()
-                mc_players = 0
-                mc_max = 0
-                mc_player_names = []
-                if mc_running:
-                    mc_players, mc_max = await srv.get_player_count()
-                    # Spielernamen via RCON holen und PlayerTracker synchronisieren
-                    try:
-                        mc_player_names = await srv.get_players()
-                    except Exception:
-                        mc_player_names = []
-            except Exception:
-                mc_running = False
-                mc_players = 0
-                mc_max = 0
-                mc_player_names = []
+                api_state = await sat_api.query_server_state()
+                # ok=False heisst: Abfrage gescheitert, die Werte sind Defaults.
+                if api_state and api_state.ok:
+                    sat_players = api_state.num_players
+                    if api_state.player_limit > 0:
+                        sat_limit = api_state.player_limit
+            except Exception as e:
+                logger.debug(f"Status-Write/API-Query swallowed (B110-refactor 3.1): {e}")
 
-            # PlayerTracker mit RCON-Daten synchronisieren
-            mc_pt = mc_player_trackers.get(sid)
-            if mc_pt:
-                if mc_running and mc_player_names:
-                    await mc_pt.update(set(mc_player_names))
-                elif not mc_running and mc_pt.get_online_players():
-                    # Server offline aber Tracker zeigt noch Spieler → bereinigen
-                    await mc_pt.update(set())
+        # SAT Voice-Channel
+        sat_vc = await _get_or_create_voice_channel(
+            category, "SAT", "SAT-1 | 🔴 Offline"
+        )
+        if sat_vc:
+            if sat_running:
+                new_name = f"SAT-1 | 🟢 {sat_players}/{sat_limit}"
+            else:
+                new_name = "SAT-1 | 🔴 Offline"
+            try:
+                if sat_vc.name != new_name:
+                    await sat_vc.edit(name=new_name)
+            except discord.Forbidden:
+                logger.warning(f"Keine Berechtigung fuer Voice-Channel: {sat_vc.name}")
+            except Exception as e:
+                logger.error(f"Voice stats SAT error: {e}")
 
-            vc_key = f"MC-{sid}"
-            mc_vc = await _get_or_create_voice_channel(
-                category, vc_key, f"MC-{sid} | 🔴 Offline"
-            )
-            if mc_vc:
-                if mc_running:
-                    new_name = f"MC-{sid} | 🟢 {mc_players}/{mc_max}"
-                else:
-                    new_name = f"MC-{sid} | 🔴 Offline"
+        # --- Minecraft Voice-Channels ---
+        if hasattr(bot, 'mc_servers'):
+            for sid, srv in bot.mc_servers.items():
                 try:
-                    if mc_vc.name != new_name:
-                        await mc_vc.edit(name=new_name)
-                except discord.Forbidden:
-                    logger.warning(f"Keine Berechtigung fuer Voice-Channel: {mc_vc.name}")
-                except Exception as e:
-                    logger.error(f"Voice stats MC-{sid} error: {e}")
+                    mc_running = await srv.is_running()
+                    mc_players = 0
+                    mc_max = 0
+                    mc_player_names = []
+                    if mc_running:
+                        mc_players, mc_max = await srv.get_player_count()
+                        # Spielernamen via RCON holen und PlayerTracker synchronisieren
+                        try:
+                            mc_player_names = await srv.get_players()
+                        except Exception:
+                            mc_player_names = []
+                except Exception:
+                    mc_running = False
+                    mc_players = 0
+                    mc_max = 0
+                    mc_player_names = []
+
+                # PlayerTracker mit RCON-Daten synchronisieren
+                mc_pt = mc_player_trackers.get(sid)
+                if mc_pt:
+                    if mc_running and mc_player_names:
+                        await mc_pt.update(set(mc_player_names))
+                    elif not mc_running and mc_pt.get_online_players():
+                        # Server offline aber Tracker zeigt noch Spieler → bereinigen
+                        await mc_pt.update(set())
+
+                vc_key = f"MC-{sid}"
+                mc_vc = await _get_or_create_voice_channel(
+                    category, vc_key, f"MC-{sid} | 🔴 Offline"
+                )
+                if mc_vc:
+                    if mc_running:
+                        new_name = f"MC-{sid} | 🟢 {mc_players}/{mc_max}"
+                    else:
+                        new_name = f"MC-{sid} | 🔴 Offline"
+                    try:
+                        if mc_vc.name != new_name:
+                            await mc_vc.edit(name=new_name)
+                    except discord.Forbidden:
+                        logger.warning(f"Keine Berechtigung fuer Voice-Channel: {mc_vc.name}")
+                    except Exception as e:
+                        logger.error(f"Voice stats MC-{sid} error: {e}")
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"Voice-Statistik fehlgeschlagen: {e}", exc_info=True)
 
 
 @update_voice_stats.before_loop
@@ -2286,9 +2260,13 @@ _first_ready = True  # Track first on_ready vs reconnects
 @bot.event
 async def setup_hook():
     """Called once before the bot connects. Load cogs and sync commands here."""
-    # Etappe 2.6 -- tracemalloc-Diagnose (RSS-Wachstum-Analyse)
-    # Deaktivieren via TRACEMALLOC_ENABLED=0 in .env nach Diagnose
-    if os.getenv("TRACEMALLOC_ENABLED", "1") == "1":
+    # tracemalloc-Diagnose — Default seit 2026-08-14 AUS.
+    # Es lief seit der RSS-Analyse dauerhaft mit, weil der Default "1" war und
+    # niemand die Variable je gesetzt hat. Gemessen kostet das Allokationen um
+    # den Faktor 4 und rund 34 MB Metadaten je 200k Objekte; der recon-Bot lag
+    # bei 346 MB RSS gegen 69-72 MB der Schwester-Prozesse, bei MemoryMax=768M.
+    # Zum Messen bewusst einschalten: TRACEMALLOC_ENABLED=1 in der .env.
+    if os.getenv("TRACEMALLOC_ENABLED", "0") == "1":
         tracemalloc.start()
         logger.info("tracemalloc gestartet (Diagnose-Modus)")
 
@@ -2336,8 +2314,12 @@ async def channel_snapshot_task():
     guild = bot.get_guild(GUILD_ID)
     if guild is None:
         return
-    # Kleiner Snapshot-Write (wenige KB) — synchron ok bei 10-min-Kadenz.
-    write_channel_snapshot(guild)
+    try:
+        # In den Thread-Pool: der Write ist klein, aber blockierend — und ein
+        # IO-Fehler beendete die Schleife bisher dauerhaft.
+        await asyncio.to_thread(write_channel_snapshot, guild)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Channel-Snapshot fehlgeschlagen: {e}")
 
 
 # Event-getriebener Schnell-Sync: bei Channel-Aenderungen in der Haupt-Guild sofort
@@ -2425,6 +2407,16 @@ async def on_ready():
     # MC-Tasks nur starten wenn MC-Server konfiguriert sind
     if mc_servers:
         core_tasks.extend([mc_chat_bridge_task, mc_health_check_task])
+
+    # Fehler-Handler auf jede Schleife legen, BEVOR sie startet. Ohne das
+    # beendet discord.py eine Schleife bei der ersten unerwarteten Ausnahme
+    # endgueltig: der Dienst bleibt "active", die Aufgabe ist tot, und der
+    # Ausfall sieht aus wie Ruhe — keine Backups, kein Offline-Alarm, keine
+    # ablaufenden Bans.
+    loop_guard.set_reporter(
+        lambda titel, text: notifier.send_admin(titel, text, NotifyLevel.ERROR)
+    )
+    loop_guard.guard_all(*core_tasks)
 
     for task in core_tasks:
         if not task.is_running():

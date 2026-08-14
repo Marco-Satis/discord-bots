@@ -32,7 +32,17 @@ from modules.server_backup import ServerBackupManager
 from utils.logger import get_logger
 from utils.config import ADMIN_DATA_DIR
 from utils.permissions import admin_only, owner_only
-from utils.embeds import COLOR_ERROR, COLOR_INFO, COLOR_NEUTRAL, COLOR_SUCCESS, COLOR_WARNING
+from utils.embeds import (
+    COLOR_ERROR,
+    COLOR_SUCCESS,
+    error_embed,
+    hud_embed,
+    info_embed,
+    neutral_embed,
+    success_embed,
+)
+from utils.ui_kit import bullet_list, subtext, truncate
+from utils.loop_guard import guard
 
 logger = get_logger("cogs.server_backup")
 
@@ -54,6 +64,178 @@ _MODE_DESCRIPTIONS = {
     "channels_only": "Nur Channels und Kategorien erstellen",
     "add_missing": "Nur fehlende Channels und Rollen hinzufuegen (sicher)",
 }
+
+# Grenzen für die Listen in den Panels — was darüber liegt, wird gezählt
+# statt weggelassen (sichtbar gekürzt, nicht still).
+MAX_EINTRAEGE = 15   # pro Gruppe im Detail-Panel
+MAX_EMOJIS = 30
+MAX_DIFF = 5         # pro Richtung im Vergleich
+MAX_BESCHREIBUNG = 4000  # Discord erlaubt 4096 — Puffer für den Kopf
+
+
+# ======================================================================
+# Panel-Aufbau (getrennt vom Command, damit der gerenderte Text testbar ist)
+# ======================================================================
+
+def _id_chip(backup_id: str) -> str:
+    """Backup-ID als Code-Chip; eigene Backticks der Eingabe fallen weg."""
+    return f"`{backup_id.replace('`', '')}`"
+
+
+def _gruppe(titel: str, eintraege: list[str], gesamt: int) -> list[str]:
+    """Gruppen-Ueberschrift mit Anzahl, danach die gekuerzte Liste."""
+    if not eintraege:
+        return []
+    zeilen = ["", subtext(f"{titel} · {gesamt}"), bullet_list(eintraege)]
+    if gesamt > len(eintraege):
+        zeilen.append(subtext(f"… und {gesamt - len(eintraege)} weitere"))
+    return zeilen
+
+
+def build_backup_info_embed(backup_id: str, backup: dict) -> discord.Embed:
+    """
+    Backup-Details als HUD-Panel: Kennzahlen im Kopf, Inhalte als Gruppen.
+
+    Vorher neun Embed-Felder, in denen die eigentliche Aussage (wie groß ist
+    dieses Backup) zwischen den Listen unterging.
+    """
+    erstellt = backup.get("created_at", "")
+    try:
+        datum = datetime.fromisoformat(erstellt).strftime("%d.%m.%Y %H:%M")
+    except (ValueError, TypeError):
+        datum = erstellt or "unbekannt"
+
+    kategorien = backup.get("categories") or []
+    channels = backup.get("channels") or []
+    rollen = backup.get("roles") or []
+    emojis = backup.get("emojis") or []
+    einstellungen = backup.get("settings") or {}
+
+    kennzahlen = [
+        (str(len(channels)), "Channels"),
+        (str(len(rollen)), "Rollen"),
+        (str(len(kategorien)), "Kategorien"),
+        (str(len(emojis)), "Emojis"),
+    ]
+
+    zeilen = [subtext(f"erstellt {datum} · von <@{backup.get('created_by', 0)}>")]
+
+    zeilen += _gruppe(
+        "KATEGORIEN",
+        [
+            f"{truncate(str(c.get('name', '?')), 40)} · Pos. {c.get('position', 0)}"
+            for c in sorted(kategorien, key=lambda x: x.get("position", 0))[:MAX_EINTRAEGE]
+        ],
+        len(kategorien),
+    )
+    zeilen += _gruppe(
+        "CHANNELS",
+        [
+            f"{truncate(str(c.get('name', '?')), 40)} · {c.get('type', 'text')}"
+            for c in sorted(channels, key=lambda x: x.get("position", 0))[:MAX_EINTRAEGE]
+        ],
+        len(channels),
+    )
+    zeilen += _gruppe(
+        "ROLLEN",
+        [
+            truncate(str(r.get("name", "?")), 40)
+            for r in sorted(rollen, key=lambda x: x.get("position", 0), reverse=True)[:MAX_EINTRAEGE]
+        ],
+        len(rollen),
+    )
+
+    if emojis:
+        zeilen += ["", subtext(f"EMOJIS · {len(emojis)}")]
+        namen = ", ".join(str(e.get("name", "?")) for e in emojis[:MAX_EMOJIS])
+        if len(emojis) > MAX_EMOJIS:
+            namen += f" … +{len(emojis) - MAX_EMOJIS}"
+        zeilen.append(namen)
+
+    if einstellungen:
+        zeilen += [
+            "",
+            subtext("EINSTELLUNGEN"),
+            bullet_list([
+                f"Verifizierung {einstellungen.get('verification_level', '—')}",
+                f"Benachrichtigungen {einstellungen.get('default_notifications', '—')}",
+                f"AFK {einstellungen.get('afk_channel_name') or 'keiner'} "
+                f"· {einstellungen.get('afk_timeout', 0)}s",
+                f"System-Channel {einstellungen.get('system_channel_name') or 'keiner'}",
+            ]),
+        ]
+
+    embed = hud_embed(
+        f"BACKUP {_id_chip(backup_id)}",
+        state="info",
+        meta=kennzahlen,
+        description=f"**{backup.get('guild_name', 'Unbekannt')}**",
+        lines=zeilen,
+    )
+    if embed.description and len(embed.description) > MAX_BESCHREIBUNG:
+        embed.description = truncate(embed.description, MAX_BESCHREIBUNG)
+    return embed
+
+
+def _diff_gruppe(titel: str, daten: dict) -> list[str]:
+    """Eine Vergleichs-Gruppe: neu / entfernt / geändert in je einer Zeile."""
+    neu = daten.get("added") or []
+    entfernt = daten.get("removed") or []
+    geaendert = daten.get("changed") or []
+    gesamt = len(neu) + len(entfernt) + len(geaendert)
+
+    if gesamt == 0:
+        return ["", subtext(f"{titel} · keine Änderungen")]
+
+    zeilen = ["", subtext(f"{titel} · {gesamt}")]
+    for marker, eintraege, label in (
+        ("+", neu, "neu"),
+        ("−", entfernt, "entfernt"),
+        ("~", geaendert, "geändert"),
+    ):
+        if not eintraege:
+            continue
+        sichtbar = " · ".join(truncate(str(e), 40) for e in eintraege[:MAX_DIFF])
+        if len(eintraege) > MAX_DIFF:
+            sichtbar += f" … +{len(eintraege) - MAX_DIFF}"
+        zeilen.append(f"`{marker}` **{label} {len(eintraege)}** › {sichtbar}")
+    return zeilen
+
+
+def build_backup_compare_embed(backup_id: str, result: dict) -> discord.Embed:
+    """
+    Vergleich Backup gegen aktuellen Server — Zahl der Unterschiede im Kopf.
+
+    Ohne Unterschiede ist das Panel grün statt bernstein: „nichts zu tun" soll
+    man am Punkt erkennen, nicht erst nach dem Lesen aller Gruppen.
+    """
+    channels = result.get("channels") or {}
+    rollen = result.get("roles") or {}
+    einstellungen = result.get("settings") or {}
+
+    def _anzahl(daten: dict) -> int:
+        return (len(daten.get("added") or [])
+                + len(daten.get("removed") or [])
+                + len(daten.get("changed") or []))
+
+    gesamt = _anzahl(channels) + _anzahl(rollen) + _anzahl(einstellungen)
+
+    zeilen: list[str] = []
+    zeilen += _diff_gruppe("CHANNELS", channels)
+    zeilen += _diff_gruppe("ROLLEN", rollen)
+    zeilen += _diff_gruppe("EINSTELLUNGEN", einstellungen)
+
+    embed = hud_embed(
+        f"VERGLEICH {_id_chip(backup_id)}",
+        state="warn" if gesamt else "ok",
+        meta=[(str(gesamt), "Unterschiede")],
+        description=("Backup gegen aktuellen Server"
+                     if gesamt else "Server entspricht dem Backup"),
+        lines=zeilen,
+    )
+    if embed.description and len(embed.description) > MAX_BESCHREIBUNG:
+        embed.description = truncate(embed.description, MAX_BESCHREIBUNG)
+    return embed
 
 
 # ======================================================================
@@ -232,13 +414,22 @@ class ServerBackupCog(commands.Cog):
             logger.error(f"Auto-Backup-Config speichern fehlgeschlagen: {e}")
 
     def _start_auto_backup(self, interval_days: int) -> None:
-        """Auto-Backup-Task mit neuem Intervall starten/neustarten"""
-        if self.auto_backup_task.is_running():
-            self.auto_backup_task.cancel()
+        """Auto-Backup-Task mit neuem Intervall starten bzw. umstellen.
 
+        Vorher stand hier ``cancel()`` direkt gefolgt von ``start()``. Der alte
+        Task ist in dem Moment aber synchron noch nicht beendet, und ``start()``
+        wirft dann ``RuntimeError`` — ``/backup auto <n>`` sah kaputt aus,
+        obwohl die Einstellung längst gespeichert war. ``change_interval()``
+        auf einer laufenden Schleife übernimmt das Intervall selbst; gestartet
+        werden muss nur, was noch nicht läuft.
+        """
         # Intervall setzen (in Stunden, da tasks.loop hours nutzt)
         self.auto_backup_task.change_interval(hours=interval_days * 24)
-        self.auto_backup_task.start()
+        guard(self.auto_backup_task, name="auto_backup_task")
+        if self.auto_backup_task.is_running():
+            self.auto_backup_task.restart()
+        else:
+            self.auto_backup_task.start()
 
     @tasks.loop(hours=168)  # Standard: 7 Tage (wird dynamisch geändert)
     async def auto_backup_task(self) -> None:
@@ -370,10 +561,9 @@ class ServerBackupCog(commands.Cog):
             )
             return
 
-        embed = discord.Embed(
+        embed = success_embed(
             title="Server-Backup erstellt",
             description=f"Backup-ID: `{backup['backup_id']}`",
-            color=COLOR_SUCCESS,
             timestamp=datetime.now(timezone.utc),
         )
         embed.add_field(
@@ -441,10 +631,9 @@ class ServerBackupCog(commands.Cog):
             )
             return
 
-        embed = discord.Embed(
+        embed = info_embed(
             title=f"Server-Backups ({len(backups)})",
             description="Alle gespeicherten Server-Struktur-Backups:",
-            color=COLOR_INFO,
             timestamp=datetime.now(timezone.utc),
         )
 
@@ -509,96 +698,7 @@ class ServerBackupCog(commands.Cog):
             )
             return
 
-        # Datum formatieren
-        created_at = backup.get("created_at", "")
-        try:
-            dt = datetime.fromisoformat(created_at)
-            date_str = dt.strftime("%d.%m.%Y %H:%M:%S")
-        except (ValueError, TypeError):
-            date_str = created_at
-
-        embed = discord.Embed(
-            title=f"Backup-Details: `{backup_id}`",
-            color=COLOR_INFO,
-            timestamp=datetime.now(timezone.utc),
-        )
-
-        embed.add_field(name="Server", value=backup.get("guild_name", "Unbekannt"), inline=True)
-        embed.add_field(name="Erstellt am", value=date_str, inline=True)
-        embed.add_field(name="Erstellt von", value=f"<@{backup.get('created_by', 0)}>", inline=True)
-
-        # Kategorien auflisten
-        categories = backup.get("categories", [])
-        if categories:
-            cat_list = "\n".join(
-                f"- {c['name']} (Pos. {c['position']})"
-                for c in sorted(categories, key=lambda x: x["position"])[:15]
-            )
-            if len(categories) > 15:
-                cat_list += f"\n... und {len(categories) - 15} weitere"
-            embed.add_field(
-                name=f"Kategorien ({len(categories)})",
-                value=cat_list[:1024],
-                inline=False,
-            )
-
-        # Channels auflisten
-        channels = backup.get("channels", [])
-        if channels:
-            ch_list = "\n".join(
-                f"- {c['name']} ({c.get('type', 'text')})"
-                for c in sorted(channels, key=lambda x: x.get("position", 0))[:15]
-            )
-            if len(channels) > 15:
-                ch_list += f"\n... und {len(channels) - 15} weitere"
-            embed.add_field(
-                name=f"Channels ({len(channels)})",
-                value=ch_list[:1024],
-                inline=False,
-            )
-
-        # Rollen auflisten
-        roles = backup.get("roles", [])
-        if roles:
-            role_list = "\n".join(
-                f"- {r['name']}"
-                for r in sorted(roles, key=lambda x: x.get("position", 0), reverse=True)[:15]
-            )
-            if len(roles) > 15:
-                role_list += f"\n... und {len(roles) - 15} weitere"
-            embed.add_field(
-                name=f"Rollen ({len(roles)})",
-                value=role_list[:1024],
-                inline=False,
-            )
-
-        # Emojis
-        emojis = backup.get("emojis", [])
-        if emojis:
-            emoji_list = ", ".join(e["name"] for e in emojis[:30])
-            if len(emojis) > 30:
-                emoji_list += f" ... und {len(emojis) - 30} weitere"
-            embed.add_field(
-                name=f"Emojis ({len(emojis)})",
-                value=emoji_list[:1024],
-                inline=False,
-            )
-
-        # Einstellungen
-        settings = backup.get("settings", {})
-        if settings:
-            settings_text = (
-                f"**Verifizierung:** {settings.get('verification_level', 'N/A')}\n"
-                f"**Benachrichtigungen:** {settings.get('default_notifications', 'N/A')}\n"
-                f"**AFK-Channel:** {settings.get('afk_channel_name') or 'Keiner'}\n"
-                f"**AFK-Timeout:** {settings.get('afk_timeout', 0)}s\n"
-                f"**System-Channel:** {settings.get('system_channel_name') or 'Keiner'}"
-            )
-            embed.add_field(
-                name="Einstellungen",
-                value=settings_text,
-                inline=False,
-            )
+        embed = build_backup_info_embed(backup_id, backup)
 
         await interaction.followup.send(embed=embed, ephemeral=True)
 
@@ -645,98 +745,7 @@ class ServerBackupCog(commands.Cog):
             )
             return
 
-        embed = discord.Embed(
-            title=f"Vergleich mit Backup `{backup_id}`",
-            description="Unterschiede zwischen dem Backup und dem aktuellen Server:",
-            color=COLOR_WARNING,
-            timestamp=datetime.now(timezone.utc),
-        )
-
-        # Channel-Aenderungen
-        ch = result.get("channels", {})
-        ch_added = ch.get("added", [])
-        ch_removed = ch.get("removed", [])
-        ch_changed = ch.get("changed", [])
-
-        if ch_added or ch_removed or ch_changed:
-            ch_text_parts: list[str] = []
-            if ch_added:
-                added_str = "\n".join(f"+ {c}" for c in ch_added[:5])
-                if len(ch_added) > 5:
-                    added_str += f"\n... +{len(ch_added) - 5} weitere"
-                ch_text_parts.append(f"**Neu ({len(ch_added)}):**\n{added_str}")
-            if ch_removed:
-                removed_str = "\n".join(f"- {c}" for c in ch_removed[:5])
-                if len(ch_removed) > 5:
-                    removed_str += f"\n... +{len(ch_removed) - 5} weitere"
-                ch_text_parts.append(f"**Entfernt ({len(ch_removed)}):**\n{removed_str}")
-            if ch_changed:
-                changed_str = "\n".join(f"~ {c}" for c in ch_changed[:5])
-                if len(ch_changed) > 5:
-                    changed_str += f"\n... +{len(ch_changed) - 5} weitere"
-                ch_text_parts.append(f"**Geaendert ({len(ch_changed)}):**\n{changed_str}")
-
-            embed.add_field(
-                name="Channels",
-                value="\n".join(ch_text_parts)[:1024],
-                inline=False,
-            )
-        else:
-            embed.add_field(name="Channels", value="Keine Aenderungen", inline=False)
-
-        # Rollen-Aenderungen
-        ro = result.get("roles", {})
-        ro_added = ro.get("added", [])
-        ro_removed = ro.get("removed", [])
-        ro_changed = ro.get("changed", [])
-
-        if ro_added or ro_removed or ro_changed:
-            ro_text_parts: list[str] = []
-            if ro_added:
-                added_str = "\n".join(f"+ {r}" for r in ro_added[:5])
-                if len(ro_added) > 5:
-                    added_str += f"\n... +{len(ro_added) - 5} weitere"
-                ro_text_parts.append(f"**Neu ({len(ro_added)}):**\n{added_str}")
-            if ro_removed:
-                removed_str = "\n".join(f"- {r}" for r in ro_removed[:5])
-                if len(ro_removed) > 5:
-                    removed_str += f"\n... +{len(ro_removed) - 5} weitere"
-                ro_text_parts.append(f"**Entfernt ({len(ro_removed)}):**\n{removed_str}")
-            if ro_changed:
-                changed_str = "\n".join(f"~ {r}" for r in ro_changed[:5])
-                if len(ro_changed) > 5:
-                    changed_str += f"\n... +{len(ro_changed) - 5} weitere"
-                ro_text_parts.append(f"**Geaendert ({len(ro_changed)}):**\n{changed_str}")
-
-            embed.add_field(
-                name="Rollen",
-                value="\n".join(ro_text_parts)[:1024],
-                inline=False,
-            )
-        else:
-            embed.add_field(name="Rollen", value="Keine Aenderungen", inline=False)
-
-        # Einstellungs-Aenderungen
-        se = result.get("settings", {})
-        se_changed = se.get("changed", [])
-
-        if se_changed:
-            se_text = "\n".join(f"~ {s}" for s in se_changed[:10])
-            embed.add_field(
-                name="Einstellungen",
-                value=se_text[:1024],
-                inline=False,
-            )
-        else:
-            embed.add_field(name="Einstellungen", value="Keine Aenderungen", inline=False)
-
-        # Zusammenfassung
-        total_changes = (
-            len(ch_added) + len(ch_removed) + len(ch_changed)
-            + len(ro_added) + len(ro_removed) + len(ro_changed)
-            + len(se_changed)
-        )
-        embed.set_footer(text=f"Gesamt: {total_changes} Unterschiede")
+        embed = build_backup_compare_embed(backup_id, result)
 
         await interaction.followup.send(embed=embed, ephemeral=True)
 
@@ -865,20 +874,18 @@ class ServerBackupCog(commands.Cog):
         deleted = await self.backup_mgr.delete_backup(backup_id)
 
         if deleted:
-            embed = discord.Embed(
+            embed = success_embed(
                 title="Backup gelöscht",
                 description=f"Backup `{backup_id}` wurde endgueltig gelöscht.",
-                color=COLOR_SUCCESS,
                 timestamp=datetime.now(timezone.utc),
             )
             logger.info(
                 f"Backup {backup_id} gelöscht von {interaction.user.display_name}"
             )
         else:
-            embed = discord.Embed(
+            embed = error_embed(
                 title="Fehler",
                 description=f"Backup `{backup_id}` nicht gefunden.",
-                color=COLOR_ERROR,
             )
 
         await interaction.followup.send(embed=embed, ephemeral=True)
@@ -956,10 +963,9 @@ class ServerBackupCog(commands.Cog):
             if self.auto_backup_task.is_running():
                 self.auto_backup_task.cancel()
 
-            embed = discord.Embed(
+            embed = neutral_embed(
                 title="Auto-Backup deaktiviert",
                 description="Automatische Server-Backups wurden deaktiviert.",
-                color=COLOR_NEUTRAL,
                 timestamp=datetime.now(timezone.utc),
             )
             await interaction.followup.send(embed=embed, ephemeral=True)
@@ -984,13 +990,12 @@ class ServerBackupCog(commands.Cog):
 
         self._start_auto_backup(intervall_tage)
 
-        embed = discord.Embed(
+        embed = success_embed(
             title="Auto-Backup aktiviert",
             description=(
                 f"Automatische Server-Backups alle **{intervall_tage} Tag(e)**.\n"
                 f"Server: **{interaction.guild.name}**"
             ),
-            color=COLOR_SUCCESS,
             timestamp=datetime.now(timezone.utc),
         )
         await interaction.followup.send(embed=embed, ephemeral=True)

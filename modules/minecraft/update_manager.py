@@ -35,7 +35,10 @@ from modules.minecraft.modpack_updater import ModpackUpdater
 from modules.minecraft.neoforge_updater import NeoForgeUpdater
 from modules.restart_timer import TimerResult
 from utils.logger import get_logger
-from utils.embeds import COLOR_ERROR, COLOR_SUCCESS
+from utils.embeds import (
+    error_embed,
+    success_embed,
+)
 
 logger = get_logger("minecraft.update_manager")
 
@@ -853,11 +856,9 @@ class UpdateManager:
         # Discord Channel
         if self.channel:
             try:
-                embed = discord.Embed(
+                embed = success_embed(
                     title=f"✅ Update erfolgreich: {self.server_id}",
                     description=f"Server wurde auf **{new_version}** aktualisiert.",
-                    color=COLOR_SUCCESS,
-                    timestamp=datetime.now(),
                 )
                 await self.channel.send(embed=embed)
             except Exception as e:
@@ -872,11 +873,9 @@ class UpdateManager:
         # Discord Channel
         if self.channel:
             try:
-                embed = discord.Embed(
+                embed = error_embed(
                     title=f"❌ Update fehlgeschlagen: {self.server_id}",
                     description=f"Update auf **{version}** ist fehlgeschlagen.",
-                    color=COLOR_ERROR,
-                    timestamp=datetime.now(),
                 )
                 embed.add_field(name="Fehler", value=error[:1000], inline=False)
                 await self.channel.send(embed=embed)

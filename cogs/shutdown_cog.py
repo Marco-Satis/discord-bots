@@ -25,7 +25,13 @@ from discord.ext import commands, tasks
 
 from modules.database.db_manager import get_db
 from utils.logger import get_logger
-from utils.embeds import COLOR_ERROR, COLOR_SUCCESS, COLOR_WARNING
+from utils.embeds import (
+    COLOR_WARNING,
+    error_embed,
+    success_embed,
+    warning_embed,
+)
+from utils.loop_guard import guard
 
 logger = get_logger("cogs.shutdown")
 
@@ -80,6 +86,7 @@ class ShutdownCog(commands.Cog):
 
     async def cog_load(self) -> None:
         """Countdown-Pruef-Task starten"""
+        guard(self._countdown_tick, name="_countdown_tick")
         self._countdown_tick.start()
         logger.info("ShutdownCog geladen — Countdown-Task gestartet")
 
@@ -111,25 +118,33 @@ class ShutdownCog(commands.Cog):
             if info is None:
                 continue
 
-            shutdown_at: datetime = info["shutdown_at"]
-            remaining = (shutdown_at - now).total_seconds()
-            remaining_min = remaining / 60.0
+            # Je Server kapseln: stirbt die Schleife zwischen zwei Warnstufen,
+            # verschwindet die geplante Abschaltung lautlos — oder schlimmer,
+            # die Warnungen fallen aus und die Abschaltung nicht.
+            try:
+                shutdown_at: datetime = info["shutdown_at"]
+                remaining = (shutdown_at - now).total_seconds()
+                remaining_min = remaining / 60.0
 
-            # Shutdown-Zeitpunkt erreicht oder überschritten
-            if remaining <= 0:
-                await self._execute_shutdown(server_id, info)
-                continue
-
-            # Warnungen prüfen
-            sent: set = info.setdefault("warnings_sent", set())
-            for threshold in WARNING_THRESHOLDS:
-                if threshold in sent:
+                # Shutdown-Zeitpunkt erreicht oder überschritten
+                if remaining <= 0:
+                    await self._execute_shutdown(server_id, info)
                     continue
-                # Warnung senden wenn verbleibende Zeit unter dem Schwellwert liegt
-                # (plus Puffer für den 30-Sekunden-Tick)
-                if remaining_min <= threshold + 0.5:
-                    await self._send_warning(server_id, info, threshold)
-                    sent.add(threshold)
+
+                # Warnungen prüfen
+                sent: set = info.setdefault("warnings_sent", set())
+                for threshold in WARNING_THRESHOLDS:
+                    if threshold in sent:
+                        continue
+                    # Warnung senden wenn verbleibende Zeit unter dem Schwellwert
+                    # liegt (plus Puffer für den 30-Sekunden-Tick)
+                    if remaining_min <= threshold + 0.5:
+                        await self._send_warning(server_id, info, threshold)
+                        sent.add(threshold)
+            except Exception as e:  # noqa: BLE001 — Schleife muss weiterlaufen
+                logger.error(
+                    f"Countdown fuer {server_id} fehlgeschlagen: {e}", exc_info=True
+                )
 
     @_countdown_tick.before_loop
     async def _before_countdown(self) -> None:
@@ -285,18 +300,14 @@ class ShutdownCog(commands.Cog):
             if channel:
                 try:
                     if success:
-                        embed = discord.Embed(
+                        embed = success_embed(
                             title=f"{display} heruntergefahren",
                             description="Server wurde erfolgreich gestoppt.",
-                            color=COLOR_SUCCESS,
-                            timestamp=datetime.now(),
                         )
                     else:
-                        embed = discord.Embed(
+                        embed = error_embed(
                             title=f"{display} Shutdown fehlgeschlagen",
                             description="Der Server konnte nicht gestoppt werden. Siehe Logs.",
-                            color=COLOR_ERROR,
-                            timestamp=datetime.now(),
                         )
                     embed.set_footer(
                         text=f"Geplant von {info.get('planned_by', 'System')}"
@@ -373,10 +384,8 @@ class ShutdownCog(commands.Cog):
 
         # Bestaetigung
         shutdown_time_str = shutdown_at.strftime("%H:%M:%S")
-        embed = discord.Embed(
+        embed = warning_embed(
             title=f"Shutdown geplant: {display}",
-            color=COLOR_WARNING,
-            timestamp=datetime.now(),
         )
         embed.add_field(name="Countdown", value=f"{minuten} Minute(n)", inline=True)
         embed.add_field(name="Shutdown um", value=shutdown_time_str, inline=True)
@@ -396,14 +405,12 @@ class ShutdownCog(commands.Cog):
 
         # Oeffentliche Ankuendigung im Channel
         reason_text = f"\n**Grund:** {grund}" if grund else ""
-        public_embed = discord.Embed(
+        public_embed = warning_embed(
             title=f"Server-Shutdown geplant: {display}",
             description=(
                 f"Der Server wird in **{minuten} Minute(n)** "
                 f"heruntergefahren.{reason_text}"
             ),
-            color=COLOR_WARNING,
-            timestamp=datetime.now(),
         )
         public_embed.set_footer(
             text=f"Geplant von {interaction.user.display_name}"
@@ -446,11 +453,9 @@ class ShutdownCog(commands.Cog):
         if task and not task.done():
             task.cancel()
 
-        embed = discord.Embed(
+        embed = success_embed(
             title=f"Shutdown abgebrochen: {display}",
             description="Der geplante Shutdown wurde abgebrochen.",
-            color=COLOR_SUCCESS,
-            timestamp=datetime.now(),
         )
         embed.set_footer(
             text=f"Abgebrochen von {interaction.user.display_name}"
@@ -464,11 +469,9 @@ class ShutdownCog(commands.Cog):
             channel = self.bot.get_channel(channel_id)
             if channel:
                 try:
-                    public_embed = discord.Embed(
+                    public_embed = success_embed(
                         title=f"Shutdown abgebrochen: {display}",
                         description="Der geplante Server-Shutdown wurde abgebrochen.",
-                        color=COLOR_SUCCESS,
-                        timestamp=datetime.now(),
                     )
                     public_embed.set_footer(
                         text=f"Abgebrochen von {interaction.user.display_name}"
@@ -511,10 +514,8 @@ class ShutdownCog(commands.Cog):
             )
             return
 
-        embed = discord.Embed(
+        embed = warning_embed(
             title="Geplante Shutdowns",
-            color=COLOR_WARNING,
-            timestamp=datetime.now(),
         )
 
         for server_id, info in self._planned.items():

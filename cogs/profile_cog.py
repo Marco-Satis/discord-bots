@@ -20,7 +20,10 @@ from datetime import datetime, timedelta, timezone
 
 from modules.database.db_manager import get_db
 from utils.logger import get_logger
-from utils.embeds import COLOR_SUCCESS, COLOR_WARNING
+from utils.embeds import (
+    COLOR_SUCCESS,
+    warning_embed,
+)
 
 logger = get_logger("cogs.profile")
 
@@ -399,9 +402,8 @@ class ProfileCog(commands.Cog):
                 )
                 return
 
-            embed = discord.Embed(
+            embed = warning_embed(
                 title=f"Spieler-Leaderboard — {zeitraum_text}",
-                color=COLOR_WARNING,
             )
 
             # Nummerierte Liste mit Medaillen für Top 3

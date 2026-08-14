@@ -26,7 +26,11 @@ from modules.guild_context import GuildConfig
 from modules.raid_detector import RaidDetector
 from utils.logger import get_logger
 from utils.permissions import admin_only
-from utils.embeds import COLOR_ERROR, COLOR_INFO, COLOR_SUCCESS
+from utils.embeds import (
+    error_embed,
+    info_embed,
+    success_embed,
+)
 
 logger = get_logger("cogs.verification")
 
@@ -180,14 +184,13 @@ class VerificationCog(commands.Cog):
             return
 
         count = self.raid.join_count(guild.id)
-        embed = discord.Embed(
+        embed = error_embed(
             title="⚠️ Raid-Verdacht",
             description=(
                 f"**{count}** Joins in ~{int(window)}s "
                 f"(Schwelle: {threshold}).\n"
                 "Pruefe die neuen Mitglieder und erwaege einen Lockdown."
             ),
-            color=COLOR_ERROR,
         )
         try:
             await channel.send(
@@ -238,13 +241,12 @@ class VerificationCog(commands.Cog):
             updated_by="command",
         )
 
-        embed = discord.Embed(
+        embed = success_embed(
             title="✅ Verifizierung",
             description=(
                 "Klicke auf **Verifizieren**, um Zugriff auf den Server zu "
                 "erhalten."
             ),
-            color=COLOR_SUCCESS,
         )
         try:
             await target.send(embed=embed, view=VerificationView())
@@ -367,7 +369,7 @@ class VerificationCog(commands.Cog):
                 role = interaction.guild.get_role(int(role_id))
             except (TypeError, ValueError):
                 role = None
-        embed = discord.Embed(title="Sicherheits-Status", color=COLOR_INFO)
+        embed = info_embed(title="Sicherheits-Status")
         embed.add_field(
             name="Verifizierung",
             value=("Aktiv — Rolle: " + (role.name if role else "?"))

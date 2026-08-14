@@ -23,7 +23,11 @@ from discord.ext import commands
 from modules.audit_logger import AuditLogger, CATEGORY_TO_KEY
 from utils.logger import get_logger
 from utils.permissions import admin_only
-from utils.embeds import COLOR_ERROR, COLOR_INFO, COLOR_SUCCESS
+from utils.embeds import (
+    error_embed,
+    info_embed,
+    success_embed,
+)
 
 logger = get_logger("cogs.audit")
 
@@ -172,22 +176,20 @@ class AuditCog(commands.Cog):
         success = self.audit.set_channel(kategorie.value, channel.id)
 
         if success:
-            embed = discord.Embed(
+            embed = success_embed(
                 title="Audit-Kanal konfiguriert",
                 description=(
                     f"**{kategorie.name}** wird jetzt in {channel.mention} geloggt."
                 ),
-                color=COLOR_SUCCESS,
             )
             logger.info(
                 f"Audit-Setup: {kategorie.name} -> #{channel.name} "
                 f"(von {interaction.user})"
             )
         else:
-            embed = discord.Embed(
+            embed = error_embed(
                 title="Fehler",
                 description=f"Ungueltige Kategorie: `{kategorie.value}`",
-                color=COLOR_ERROR,
             )
 
         await interaction.followup.send(embed=embed, ephemeral=True)
@@ -203,10 +205,9 @@ class AuditCog(commands.Cog):
 
         config = self.audit.get_config()
 
-        embed = discord.Embed(
+        embed = info_embed(
             title="Audit-Log Konfiguration",
             description="Übersicht der konfigurierten Log-Kanaele:",
-            color=COLOR_INFO,
         )
 
         for config_key, label in _CATEGORY_LABELS.items():

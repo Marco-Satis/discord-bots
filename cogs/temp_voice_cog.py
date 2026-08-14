@@ -34,15 +34,17 @@ from discord.ext import commands
 from modules.temp_voice import TempVoiceManager
 from modules.temp_voice_views import (
     TempVoiceControlView,
-    build_interface_embed,
-    build_panel_embed,
+    forget_channel,
     refresh_panel,
 )
 from utils.logger import get_logger
 from utils.config import ADMIN_DATA_DIR
 from utils.permissions import admin_only
 from utils.async_tasks import track_task
-from utils.embeds import COLOR_INFO, COLOR_SUCCESS
+from utils.embeds import (
+    info_embed,
+    success_embed,
+)
 
 logger = get_logger("cogs.temp_voice")
 
@@ -184,8 +186,17 @@ class TempVoiceCog(commands.Cog):
         msg_id = self.manager.interface_message_id
         if msg_id:
             try:
-                await channel.fetch_message(msg_id)
-                return  # Message existiert -> persistente View greift, fertig
+                vorhanden = await channel.fetch_message(msg_id)
+                if vorhanden.flags.components_v2:
+                    return  # Message existiert -> persistente View greift, fertig
+                # Altes Embed-Panel: Discord setzt das Components-V2-Flag beim
+                # Senden, ein Edit kann es nicht nachziehen. Also einmal ersetzen.
+                try:
+                    await vorhanden.delete()
+                    logger.info("Altes Interface-Embed ersetzt (Umstieg auf Components V2)")
+                except discord.HTTPException as e:
+                    logger.warning(f"Altes Interface-Embed nicht loeschbar: {e}")
+                    return
             except discord.NotFound:
                 pass  # geloescht -> neu posten
             except discord.HTTPException as e:
@@ -199,9 +210,7 @@ class TempVoiceCog(commands.Cog):
     async def _post_interface_panel(self, channel: discord.TextChannel) -> bool:
         """Interface-Panel in den Channel posten + Message-ID merken."""
         try:
-            msg = await channel.send(
-                embed=build_interface_embed(), view=TempVoiceControlView()
-            )
+            msg = await channel.send(view=TempVoiceControlView())
             self.manager.set_interface_message(msg.id)
             logger.info(f"Interface-Panel in #{channel.name} gepostet ({msg.id})")
             return True
@@ -312,17 +321,14 @@ class TempVoiceCog(commands.Cog):
         owner: discord.Member,
     ) -> None:
         """
-        Kontrollpanel-Embed mit Buttons in den Channel senden.
+        Kontrollpanel mit Buttons in den Channel senden.
 
         Args:
             channel: Der temporaere Voice-Channel
             owner: Der Channel-Owner
         """
-        embed = build_panel_embed(channel, self.manager)
-        view = TempVoiceControlView()
-
         try:
-            msg = await channel.send(embed=embed, view=view)
+            msg = await channel.send(view=TempVoiceControlView(channel, self.manager))
             # Panel-Message merken -> Slot-Liste kann bei Join/Leave aktualisiert werden
             self.manager.set_panel_message(channel.id, msg.id)
         except (discord.Forbidden, discord.HTTPException) as e:
@@ -397,7 +403,8 @@ class TempVoiceCog(commands.Cog):
             try:
                 await channel.send(
                     f"Der Owner hat den Channel verlassen. "
-                    f"**{new_owner.display_name}** ist jetzt der neue Owner."
+                    f"**{discord.utils.escape_markdown(new_owner.display_name)}** "
+                    f"ist jetzt der neue Owner."
                 )
             except (discord.Forbidden, discord.HTTPException):
                 pass
@@ -459,11 +466,29 @@ class TempVoiceCog(commands.Cog):
             except (discord.Forbidden, discord.HTTPException) as e:
                 logger.warning(f"Temp-Channel {channel_id} löschen fehlgeschlagen: {e}")
 
+            self._panel_verfolgung_loesen(channel_id)
             self.manager.delete_channel(channel_id)
             logger.info(f"Temp-Voice-Channel gelöscht (leer): {channel_id}")
 
         finally:
             self._deleting.discard(channel_id)
+
+    def _panel_verfolgung_loesen(self, channel_id: int) -> None:
+        """View-Registrierung der Panel-Nachricht freigeben.
+
+        discord.py legt zu jeder gesendeten View einen Eintrag unter der
+        Message-ID ab und raeumt ihn beim Loeschen der Nachricht NICHT auf
+        (``ViewStore``). Ohne diesen Aufruf bliebe pro je erstelltem
+        Temp-Channel ein Eintrag fuer die gesamte Prozesslaufzeit liegen.
+        """
+        forget_channel(channel_id)
+        panel_id = self.manager.get_panel_message(channel_id)
+        if not panel_id:
+            return
+        try:
+            self.bot._connection.prevent_view_updates_for(panel_id)
+        except Exception as e:  # noqa: BLE001 — interne API, darf nie stoeren
+            logger.debug(f"View-Verfolgung fuer {panel_id} nicht loesbar: {e}")
 
     # ==================================================================
     # /tempvoice setup
@@ -516,10 +541,9 @@ class TempVoiceCog(commands.Cog):
             else:
                 info_lines.append("Kategorie: Keine (Channels werden ohne Kategorie erstellt)")
 
-        embed = discord.Embed(
+        embed = success_embed(
             title="Temp-Voice Setup",
             description="\n".join(f"- {line}" for line in info_lines),
-            color=COLOR_SUCCESS,
             timestamp=datetime.now(timezone.utc),
         )
         embed.set_footer(text=f"Konfiguriert von {interaction.user.display_name}")
@@ -585,7 +609,7 @@ class TempVoiceCog(commands.Cog):
         hub = self.manager.get_hub(join_channel.id) or {}
         cat_name = kategorie.name if kategorie else "Keine"
         limit_txt = "Unbegrenzt" if hub.get("default_limit", 0) == 0 else str(hub.get("default_limit"))
-        embed = discord.Embed(
+        embed = success_embed(
             title="Temp-Voice Hub gespeichert",
             description=(
                 f"- Hub-Channel: {join_channel.mention}\n"
@@ -596,7 +620,6 @@ class TempVoiceCog(commands.Cog):
                 + (f"\n- Spiel: {discord.utils.escape_markdown(hub.get('game', ''))}"
                    if hub.get("game") else "")
             ),
-            color=COLOR_SUCCESS,
             timestamp=datetime.now(timezone.utc),
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
@@ -654,9 +677,8 @@ class TempVoiceCog(commands.Cog):
 
         guild = interaction.guild
         hubs = self.manager.get_hubs()
-        embed = discord.Embed(
+        embed = info_embed(
             title="Temp-Voice Hubs",
-            color=COLOR_INFO,
             timestamp=datetime.now(timezone.utc),
         )
         if not hubs:
@@ -802,9 +824,8 @@ class TempVoiceCog(commands.Cog):
         limit_text = "Unbegrenzt" if default_limit == 0 else str(default_limit)
         hub_count = len(self.manager.get_hubs())
 
-        embed = discord.Embed(
+        embed = info_embed(
             title="Temp-Voice Informationen",
-            color=COLOR_INFO,
             timestamp=datetime.now(timezone.utc),
         )
 

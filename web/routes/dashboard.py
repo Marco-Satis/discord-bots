@@ -13,9 +13,9 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
-from utils.config import PROJECT_ROOT, DATA_DIR, MONITOR_DATA_DIR
+from utils.config import PROJECT_ROOT, DATA_DIR, MONITOR_DATA_DIR, get_env
 from utils.logger import get_logger
-from web.auth import require_auth, require_auth_api
+from web.auth import require_auth, require_auth_api, require_perm
 from modules.database.db_manager import get_db, get_read_db
 
 EVENTS_FILE = MONITOR_DATA_DIR / "events.json"
@@ -111,7 +111,9 @@ def _collect_system_stats() -> dict:
         stats["ram_used_gb"] = round(mem.used / (1024 ** 3), 1)
         stats["ram_total_gb"] = round(mem.total / (1024 ** 3), 1)
 
-        disk = psutil.disk_usage("/")
+        # Gleiche Partition wie der Live-Sammler (dashboard_feed), sonst zeigt
+        # der erste Render eine andere Platte als der Push fuenf Sekunden spaeter.
+        disk = psutil.disk_usage(get_env("DASHBOARD_DISK_PATH", "/"))
         stats["disk_percent"] = disk.percent
         stats["disk_used_gb"] = round(disk.used / (1024 ** 3), 1)
         stats["disk_total_gb"] = round(disk.total / (1024 ** 3), 1)
@@ -221,7 +223,10 @@ async def dashboard_overview(request: Request, current_user: dict = Depends(requ
 
 
 @router.post("/api/events/clear", response_class=HTMLResponse)
-async def clear_events(current_user: dict = Depends(require_auth_api)):
+async def clear_events(
+    # Wie /api/errors/clear: destruktiv, deshalb Systemrecht statt "angemeldet".
+    current_user: dict = Depends(require_perm("system", "control")),
+):
     """Loescht alle Ereignisse aus dem Event-Log."""
     user = current_user
     try:

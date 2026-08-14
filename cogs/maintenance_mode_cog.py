@@ -27,7 +27,11 @@ from discord.ext import commands, tasks
 from modules.database.db_manager import get_db
 from utils.config import MONITOR_DATA_DIR
 from utils.logger import get_logger
-from utils.embeds import COLOR_SUCCESS, COLOR_WARNING
+from utils.embeds import (
+    success_embed,
+    warning_embed,
+)
+from utils.loop_guard import guard
 
 logger = get_logger("cogs.maintenance_mode")
 
@@ -61,6 +65,7 @@ class MaintenanceModeCog(commands.Cog):
     async def cog_load(self) -> None:
         """Tabelle sicherstellen und Auto-Timeout-Task starten"""
         await self._ensure_table()
+        guard(self._auto_timeout_check, name="_auto_timeout_check")
         self._auto_timeout_check.start()
         logger.info("MaintenanceModeCog geladen — Auto-Timeout-Task gestartet")
 
@@ -265,10 +270,8 @@ class MaintenanceModeCog(commands.Cog):
         ).strftime("%d.%m.%Y %H:%M")
 
         # Embed für die Bestaetigung
-        embed = discord.Embed(
+        embed = warning_embed(
             title="Wartungsmodus aktiviert",
-            color=COLOR_WARNING,
-            timestamp=datetime.now(),
         )
         embed.add_field(
             name="Grund",
@@ -285,14 +288,12 @@ class MaintenanceModeCog(commands.Cog):
         await interaction.followup.send(embed=embed, ephemeral=True)
 
         # Oeffentliche Nachricht im Channel
-        public_embed = discord.Embed(
+        public_embed = warning_embed(
             title="Wartungsmodus aktiviert",
             description=(
                 f"Alle Server befinden sich im Wartungsmodus.\n"
                 f"**Grund:** {grund or 'Nicht angegeben'}"
             ),
-            color=COLOR_WARNING,
-            timestamp=datetime.now(),
         )
         public_embed.set_footer(
             text=f"Aktiviert von {interaction.user.display_name}"
@@ -327,11 +328,9 @@ class MaintenanceModeCog(commands.Cog):
         # Wartungsmodus deaktivieren
         await self._set_active(False)
 
-        embed = discord.Embed(
+        embed = success_embed(
             title="Wartungsmodus deaktiviert",
             description="Alle Server zeigen wieder den normalen Status an.",
-            color=COLOR_SUCCESS,
-            timestamp=datetime.now(),
         )
         embed.set_footer(
             text=f"Deaktiviert von {interaction.user.display_name}"
@@ -340,11 +339,9 @@ class MaintenanceModeCog(commands.Cog):
         await interaction.followup.send(embed=embed, ephemeral=True)
 
         # Oeffentliche Nachricht im Channel
-        public_embed = discord.Embed(
+        public_embed = success_embed(
             title="Wartungsmodus beendet",
             description="Alle Server sind wieder im Normalbetrieb.",
-            color=COLOR_SUCCESS,
-            timestamp=datetime.now(),
         )
         public_embed.set_footer(
             text=f"Beendet von {interaction.user.display_name}"
@@ -367,10 +364,8 @@ class MaintenanceModeCog(commands.Cog):
         state = await self._get_state()
 
         if state["active"]:
-            embed = discord.Embed(
+            embed = warning_embed(
                 title="Wartungsmodus: AKTIV",
-                color=COLOR_WARNING,
-                timestamp=datetime.now(),
             )
             embed.add_field(
                 name="Grund",
@@ -411,11 +406,9 @@ class MaintenanceModeCog(commands.Cog):
                 except ValueError:
                     pass
         else:
-            embed = discord.Embed(
+            embed = success_embed(
                 title="Wartungsmodus: INAKTIV",
                 description="Alle Server zeigen den normalen Status an.",
-                color=COLOR_SUCCESS,
-                timestamp=datetime.now(),
             )
 
         await interaction.followup.send(embed=embed, ephemeral=True)

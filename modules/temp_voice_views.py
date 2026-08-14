@@ -15,18 +15,30 @@ sie funktionieren auch nach einem Bot-Neustart.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 import discord
 
 from utils.logger import get_logger
-from utils.embeds import COLOR_ERROR, COLOR_INFO
+from utils.embeds import info_embed
+from utils.panels import action_row, hud_container
+from utils.ui_kit import subtext, truncate
 
 if TYPE_CHECKING:
     from modules.temp_voice import TempVoiceManager
 
 logger = get_logger("modules.temp_voice_views")
+
+# Eine Components-V2-Nachricht fasst 4000 Zeichen (discord.ui.View.content_length).
+# 25 Namen bleiben mit Abstand darunter, auch bei langen Nicknames.
+MAX_MITGLIEDER_IM_PANEL = 25
+
+# Panel-Edits je Kanal serialisieren: Join und Leave kommen als getrennte Tasks
+# an: ohne Sperre koennen sich zwei Edits ueberholen und die aeltere Momentaufnahme
+# gewinnt.
+_panel_locks: "dict[int, asyncio.Lock]" = {}
 
 
 # ======================================================================
@@ -50,87 +62,121 @@ def _format_duration(iso_ts: str | None) -> str:
     return f"{mins // 60}h {mins % 60}m"
 
 
-def build_panel_embed(
-    channel: discord.VoiceChannel, manager: "TempVoiceManager"
-) -> discord.Embed:
+def _darf_steuern(manager, channel, member) -> bool:
+    """Owner oder jemand mit "Kanaele verwalten" — die eine Regel fuer alle Wege."""
+    return (manager.get_owner(channel.id) == member.id
+            or member.guild_permissions.manage_channels)
+
+
+def build_channel_container(
+    channel: discord.VoiceChannel,
+    manager: "TempVoiceManager",
+    aktionen: "list[discord.ui.ActionRow] | None" = None,
+) -> discord.ui.Container:
     """
-    Kontrollpanel-Embed bauen: Header + Slot-Liste (Mitglieder mit 👑 Owner +
-    Zeit-im-Channel) + Status-Zeile (privat/offen · Limit · Ban-Anzahl).
+    Kanal-Panel im HUD-Stil: Kopf mit Belegung, Mitgliederliste, Status, Buttons.
+
+    Args:
+        channel: der temporäre Voice-Channel.
+        manager: Zustandsquelle (Owner, privat, Bans, Beitrittszeiten).
+        aktionen: Button-Zeilen, die unter die Liste gehören.
     """
     owner_id = manager.get_owner(channel.id)
     private = manager.is_private(channel.id)
     banned = manager.get_banned(channel.id)
     joined = manager.get_joined_at(channel.id)
 
-    embed = discord.Embed(
-        title=f"🎮 {channel.name}",
-        color=COLOR_ERROR if private else 0x5865F2,
-        timestamp=datetime.now(timezone.utc),
-    )
+    mitglieder = [m for m in channel.members if not m.bot]
+    limit_text = str(channel.user_limit) if channel.user_limit else "∞"
 
-    # Slot-Liste
-    members = [m for m in channel.members if not m.bot]
-    if members:
-        lines = []
-        for m in members:
-            crown = " 👑" if m.id == owner_id else ""
-            dur = _format_duration(joined.get(str(m.id)))
-            lines.append(f"• **{m.display_name}**{crown} · {dur}")
-        slots = "\n".join(lines)
+    kennzahlen = [(f"{len(mitglieder)}/{limit_text}", "Mitglieder")]
+    if banned:
+        kennzahlen.append((str(len(banned)), "gebannt"))
+
+    if mitglieder:
+        # escape_markdown: Anzeigename und Kanalname sind frei waehlbar. Im
+        # Embed-Titel war das folgenlos, im Components-V2-TextDisplay wird
+        # Markdown gerendert — ohne Escaping koennte ein Name eigene
+        # Ueberschriften oder Subtext-Zeilen ins Panel schreiben.
+        #
+        # Deckel: eine Components-V2-Nachricht fasst 4000 Zeichen. Ein voller
+        # Kanal (99 Leute) kaeme darueber, der Edit schluege fehl und das Panel
+        # bliebe stehen. Lieber sichtbar kuerzen.
+        sichtbar = mitglieder[:MAX_MITGLIEDER_IM_PANEL]
+        zeilen = [
+            f"{'👑' if m.id == owner_id else '›'} "
+            f"**{discord.utils.escape_markdown(m.display_name)}** "
+            f"{subtext(_format_duration(joined.get(str(m.id))))}"
+            for m in sichtbar
+        ]
+        if len(mitglieder) > len(sichtbar):
+            zeilen.append(subtext(f"… und {len(mitglieder) - len(sichtbar)} weitere"))
     else:
-        slots = "_Noch niemand hier._"
-    limit_txt = str(channel.user_limit) if channel.user_limit else "∞"
-    embed.add_field(
-        name=f"Mitglieder ({len(members)}/{limit_txt})", value=slots, inline=False
+        zeilen = ["-# Noch niemand hier."]
+    zeilen.append(subtext(
+        f"{'🔒 privat' if private else '🔓 öffentlich'} · Limit {limit_text} "
+        f"· {len(banned)} gebannt"
+    ))
+
+    return hud_container(
+        discord.utils.escape_markdown(truncate(channel.name, 60)).upper(),
+        state="warn" if private else "ok",
+        meta=kennzahlen,
+        bar=(len(mitglieder), channel.user_limit) if channel.user_limit else None,
+        rows=[discord.ui.TextDisplay("\n".join(zeilen))],
+        actions=aktionen,
+        footer_note="Steuerung über die Buttons — nur der Owner",
     )
 
-    # Status-Zeile
-    status = "🔒 Privat" if private else "🔓 Öffentlich"
-    embed.add_field(
-        name="Status",
-        value=f"{status} · 👤 Limit {limit_txt} · 🚫 {len(banned)} gebannt",
-        inline=False,
-    )
-    embed.set_footer(text="Steuerung über die Buttons (nur Owner)")
-    return embed
+
+def forget_channel(channel_id: int) -> None:
+    """Panel-Sperre eines geloeschten Kanals freigeben."""
+    _panel_locks.pop(channel_id, None)
 
 
 async def refresh_panel(
     channel: discord.VoiceChannel, manager: "TempVoiceManager"
 ) -> None:
-    """Das gespeicherte Panel-Embed mit aktuellem State neu rendern (Edit)."""
+    """Das gespeicherte Kanal-Panel mit aktuellem Stand neu rendern (Edit)."""
     pmid = manager.get_panel_message(channel.id)
     if not pmid:
         return
+    sperre = _panel_locks.setdefault(channel.id, asyncio.Lock())
     try:
-        msg = channel.get_partial_message(pmid)
-        await msg.edit(embed=build_panel_embed(channel, manager))
+        async with sperre:
+            msg = channel.get_partial_message(pmid)
+            # Innerhalb der Sperre bauen, nicht davor: sonst schickte der
+            # zweite Aufrufer eine aeltere Momentaufnahme hinterher.
+            await msg.edit(view=TempVoiceControlView(channel, manager))
     except discord.HTTPException as e:
+        # Deckt auch den Fall „altes Embed-Panel, laesst sich nicht auf V2
+        # umstellen" ab. Kein Drama: der naechste Temp-Channel bekommt das neue
+        # Panel, und die Buttons des alten funktionieren weiter (gleiche IDs).
         logger.debug(f"Panel-Refresh fehlgeschlagen ({channel.id}): {e}")
 
 
-def build_interface_embed() -> discord.Embed:
+def build_interface_container(
+    aktionen: "list[discord.ui.ActionRow] | None" = None,
+) -> discord.ui.Container:
     """
-    Statisches Embed fuer das persistente Interface-Panel (VOICEPANEL-Style).
+    Statisches Panel fuer den Interface-Kanal.
 
-    Channel-unabhaengig: die Buttons steuern den Temp-Channel in dem der
-    Klickende gerade ist (Resolver `member.voice.channel`), nicht einen festen
-    Channel. Daher ein generisches Embed das nur die Steuerung erklaert.
+    Channel-unabhaengig: die Buttons steuern den Temp-Channel, in dem der
+    Klickende gerade ist (`member.voice.channel`), nicht einen festen Kanal.
     """
-    embed = discord.Embed(
-        title="🎛️ Temp-Voice-Steuerung",
-        description=(
-            "Erstelle deinen eigenen Voice-Channel über den **Join-to-Create**-"
-            "Kanal und steuere ihn hier.\n"
-            "**Voraussetzung:** Du bist gerade in deinem Temp-Channel.\n\n"
-            "✏️ **Umbenennen** · 🔢 **Limit** · 🔒 **Privat** · 🔓 **Öffentlich**\n"
-            "👤 **Übertragen** · 🔨 **Bannen** · ♻️ **Entbannen** · 🙋 **Übernehmen**\n"
-            "📜 **Logs** · 🎮 **Accounts**"
-        ),
-        color=COLOR_INFO,
+    return hud_container(
+        "TEMP-VOICE",
+        state="info",
+        subtitle="Steuerung fuer deinen eigenen Kanal",
+        rows=[discord.ui.TextDisplay(
+            "Erstelle deinen Voice-Channel über den **Join-to-Create**-Kanal "
+            "und steuere ihn hier.\n"
+            "-# Voraussetzung: du bist gerade in deinem Temp-Channel.\n"
+            "-# Nur der Owner kann steuern — ist er weg, geht Übernehmen."
+        )],
+        actions=aktionen,
+        footer_note="Die Buttons wirken auf den Kanal, in dem du gerade bist",
     )
-    embed.set_footer(text="Nur der Channel-Owner kann steuern (Claim wenn Owner weg).")
-    return embed
 
 
 # ======================================================================
@@ -181,8 +227,11 @@ class RenameModal(discord.ui.Modal, title="Channel umbenennen"):
             )
             return
 
-        owner_id = manager.get_owner(channel.id)
-        if owner_id != member.id:
+        # Gleiche Regel wie _check_owner: Owner ODER jemand mit
+        # "Kanaele verwalten". Vorher war die Pruefung hier strenger als beim
+        # Button, der das Modal oeffnet — ein Admin bekam den Dialog und beim
+        # Absenden eine Absage.
+        if not _darf_steuern(manager, channel, member):
             await interaction.response.send_message(
                 "Nur der Channel-Owner kann den Namen ändern.", ephemeral=True
             )
@@ -194,12 +243,17 @@ class RenameModal(discord.ui.Modal, title="Channel umbenennen"):
             await channel.edit(name=new_name)
             manager.update_channel_name(channel.id, new_name)
             await interaction.response.send_message(
-                f"Channel umbenannt zu **{new_name}**.", ephemeral=True
+                f"Channel umbenannt zu "
+                f"**{discord.utils.escape_markdown(new_name)}**.",
+                ephemeral=True,
             )
             logger.info(
                 f"Temp-Voice umbenannt: {channel.id} -> '{new_name}' "
                 f"von {member.display_name}"
             )
+            # Der Panel-Titel IST der Kanalname — ohne diesen Aufruf stuende
+            # dort bis zum naechsten Join/Leave der alte.
+            await refresh_panel(channel, manager)
         except (discord.Forbidden, discord.HTTPException) as e:
             logger.error(f"Channel umbenennen fehlgeschlagen: {e}")
             await interaction.response.send_message(
@@ -248,8 +302,7 @@ class LimitModal(discord.ui.Modal, title="Userlimit setzen"):
             )
             return
 
-        owner_id = manager.get_owner(channel.id)
-        if owner_id != member.id:
+        if not _darf_steuern(manager, channel, member):
             await interaction.response.send_message(
                 "Nur der Channel-Owner kann das Limit ändern.", ephemeral=True
             )
@@ -282,6 +335,8 @@ class LimitModal(discord.ui.Modal, title="Userlimit setzen"):
                 f"Temp-Voice Limit geändert: {channel.id} -> {limit} "
                 f"von {member.display_name}"
             )
+            # Belegungsbalken und Kennzahl haengen am Limit — Panel nachziehen.
+            await refresh_panel(channel, manager)
         except (discord.Forbidden, discord.HTTPException) as e:
             logger.error(f"Userlimit setzen fehlgeschlagen: {e}")
             await interaction.response.send_message(
@@ -420,18 +475,85 @@ class OwnerTransferView(discord.ui.View):
 # Persistente Control View — Hauptsteuerung
 # ======================================================================
 
-class TempVoiceControlView(discord.ui.View):
+class AktionsButton(discord.ui.Button):
     """
-    Persistente View für die Channel-Steuerung.
+    Panel-Button, der eine gebundene Methode der View aufruft.
 
-    Wird als Kontrollpanel im Channel oder als Nachricht gesendet.
-    Enthält Buttons für alle Channel-Aktionen. Verwendet feste
-    custom_ids damit die Buttons nach einem Bot-Neustart funktionieren.
+    Der Umweg über die gebundene Methode statt über ``self.view`` ist Absicht:
+    in einem Components-V2-Layout hängen die Buttons in Container und Zeilen,
+    die Auflösung nach oben wäre eine Annahme über interne Struktur.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, handler, *, label: str, custom_id: str, emoji: str,
+                 style: discord.ButtonStyle) -> None:
+        super().__init__(label=label, custom_id=custom_id, emoji=emoji, style=style)
+        self._handler = handler
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self._handler(interaction)
+
+
+class TempVoiceControlView(discord.ui.LayoutView):
+    """
+    Persistente View für die Channel-Steuerung (Components V2).
+
+    Umstieg 2026-08-13: vorher ein Embed plus separate Button-Leiste. Jetzt ein
+    Panel — Kopfzeile, Mitgliederliste und Buttons gehören sichtbar zusammen.
+    Die ``custom_id``s sind unverändert, Klicks auf noch stehende alte Panels
+    landen also weiterhin hier.
+
+    Args:
+        channel: Temp-Channel für das Kanal-Panel; ``None`` baut das statische
+            Interface-Panel, dessen Buttons auf den Kanal des Klickenden wirken.
+        manager: Zustandsquelle für Owner, Bans und Beitrittszeiten.
+    """
+
+    def __init__(
+        self,
+        channel: discord.VoiceChannel | None = None,
+        manager: "TempVoiceManager | None" = None,
+    ) -> None:
         # timeout=None fuer persistente Views (kein Ablauf)
         super().__init__(timeout=None)
+        aktionen = self._aktionszeilen()
+        self.add_item(
+            build_channel_container(channel, manager, aktionen)
+            if channel is not None and manager is not None
+            else build_interface_container(aktionen)
+        )
+
+    def _aktionszeilen(self) -> list[discord.ui.ActionRow]:
+        """Die drei Button-Zeilen; jede Zeile fasst zusammengehörige Aktionen."""
+        aufteilung = (
+            (("Umbenennen", "temp_voice:rename", "✏️",
+              discord.ButtonStyle.primary, self.rename_button),
+             ("Limit setzen", "temp_voice:limit", "\U0001f465",
+              discord.ButtonStyle.primary, self.limit_button),
+             ("Privat", "temp_voice:private", "\U0001f512",
+              discord.ButtonStyle.secondary, self.private_button),
+             ("Öffentlich", "temp_voice:public", "\U0001f513",
+              discord.ButtonStyle.secondary, self.public_button)),
+            (("Owner übertragen", "temp_voice:transfer", "\U0001f91d",
+              discord.ButtonStyle.danger, self.transfer_button),
+             ("Bannen", "temp_voice:ban", "\U0001f6ab",
+              discord.ButtonStyle.danger, self.ban_button),
+             ("Entbannen", "temp_voice:unban", "\U0001f464",
+              discord.ButtonStyle.secondary, self.unban_button),
+             ("Übernehmen", "temp_voice:claim", "\U0001f451",
+              discord.ButtonStyle.success, self.claim_button)),
+            (("Logs", "temp_voice:logs", "\U0001f4ca",
+              discord.ButtonStyle.secondary, self.logs_button),
+             ("Accounts", "temp_voice:accounts", "\U0001f3ae",
+              discord.ButtonStyle.secondary, self.accounts_button)),
+        )
+        return [
+            action_row(*(
+                AktionsButton(handler, label=label, custom_id=cid,
+                              emoji=emoji, style=style)
+                for label, cid, emoji, style, handler in zeile
+            ))
+            for zeile in aufteilung
+        ]
 
     def _get_manager(self, interaction: discord.Interaction) -> TempVoiceManager | None:
         """Hilfsmethode: TempVoiceManager aus dem Cog holen."""
@@ -511,18 +633,7 @@ class TempVoiceControlView(discord.ui.View):
     # Button: Umbenennen
     # ------------------------------------------------------------------
 
-    @discord.ui.button(
-        label="Umbenennen",
-        style=discord.ButtonStyle.primary,
-        custom_id="temp_voice:rename",
-        emoji="\u270f\ufe0f",
-        row=0,
-    )
-    async def rename_button(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button,
-    ) -> None:
+    async def rename_button(self, interaction: discord.Interaction) -> None:
         """Button-Handler: Modal zum Umbenennen öffnen."""
         # Vorprüfung: Ist der User Owner?
         result = await self._check_owner(interaction)
@@ -536,18 +647,7 @@ class TempVoiceControlView(discord.ui.View):
     # Button: Limit setzen
     # ------------------------------------------------------------------
 
-    @discord.ui.button(
-        label="Limit setzen",
-        style=discord.ButtonStyle.primary,
-        custom_id="temp_voice:limit",
-        emoji="\U0001f465",
-        row=0,
-    )
-    async def limit_button(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button,
-    ) -> None:
+    async def limit_button(self, interaction: discord.Interaction) -> None:
         """Button-Handler: Modal zum Setzen des Userlimits öffnen."""
         result = await self._check_owner(interaction)
         if result is None:
@@ -560,18 +660,7 @@ class TempVoiceControlView(discord.ui.View):
     # Button: Privat (zu + unsichtbar)
     # ------------------------------------------------------------------
 
-    @discord.ui.button(
-        label="Privat",
-        style=discord.ButtonStyle.secondary,
-        custom_id="temp_voice:private",
-        emoji="\U0001f512",
-        row=0,
-    )
-    async def private_button(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button,
-    ) -> None:
+    async def private_button(self, interaction: discord.Interaction) -> None:
         """Button-Handler: Channel privat schalten (zu + unsichtbar)."""
         result = await self._check_owner(interaction)
         if result is None:
@@ -590,18 +679,7 @@ class TempVoiceControlView(discord.ui.View):
     # Button: Öffentlich (offen + sichtbar)
     # ------------------------------------------------------------------
 
-    @discord.ui.button(
-        label="Öffentlich",
-        style=discord.ButtonStyle.secondary,
-        custom_id="temp_voice:public",
-        emoji="\U0001f513",
-        row=0,
-    )
-    async def public_button(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button,
-    ) -> None:
+    async def public_button(self, interaction: discord.Interaction) -> None:
         """Button-Handler: Channel öffentlich schalten (offen + sichtbar)."""
         result = await self._check_owner(interaction)
         if result is None:
@@ -620,18 +698,7 @@ class TempVoiceControlView(discord.ui.View):
     # Button: Ownership übertragen
     # ------------------------------------------------------------------
 
-    @discord.ui.button(
-        label="Owner übertragen",
-        style=discord.ButtonStyle.danger,
-        custom_id="temp_voice:transfer",
-        emoji="\U0001f91d",
-        row=1,
-    )
-    async def transfer_button(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button,
-    ) -> None:
+    async def transfer_button(self, interaction: discord.Interaction) -> None:
         """Button-Handler: User-Select zum Übertragen der Ownership anzeigen."""
         result = await self._check_owner(interaction)
         if result is None:
@@ -661,18 +728,7 @@ class TempVoiceControlView(discord.ui.View):
     # Button: Bannen (User trennen + connect-deny)
     # ------------------------------------------------------------------
 
-    @discord.ui.button(
-        label="Bannen",
-        style=discord.ButtonStyle.danger,
-        custom_id="temp_voice:ban",
-        emoji="\U0001f6ab",
-        row=1,
-    )
-    async def ban_button(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button,
-    ) -> None:
+    async def ban_button(self, interaction: discord.Interaction) -> None:
         """Button-Handler: User-Select zum Bannen anzeigen."""
         result = await self._check_owner(interaction)
         if result is None:
@@ -685,18 +741,7 @@ class TempVoiceControlView(discord.ui.View):
     # Button: Entbannen (aus Ban-Liste)
     # ------------------------------------------------------------------
 
-    @discord.ui.button(
-        label="Entbannen",
-        style=discord.ButtonStyle.secondary,
-        custom_id="temp_voice:unban",
-        emoji="\U0001f464",
-        row=1,
-    )
-    async def unban_button(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button,
-    ) -> None:
+    async def unban_button(self, interaction: discord.Interaction) -> None:
         """Button-Handler: Select aus der Ban-Liste zum Entbannen anzeigen."""
         result = await self._check_owner(interaction)
         if result is None:
@@ -719,18 +764,7 @@ class TempVoiceControlView(discord.ui.View):
     # Button: Claim (Owner weg -> übernehmen)
     # ------------------------------------------------------------------
 
-    @discord.ui.button(
-        label="Übernehmen",
-        style=discord.ButtonStyle.success,
-        custom_id="temp_voice:claim",
-        emoji="\U0001f451",
-        row=1,
-    )
-    async def claim_button(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button,
-    ) -> None:
+    async def claim_button(self, interaction: discord.Interaction) -> None:
         """Button-Handler: Channel übernehmen wenn der Owner nicht mehr da ist."""
         result = await self._check_in_temp(interaction)
         if result is None:
@@ -766,18 +800,7 @@ class TempVoiceControlView(discord.ui.View):
     # Button: Logs (letzte Events)
     # ------------------------------------------------------------------
 
-    @discord.ui.button(
-        label="Logs",
-        style=discord.ButtonStyle.secondary,
-        custom_id="temp_voice:logs",
-        emoji="\U0001f4ca",
-        row=1,
-    )
-    async def logs_button(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button,
-    ) -> None:
+    async def logs_button(self, interaction: discord.Interaction) -> None:
         """Button-Handler: Letzte Join/Leave/Mod-Events anzeigen (ephemeral)."""
         result = await self._check_owner(interaction)
         if result is None:
@@ -804,28 +827,16 @@ class TempVoiceControlView(discord.ui.View):
             name = target.display_name if target else f"User {uid}"
             lines.append(f"{em} **{name}** · vor {_format_duration(ev.get('ts'))}")
 
-        embed = discord.Embed(
+        embed = info_embed(
             title="\U0001f4ca Letzte Events",
             description="\n".join(lines),
-            color=COLOR_INFO,
         )
         await interaction.response.send_message(
             embed=embed, ephemeral=True,
             allowed_mentions=discord.AllowedMentions.none(),
         )
 
-    @discord.ui.button(
-        label="Accounts",
-        style=discord.ButtonStyle.secondary,
-        custom_id="temp_voice:accounts",
-        emoji="\U0001f3ae",
-        row=2,
-    )
-    async def accounts_button(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button,
-    ) -> None:
+    async def accounts_button(self, interaction: discord.Interaction) -> None:
         """Zeigt dem Klickenden seine verlinkten Spiel-Accounts (ephemeral)."""
         from modules.linked_accounts import (
             LinkedAccountsManager, platform_display,
@@ -847,8 +858,8 @@ class TempVoiceControlView(discord.ui.View):
             )
             return
 
-        embed = discord.Embed(
-            title="\U0001f3ae Deine verlinkten Accounts", color=COLOR_INFO
+        embed = info_embed(
+            title="\U0001f3ae Deine verlinkten Accounts",
         )
         for platform, account_id in links.items():
             embed.add_field(

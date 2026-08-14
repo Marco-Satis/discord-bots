@@ -31,7 +31,11 @@ from modules.tickets import TicketManager
 from utils.logger import get_logger
 from utils.config import ADMIN_DATA_DIR
 from utils.permissions import admin_only
-from utils.embeds import COLOR_ERROR, COLOR_INFO, COLOR_NEUTRAL
+from utils.embeds import (
+    error_embed,
+    info_embed,
+    neutral_embed,
+)
 
 logger = get_logger("cogs.tickets")
 
@@ -330,7 +334,7 @@ class TicketsCog(commands.Cog):
         await self.ticket_mgr.update_ticket_channel(ticket_id, channel.id)
 
         # Willkommens-Embed senden
-        embed = discord.Embed(
+        embed = info_embed(
             title=f"Ticket #{ticket_id}",
             description=(
                 f"**Betreff:** {subject}\n\n"
@@ -338,8 +342,6 @@ class TicketsCog(commands.Cog):
                 f"Ein Teammitglied wird sich in Kuerze um dein Anliegen kuemmern.\n\n"
                 f"Beschreibe dein Problem so detailliert wie möglich."
             ),
-            color=COLOR_INFO,
-            timestamp=datetime.now(),
         )
         embed.set_footer(text=f"Ticket erstellt von {user.display_name}")
 
@@ -474,15 +476,13 @@ class TicketsCog(commands.Cog):
         )
 
         # Bestaetigung im Ticket-Channel
-        embed = discord.Embed(
+        embed = error_embed(
             title="Ticket geschlossen",
             description=(
                 f"Dieses Ticket wurde von {closed_by.mention} geschlossen."
                 + (f"\n**Grund:** {reason}" if reason else "")
                 + "\n\nDer Channel wird in 5 Sekunden gelöscht."
             ),
-            color=COLOR_ERROR,
-            timestamp=datetime.now(),
         )
 
         try:
@@ -551,10 +551,8 @@ class TicketsCog(commands.Cog):
             pass
 
         # Log-Embed
-        embed = discord.Embed(
+        embed = neutral_embed(
             title=f"Ticket #{ticket_id} — Transcript",
-            color=COLOR_NEUTRAL,
-            timestamp=datetime.now(),
         )
         embed.add_field(name="Betreff", value=subject, inline=True)
         embed.add_field(
@@ -636,7 +634,7 @@ class TicketsCog(commands.Cog):
             self.ticket_mgr.set_config(**config_updates)
 
         # Support-Embed erstellen
-        embed = discord.Embed(
+        embed = info_embed(
             title="Support-Tickets",
             description=(
                 "Brauchst du Hilfe oder hast ein Anliegen?\n\n"
@@ -644,7 +642,6 @@ class TicketsCog(commands.Cog):
                 "Ein Teammitglied wird sich so schnell wie möglich um dich kuemmern.\n\n"
                 "**Bitte erstelle für jedes Anliegen ein eigenes Ticket.**"
             ),
-            color=COLOR_INFO,
         )
         embed.set_footer(text="Support-Ticket-System")
 
@@ -722,9 +719,8 @@ class TicketsCog(commands.Cog):
             )
             return
 
-        embed = discord.Embed(
+        embed = info_embed(
             title=f"Offene Tickets ({len(open_tickets)})",
-            color=COLOR_INFO,
         )
 
         for ticket in open_tickets[:20]:  # Maximal 20 im Embed

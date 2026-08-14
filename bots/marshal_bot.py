@@ -27,6 +27,7 @@ from utils.config import load_env, get_env, get_config, DATA_DIR
 from utils.logger import get_logger
 from utils.selftest import execute_selftest
 from utils.shutdown import setup_signal_handlers, register_cleanup
+from utils.loop_guard import guard
 from modules.database.db_manager import init_db, close_db
 from modules.guild_context import get_primary_guild_id
 
@@ -157,6 +158,9 @@ async def on_ready():
 
     # Bot-Status-Writer starten (Ping fuer Dashboard)
     if not admin_status_writer_task.is_running():
+        # Ohne Fehler-Handler beendet die erste unerwartete Ausnahme diese Schleife
+        # endgueltig — das Dashboard zeigte den Bot dann dauerhaft als veraltet.
+        guard(admin_status_writer_task, name="admin_status_writer_task")
         admin_status_writer_task.start()
 
 

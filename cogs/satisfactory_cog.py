@@ -24,7 +24,17 @@ from pathlib import Path
 from utils import get_logger, format_uptime, format_bytes, status_emoji
 from utils.permissions import admin_only, spieler_only, owner_only, is_admin, server_online_required
 from modules.restart_timer import TimerResult
-from utils.embeds import COLOR_ERROR, COLOR_INFO, COLOR_SUCCESS, COLOR_WARNING, hud_embed
+from utils.embeds import (
+    COLOR_ERROR,
+    COLOR_INFO,
+    COLOR_SUCCESS,
+    COLOR_WARNING,
+    error_embed,
+    hud_embed,
+    info_embed,
+    success_embed,
+    warning_embed,
+)
 from utils.ui_kit import subtext
 
 logger = get_logger("cogs.satisfactory")
@@ -96,9 +106,19 @@ class SatisfactoryCog(commands.Cog):
         if online:
             try:
                 state = await self.api.query_server_state()
-                kennzahlen.append((f"{state.num_players}/{state.player_limit}", "Spieler"))
-                balken = (state.num_players, state.player_limit)
-                kennzahlen.append((f"{state.average_tick_rate:.0f}", "FPS"))
+                if not state.ok:
+                    # query_server_state faengt Fehler selbst ab und liefert
+                    # dann ein Default-Objekt mit 0 Spielern. Ohne diese
+                    # Pruefung stuende "0 Spieler" da, wo "API nicht
+                    # erreichbar" hingehoert — die Zahl waere frei erfunden.
+                    state = None
+                    details.append(subtext("API nicht erreichbar"))
+                else:
+                    kennzahlen.append(
+                        (f"{state.num_players}/{state.player_limit}", "Spieler")
+                    )
+                    balken = (state.num_players, state.player_limit)
+                    kennzahlen.append((f"{state.average_tick_rate:.0f}", "FPS"))
             except Exception as e:
                 logger.debug(f"API not available: {e}")
                 details.append(subtext("API nicht erreichbar"))
@@ -134,6 +154,44 @@ class SatisfactoryCog(commands.Cog):
 
         await interaction.followup.send(embed=embed)
 
+    @sat.command(name="cancel", description="Laufenden Neustart-Countdown abbrechen")
+    @admin_only()
+    async def sat_cancel(self, interaction: discord.Interaction):
+        """
+        Countdown abbrechen.
+
+        Das Countdown-Panel nannte diesen Befehl bereits als Abbruchweg, es gab
+        ihn aber nicht: der Timer konnte gestartet, nur nicht mehr gestoppt
+        werden. Der Abbruch selbst existierte im Manager (``cancel_all``) — es
+        fehlte ausschliesslich der Weg dorthin.
+        """
+        await interaction.response.defer(ephemeral=True)
+
+        timer = self.timer_mgr.get_active()
+        if timer is None:
+            await interaction.followup.send(
+                embed=info_embed(
+                    title="Kein Countdown aktiv",
+                    description="Gerade läuft kein geplanter Neustart.",
+                ),
+                ephemeral=True,
+            )
+            return
+
+        name = timer.action_name
+        self.timer_mgr.cancel_all()
+        logger.info(
+            f"Countdown '{name}' abgebrochen von {interaction.user} "
+            f"({interaction.user.id})"
+        )
+        await interaction.followup.send(
+            embed=success_embed(
+                title="Countdown abgebrochen",
+                description=f"**{discord.utils.escape_markdown(name)}** läuft nicht weiter.",
+            ),
+            ephemeral=True,
+        )
+
     # ╔════════════════════════════════════════════════════════════════╗
     # ║  PLAYERS: /sat players online|ban|unban|bans                 ║
     # ╚════════════════════════════════════════════════════════════════╝
@@ -146,9 +204,16 @@ class SatisfactoryCog(commands.Cog):
 
         try:
             state = await self.api.query_server_state()
-            embed = discord.Embed(
+            if not state.ok:
+                await interaction.followup.send(
+                    embed=warning_embed(
+                        title="Spielerliste nicht abrufbar",
+                        description="Die Server-API antwortet gerade nicht.",
+                    )
+                )
+                return
+            embed = info_embed(
                 title=f"Spieler ({state.num_players}/{state.player_limit})",
-                color=COLOR_INFO,
             )
 
             if state.num_players == 0:
@@ -224,10 +289,9 @@ class SatisfactoryCog(commands.Cog):
                     player, reason, interaction.user.display_name
                 )
 
-            embed = discord.Embed(
+            embed = error_embed(
                 title="🚫 Spieler gebannt",
                 description=msg,
-                color=COLOR_ERROR,
             )
             if not save_ok:
                 embed.add_field(
@@ -273,10 +337,9 @@ class SatisfactoryCog(commands.Cog):
             if hasattr(self.bot, "blacklist_mgr"):
                 await self.bot.blacklist_mgr.remove(player)
 
-            embed = discord.Embed(
+            embed = success_embed(
                 title="✅ Ban aufgehoben",
                 description=msg,
-                color=COLOR_SUCCESS,
             )
             embed.set_footer(text=f"von {interaction.user.display_name}")
             await interaction.followup.send(embed=embed)
@@ -310,9 +373,8 @@ class SatisfactoryCog(commands.Cog):
 
         bans = ip_tracker.get_all_bans()
 
-        embed = discord.Embed(
+        embed = error_embed(
             title=f"🚫 Aktive Bans ({len(bans)})",
-            color=COLOR_ERROR,
         )
 
         if not bans:
@@ -347,10 +409,9 @@ class SatisfactoryCog(commands.Cog):
         try:
             success = await self.api.save_game()
             if success:
-                embed = discord.Embed(
+                embed = success_embed(
                     title="Spiel gespeichert",
                     description="Savegame wurde erfolgreich gespeichert.",
-                    color=COLOR_SUCCESS,
                 )
                 embed.set_footer(text=f"von {interaction.user.display_name}")
                 await interaction.followup.send(embed=embed)
@@ -384,10 +445,9 @@ class SatisfactoryCog(commands.Cog):
                 return
 
             file = discord.File(save_path, filename=save_path.name)
-            embed = discord.Embed(
+            embed = info_embed(
                 title="Savegame Download",
                 description=f"**{_md(latest['name'])}**",
-                color=COLOR_INFO,
             )
             embed.add_field(
                 name="Größe", value=latest["size_human"], inline=True
@@ -415,8 +475,8 @@ class SatisfactoryCog(commands.Cog):
             await interaction.followup.send("Keine Backups vorhanden.")
             return
 
-        embed = discord.Embed(
-            title=f"Backups ({len(backups)})", color=COLOR_INFO
+        embed = info_embed(
+            title=f"Backups ({len(backups)})",
         )
 
         entries = []
@@ -461,7 +521,7 @@ class SatisfactoryCog(commands.Cog):
             return
 
         view = RestoreConfirmView(self, interaction, backup_name)
-        embed = discord.Embed(
+        embed = error_embed(
             title="Restore bestaetigen",
             description=(
                 f"Backup **{backup_name}** wiederherstellen?\n\n"
@@ -470,7 +530,6 @@ class SatisfactoryCog(commands.Cog):
                 f"**ACHTUNG: Aktuelle Savegames werden überschrieben!**\n"
                 f"*(Ein Pre-Restore Backup wird automatisch erstellt)*"
             ),
-            color=COLOR_ERROR,
         )
         await interaction.followup.send(embed=embed, view=view)
 
@@ -500,8 +559,8 @@ class SatisfactoryCog(commands.Cog):
     async def config_settings(self, interaction: discord.Interaction):
         await interaction.response.defer()
 
-        embed = discord.Embed(
-            title="Satisfactory Servereinstellungen", color=COLOR_INFO
+        embed = info_embed(
+            title="Satisfactory Servereinstellungen",
         )
 
         if not await self.server.is_running():
@@ -587,14 +646,13 @@ class SatisfactoryCog(commands.Cog):
         await interaction.response.defer()
 
         view = LoadConfirmView(self, interaction, savename)
-        embed = discord.Embed(
+        embed = warning_embed(
             title="Savegame laden bestaetigen",
             description=(
                 f"Savegame **{savename}** laden?\n\n"
                 f"Alle verbundenen Spieler werden getrennt.\n"
                 f"Der aktuelle Spielstand geht verloren wenn nicht gespeichert!"
             ),
-            color=COLOR_WARNING,
         )
         await interaction.followup.send(embed=embed, view=view)
 
@@ -629,9 +687,8 @@ class SatisfactoryCog(commands.Cog):
                 await interaction.followup.send(stats["error"])
                 return
 
-            embed = discord.Embed(
+            embed = info_embed(
                 title=f"Savegame: {_md(stats.get('name', 'Unbekannt'))}",
-                color=COLOR_INFO,
             )
             embed.add_field(
                 name="Größe", value=stats.get("size", "?"), inline=True
@@ -735,7 +792,7 @@ class SatisfactoryCog(commands.Cog):
             embed = discord.Embed(
                 title="Savegame Upload bestaetigen",
                 description=desc,
-                color=COLOR_WARNING if exists else 0x3498db,
+                color=COLOR_WARNING if exists else COLOR_INFO,
             )
             embed.set_footer(text=f"von {interaction.user.display_name}")
             await interaction.followup.send(embed=embed, view=view)
@@ -803,10 +860,9 @@ class SatisfactoryCog(commands.Cog):
                 )
                 return
 
-            embed = discord.Embed(
+            embed = success_embed(
                 title=f"{count} Blueprint(s) hochgeladen",
                 description="\n".join(f"\u2022 {_md(n)}" for n in added),
-                color=COLOR_SUCCESS,
             )
             embed.add_field(name="Kategorie", value=kategorie, inline=True)
             embed.set_footer(text=f"von {interaction.user.display_name}")
@@ -848,10 +904,9 @@ class SatisfactoryCog(commands.Cog):
                 await interaction.followup.send(msg)
                 return
 
-        embed = discord.Embed(
+        embed = success_embed(
             title="Blueprint hochgeladen",
             description="\n".join(f"\u2022 **{_md(n)}**" for n in added_names),
-            color=COLOR_SUCCESS,
         )
         embed.add_field(name="Kategorie", value=kategorie, inline=True)
         embed.set_footer(text=f"von {interaction.user.display_name}")
@@ -1013,7 +1068,7 @@ class SatisfactoryCog(commands.Cog):
                     if len(batch_names) == 1
                     else f"{len(batch_names)} Blueprints"
                 )
-                embed = discord.Embed(title=title, color=COLOR_INFO)
+                embed = info_embed(title=title)
                 embed.add_field(
                     name="Enthalten",
                     value="\n".join(f"• {n}" for n in batch_names)[:1024],
@@ -1139,10 +1194,9 @@ class SatisfactoryCog(commands.Cog):
             if len(names_to_delete) > 30:
                 desc += f"\n... und {len(names_to_delete) - 30} weitere"
 
-            embed = discord.Embed(
+            embed = error_embed(
                 title="Loeschen bestaetigen",
                 description=desc,
-                color=COLOR_ERROR,
             )
             await interaction.followup.send(embed=embed, view=view)
         else:
@@ -1152,10 +1206,9 @@ class SatisfactoryCog(commands.Cog):
                 name, interaction.user.id, is_admin(interaction)
             )
             if success:
-                embed = discord.Embed(
+                embed = error_embed(
                     title="Blueprint gelöscht",
                     description=f"**{_md(name)}** wurde gelöscht (.sbp + .sbpcfg).",
-                    color=COLOR_ERROR,
                 )
                 embed.set_footer(text=f"von {interaction.user.display_name}")
                 await interaction.followup.send(embed=embed)
@@ -1235,7 +1288,7 @@ class SatisfactoryCog(commands.Cog):
         embed = discord.Embed(
             title="Blueprint-Migration",
             description=f"**{von}** → **{nach}**",
-            color=COLOR_SUCCESS if not (conflict or copy_errors) else 0xf39c12,
+            color=COLOR_SUCCESS if not (conflict or copy_errors) else COLOR_WARNING,
         )
         if copied:
             embed.add_field(
@@ -1299,10 +1352,9 @@ class SatisfactoryCog(commands.Cog):
             return
         if success:
             await channel.send(
-                embed=discord.Embed(
+                embed=success_embed(
                     title="Server neugestartet",
                     description=success_desc,
-                    color=COLOR_SUCCESS,
                 )
             )
         else:
@@ -1385,8 +1437,8 @@ class SatisfactoryCog(commands.Cog):
     @spieler_only()
     async def whitelist_list(self, interaction: discord.Interaction):
         players = self.bot.whitelist_mgr.get_list()
-        embed = discord.Embed(
-            title=f"Whitelist ({len(players)} Spieler)", color=COLOR_SUCCESS
+        embed = success_embed(
+            title=f"Whitelist ({len(players)} Spieler)",
         )
         embed.add_field(
             name="Status",
@@ -1426,8 +1478,8 @@ class SatisfactoryCog(commands.Cog):
             player, reason, interaction.user.display_name
         )
         if added:
-            embed = discord.Embed(
-                title="Spieler zur Blacklist hinzugefuegt", color=COLOR_ERROR
+            embed = error_embed(
+                title="Spieler zur Blacklist hinzugefuegt",
             )
             embed.add_field(name="Spieler", value=_md(player), inline=True)
             embed.add_field(name="Grund", value=_md(reason), inline=True)
@@ -1464,8 +1516,8 @@ class SatisfactoryCog(commands.Cog):
     @admin_only()
     async def blacklist_list(self, interaction: discord.Interaction):
         players = self.bot.blacklist_mgr.get_list()
-        embed = discord.Embed(
-            title=f"Blacklist ({len(players)} Spieler)", color=COLOR_ERROR
+        embed = error_embed(
+            title=f"Blacklist ({len(players)} Spieler)",
         )
 
         if players:
@@ -1540,10 +1592,9 @@ class RestoreConfirmView(discord.ui.View):
         success, msg = await self.cog.bot.backup_mgr.restore(self.backup_name)
 
         if success:
-            embed = discord.Embed(
+            embed = success_embed(
                 title="Restore erfolgreich",
                 description=msg,
-                color=COLOR_SUCCESS,
             )
             embed.set_footer(text="Starte den Server über das Dashboard")
             await interaction.edit_original_response(
@@ -1600,13 +1651,12 @@ class LoadConfirmView(discord.ui.View):
                 f"LoadGame {safe_name}"
             )
 
-            embed = discord.Embed(
+            embed = success_embed(
                 title="Savegame wird geladen",
                 description=(
                     f"**{_md(self.savename)}** wird geladen.\n"
                     f"Spieler werden kurzzeitig getrennt."
                 ),
-                color=COLOR_SUCCESS,
             )
             if result:
                 embed.add_field(
@@ -1689,10 +1739,9 @@ class BlueprintRestartView(discord.ui.View):
             # Save-vor-Restart: api durchreichen → SaveGame + Flush vor Restart
             success, msg = await self.cog.server.restart(api=self.cog.api)
             if success:
-                embed = discord.Embed(
+                embed = success_embed(
                     title="Server neugestartet",
                     description="Blueprints sind jetzt verfügbar!",
-                    color=COLOR_SUCCESS,
                 )
                 await interaction.channel.send(embed=embed)
             else:
@@ -1759,8 +1808,8 @@ class MigrateConflictView(discord.ui.View):
         if errors:
             desc += f"\n{len(errors)} Fehler: " + "; ".join(errors[:3])
         await interaction.followup.send(
-            embed=discord.Embed(
-                title="Überschrieben", description=desc, color=COLOR_WARNING
+            embed=warning_embed(
+                title="Überschrieben", description=desc,
             )
         )
         logger.info(
@@ -1791,8 +1840,8 @@ class MigrateConflictView(discord.ui.View):
         if errors:
             desc += f"\n{len(errors)} Fehler: " + "; ".join(errors[:3])
         await interaction.followup.send(
-            embed=discord.Embed(
-                title="Gelöscht", description=desc, color=COLOR_ERROR
+            embed=error_embed(
+                title="Gelöscht", description=desc,
             )
         )
         logger.info(
@@ -1816,10 +1865,9 @@ class MigrateConflictView(discord.ui.View):
             return
         await interaction.response.edit_message(view=None)
         await interaction.followup.send(
-            embed=discord.Embed(
+            embed=success_embed(
                 title="Behalten",
                 description="Ziel-Versionen bleiben unverändert.",
-                color=COLOR_SUCCESS,
             )
         )
         logger.info(
@@ -1877,14 +1925,13 @@ class UploadConfirmView(discord.ui.View):
             # Savegame direkt schreiben
             self.target_path.write_bytes(file_data)
 
-            embed = discord.Embed(
+            embed = success_embed(
                 title="Savegame hochgeladen",
                 description=(
                     f"**{self.attachment.filename}** wurde erfolgreich hochgeladen.\n\n"
                     f"Größe: {format_bytes(len(file_data))}\n"
                     f"Ziel: `{self.target_path.parent.name}/{self.target_path.name}`"
                 ),
-                color=COLOR_SUCCESS,
             )
             if backed_up:
                 embed.add_field(
@@ -1934,10 +1981,9 @@ class BlueprintListView(discord.ui.View):
         self._update_buttons()
 
     def build_embed(self, page: int) -> discord.Embed:
-        embed = discord.Embed(
+        embed = info_embed(
             title=f"Blueprints ({self.total_count}) \u2014 Welt: {self.active_world}",
             description=self.pages[page],
-            color=COLOR_INFO,
         )
         embed.set_footer(
             text=f"Seite {page + 1}/{len(self.pages)} | "
@@ -2028,7 +2074,7 @@ class BlueprintDeleteConfirmView(discord.ui.View):
         embed = discord.Embed(
             title="Blueprints gelöscht",
             description=desc,
-            color=COLOR_ERROR if not failed else 0xe67e22,
+            color=COLOR_ERROR if not failed else COLOR_WARNING,
         )
         embed.set_footer(text=f"von {interaction.user.display_name}")
 

@@ -21,11 +21,16 @@ from zoneinfo import ZoneInfo
 import aiofiles
 
 from utils.logger import get_logger
+from utils.loop_guard import guard
 from utils.config import get_config, get_env, DATA_DIR
 from utils.permissions import is_admin, admin_only
 from modules.notifications.discord_notifier import NotifyLevel
 from modules.database.db_manager import get_db, DBHelper
-from utils.embeds import COLOR_INFO, COLOR_SUCCESS, COLOR_WARNING
+from utils.embeds import (
+    info_embed,
+    success_embed,
+    warning_embed,
+)
 
 BERLIN_TZ = ZoneInfo("Europe/Berlin")
 SCHEDULED_MESSAGES_FILE = DATA_DIR / "scheduled_messages.json"
@@ -234,6 +239,10 @@ class SchedulerCog(commands.Cog):
         """Start all scheduled tasks when cog loads"""
         await self._load_scheduled_messages()
         await self._load_blocked_modpack_versions()
+        # Ohne Fehler-Handler beendet die erste unerwartete Ausnahme diesen
+        # Tick endgueltig — und mit ihm Backups, Neustarts, Updates und
+        # geplante Nachrichten, ohne jede Meldung.
+        guard(self.scheduler_tick, name="scheduler_tick")
         self.scheduler_tick.start()
         logger.info("Scheduler started")
 
@@ -1933,10 +1942,8 @@ class SchedulerCog(commands.Cog):
     async def scheduler_cmd(self, interaction: discord.Interaction):
         await interaction.response.defer()
 
-        embed = discord.Embed(
+        embed = info_embed(
             title="⏰ Scheduler Status",
-            color=COLOR_INFO,
-            timestamp=datetime.now(),
         )
 
         # Auto-Backup
@@ -2095,23 +2102,21 @@ class SchedulerCog(commands.Cog):
         available, info = await self.update_checker.check()
 
         if available:
-            embed = discord.Embed(
+            embed = warning_embed(
                 title="📦 Update verfügbar!",
                 description=(
                     f"**Installiert:** Build {info.get('installed_buildid', '?')}\n"
                     f"**Verfuegbar:** Build {info.get('available_buildid', '?')}\n\n"
                     f"Verwende `/update start` um zu aktualisieren."
                 ),
-                color=COLOR_WARNING,
             )
         else:
-            embed = discord.Embed(
+            embed = success_embed(
                 title="✅ Server ist aktuell",
                 description=(
                     f"Build: {info.get('installed_buildid', '?')}\n"
                     f"Geprueft: {info.get('checked_at', '?')[:16]}"
                 ),
-                color=COLOR_SUCCESS,
             )
 
         await interaction.followup.send(embed=embed)
@@ -2376,9 +2381,8 @@ class SchedulerCog(commands.Cog):
 
         time_str = target_time.strftime("%d.%m.%Y %H:%M")
         repeat_str = {"einmalig": "Einmalig", "taeglich": "Taeglich", "woechentlich": "Woechentlich"}
-        embed = discord.Embed(
+        embed = success_embed(
             title=f"Nachricht geplant (#{schedule_id})",
-            color=COLOR_SUCCESS,
         )
         embed.add_field(name="Nachricht", value=nachricht[:1024], inline=False)
         embed.add_field(name="Zeitpunkt", value=time_str, inline=True)
@@ -2423,10 +2427,9 @@ class SchedulerCog(commands.Cog):
         if len(text) > 4000:
             text = text[:4000] + "\n..."
 
-        embed = discord.Embed(
+        embed = info_embed(
             title=f"Geplante Nachrichten ({len(self._scheduled_messages)})",
             description=text,
-            color=COLOR_INFO,
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
 

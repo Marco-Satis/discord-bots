@@ -19,15 +19,17 @@ from discord.ext import commands
 
 from utils.logger import get_logger
 from utils.config import get_config, get_env
+from utils.embeds import (
+    error_embed,
+    success_embed,
+    warning_embed,
+)
 
 logger = get_logger(__name__)
 
 # ---------------------------------------------------------------------------
 # Embed-Farben
 # ---------------------------------------------------------------------------
-COLOR_WARNING: int = 0xF39C12
-COLOR_ERROR: int = 0xE74C3C
-COLOR_SUCCESS: int = 0x2ECC71
 
 # ---------------------------------------------------------------------------
 # Standard-Konfiguration (Fallbacks)
@@ -551,7 +553,7 @@ class HealthAutoRestart:
 
     async def _notify_warning(self, state: ServerState, probe: ServerProbe) -> None:
         """Sendet eine Warnung beim ersten Fehlschlag."""
-        embed = discord.Embed(
+        embed = warning_embed(
             title=f"Health-Check Warnung: {state.display_name}",
             description=(
                 f"Server **{state.display_name}** hat den Health-Check "
@@ -563,15 +565,13 @@ class HealthAutoRestart:
                 f"Auto-Restart nach {self._failure_threshold} "
                 f"aufeinanderfolgenden Fehlschlägen."
             ),
-            color=COLOR_WARNING,
-            timestamp=datetime.now(),
         )
         embed.set_footer(text="Health Auto-Restart")
         await self._send_embed(embed)
 
     async def _notify_restart_attempt(self, state: ServerState) -> None:
         """Benachrichtigung: Auto-Restart wird gestartet."""
-        embed = discord.Embed(
+        embed = warning_embed(
             title=f"Auto-Restart: {state.display_name}",
             description=(
                 f"Server **{state.display_name}** war "
@@ -579,15 +579,13 @@ class HealthAutoRestart:
                 f"**Service:** `{state.service_name}`\n"
                 f"Führe `systemctl restart` aus..."
             ),
-            color=COLOR_WARNING,
-            timestamp=datetime.now(),
         )
         embed.set_footer(text="Health Auto-Restart")
         await self._send_embed(embed)
 
     async def _notify_restart_success(self, state: ServerState) -> None:
         """Benachrichtigung: Auto-Restart war erfolgreich."""
-        embed = discord.Embed(
+        embed = success_embed(
             title=f"Auto-Restart erfolgreich: {state.display_name}",
             description=(
                 f"Server **{state.display_name}** wurde erfolgreich "
@@ -595,8 +593,6 @@ class HealthAutoRestart:
                 f"**Service:** `{state.service_name}`\n"
                 f"Der nächste Health-Check prüft die Erreichbarkeit."
             ),
-            color=COLOR_SUCCESS,
-            timestamp=datetime.now(),
         )
         embed.set_footer(text="Health Auto-Restart")
         await self._send_embed(embed)
@@ -605,7 +601,7 @@ class HealthAutoRestart:
         self, state: ServerState, error: str
     ) -> None:
         """Benachrichtigung: Auto-Restart ist fehlgeschlagen."""
-        embed = discord.Embed(
+        embed = error_embed(
             title=f"Auto-Restart FEHLGESCHLAGEN: {state.display_name}",
             description=(
                 f"Server **{state.display_name}** konnte NICHT "
@@ -614,8 +610,6 @@ class HealthAutoRestart:
                 f"**Fehler:** {error}\n\n"
                 f"Manuelles Eingreifen erforderlich."
             ),
-            color=COLOR_ERROR,
-            timestamp=datetime.now(),
         )
         embed.set_footer(text="Health Auto-Restart")
         await self._send_embed(embed)
@@ -624,7 +618,7 @@ class HealthAutoRestart:
         """Benachrichtigung: Restart-Cooldown ist aktiv."""
         minutes: int = remaining // 60
         seconds: int = remaining % 60
-        embed = discord.Embed(
+        embed = warning_embed(
             title=f"Restart-Cooldown: {state.display_name}",
             description=(
                 f"Server **{state.display_name}** ist weiterhin nicht "
@@ -635,15 +629,13 @@ class HealthAutoRestart:
                 f"Max. 1 automatischer Restart pro "
                 f"{self._restart_cooldown // 60} Minuten."
             ),
-            color=COLOR_WARNING,
-            timestamp=datetime.now(),
         )
         embed.set_footer(text="Health Auto-Restart")
         await self._send_embed(embed)
 
     async def _notify_recovery(self, state: ServerState) -> None:
         """Benachrichtigung: Server ist wieder erreichbar."""
-        embed = discord.Embed(
+        embed = success_embed(
             title=f"Recovery: {state.display_name}",
             description=(
                 f"Server **{state.display_name}** ist wieder "
@@ -652,8 +644,6 @@ class HealthAutoRestart:
                 f"War zuvor {state.consecutive_failures}x nicht "
                 f"erreichbar."
             ),
-            color=COLOR_SUCCESS,
-            timestamp=datetime.now(),
         )
         embed.set_footer(text="Health Auto-Restart")
         await self._send_embed(embed)

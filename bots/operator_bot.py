@@ -28,6 +28,7 @@ from utils.config import load_env, get_env, get_config, DATA_DIR
 from utils.logger import get_logger
 from utils.selftest import execute_selftest
 from utils.shutdown import setup_signal_handlers, register_cleanup
+from utils.loop_guard import guard
 from modules.database.db_manager import init_db, close_db
 from modules.satisfactory.server import SatisfactoryServer
 from modules.satisfactory.api_client import SatisfactoryAPI
@@ -300,6 +301,9 @@ async def on_ready():
 
     # Bot-Status-Writer starten (Ping fuer Dashboard)
     if not gs_status_writer_task.is_running():
+        # Ohne Fehler-Handler beendet die erste unerwartete Ausnahme diese Schleife
+        # endgueltig — das Dashboard zeigte den Bot dann dauerhaft als veraltet.
+        guard(gs_status_writer_task, name="gs_status_writer_task")
         gs_status_writer_task.start()
 
     if getattr(bot, '_first_ready', False):

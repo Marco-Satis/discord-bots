@@ -36,8 +36,13 @@ from utils.async_tasks import schedule_from_sync
 from utils.logger import get_logger
 from utils.config import ADMIN_DATA_DIR
 from utils.permissions import admin_only
-from utils.formatting import progress_bar
-from utils.embeds import COLOR_WARNING
+from utils.embeds import (
+    COLOR_WARNING,
+    hud_embed,
+    warning_embed,
+)
+from utils.loop_guard import guard
+from utils.ui_kit import subtext, truncate, zahl
 
 logger = get_logger("cogs.leveling")
 
@@ -108,9 +113,8 @@ def build_leaderboard_embed(
             f"{medal} {name} — Level {entry['level']} ({entry['xp']:,} XP){marker}"
         )
 
-    embed = discord.Embed(
+    embed = warning_embed(
         title="Leaderboard",
-        color=COLOR_WARNING,
         description="\n".join(lines) if lines else "Noch keine Daten.",
     )
     footer = f"Seite {page + 1}/{max_page + 1} · {total} Spieler"
@@ -227,6 +231,7 @@ class LevelingCog(commands.Cog):
             await self.voice.close_orphans()
         except Exception as e:
             logger.warning(f"close_orphans fehlgeschlagen: {e}")
+        guard(self.voice_sample_task, name="voice_sample_task")
         self.voice_sample_task.start()
         logger.info("Leveling-Cog geladen, Voice-Session-Sampler gestartet")
 
@@ -449,12 +454,11 @@ class LevelingCog(commands.Cog):
         """Warten bis Bot bereit ist."""
         await self.bot.wait_until_ready()
 
-    @voice_sample_task.error
-    async def voice_sample_error(self, error: BaseException) -> None:
-        """Loop-Fehler loggen + neu starten (sonst faellt Sampling dauerhaft aus)."""
-        logger.error(f"voice_sample_task gestoppt: {error}", exc_info=error)
-        if not self.voice_sample_task.is_running():
-            self.voice_sample_task.restart()
+    # Fehlerbehandlung laeuft ueber utils.loop_guard (Registrierung in cog_load).
+    # Der fruehere eigene Handler stand hier, konnte aber nie neu starten: im
+    # .error-Kontext laeuft der Task noch, is_running() ist dort True — die
+    # Bedingung war also immer falsch. Und nach dem Tod ist restart() ein
+    # stiller No-op; es hilft nur ein verzoegertes start().
 
     async def _send_voice_level_up(
         self,
@@ -564,20 +568,20 @@ class LevelingCog(commands.Cog):
                             f"Level-Up-Karte fehlgeschlagen, nutze Embed: {e}"
                         )
 
-        # --- Fallback: klassisches Embed ---
+        # --- Fallback: Embed im HUD-Stil (wenn keine Karte gerendert wurde) ---
         suffix = " durch Voice-Aktivitaet" if via_voice else ""
-        embed = discord.Embed(
-            title="Level Up!",
-            description=(
-                f"{member.mention} hat{suffix} **Level {new_level}** erreicht!"
-            ),
-            color=COLOR_WARNING,
-        )
-        bar = progress_bar(xp_in_level, xp_for_next, length=10)
-        embed.add_field(
-            name="Naechstes Level",
-            value=f"{bar} ({xp_in_level}/{xp_for_next} XP)",
-            inline=False,
+        embed = hud_embed(
+            "LEVEL UP",
+            state="progress",
+            meta=[(str(new_level), "Level")],
+            bar=(xp_in_level, xp_for_next),
+            description=f"{member.mention} hat{suffix} **Level {new_level}** erreicht!",
+            lines=[
+                subtext(
+                    f"{zahl(xp_in_level)} / {zahl(xp_for_next)} XP bis Level "
+                    f"{new_level + 1}"
+                )
+            ],
         )
         embed.set_thumbnail(url=member.display_avatar.url)
         return None, embed
@@ -740,37 +744,31 @@ class LevelingCog(commands.Cog):
             xp_in_level = xp
             xp_for_next = xp_needed
 
-        bar = progress_bar(xp_in_level, xp_for_next, length=12)
-
-        embed = discord.Embed(
-            title=f"Rang — {member.display_name}",
-            color=member.color if member.color != discord.Color.default() else 0x5865F2,
-        )
-
-        embed.set_thumbnail(url=member.display_avatar.url)
-
-        embed.add_field(name="Rang", value=f"#{rank}", inline=True)
-        embed.add_field(name="Level", value=str(level), inline=True)
-        embed.add_field(name="XP", value=f"{xp:,}", inline=True)
-
-        embed.add_field(
-            name="Fortschritt",
-            value=f"{bar}\n{xp_in_level:,} / {xp_for_next:,} XP",
-            inline=False,
-        )
-
-        embed.add_field(
-            name="Nachrichten",
-            value=f"{total_messages:,}",
-            inline=True,
-        )
-
         # Voice-Minuten in lesbares Format umwandeln
         if voice_minutes >= 60:
             voice_display = f"{voice_minutes // 60}h {voice_minutes % 60}m"
         else:
             voice_display = f"{voice_minutes}m"
-        embed.add_field(name="Voice-Zeit", value=voice_display, inline=True)
+
+        embed = hud_embed(
+            # Kein escape_markdown: Embed-Titel rendern kein Markdown, die
+            # Escapes waeren als Backslashes sichtbar. truncate haelt die
+            # 256-Zeichen-Grenze des Titels ein.
+            f"RANG #{rank} — {truncate(member.display_name, 100)}",
+            state="progress",
+            meta=[(str(level), "Level"), (zahl(xp), "XP")],
+            bar=(xp_in_level, xp_for_next),
+            lines=[
+                subtext(
+                    f"{zahl(xp_in_level)} / {zahl(xp_for_next)} XP bis Level "
+                    f"{level + 1}"
+                ),
+                subtext(
+                    f"{zahl(total_messages)} Nachrichten · {voice_display} Voice"
+                ),
+            ],
+        )
+        embed.set_thumbnail(url=member.display_avatar.url)
 
         return embed
 
@@ -1366,10 +1364,9 @@ class LevelingCog(commands.Cog):
             role_text = role.mention if role else f"(gelöschte Rolle {role_id})"
             lines.append(f"**Level {lvl}** → {role_text}")
 
-        embed = discord.Embed(
+        embed = warning_embed(
             title="Level-Belohnungen",
             description="\n".join(lines),
-            color=COLOR_WARNING,
         )
         if self.leveling.is_remove_lower_enabled(interaction.guild.id):
             embed.set_footer(text="Nur die höchste erreichte Rolle wird behalten.")

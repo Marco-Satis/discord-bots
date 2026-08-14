@@ -11,7 +11,13 @@ from typing import Optional, List, Tuple
 from enum import Enum
 
 from utils.logger import get_logger
-from utils.embeds import COLOR_ERROR, COLOR_INFO, COLOR_SUCCESS, COLOR_WARNING
+from utils.embeds import (
+    COLOR_ERROR,
+    COLOR_INFO,
+    COLOR_SUCCESS,
+    COLOR_WARNING,
+    info_embed,
+)
 
 logger = get_logger("discord_notifier")
 
@@ -355,11 +361,9 @@ class DiscordNotifier:
         if not channel:
             return
 
-        embed = discord.Embed(
+        embed = info_embed(
             title="📋 Täglicher Status-Report",
             description=report_text,
-            color=COLOR_INFO,
-            timestamp=datetime.now(),
         )
         try:
             await channel.send(embed=embed)
@@ -378,11 +382,9 @@ class DiscordNotifier:
         if not channel:
             return
 
-        embed = discord.Embed(
+        embed = info_embed(
             title="📊 Wochenbericht",
             description=report_text,
-            color=COLOR_INFO,
-            timestamp=datetime.now(),
         )
         try:
             await channel.send(embed=embed)

@@ -38,7 +38,13 @@ from discord.ext import commands
 from modules.database.db_manager import get_db
 from utils.logger import get_logger
 from utils.permissions import admin_only
-from utils.embeds import COLOR_ERROR, COLOR_INFO, COLOR_SUCCESS, COLOR_WARNING
+from utils.embeds import (
+    COLOR_INFO,
+    error_embed,
+    info_embed,
+    success_embed,
+    warning_embed,
+)
 
 logger = get_logger("cogs.custom_commands")
 
@@ -224,9 +230,8 @@ class CustomCommandsCog(commands.Cog):
             data = json.loads(raw)
         except (json.JSONDecodeError, TypeError):
             # Kein gueltiges JSON — rohen Text als Description verwenden
-            return discord.Embed(
+            return info_embed(
                 description=raw if raw else "Leere Antwort",
-                color=COLOR_INFO,
             )
 
         # Embed aus JSON-Daten bauen
@@ -343,9 +348,8 @@ class CustomCommandsCog(commands.Cog):
         # Antwort-Vorschau (gekuerzt)
         preview = response[:100] + "..." if len(response) > 100 else response
 
-        embed = discord.Embed(
+        embed = success_embed(
             title="Custom Command erstellt",
-            color=COLOR_SUCCESS,
         )
         embed.add_field(name="Command", value=f"`!{cmd_name}`", inline=True)
         embed.add_field(name="Erstellt von", value=interaction.user.mention, inline=True)
@@ -403,10 +407,9 @@ class CustomCommandsCog(commands.Cog):
             )
             return
 
-        embed = discord.Embed(
+        embed = error_embed(
             title="Custom Command gelöscht",
             description=f"Der Command `!{cmd_name}` wurde entfernt.",
-            color=COLOR_ERROR,
         )
         embed.add_field(
             name="Statistik",
@@ -474,9 +477,8 @@ class CustomCommandsCog(commands.Cog):
         old_preview = existing["response"][:80] + "..." if len(existing["response"]) > 80 else existing["response"]
         new_preview = new_response[:80] + "..." if len(new_response) > 80 else new_response
 
-        embed = discord.Embed(
+        embed = warning_embed(
             title="Custom Command bearbeitet",
-            color=COLOR_WARNING,
         )
         embed.add_field(name="Command", value=f"`!{cmd_name}`", inline=False)
         embed.add_field(name="Alte Antwort", value=f"```{old_preview}```", inline=False)
@@ -510,9 +512,8 @@ class CustomCommandsCog(commands.Cog):
             )
             return
 
-        embed = discord.Embed(
+        embed = info_embed(
             title=f"Custom Commands ({len(commands_list)})",
-            color=COLOR_INFO,
         )
 
         # Commands in Gruppen aufteilen (max. 25 Felder pro Embed)
@@ -583,9 +584,8 @@ class CustomCommandsCog(commands.Cog):
         # Antwort-Vorschau
         preview = cmd["response"][:200] + "..." if len(cmd["response"]) > 200 else cmd["response"]
 
-        embed = discord.Embed(
+        embed = info_embed(
             title=f"Command-Info: !{cmd['name']}",
-            color=COLOR_INFO,
         )
         embed.add_field(name="Name", value=f"`!{cmd['name']}`", inline=True)
         embed.add_field(name="Typ", value=response_type, inline=True)

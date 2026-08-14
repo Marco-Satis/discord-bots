@@ -19,6 +19,12 @@ from starlette.responses import Response, JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from utils.logger import get_logger
+from urllib.parse import parse_qs
+
+# Groessengrenze fuer das Puffern des Formular-Bodys in der CSRF-Pruefung.
+# Reicht fuer jedes Formular des Dashboards; alles Groessere (Uploads) laeuft
+# ueber multipart und wird gar nicht erst gepuffert.
+MAX_GEPUFFERTER_BODY = 64 * 1024
 
 logger = get_logger("web.csrf")
 
@@ -146,15 +152,57 @@ class CSRFMiddleware:
             await self.app(scope, receive, send)
             return
 
-        # Token NUR aus Header lesen — NICHT aus Form-Body!
-        # (Form-Body lesen wuerde den Body konsumieren und nachfolgende
-        #  Handler bekommen leere Form-Daten)
         headers = dict(scope.get("headers", []))
         token = ""  # nosec B105 - leerer Default vor Header-Lookup
         for key, value in scope.get("headers", []):
             if key == b"x-csrf-token":
                 token = value.decode("utf-8", errors="replace")
                 break
+
+        # Kein Header? Dann kann das Token trotzdem als Formularfeld kommen.
+        # Bis 2026-08-14 wurde nur der Header gelesen, mit dem Argument, ein
+        # Body-Read wuerde den Body verbrauchen. Folge: das gewoehnliche
+        # <form method="POST"> auf /config lief bei JEDEM Speichern in ein 403 —
+        # die Seite war unbrauchbar, ohne dass es jemandem auffiel.
+        # Der Body wird deshalb gepuffert und dem Handler danach unveraendert
+        # erneut zugestellt. Nur fuer urlencodete Formulare unterhalb der
+        # Groessengrenze; Datei-Uploads (multipart) bleiben unangetastet.
+        if not token:
+            inhaltstyp = headers.get(b"content-type", b"").decode(
+                "utf-8", errors="replace"
+            ).lower()
+            try:
+                laenge = int(headers.get(b"content-length", b"0") or 0)
+            except ValueError:
+                laenge = 0
+
+            if (inhaltstyp.startswith("application/x-www-form-urlencoded")
+                    and 0 < laenge <= MAX_GEPUFFERTER_BODY):
+                koerper = b""
+                mehr = True
+                while mehr:
+                    nachricht = await receive()
+                    if nachricht["type"] == "http.request":
+                        koerper += nachricht.get("body", b"")
+                        mehr = nachricht.get("more_body", False)
+                    else:
+                        mehr = False
+
+                felder = parse_qs(koerper.decode("utf-8", errors="replace"))
+                token = (felder.get("csrf_token") or [""])[0]
+
+                gesendet = False
+
+                async def receive_erneut() -> dict:
+                    """Den gepufferten Body genau einmal weiterreichen."""
+                    nonlocal gesendet
+                    if not gesendet:
+                        gesendet = True
+                        return {"type": "http.request", "body": koerper,
+                                "more_body": False}
+                    return {"type": "http.disconnect"}
+
+                receive = receive_erneut
 
         # Token validieren
         if not token or not validate_csrf_token(request, token):

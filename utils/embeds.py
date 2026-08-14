@@ -18,7 +18,7 @@ Hex-Werte in Cogs sind ein Fehler, kein Stil.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Iterable, Optional, Sequence, Tuple
+from typing import Iterable, Optional, Sequence, Tuple, Union
 
 import discord
 
@@ -44,6 +44,7 @@ STATE_STYLE = {
     "idle": (COLOR_NEUTRAL, "idle"),
     "off": (COLOR_NEUTRAL, "off"),
     "brand": (COLOR_BRAND, "warn"),
+    "progress": (COLOR_PROGRESS, "info"),  # Level, XP, laufende Vorgaenge
 }
 
 # --- Branding (Platzhalter — später aus Dashboard/Config gesetzt) -----------
@@ -70,7 +71,7 @@ def base_embed(
     description: Optional[str] = None,
     *,
     color: int = COLOR_BRAND,
-    timestamp: bool = True,
+    timestamp: Union[bool, datetime] = True,
     footer: Optional[str] = None,
 ) -> discord.Embed:
     """
@@ -80,17 +81,28 @@ def base_embed(
         title: Embed-Titel.
         description: Embed-Beschreibung.
         color: Farbe (Default = Brand-Gold; semantische Helfer setzen sie).
-        timestamp: aktuellen Zeitstempel setzen (Default True).
+        timestamp: ``True`` -> jetzt, ``False`` -> keiner, ``datetime`` -> genau
+            dieser Zeitpunkt. Der dritte Fall ist kein Luxus: Aufrufer, die einen
+            eigenen Zeitpunkt uebergeben (Berichtsende, ``timezone.utc``), haetten
+            ihn sonst still verloren — ein ``datetime`` ist immer wahr und waere
+            als blosses „ja, Zeitstempel" gelesen worden.
         footer: Footer-Text; None -> globales Branding-Footer (falls gesetzt).
 
     Returns:
         Konfiguriertes discord.Embed.
     """
+    if isinstance(timestamp, datetime):
+        stempel = timestamp
+    elif timestamp:
+        stempel = datetime.now()
+    else:
+        stempel = None
+
     embed = discord.Embed(
         title=title,
         description=description,
         color=color,
-        timestamp=datetime.now() if timestamp else None,
+        timestamp=stempel,
     )
     foot = footer if footer is not None else _BRAND_FOOTER
     if foot:
@@ -160,7 +172,7 @@ def hud_embed(
     description: Optional[str] = None,
     lines: Optional[Iterable[str]] = None,
     footer: Optional[str] = None,
-    timestamp: bool = True,
+    timestamp: Union[bool, datetime] = True,
 ) -> discord.Embed:
     """
     Panel-Embed im HUD-Stil: Kennzahlen-Kopf, Fortschrittsbalken, Textzeilen.
@@ -174,7 +186,7 @@ def hud_embed(
         description: freier Text unter dem Kopf.
         lines: weitere Zeilen, werden mit Zeilenumbruch angehängt.
         footer: Footer-Text (None -> Branding).
-        timestamp: Zeitstempel setzen.
+        timestamp: wie bei :func:`base_embed` — Bool oder konkreter Zeitpunkt.
 
     Returns:
         discord.Embed im Hausstil.

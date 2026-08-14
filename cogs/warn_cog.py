@@ -26,7 +26,18 @@ from modules.warn_manager import WarnManager
 from utils.logger import get_logger
 from utils.config import ADMIN_DATA_DIR
 from utils.permissions import admin_only
-from utils.embeds import COLOR_ERROR, COLOR_SUCCESS, COLOR_WARNING
+from utils.embeds import (
+    COLOR_BRAND,
+    COLOR_ERROR,
+    COLOR_SUCCESS,
+    COLOR_WARNING,
+    error_embed,
+    hud_embed,
+    success_embed,
+    warning_embed,
+)
+from utils.ui_kit import subtext
+from utils.loop_guard import guard
 
 logger = get_logger("cogs.warn")
 
@@ -48,6 +59,7 @@ class WarnCog(commands.Cog):
     async def cog_load(self) -> None:
         """SQLite-Daten laden und Background-Task starten wenn Cog geladen wird"""
         await self.warn_mgr.load_from_db()
+        guard(self.check_expired_warns, name="check_expired_warns")
         self.check_expired_warns.start()
         logger.info("Warn-Cog geladen, SQLite-Daten geladen, Background-Task gestartet")
 
@@ -95,7 +107,7 @@ class WarnCog(commands.Cog):
         self,
         interaction: discord.Interaction,
         user: discord.Member,
-        grund: str,
+        grund: app_commands.Range[str, 1, 500],
         punkte: Optional[app_commands.Range[int, 1, 10]] = 1,
     ) -> None:
         await interaction.response.defer()
@@ -125,27 +137,6 @@ class WarnCog(commands.Cog):
         total_points = self.warn_mgr.get_total_points(user.id)
         active_warns = self.warn_mgr.get_warns(user.id)
 
-        # Response-Embed
-        embed = discord.Embed(
-            title="Verwarnung erteilt",
-            color=COLOR_WARNING,
-            timestamp=datetime.now(),
-        )
-        embed.add_field(name="User", value=user.mention, inline=True)
-        embed.add_field(name="Punkte", value=f"+{punkte}", inline=True)
-        embed.add_field(
-            name="Gesamt",
-            value=f"{total_points} Punkt(e) ({len(active_warns)} aktive Warns)",
-            inline=True,
-        )
-        embed.add_field(name="Grund", value=grund, inline=False)
-        embed.add_field(
-            name="Warn-ID",
-            value=f"`{warn_entry['id'][:8]}...`",
-            inline=True,
-        )
-        embed.set_footer(text=f"von {interaction.user.display_name}")
-
         # User per DM benachrichtigen (fehlertolerant)
         dm_sent = await self._notify_user_dm(
             user,
@@ -153,10 +144,31 @@ class WarnCog(commands.Cog):
             punkte=punkte,
             total_points=total_points,
         )
-        if dm_sent:
-            embed.add_field(name="DM", value="Gesendet", inline=True)
-        else:
-            embed.add_field(name="DM", value="Nicht möglich", inline=True)
+
+        # HUD-Stil: der Punktestand als Balken gegen die Ban-Schwelle macht die
+        # Eskalation sichtbar — vorher standen hier sieben Felder fuer eine
+        # Quittung.
+        ban_thresh = self.warn_mgr.thresholds.get("ban", 10)
+        warn_id = warn_entry["id"][:8]
+        embed = hud_embed(
+            "VERWARNUNG",
+            state="crit" if total_points >= ban_thresh else "warn",
+            meta=[
+                (f"+{punkte}", "Punkte"),
+                (str(total_points), "gesamt"),
+                (str(len(active_warns)), "aktiv"),
+            ],
+            bar=(total_points, ban_thresh),
+            description=f"{user.mention} · {discord.utils.escape_markdown(grund)}",
+            lines=[
+                subtext(f"Ban-Schwelle bei {ban_thresh} Punkten"),
+                subtext(
+                    f"durch {discord.utils.escape_markdown(interaction.user.display_name)} · "
+                    f"Warn-ID `{warn_id}` · "
+                    + ("DM zugestellt" if dm_sent else "DM nicht möglich")
+                ),
+            ],
+        )
 
         await interaction.followup.send(embed=embed)
 
@@ -197,13 +209,12 @@ class WarnCog(commands.Cog):
 
         if success:
             total_points = self.warn_mgr.get_total_points(user.id)
-            embed = discord.Embed(
+            embed = success_embed(
                 title="Warn entfernt",
                 description=(
                     f"Warn `{resolved_id[:8]}...` von {user.mention} entfernt.\n"
                     f"Verbleibende Punkte: **{total_points}**"
                 ),
-                color=COLOR_SUCCESS,
             )
             embed.set_footer(text=f"von {interaction.user.display_name}")
             await interaction.followup.send(embed=embed, ephemeral=True)
@@ -411,14 +422,13 @@ class WarnCog(commands.Cog):
         try:
             await user.timeout(duration, reason=reason)
 
-            embed = discord.Embed(
+            embed = warning_embed(
                 title="Auto-Mute ausgefuehrt",
                 description=(
                     f"{user.mention} wurde für **1 Stunde** stummgeschaltet.\n"
                     f"Grund: {total_points} Warn-Punkte "
                     f"(Schwelle: {self.warn_mgr.thresholds.get('mute', 3)})"
                 ),
-                color=COLOR_WARNING,
             )
             await interaction.followup.send(embed=embed)
             logger.info(f"Auto-Mute: {user} ({total_points} Punkte)")
@@ -445,7 +455,7 @@ class WarnCog(commands.Cog):
 
         # DM vor dem Kick senden
         try:
-            dm_embed = discord.Embed(
+            dm_embed = error_embed(
                 title="Du wurdest vom Server gekickt",
                 description=(
                     f"Du hast **{total_points} Warn-Punkte** erreicht und wurdest "
@@ -453,7 +463,6 @@ class WarnCog(commands.Cog):
                     f"Du kannst dem Server erneut beitreten, "
                     f"aber weitere Verwarnungen fuehren zum Ban."
                 ),
-                color=COLOR_ERROR,
             )
             await user.send(embed=dm_embed)
         except (discord.Forbidden, discord.HTTPException):
@@ -462,14 +471,13 @@ class WarnCog(commands.Cog):
         try:
             await interaction.guild.kick(user, reason=reason)
 
-            embed = discord.Embed(
+            embed = error_embed(
                 title="Auto-Kick ausgefuehrt",
                 description=(
                     f"**{user.display_name}** wurde vom Server gekickt.\n"
                     f"Grund: {total_points} Warn-Punkte "
                     f"(Schwelle: {self.warn_mgr.thresholds.get('kick', 6)})"
                 ),
-                color=COLOR_ERROR,
             )
             await interaction.followup.send(embed=embed)
             logger.info(f"Auto-Kick: {user} ({total_points} Punkte)")
@@ -496,7 +504,7 @@ class WarnCog(commands.Cog):
 
         # DM vor dem Ban senden
         try:
-            dm_embed = discord.Embed(
+            dm_embed = error_embed(
                 title="Du wurdest vom Server gebannt",
                 description=(
                     f"Du hast **{total_points} Warn-Punkte** erreicht und wurdest "
@@ -504,7 +512,6 @@ class WarnCog(commands.Cog):
                     f"Wende dich an einen Admin, falls du denkst, "
                     f"dass dies ein Fehler ist."
                 ),
-                color=COLOR_ERROR,
             )
             await user.send(embed=dm_embed)
         except (discord.Forbidden, discord.HTTPException):
@@ -517,14 +524,13 @@ class WarnCog(commands.Cog):
                 delete_message_days=0,  # Nachrichten nicht löschen
             )
 
-            embed = discord.Embed(
+            embed = error_embed(
                 title="Auto-Ban ausgefuehrt",
                 description=(
                     f"**{user.display_name}** wurde vom Server gebannt.\n"
                     f"Grund: {total_points} Warn-Punkte "
                     f"(Schwelle: {self.warn_mgr.thresholds.get('ban', 10)})"
                 ),
-                color=COLOR_ERROR,
             )
             await interaction.followup.send(embed=embed)
             logger.info(f"Auto-Ban: {user} ({total_points} Punkte)")
@@ -568,7 +574,7 @@ class WarnCog(commands.Cog):
     async def _notify_user_dm(
         self,
         user: discord.Member,
-        grund: str,
+        grund: app_commands.Range[str, 1, 500],
         punkte: int,
         total_points: int,
     ) -> bool:
@@ -585,10 +591,8 @@ class WarnCog(commands.Cog):
             True wenn DM erfolgreich gesendet wurde
         """
         try:
-            embed = discord.Embed(
+            embed = warning_embed(
                 title="Du wurdest verwarnt",
-                color=COLOR_WARNING,
-                timestamp=datetime.now(),
             )
             embed.add_field(name="Grund", value=grund, inline=False)
             embed.add_field(name="Punkte", value=f"+{punkte}", inline=True)
@@ -664,18 +668,20 @@ class WarnCog(commands.Cog):
 
         return "\n".join(parts)
 
-    @staticmethod
-    def _points_color(total_points: int) -> int:
-        """Embed-Farbe basierend auf Punktzahl"""
-        if total_points >= 10:
-            return 0xFF0000  # Rot (Ban-Bereich)
-        if total_points >= 6:
-            return 0xE74C3C  # Dunkelrot (Kick-Bereich)
-        if total_points >= 3:
-            return 0xE67E22  # Orange (Mute-Bereich)
+    def _points_color(self, total_points: int) -> int:
+        """Embed-Farbe nach Punktestand — aus der zentralen Palette.
+
+        Die Schwellen kommen aus der Konfiguration, nicht mehr aus fest
+        verdrahteten Zahlen: wer Mute/Kick/Ban verschiebt, verschiebt damit auch
+        die Farbe.
+        """
+        if total_points >= self.warn_mgr.thresholds.get("kick", 6):
+            return COLOR_ERROR
+        if total_points >= self.warn_mgr.thresholds.get("mute", 3):
+            return COLOR_WARNING
         if total_points >= 1:
-            return 0xF1C40F  # Gelb (Warns vorhanden)
-        return 0x2ECC71  # Gruen (keine Warns)
+            return COLOR_BRAND
+        return COLOR_SUCCESS
 
     # ==================================================================
     # Fehlerbehandlung

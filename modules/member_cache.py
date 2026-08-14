@@ -77,7 +77,12 @@ async def get_members(
         placeholders = ",".join("?" for _ in ids)
         cursor = await conn.execute(
             "SELECT user_id, display_name, avatar_url FROM member_cache "
-            f"WHERE guild_id = ? AND user_id IN ({placeholders})",
+            # Dynamisch ist ausschliesslich die ZAHL der Platzhalter;
+            # jeder Wert wird gebunden. Von zwei Reviews geprueft und
+            # als Fehlalarm bestaetigt — die Markierung steht bewusst
+            # allein am Zeilenende, sonst liest bandit die Woerter
+            # dahinter als Test-Namen.
+            f"WHERE guild_id = ? AND user_id IN ({placeholders})",  # nosec B608
             (str(guild_id), *ids),
         )
         rows = await cursor.fetchall()

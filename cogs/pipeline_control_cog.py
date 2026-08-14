@@ -3,11 +3,14 @@ Pipeline-Control-Cog — Discord-Control-Panel fuer die TikTok-Curation-Pipeline
 
 Stand: 2026-07-14 (Umbau: Run-Achse von Modus-Achse entkoppelt)
 
-Embed mit 4 persistenten Buttons (ueberleben Bot-Restart via bot.add_view):
-  ▶ Start  (custom_id pipeline_ctl_start)  -> Pipeline AN (Pause + Datei-Flag loesen)
-  ⏹ Stop   (custom_id pipeline_ctl_stop)   -> Pipeline AUS (pause_active=1)
-  🔀 Modus (custom_id pipeline_ctl_mode)   -> Burst <-> Normal toggeln (sweep_active)
-  🔄 Status (custom_id pipeline_ctl_status) -> aktuellen Stand anzeigen (ephemeral)
+Components-V2-Panel mit 6 persistenten Buttons (ueberleben Bot-Restart via
+bot.add_view); seit 2026-08-13 kein Embed mehr, der Zustand steht im Kopf:
+  ▶ Start  (custom_id pipeline_ctl_start)     -> Pipeline AN (Pause + Datei-Flag loesen)
+  ⏹ Stop   (custom_id pipeline_ctl_stop)      -> Pipeline AUS (pause_active=1)
+  🔄 Status (custom_id pipeline_ctl_status)    -> aktuellen Stand anzeigen (ephemeral)
+  🔀 Modus (custom_id pipeline_ctl_mode)       -> Burst <-> Normal toggeln (sweep_active)
+  🎞️ Sweep (custom_id pipeline_ctl_sweepmode)  -> Text <-> Multimodal
+  ⏱️ Tageslimit (custom_id pipeline_ctl_daylimit) -> Caps ab-/anschalten
 
 Run-Achse (Start/Stop) und Modus-Achse (Burst/Normal) sind unabhaengig:
 Start/Stop schalten die Pipeline an/aus, der Modus-Toggle wechselt nur die Drosselung.
@@ -39,12 +42,17 @@ import discord
 from discord.ext import commands, tasks
 
 from utils.logger import get_logger
+from utils.panels import action_row, hud_container
+from utils.ui_kit import status_dot, subtext, truncate
+from utils.loop_guard import guard
 
 logger = get_logger(__name__)
 
 BERLIN = ZoneInfo("Europe/Berlin")
 
-PANEL_TITLE = "🛠 Pipeline — Control"
+PANEL_TITLE = "PIPELINE"
+# Titel-Anfang der alten Embed-Fassung — nur noch fuer die Erkennung beim Umstieg.
+LEGACY_PANEL_PREFIX = "🛠 Pipeline"
 
 PIPELINE_CONTROL_SCRIPT = os.getenv(
     "PIPELINE_CONTROL_SCRIPT", "/home/marco/n8n_stack/scripts/pipeline_control.py"
@@ -89,36 +97,60 @@ async def _live_status() -> dict | None:
     if res.returncode != 0:
         return None
     try:
-        return json.loads((res.stdout or "").strip())
+        daten = json.loads((res.stdout or "").strip())
     except (json.JSONDecodeError, ValueError):
         return None
+    # Ein JSON-Array waere gueltiges JSON, aber .get() gibt es dort nicht —
+    # ohne diese Pruefung stuerbe der Refresh-Loop daran und bliebe fuer immer
+    # stehen, waehrend die Buttons weiter funktionieren (kein Symptom).
+    return daten if isinstance(daten, dict) else None
 
 
-def _fmt_live_status(st: dict) -> str:
-    """Live-Felder -> Panel-Text. Reine Funktion, damit Signatur-Vergleich billig ist."""
-    run_state = f"⏸ pausiert ({st.get('pause_reason') or '?'})" if st.get("paused") else "▶️ aktiv"
-    daemon = "läuft" if st.get("daemon") else "AUS"
-    lines = [
-        f"{run_state} · Daemon {daemon}",
-        f"Modus **{st.get('modus', '?')}** · Sweep **{st.get('sweep_mode', '?')}** "
-        f"· Tageslimit **{st.get('tageslimit', '?')}**",
-        f"Heute **{st.get('today', 0)}/{st.get('day_cap', 0)}** "
-        f"· 5h-Fenster **{st.get('window', 0)}/{st.get('window_cap', 0)}**",
+def _panel_inhalt(st: dict) -> tuple[str, list[tuple[str, str]], list[str]]:
+    """
+    Live-Felder -> (Zustand, Kennzahlen, Zeilen). Eine Quelle für Panel UND Signatur.
+
+    Reine Funktion: der Refresh-Loop vergleicht damit billig, ob sich überhaupt
+    etwas geändert hat, bevor er einen Discord-Edit abschickt.
+    """
+    pausiert = bool(st.get("paused"))
+    zustand = "crit" if pausiert else "ok"
+
+    kennzahlen = [
+        (f"{st.get('today', 0)}/{st.get('day_cap', 0)}", "heute"),
+        (f"{st.get('window', 0)}/{st.get('window_cap', 0)}", "im 5h-Fenster"),
     ]
     pending = st.get("inbox_pending")
     if pending is not None:
-        lines.append(f"Warteschlange **{pending}**"
-                     + (f" · offene Keeper {st['keepers_left']}" if st.get("keepers_left") else ""))
-    last = st.get("last_finding") or None
-    if last:
-        title = (last.get("title") or "")[:70]
-        lines.append(f"Zuletzt: _{title}_ ({last.get('category', '?')}, {last.get('started_at', '?')})")
-    return "\n".join(lines)
+        kennzahlen.append((str(pending), "in der Warteschlange"))
+
+    lauf = "pausiert" if pausiert else "aktiv"
+    kopf = f"{status_dot('crit' if pausiert else 'ok')} **{lauf}**"
+    if pausiert and st.get("pause_reason"):
+        kopf += f" · {st['pause_reason']}"
+    kopf += f" · Daemon {'läuft' if st.get('daemon') else 'aus'}"
+
+    zeilen = [
+        kopf,
+        subtext(
+            f"Modus {st.get('modus', '?')} · Sweep {st.get('sweep_mode', '?')} "
+            f"· Tageslimit {st.get('tageslimit', '?')}"
+        ),
+    ]
+    if st.get("keepers_left"):
+        zeilen.append(subtext(f"offene Keeper {st['keepers_left']}"))
+    letztes = st.get("last_finding") or None
+    if letztes:
+        zeilen.append(subtext(
+            f"zuletzt {truncate(letztes.get('title') or '—', 60)} · "
+            f"{letztes.get('category', '?')} · {letztes.get('started_at', '?')}"
+        ))
+    return zustand, kennzahlen, zeilen
 
 
 def _panel_signature(st: dict) -> str:
     """Alles ausser der Uhrzeit — sonst wuerde jeder Tick ein Edit ausloesen."""
-    return _fmt_live_status(st)
+    return repr(_panel_inhalt(st))
 
 
 async def _handle_action(interaction: discord.Interaction, action: str) -> None:
@@ -189,41 +221,102 @@ async def _refresh_panel(msg: discord.Message, action: str, status_line: str) ->
     logger.debug("Panel als dirty markiert nach action=%s", action)
 
 
-class ControlView(discord.ui.View):
-    """Persistente View (timeout=None) — via bot.add_view restart-fest."""
+def _ist_control_panel(msg: discord.Message) -> bool:
+    """
+    Traegt diese Nachricht unsere Buttons?
 
-    def __init__(self) -> None:
+    Components V2 verschachtelt (Container -> Section/ActionRow -> Button), deshalb
+    wird rekursiv gesucht statt eine feste Struktur anzunehmen.
+    """
+    def _suche(elemente) -> bool:
+        for element in elemente or ():
+            if str(getattr(element, "custom_id", "") or "").startswith("pipeline_ctl_"):
+                return True
+            zubehoer = getattr(element, "accessory", None)
+            if zubehoer is not None and _suche([zubehoer]):
+                return True
+            for attribut in ("children", "components", "items"):
+                kinder = getattr(element, attribut, None)
+                if kinder and _suche(kinder):
+                    return True
+        return False
+
+    return _suche(getattr(msg, "components", None))
+
+
+class ControlButton(discord.ui.Button):
+    """Ein Panel-Button; die ``custom_id`` traegt die Aktion und ueberlebt Neustarts."""
+
+    def __init__(self, action: str, label: str, emoji: str,
+                 style: discord.ButtonStyle = discord.ButtonStyle.primary) -> None:
+        super().__init__(label=label, emoji=emoji, style=style,
+                         custom_id=f"pipeline_ctl_{action}")
+        self.action = action
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await _handle_action(interaction, self.action)
+
+
+# Reihenfolge und Aufteilung der Buttons — Zeile 1 schaltet den Lauf, Zeile 2 die
+# Drosselung. Discord erlaubt fuenf Buttons je Zeile.
+_BUTTONS_LAUF = (
+    ("start", "Start", "▶️", discord.ButtonStyle.success),
+    ("stop", "Stop", "⏹️", discord.ButtonStyle.danger),
+    ("status", "Status", "🔄", discord.ButtonStyle.secondary),
+)
+_BUTTONS_MODUS = (
+    ("mode", "Modus", "🔀", discord.ButtonStyle.primary),
+    ("sweepmode", "Sweep", "🎞️", discord.ButtonStyle.primary),
+    ("daylimit", "Tageslimit", "⏱️", discord.ButtonStyle.primary),
+)
+
+_LEGENDE = (
+    "-# Modus: Burst = interne Throttles aus · Normal = Marco-Stunden und Caps aktiv\n"
+    "-# Sweep: Text = günstig · Multimodal = genau (Vision-Keyframes)\n"
+    "-# Tageslimit schaltet Marco-Stunden und Tages-/5h-Cap zusammen ab\n"
+    "-# Nur Marco kann die Buttons nutzen."
+)
+
+
+class ControlPanelView(discord.ui.LayoutView):
+    """
+    Das Control-Panel als Components-V2-Layout (timeout=None, restart-fest).
+
+    Umstieg 2026-08-13: vorher ein Embed mit Feld „Live-Status". Der Zustand steht
+    jetzt im Kopf statt in einem Feld, und die Buttons gehoeren sichtbar zum Panel
+    statt darunter zu haengen. Die ``custom_id``s sind unveraendert — Klicks auf ein
+    altes, noch stehendes Panel landen weiterhin hier.
+    """
+
+    def __init__(self, live: dict | None = None, status_line: str = "") -> None:
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="Start", style=discord.ButtonStyle.success,
-                       emoji="▶️", custom_id="pipeline_ctl_start", row=0)
-    async def _start(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await _handle_action(interaction, "start")
+        if live is not None:
+            zustand, kennzahlen, zeilen = _panel_inhalt(live)
+            stempel = datetime.now(BERLIN).strftime("%H:%M:%S")
+            fuss = f"aktualisiert sich automatisch · Stand {stempel} Berlin"
+        else:
+            zustand, kennzahlen = "info", []
+            zeilen = ([discord.utils.escape_markdown(status_line[:600])]
+                      if status_line else ["Status noch nicht abgerufen."])
+            fuss = "aktualisiert sich automatisch"
 
-    @discord.ui.button(label="Stop", style=discord.ButtonStyle.danger,
-                       emoji="⏹️", custom_id="pipeline_ctl_stop", row=0)
-    async def _stop(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await _handle_action(interaction, "stop")
-
-    @discord.ui.button(label="Status", style=discord.ButtonStyle.secondary,
-                       emoji="🔄", custom_id="pipeline_ctl_status", row=0)
-    async def _status(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await _handle_action(interaction, "status")
-
-    @discord.ui.button(label="Modus (Burst/Normal)", style=discord.ButtonStyle.primary,
-                       emoji="🔀", custom_id="pipeline_ctl_mode", row=1)
-    async def _mode(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await _handle_action(interaction, "mode")
-
-    @discord.ui.button(label="Sweep (Text/Multimodal)", style=discord.ButtonStyle.primary,
-                       emoji="🎞️", custom_id="pipeline_ctl_sweepmode", row=1)
-    async def _sweepmode(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await _handle_action(interaction, "sweepmode")
-
-    @discord.ui.button(label="Tageslimit (an/aus)", style=discord.ButtonStyle.primary,
-                       emoji="⏱️", custom_id="pipeline_ctl_daylimit", row=1)
-    async def _daylimit(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await _handle_action(interaction, "daylimit")
+        self.add_item(hud_container(
+            PANEL_TITLE,
+            state=zustand,
+            subtitle="Steuerung der Curation-Pipeline",
+            meta=kennzahlen or None,
+            rows=[discord.ui.TextDisplay("\n".join(zeilen)),
+                  discord.ui.TextDisplay(_LEGENDE)],
+            actions=[
+                action_row(*(ControlButton(a, label, emoji, style)
+                             for a, label, emoji, style in _BUTTONS_LAUF)),
+                action_row(*(ControlButton(a, label, emoji, style)
+                             for a, label, emoji, style in _BUTTONS_MODUS)),
+            ],
+            footer_note=fuss,
+            with_dot=False,
+        ))
 
 
 class PipelineControlCog(commands.Cog):
@@ -236,8 +329,16 @@ class PipelineControlCog(commands.Cog):
         # gerenderten Inhalts (Edit nur bei echter Aenderung).
         self._panel_msg: discord.Message | None = None
         self._last_sig: str = ""
+        self._fehlschlaege: int = 0
         if not _marco_uid():
             logger.warning("MARCO_DISCORD_UID fehlt — Control-Buttons werden fuer ALLE abgewiesen.")
+
+    async def cog_load(self) -> None:
+        # on_ready ist die uebliche Startquelle, feuert nach einem
+        # reload_extension im laufenden Betrieb aber nicht mehr.
+        guard(self._refresh_loop, name="pipeline_panel_refresh")
+        if not self._refresh_loop.is_running():
+            self._refresh_loop.start()
 
     async def cog_unload(self) -> None:
         self._refresh_loop.cancel()
@@ -263,17 +364,36 @@ class PipelineControlCog(commands.Cog):
             logger.warning("Control-Channel %s ist kein Text-Channel (%s) — Panel nicht gepostet.",
                            CONTROL_CHANNEL_ID, type(ch).__name__)
             return
-        # Dedup: existiert schon ein Panel (Bot-Embed mit unserem Titel)?
+        # Dedup: existiert schon ein Panel? Zwei Formen sind moeglich — das neue
+        # Components-V2-Panel (uebernehmen) und das alte Embed-Panel. Ein Embed
+        # laesst sich nicht auf V2 umstellen, Discord setzt das Flag beim Senden.
+        # Also: altes Panel loeschen und neu posten, sonst stehen zwei Panels mit
+        # denselben Buttons im Channel und nur eines aktualisiert sich.
+        eigene_id = self.bot.user.id if self.bot.user else 0
         try:
             async for m in ch.history(limit=30):
-                if (m.author.id == (self.bot.user.id if self.bot.user else 0)
-                        and m.embeds and (m.embeds[0].title or "").startswith("🛠 Pipeline")):
+                if m.author.id != eigene_id:
+                    continue
+                if m.flags.components_v2 and _ist_control_panel(m):
                     # Nachricht merken: der Auto-Refresh-Loop editiert genau diese.
                     # Ohne das faende er nach einem Bot-Restart kein Panel mehr.
                     self._panel_msg = m
                     logger.info("Control-Panel existiert bereits (msg_id=%s) — kein Re-Post, "
                                 "uebernehme es fuer den Auto-Refresh.", m.id)
                     return
+                # Titel-Praefix allein reicht als Loeschgrund nicht — die
+                # Nachricht muss auch unsere Buttons tragen, sonst koennte eine
+                # fremde Bot-Quittung mit aehnlichem Titel mitgeloescht werden.
+                if (m.embeds
+                        and (m.embeds[0].title or "").startswith(LEGACY_PANEL_PREFIX)
+                        and _ist_control_panel(m)):
+                    try:
+                        await m.delete()
+                        logger.info("Altes Embed-Panel (msg_id=%s) entfernt — Umstieg auf "
+                                    "Components V2 braucht eine neue Nachricht.", m.id)
+                    except discord.HTTPException as e:
+                        logger.warning("Altes Embed-Panel nicht loeschbar (%s) — es bleibt "
+                                       "stehen und aktualisiert sich nicht mehr.", e)
         except discord.HTTPException as e:
             logger.warning("Panel-History-Scan fehlgeschlagen (%s) — poste trotzdem.", e)
         status_line = ""
@@ -285,8 +405,7 @@ class PipelineControlCog(commands.Cog):
         except Exception as e:  # noqa: BLE001
             logger.warning("Initial-Status fuer Auto-Panel fehlgeschlagen: %s", e)
         try:
-            self._panel_msg = await ch.send(embed=self._build_panel_embed(status_line),
-                                            view=ControlView())
+            self._panel_msg = await ch.send(view=ControlPanelView(status_line=status_line))
             logger.info("Control-Panel AUTO-gepostet in Channel %s", CONTROL_CHANNEL_ID)
         except discord.HTTPException as e:
             logger.warning("Panel Auto-Post fehlgeschlagen: %s", e)
@@ -303,60 +422,49 @@ class PipelineControlCog(commands.Cog):
         msg = self._panel_msg
         if msg is None:
             return
-        st = await _live_status()
+        try:
+            st = await _live_status()
+        except Exception as e:  # noqa: BLE001
+            # tasks.loop beendet die Schleife bei einer unbehandelten Ausnahme
+            # endgueltig. Ein Anzeige-Loop darf daran nicht sterben.
+            logger.warning("Status-Abfrage fuer das Panel fehlgeschlagen: %s", e)
+            return
         if st is None:
             return
         sig = _panel_signature(st)
+        # Das Dirty-Flag erst JETZT lesen: ein Klick waehrend der Statusabfrage
+        # gehoert zum naechsten Bild, nicht zu dem gerade geholten.
         if _PANEL_DIRTY:
             # Button-Aktion: sofort neu zeichnen, auch wenn der Status (noch) gleich
             # aussieht — Marco soll unmittelbar sehen, dass sein Klick angekommen ist.
             _PANEL_DIRTY = False
         elif sig == self._last_sig:
             return
-        embed = self._build_panel_embed(live=st)
         try:
-            await msg.edit(embed=embed, view=ControlView())
+            await msg.edit(view=ControlPanelView(live=st))
             self._last_sig = sig
+            self._fehlschlaege = 0
         except discord.NotFound:
             # Panel wurde geloescht — Referenz fallen lassen, on_ready/!pipeline_panel
             # legt bei Bedarf ein neues an. Weiter-Editieren waere sinnlos.
             logger.warning("Panel-Nachricht nicht mehr vorhanden — Auto-Refresh pausiert.")
             self._panel_msg = None
         except discord.HTTPException as e:
-            logger.debug("Panel-Auto-Refresh fehlgeschlagen (retry naechster Tick): %s", e)
+            # Einzelne Fehlschlaege sind normal (Rate-Limit, kurzer Ausfall).
+            # Ein dauerhaft totes Panel sah bisher genauso aus wie "nichts
+            # geaendert" — ab der dritten Runde deshalb sichtbar melden.
+            self._fehlschlaege += 1
+            if self._fehlschlaege >= 3:
+                logger.warning(
+                    "Panel-Auto-Refresh scheitert seit %d Runden: %s",
+                    self._fehlschlaege, e
+                )
+            else:
+                logger.debug("Panel-Auto-Refresh fehlgeschlagen (retry naechster Tick): %s", e)
 
     @_refresh_loop.before_loop
     async def _before_refresh(self) -> None:
         await self.bot.wait_until_ready()
-
-    def _build_panel_embed(self, status_line: str = "", live: dict | None = None) -> discord.Embed:
-        embed = discord.Embed(
-            title=PANEL_TITLE,
-            description=(
-                "Steuerung der Curation-Pipeline. Run-Zustand und Modus sind unabhaengig.\n\n"
-                "▶️ **Start** — Pipeline AN: Pause + Datei-Flag aufheben. Der Modus bleibt, wie er ist.\n"
-                "⏹️ **Stop** — Pipeline AUS: pausieren (kein Auto-Resume). Weiter via Start.\n"
-                "🔀 **Modus (Burst/Normal)** — Drosselung umschalten. "
-                "_Burst_ = interne Throttles aus (Anthropic-Limit bremst weiter), "
-                "_Normal_ = Marco-Stunden + Tages-/5h-Cap aktiv.\n"
-                "🎞️ **Sweep (Text/Multimodal)** — Modus des Re-Analyse-Sweeps: "
-                "_Text_ = guenstig (nur Transcript), _Multimodal_ = genau (Vision-Keyframes).\n"
-                "⏱️ **Tageslimit (an/aus)** — Marco-Stunden-Pause + Tages-/5h-Caps ab-/anschalten "
-                "(fuer Bulk-Laeufe tagsueber ohne Burst).\n"
-                "🔄 **Status** — aktuellen Stand anzeigen.\n\n"
-                "_Nur Marco kann die Buttons nutzen._"
-            ),
-            # Farbe folgt dem Zustand (gruen = laeuft, rot = pausiert), nicht der
-            # zuletzt gedrueckten Taste — auf einen Blick erkennbar ohne Mitlesen.
-            color=(0x5865F2 if live is None else (0xED4245 if live.get("paused") else 0x57F287)),
-        )
-        if live is not None:
-            embed.add_field(name="Live-Status", value=_fmt_live_status(live)[:1000], inline=False)
-            stamp = datetime.now(BERLIN).strftime("%H:%M:%S")
-            embed.set_footer(text=f"aktualisiert sich automatisch · Stand {stamp} Berlin")
-        elif status_line:
-            embed.add_field(name="Status", value=status_line[:600], inline=False)
-        return embed
 
     @commands.command(name="pipeline_panel")
     async def pipeline_panel(self, ctx: commands.Context) -> None:
@@ -375,7 +483,12 @@ class PipelineControlCog(commands.Cog):
 
         channel = self.bot.get_channel(CONTROL_CHANNEL_ID) or ctx.channel
         try:
-            await channel.send(embed=self._build_panel_embed(status_line), view=ControlView())
+            # Die neue Nachricht wird das gepflegte Panel — sonst stuenden zwei
+            # mit denselben Buttons da und nur das alte aktualisierte sich.
+            self._panel_msg = await channel.send(
+                view=ControlPanelView(status_line=status_line)
+            )
+            self._last_sig = ""
             if channel.id != ctx.channel.id:
                 await ctx.reply(f"Panel gepostet in <#{channel.id}>.", mention_author=False)
         except discord.HTTPException as e:
@@ -383,7 +496,7 @@ class PipelineControlCog(commands.Cog):
 
 
 async def setup(bot: commands.Bot) -> None:
-    bot.add_view(ControlView())   # persistente Buttons (restart-fest)
+    bot.add_view(ControlPanelView())   # persistente Buttons (restart-fest)
     await bot.add_cog(PipelineControlCog(bot))
     logger.info("PipelineControlCog geladen — MARCO_DISCORD_UID=%s, channel=%s",
                 "gesetzt" if os.getenv("MARCO_DISCORD_UID") else "FEHLT", CONTROL_CHANNEL_ID)

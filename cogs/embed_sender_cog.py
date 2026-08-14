@@ -13,6 +13,7 @@ from discord.ext import commands, tasks
 
 from utils.config import DATA_DIR
 from utils.logger import get_logger
+from utils.loop_guard import guard
 
 logger = get_logger("cogs.embed_sender")
 
@@ -39,6 +40,7 @@ class EmbedSenderCog(commands.Cog, name="Embed Sender"):
 
     async def cog_load(self) -> None:
         """Startet den Queue-Worker beim Laden des Cogs."""
+        guard(self.process_queue, name="process_queue")
         self.process_queue.start()
         logger.info("Embed-Queue-Worker gestartet")
 
