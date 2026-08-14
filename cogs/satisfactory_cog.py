@@ -82,19 +82,82 @@ class SatisfactoryCog(commands.Cog):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        # Erste Instanz als Vorgabe — Befehle ohne Server-Angabe sprechen sie
+        # an, damit die eingeuebten Slash-Commands unveraendert funktionieren.
         self.server = bot.sat_server
         self.api = bot.sat_api
         self.timer_mgr = bot.timer_mgr
+
+    # ------------------------------------------------------------------
+    # Mehrere Satisfactory-Instanzen
+    # ------------------------------------------------------------------
+
+    @property
+    def servers(self) -> dict:
+        """Alle konfigurierten Satisfactory-Instanzen."""
+        return getattr(self.bot, "sat_servers", {}) or {}
+
+    async def _server_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> List[app_commands.Choice[str]]:
+        """Autocomplete: zeigt die konfigurierten Satisfactory-Server."""
+        return [
+            app_commands.Choice(name=srv.display_name, value=sid)
+            for sid, srv in self.servers.items()
+            if current.lower() in sid.lower()
+            or current.lower() in srv.display_name.lower()
+        ]
+
+    def _instanz(self, server: Optional[str] = None):
+        """
+        Server und API-Client zu einer Server-Angabe.
+
+        Ohne Angabe die erste Instanz. Eine unbekannte ID liefert (None, None,
+        None) — der Aufrufer meldet das, statt stillschweigend den falschen
+        Server zu steuern.
+
+        Returns:
+            (SatisfactoryServer, SatisfactoryAPI, server_id) oder (None, None, None)
+        """
+        apis = getattr(self.bot, "sat_apis", {}) or {}
+        if not self.servers:
+            return self.server, self.api, "MAIN"
+        sid = (server or next(iter(self.servers))).upper()
+        srv = self.servers.get(sid)
+        if srv is None:
+            return None, None, None
+        return srv, apis.get(sid, self.api), sid
+
+    async def _unbekannt_melden(self, interaction: discord.Interaction,
+                                server: str) -> None:
+        """Einheitliche Antwort auf eine unbekannte Server-Angabe."""
+        bekannt = ", ".join(self.servers) or "keiner konfiguriert"
+        await interaction.followup.send(
+            embed=error_embed(
+                title="Unbekannter Server",
+                description=f"`{discord.utils.escape_markdown(server)}` gibt es nicht.\n"
+                            f"Verfügbar: {bekannt}",
+            ),
+            ephemeral=True,
+        )
 
     # ╔════════════════════════════════════════════════════════════════╗
     # ║  CORE: /sat status                                           ║
     # ╚════════════════════════════════════════════════════════════════╝
 
     @sat.command(name="status", description="Server-Status anzeigen")
-    async def sat_status(self, interaction: discord.Interaction):
+    @app_commands.describe(server="Server (leer = erster)")
+    @app_commands.autocomplete(server=_server_autocomplete)
+    async def sat_status(self, interaction: discord.Interaction,
+                         server: Optional[str] = None):
         await interaction.response.defer()
 
-        status = await self.server.get_status()
+        srv, api, _sid = self._instanz(server)
+        if srv is None:
+            await self._unbekannt_melden(interaction, server or "")
+            return
+
+        status = await srv.get_status()
         online = status["running"]
 
         # HUD-Stil: Kennzahlen-Kopf mit Spieler-Balken, Details als Felder.
@@ -105,7 +168,7 @@ class SatisfactoryCog(commands.Cog):
 
         if online:
             try:
-                state = await self.api.query_server_state()
+                state = await api.query_server_state()
                 if not state.ok:
                     # query_server_state faengt Fehler selbst ab und liefert
                     # dann ein Default-Objekt mit 0 Spielern. Ohne diese
@@ -136,7 +199,7 @@ class SatisfactoryCog(commands.Cog):
                     details.append(subtext(f"Tech-Tier {state.tech_tier}"))
 
         embed = hud_embed(
-            "SATISFACTORY",
+            srv.display_name.upper(),
             state="ok" if online else "off",
             meta=kennzahlen or None,
             bar=balken,
@@ -199,11 +262,19 @@ class SatisfactoryCog(commands.Cog):
     @players_grp.command(name="online", description="Online-Spieler anzeigen")
     @spieler_only()
     @server_online_required("server")
-    async def players_online(self, interaction: discord.Interaction):
+    @app_commands.describe(server="Server (leer = erster)")
+    @app_commands.autocomplete(server=_server_autocomplete)
+    async def players_online(self, interaction: discord.Interaction,
+                             server: Optional[str] = None):
         await interaction.response.defer()
 
+        srv, api, _sid = self._instanz(server)
+        if srv is None:
+            await self._unbekannt_melden(interaction, server or "")
+            return
+
         try:
-            state = await self.api.query_server_state()
+            state = await api.query_server_state()
             if not state.ok:
                 await interaction.followup.send(
                     embed=warning_embed(
@@ -220,7 +291,7 @@ class SatisfactoryCog(commands.Cog):
                 embed.description = "Keine Spieler online."
             else:
                 try:
-                    result = await self.api.run_command("ListPlayers")
+                    result = await api.run_command("ListPlayers")
                     if result and "Error" not in result:
                         embed.description = f"```\n{result}\n```"
                     else:
@@ -249,11 +320,14 @@ class SatisfactoryCog(commands.Cog):
     @players_grp.command(name="ban", description="Spieler permanent bannen (IP-Block)")
     @app_commands.describe(player="Name des Spielers", reason="Grund für den Ban")
     @admin_only()
+    @app_commands.describe(server="Server (leer = erster)")
+    @app_commands.autocomplete(server=_server_autocomplete)
     async def players_ban(
         self,
         interaction: discord.Interaction,
         player: str,
         reason: str = "Kein Grund angegeben",
+        server: Optional[str] = None,
     ):
         await interaction.response.defer()
 
@@ -269,7 +343,7 @@ class SatisfactoryCog(commands.Cog):
         # nicht im aktuellen Save persistiert).
         save_ok = False
         try:
-            save_ok = await self.api.save_game()
+            save_ok = await api.save_game()
             await asyncio.sleep(3)
         except Exception as e:
             logger.warning(f"Save before ban failed (continuing): {e}")
@@ -403,11 +477,19 @@ class SatisfactoryCog(commands.Cog):
     @sav_grp.command(name="save", description="Spiel speichern via API")
     @spieler_only()
     @server_online_required("server")
-    async def backup_save(self, interaction: discord.Interaction):
+    @app_commands.describe(server="Server (leer = erster)")
+    @app_commands.autocomplete(server=_server_autocomplete)
+    async def backup_save(self, interaction: discord.Interaction,
+                          server: Optional[str] = None):
         await interaction.response.defer()
 
+        srv, api, _sid = self._instanz(server)
+        if srv is None:
+            await self._unbekannt_melden(interaction, server or "")
+            return
+
         try:
-            success = await self.api.save_game()
+            success = await api.save_game()
             if success:
                 embed = success_embed(
                     title="Spiel gespeichert",
@@ -501,12 +583,20 @@ class SatisfactoryCog(commands.Cog):
     )
     @app_commands.describe(backup_name="Name des Backups")
     @owner_only()
+    @app_commands.describe(server="Server (leer = erster)")
+    @app_commands.autocomplete(server=_server_autocomplete)
     async def backup_restore(
-        self, interaction: discord.Interaction, backup_name: str
+        self, interaction: discord.Interaction, backup_name: str,
+        server: Optional[str] = None,
     ):
         await interaction.response.defer()
 
-        if await self.server.is_running():
+        srv, api, _sid = self._instanz(server)
+        if srv is None:
+            await self._unbekannt_melden(interaction, server or "")
+            return
+
+        if await srv.is_running():
             await interaction.followup.send(
                 "Server muss offline sein für ein Restore!\n"
                 "Stoppe den Server zuerst über das Dashboard."
@@ -556,14 +646,23 @@ class SatisfactoryCog(commands.Cog):
         name="settings", description="Servereinstellungen anzeigen"
     )
     @spieler_only()
-    async def config_settings(self, interaction: discord.Interaction):
+    @app_commands.describe(server="Server (leer = erster)")
+    @app_commands.autocomplete(server=_server_autocomplete)
+    async def config_settings(self, interaction: discord.Interaction,
+                              server: Optional[str] = None):
         await interaction.response.defer()
+
+        srv, api, _sid = self._instanz(server)
+        if srv is None:
+            await self._unbekannt_melden(interaction, server or "")
+            return
+
 
         embed = info_embed(
             title="Satisfactory Servereinstellungen",
         )
 
-        if not await self.server.is_running():
+        if not await srv.is_running():
             embed.description = (
                 "Server ist offline. Einstellungen nicht abrufbar."
             )
@@ -571,8 +670,8 @@ class SatisfactoryCog(commands.Cog):
             return
 
         try:
-            options = await self.api.get_server_options()
-            state = await self.api.query_server_state()
+            options = await api.get_server_options()
+            state = await api.query_server_state()
 
             embed.add_field(
                 name="Session", value=_md(state.active_session) if state.active_session else "\u2014", inline=True
@@ -1342,12 +1441,21 @@ class SatisfactoryCog(commands.Cog):
             f"Migrierte Blueprints aus '{nach}' sind jetzt verfügbar!",
         )
 
-    async def _sat_save_restart(self, channel, success_desc: str) -> None:
-        """Save-vor-Restart + Discord-Feedback. Shared von migrate + View."""
+    async def _sat_save_restart(self, channel, success_desc: str,
+                                server: Optional[str] = None) -> None:
+        """
+        Save-vor-Restart + Discord-Feedback. Shared von migrate + View.
+
+        Ohne Angabe die erste Instanz — die Blueprint-Verwaltung, von der aus
+        das aufgerufen wird, arbeitet bisher ebenfalls nur auf ihr.
+        """
+        srv, api, _sid = self._instanz(server)
+        if srv is None:
+            srv, api = self.server, self.api
         har = getattr(self.bot, "health_auto_restart", None)
         if har:
             har.suppress("sat", "main", duration_seconds=300)
-        success, msg = await self.server.restart(api=self.api)
+        success, msg = await srv.restart(api=api)
         if channel is None:
             return
         if success:
