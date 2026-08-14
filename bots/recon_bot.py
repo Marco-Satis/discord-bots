@@ -39,7 +39,7 @@ from utils.formatting import format_uptime, format_bytes, status_emoji
 from utils.async_tasks import track_task
 
 from modules.satisfactory.server import SatisfactoryServer
-from modules.satisfactory.api_client import SatisfactoryAPI
+from modules.satisfactory.api_client import SatisfactoryAPI, SAT_TICK_SOLL, tick_zustand
 from modules.monitoring.health_check import HealthChecker, ServerState
 from modules.monitoring.performance import PerformanceMonitor, PerformanceThresholds
 from modules.monitoring.player_tracker import PlayerTracker
@@ -2060,13 +2060,14 @@ async def _update_status_embed_impl():
         elif status.tick_rate > 0:
             tick_rate = status.tick_rate
         if tick_rate > 0:
-            # Kein erfundener Nenner: der Server meldet ueber
-            # averageTickRate Werte um 39, waehrend hier "/30" stand — das ergab
-            # Anzeigen wie "39/30 Ticks", die sich selbst widersprechen.
-            # Die Schwellen bleiben Untergrenzen (darunter ruckelt es spuerbar),
-            # eine Obergrenze gibt es nicht.
-            tick_zustand = "ok" if tick_rate >= 25 else "warn" if tick_rate >= 15 else "crit"
-            notiz += f" · {status_dot(tick_zustand)} {tick_rate:.0f} Ticks/s"
+            # Sollwert und Schwellen stehen in modules/satisfactory/api_client.py
+            # (60 Ticks/s). Frueher stand hier ein erfundener Nenner "/30" und
+            # danach eine auf 30 kalibrierte Ampel — beides zeigte einen
+            # eingebrochenen Server als gesund an.
+            notiz += (
+                f" · {status_dot(tick_zustand(tick_rate))} "
+                f"{tick_rate:.0f}/{SAT_TICK_SOLL:.0f} Ticks/s"
+            )
 
         details: List[str] = []
         online = player_tracker.get_online_players()

@@ -306,7 +306,7 @@ def _get_server_info(server_id: str) -> dict:
             "CPU-Warnung bei": f"{thresholds.get('cpu_warning', 80)}%",
             "RAM-Warnung bei": f"{thresholds.get('ram_warning', 85)}%",
             "Disk-Warnung bei": f"{thresholds.get('disk_warning', 90)}%",
-            "Tick-Rate-Warnung": f"< {thresholds.get('tick_rate_warning', 20)}",
+            "Tick-Rate-Warnung": f"< {thresholds.get('tick_rate_warning', 50)} von 60",
             "Spieler-Tracking": features.get("player_tracking", False),
             "OneDrive-Backup": features.get("onedrive_backup", False),
             "E-Mail-Benachrichtigungen": features.get("email_notifications", False),

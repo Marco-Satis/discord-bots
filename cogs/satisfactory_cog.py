@@ -24,6 +24,7 @@ from pathlib import Path
 from utils import get_logger, format_uptime, format_bytes, status_emoji
 from utils.permissions import admin_only, spieler_only, owner_only, is_admin, server_online_required
 from modules.restart_timer import TimerResult
+from modules.satisfactory.api_client import SAT_TICK_SOLL
 from utils.embeds import (
     COLOR_ERROR,
     COLOR_INFO,
@@ -187,7 +188,9 @@ class SatisfactoryCog(commands.Cog):
                         (f"{state.num_players}/{state.player_limit}", "Spieler")
                     )
                     balken = (state.num_players, state.player_limit)
-                    kennzahlen.append((f"{state.average_tick_rate:.0f}", "Ticks/s"))
+                    kennzahlen.append(
+                        (f"{state.average_tick_rate:.0f}/{SAT_TICK_SOLL:.0f}", "Ticks/s")
+                    )
             except Exception as e:
                 logger.debug(f"API not available: {e}")
                 details.append(subtext("API nicht erreichbar"))
@@ -316,7 +319,7 @@ class SatisfactoryCog(commands.Cog):
             )
             embed.add_field(
                 name="Tick Rate",
-                value=f"{state.average_tick_rate:.1f} Ticks/s",
+                value=f"{state.average_tick_rate:.1f} / {SAT_TICK_SOLL:.0f} Ticks/s",
                 inline=True,
             )
             await interaction.followup.send(embed=embed)
@@ -704,7 +707,7 @@ class SatisfactoryCog(commands.Cog):
             )
             embed.add_field(
                 name="Tick Rate",
-                value=f"{state.average_tick_rate:.1f} Ticks/s",
+                value=f"{state.average_tick_rate:.1f} / {SAT_TICK_SOLL:.0f} Ticks/s",
                 inline=True,
             )
 

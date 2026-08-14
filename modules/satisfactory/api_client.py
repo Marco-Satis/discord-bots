@@ -13,6 +13,25 @@ from utils.logger import get_logger
 logger = get_logger("satisfactory.api")
 
 
+# Der Dedicated Server laeuft mit 60 Ticks/s (Marco 2026-08-14; live gemessen
+# 57,2 bei leerem Server). Alle Bewertungen der Tick-Rate haengen an diesem
+# Sollwert — steht er falsch, ist jede Ampel falsch, und genau das war der Fall:
+# die Schwellen waren auf 30 kalibriert, weshalb ein auf die Haelfte
+# eingebrochener Server noch gruen anzeigte.
+SAT_TICK_SOLL = 60.0
+SAT_TICK_WARN = 50.0    # darunter ruckelt es sichtbar (< 83 % des Solls)
+SAT_TICK_CRIT = 30.0    # darunter laeuft die Fabrik in halber Geschwindigkeit
+
+
+def tick_zustand(tick_rate: float) -> str:
+    """Ampel-Zustand einer Tick-Rate: "ok" | "warn" | "crit"."""
+    if tick_rate >= SAT_TICK_WARN:
+        return "ok"
+    if tick_rate >= SAT_TICK_CRIT:
+        return "warn"
+    return "crit"
+
+
 @dataclass
 class ServerState:
     """Parsed server state from API"""

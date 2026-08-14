@@ -40,7 +40,11 @@ class PerformanceThresholds:
     cpu_warning: float = 80.0
     ram_warning: float = 85.0
     disk_warning: float = 90.0
-    tick_rate_warning: float = 20.0
+    # Satisfactory laeuft mit 60 Ticks/s — siehe SAT_TICK_WARN in
+    # modules/satisfactory/api_client.py. Der alte Wert 20 stammte aus einer
+    # Zeit, in der ein 30er-Soll angenommen wurde, und haette selbst einen
+    # auf ein Drittel eingebrochenen Server nicht gemeldet.
+    tick_rate_warning: float = 50.0
     # Cooldown: don't spam warnings
     warning_cooldown: int = 300  # seconds
 
