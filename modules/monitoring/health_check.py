@@ -152,6 +152,11 @@ class HealthChecker:
         else:
             self.status.api_reachable = False
             self.status.players_online = 0
+            # Ohne dieses Zuruecksetzen behaelt der Status die zuletzt
+            # gemessene Tick-Rate eines Prozesses, den es nicht mehr gibt —
+            # die Statusdatei und jede Auswertung daraus zeigten dann eine
+            # Rechenleistung des toten Servers an.
+            self.status.tick_rate = 0.0
             self._api_fail_count = 0
 
             # Detect crash: was online/starting, now process dead

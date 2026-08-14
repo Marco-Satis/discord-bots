@@ -117,10 +117,16 @@ class WebStatusGenerator:
         # System Performance
         if self.perf_monitor:
             try:
-                current = self.perf_monitor.get_current()
-                context["cpu_percent"] = round(current.get("cpu", 0), 1)
-                context["ram_percent"] = round(current.get("ram", 0), 1)
-                context["disk_percent"] = round(current.get("disk", 0), 1)
+                # get_current() gibt es am PerformanceMonitor nicht — der
+                # Aufruf warf jedes Mal AttributeError, den das except
+                # darunter verschluckt hat. Die Seite zeigte deshalb dauerhaft
+                # 0 % fuer CPU, RAM und Disk.
+                current = self.perf_monitor.get_latest()
+                if current:
+                    context["cpu_percent"] = round(current.cpu_percent, 1)
+                    context["ram_percent"] = round(current.ram_percent, 1)
+                    context["disk_percent"] = round(current.disk_percent, 1)
+                    context["tick_rate"] = round(current.tick_rate, 1)
             except Exception as e:
                 logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
 

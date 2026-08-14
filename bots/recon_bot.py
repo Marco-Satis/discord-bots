@@ -1758,6 +1758,48 @@ async def before_ssl_check():
 # Stand, sonst wuerde ein Ausfall des einen den Zaehler des anderen ruecksetzen.
 _sat_offline_checks: dict[str, int] = {}
 _sat_downtime_notified: dict[str, bool] = {}
+# Letzte Tick-Warnung je Instanz. Der PerformanceMonitor haelt diesen Stand nur
+# fuer die erste Instanz; ohne eigenen Zaehler wuerde eine einbrechende zweite
+# Instanz entweder gar nicht oder alle zwei Minuten melden.
+_sat_tick_warn_at: dict[str, datetime] = {}
+
+
+async def _tick_alarm_pruefen(sid: str, name: str, tick_rate: float) -> None:
+    """
+    Tick-Rate einer weiteren Instanz pruefen und bei Einbruch melden.
+
+    Die erste Instanz laeuft ueber PerformanceMonitor.check_thresholds; dessen
+    Verlauf und Cooldown gehoeren einer Instanz. Hier dieselbe Schwelle, aber
+    eigener Cooldown je Instanz.
+    """
+    schwelle = perf_monitor.thresholds.tick_rate_warning
+    # 0.0 = kein Messwert (API stumm) — dafuer gibt es die Ausfall-Meldung.
+    if not (0.0 < tick_rate < schwelle):
+        return
+
+    letzte = _sat_tick_warn_at.get(sid)
+    cooldown = timedelta(seconds=perf_monitor.thresholds.warning_cooldown)
+    if letzte and (datetime.now() - letzte) <= cooldown:
+        return
+    _sat_tick_warn_at[sid] = datetime.now()
+
+    logger.warning(f"[{sid}] Tick-Rate {tick_rate:.1f} unter {schwelle:.0f}")
+    if not ADMIN_LOG_CHANNEL_ID:
+        return
+    kanal = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
+    if not kanal:
+        return
+    try:
+        await kanal.send(embed=warning_embed(
+            title=f"🐌 {name} rechnet langsam",
+            description=(
+                f"Tick-Rate {tick_rate:.1f} von {SAT_TICK_SOLL:.0f} "
+                f"(Warnschwelle {schwelle:.0f}).\n"
+                f"Die Fabrik laeuft dadurch spuerbar langsamer."
+            ),
+        ))
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"[{sid}] Tick-Meldung fehlgeschlagen: {e}")
 
 
 async def _weitere_sat_pruefen() -> None:
@@ -1797,6 +1839,7 @@ async def _weitere_sat_pruefen() -> None:
                         logger.error(f"[{sid}] Erholungs-Meldung fehlgeschlagen: {e}")
             _sat_offline_checks[sid] = 0
             _sat_downtime_notified[sid] = False
+            await _tick_alarm_pruefen(sid, name, status.tick_rate)
             continue
 
         if manual_stop_state.is_manually_stopped(kennung):
@@ -1969,7 +2012,16 @@ async def health_check_task():
         await crash_replay.update_buffer()
 
         # Performance check
-        metrics = await perf_monitor.collect(sat_server)
+        # Die Tick-Rate hat der Health-Checker gerade schon geholt — sie hier
+        # mitzugeben ist der Unterschied zwischen einer Schwelle, die nur im
+        # Dashboard steht, und einer, die tatsaechlich meldet.
+        # Nur im Zustand ONLINE ist der Wert frisch: bei STARTING behaelt der
+        # Health-Checker den letzten Messwert, und ein Server, der gerade
+        # hochfaehrt, soll keinen Leistungsalarm ausloesen.
+        tick_fuer_alarm = (
+            status.tick_rate if status.state == ServerState.ONLINE else 0.0
+        )
+        metrics = await perf_monitor.collect(sat_server, tick_rate=tick_fuer_alarm)
         warnings = perf_monitor.check_thresholds(metrics)
         if warnings:
             await notifier.notify_performance_warning(warnings)

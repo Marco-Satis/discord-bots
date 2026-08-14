@@ -11,6 +11,7 @@ from typing import Optional, Callable, Awaitable, Dict, List, Any
 from collections import deque
 
 from utils.logger import get_logger
+from modules.satisfactory.api_client import SAT_TICK_SOLL
 
 logger = get_logger("performance")
 
@@ -32,6 +33,11 @@ class SystemMetrics:
     process_cpu: float = 0.0
     process_ram_mb: int = 0
     process_pid: Optional[int] = None
+    # Tick-Rate des Spielservers. 0.0 heisst "kein Messwert" (Server offline
+    # oder API nicht erreichbar) — das ist ausdruecklich KEINE gemessene Null
+    # und loest deshalb keinen Alarm aus. Fuer den Offline-Fall gibt es die
+    # Downtime-Meldung, die sonst doppelt feuern wuerde.
+    tick_rate: float = 0.0
 
 
 @dataclass
@@ -65,8 +71,16 @@ class PerformanceMonitor:
         self.history: deque = deque(maxlen=history_size)
         self._last_warning_time: Dict[str, datetime] = {}
 
-    async def collect(self, server: Optional[Any] = None) -> SystemMetrics:
-        """Collect current system metrics"""
+    async def collect(self, server: Optional[Any] = None,
+                      tick_rate: Optional[float] = None) -> SystemMetrics:
+        """
+        Collect current system metrics.
+
+        tick_rate: aktuelle Tick-Rate des Spielservers, falls der Aufrufer sie
+        schon gemessen hat (der Health-Checker fragt sie ohnehin ab). Wird sie
+        nicht uebergeben, bleibt sie 0.0 und die Schwelle greift nicht — ein
+        Aufrufer, der sie nicht liefert, bekommt dadurch keinen Fehlalarm.
+        """
         cpu = psutil.cpu_percent(interval=0.5)
         mem = psutil.virtual_memory()
         disk = psutil.disk_usage("/")
@@ -83,6 +97,7 @@ class PerformanceMonitor:
             disk_used_gb=round(disk.used / 1024 / 1024 / 1024, 1),
             disk_percent=disk.percent,
             system_uptime=int(time.time() - boot),
+            tick_rate=float(tick_rate or 0.0),
         )
 
         # Process-specific metrics
@@ -119,6 +134,24 @@ class PerformanceMonitor:
                         f"{label}: {value:.1f}% (Limit: {threshold:.0f}%)"
                     )
                     self._last_warning_time[key] = now
+
+        # Tick-Rate ist die einzige Kennzahl hier, bei der ein NIEDRIGER Wert
+        # das Problem ist — deshalb steht sie nicht in der Schleife oben.
+        # Sie wurde bis 2026-08-14 ueberhaupt nicht geprueft: die Schwelle
+        # stand in der Konfiguration, wurde im Dashboard angezeigt und hat nie
+        # einen Alarm ausgeloest.
+        #
+        # 0.0 = kein Messwert (Server offline / API stumm). Das ist Sache der
+        # Downtime-Meldung, hier bewusst kein Alarm.
+        if 0.0 < metrics.tick_rate < self.thresholds.tick_rate_warning:
+            last = self._last_warning_time.get("tick")
+            if not last or (now - last) > cooldown:
+                warnings.append(
+                    f"Tick-Rate: {metrics.tick_rate:.1f} von {SAT_TICK_SOLL:.0f} "
+                    f"(Limit: {self.thresholds.tick_rate_warning:.0f}) — "
+                    f"der Server rechnet langsamer als er soll"
+                )
+                self._last_warning_time["tick"] = now
 
         return warnings
 
@@ -172,6 +205,10 @@ class PerformanceMonitor:
                 f"RAM: {latest.ram_percent:.1f}% ({latest.ram_used_mb} MB) | "
                 f"Disk: {latest.disk_percent:.1f}%"
             )
+            if latest.tick_rate > 0:
+                lines.append(
+                    f"Tick-Rate: {latest.tick_rate:.1f} von {SAT_TICK_SOLL:.0f}"
+                )
             if latest.process_pid:
                 lines.append(
                     f"SAT Process: CPU {latest.process_cpu:.1f}% | "
