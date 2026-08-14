@@ -106,7 +106,14 @@ def base_embed(
     )
     foot = footer if footer is not None else _BRAND_FOOTER
     if foot:
-        embed.set_footer(text=foot, icon_url=_BRAND_ICON or discord.utils.MISSING)
+        # icon_url NUR mitgeben, wenn es eins gibt. discord.utils.MISSING wird
+        # von set_footer nicht verworfen, sondern landet als "..." im Feld —
+        # Discord antwortet darauf mit 400 "Not a well formed URL" und die
+        # ganze Nachricht geht nicht raus.
+        if _BRAND_ICON:
+            embed.set_footer(text=foot, icon_url=_BRAND_ICON)
+        else:
+            embed.set_footer(text=foot)
     return embed
 
 
