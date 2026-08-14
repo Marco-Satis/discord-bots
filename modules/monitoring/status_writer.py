@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from modules.database.db_manager import get_db
-from utils.config import DATA_DIR, MONITOR_DATA_DIR, GAMESERVER_DATA_DIR, ADMIN_DATA_DIR
+from utils.config import DATA_DIR, MONITOR_DATA_DIR, GAMESERVER_DATA_DIR, ADMIN_DATA_DIR, get_env
 from utils.logger import get_logger
 
 logger = get_logger("status_writer")
@@ -170,49 +170,72 @@ class StatusWriter:
             self._events_flushed_up_to = max(0, self._events_flushed_up_to - trimmed)
 
     def _write_satisfactory_status(self) -> None:
-        """Schreibt den Satisfactory-Server-Status aus dem HealthChecker."""
-        health_checker = getattr(self.bot, "health_checker", None)
-        if health_checker is None:
-            return
+        """
+        Schreibt je Satisfactory-Instanz eine Statusdatei.
 
-        status = health_checker.status
-        state_str = status.state.value if hasattr(status.state, "value") else str(status.state)
+        Die erste Instanz behaelt den Dateinamen ``satisfactory_status.json`` —
+        daran haengen die Dashboard-Kachel, die Health-API und die Detailseite.
+        Weitere schreiben ``sat_<id>_status.json``; das Dashboard liest per
+        Glob ueber ``*_status.json``, die Kachel erscheint also von selbst.
+        """
+        health_checkers = getattr(self.bot, "sat_health_checkers", None)
+        if not health_checkers:
+            # Uebergang: solange nur der Einzelserver verdrahtet ist.
+            einzeln = getattr(self.bot, "health_checker", None)
+            if einzeln is None:
+                return
+            health_checkers = {"MAIN": einzeln}
 
-        # Update-Checker Daten (Build-IDs als Versions-Info)
-        update_checker = getattr(self.bot, "update_checker", None)
-        installed_build = "N/A"
-        available_build = "N/A"
-        update_available = False
-        if update_checker:
-            installed_build = getattr(update_checker, "installed_buildid", None) or "N/A"
-            available_build = getattr(update_checker, "last_known_buildid", None) or "N/A"
-            update_available = getattr(update_checker, "update_available", False)
+        update_checkers = getattr(self.bot, "sat_update_checkers", None) or {}
+        servers = getattr(self.bot, "sat_servers", None) or {}
+        erster = next(iter(health_checkers), "MAIN")
 
-        data = {
-            "id": "satisfactory",
-            "name": "Satisfactory",
-            "type": "satisfactory",
-            "status": state_str,
-            "players": status.players_online,
-            "max_players": status.player_limit,
-            "uptime": _format_uptime(status.uptime),
-            "uptime_seconds": status.uptime,
-            "cpu_percent": round(status.cpu_percent, 1),
-            "memory_mb": status.memory_mb,
-            "address": "203.0.113.10",
-            "port": 7777,
-            "session_name": status.session_name,
-            "tick_rate": status.tick_rate,
-            "pid": status.pid,
-            "api_reachable": status.api_reachable,
-            "process_running": status.process_running,
-            "version": installed_build,
-            "available_version": available_build,
-            "update_available": update_available,
-            "last_update": datetime.now(timezone.utc).isoformat(),
-        }
+        for sid, health_checker in health_checkers.items():
+            status = health_checker.status
+            state_str = (status.state.value if hasattr(status.state, "value")
+                         else str(status.state))
 
-        _write_json_safe(MONITOR_DATA_DIR / "satisfactory_status.json", data)
+            # Update-Checker Daten (Build-IDs als Versions-Info)
+            update_checker = update_checkers.get(sid) or getattr(
+                self.bot, "update_checker", None)
+            installed_build = "N/A"
+            available_build = "N/A"
+            update_available = False
+            if update_checker:
+                installed_build = getattr(update_checker, "installed_buildid", None) or "N/A"
+                available_build = getattr(update_checker, "last_known_buildid", None) or "N/A"
+                update_available = getattr(update_checker, "update_available", False)
+
+            srv = servers.get(sid)
+            kennung = "satisfactory" if sid == erster else f"sat_{sid.lower()}"
+            name = srv.display_name if srv else "Satisfactory"
+            port = get_env(f"SAT_{sid}_PORT", 7777 if sid == erster else 7778, cast=int)
+
+            data = {
+                "id": kennung,
+                "name": name,
+                "type": "satisfactory",
+                "status": state_str,
+                "players": status.players_online,
+                "max_players": status.player_limit,
+                "uptime": _format_uptime(status.uptime),
+                "uptime_seconds": status.uptime,
+                "cpu_percent": round(status.cpu_percent, 1),
+                "memory_mb": status.memory_mb,
+                "address": "203.0.113.10",
+                "port": port,
+                "session_name": status.session_name,
+                "tick_rate": status.tick_rate,
+                "pid": status.pid,
+                "api_reachable": status.api_reachable,
+                "process_running": status.process_running,
+                "version": installed_build,
+                "available_version": available_build,
+                "update_available": update_available,
+                "last_update": datetime.now(timezone.utc).isoformat(),
+            }
+
+            _write_json_safe(MONITOR_DATA_DIR / f"{kennung}_status.json", data)
 
     async def _write_minecraft_status(self) -> None:
         """Schreibt den Status aller Minecraft-Server (async wegen is_running)."""

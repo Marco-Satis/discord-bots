@@ -197,8 +197,18 @@ sat_api = sat_apis.get(_SAT_ERSTER) or SatisfactoryAPI(
     verify_ssl=get_env("API_VERIFY_SSL", False, cast=bool),
 )
 
-# Monitoring services
-health_checker = HealthChecker(
+# Monitoring services — je Satisfactory-Instanz einer.
+sat_health_checkers: dict[str, HealthChecker] = {
+    _sid: HealthChecker(
+        server=sat_servers[_sid], api=sat_apis[_sid],
+        auto_restart=config.get("auto_restart", True),
+        restart_delay=config.get("restart_delay", 30),
+    )
+    for _sid in sat_servers
+}
+bot.sat_health_checkers = sat_health_checkers
+
+health_checker = sat_health_checkers.get(_SAT_ERSTER) or HealthChecker(
     server=sat_server, api=sat_api,
     auto_restart=config.get("auto_restart", True),
     restart_delay=config.get("restart_delay", 30),
@@ -215,11 +225,22 @@ perf_monitor = PerformanceMonitor(
 
 player_tracker = PlayerTracker(data_dir=str(PROJECT_ROOT / "data"))
 
-update_checker = UpdateChecker(
+# Update-Pruefung je Installation — die Instanzen haben getrennte
+# Installationsverzeichnisse und koennen auf unterschiedlichen Staenden stehen.
+sat_update_checkers: dict[str, UpdateChecker] = {
+    _sid: UpdateChecker(
+        steamcmd_path=get_env("STEAMCMD_PATH", "/usr/games/steamcmd"),
+        install_dir=str(sat_servers[_sid].server_path),
+        server_user=sat_servers[_sid].server_user,
+    )
+    for _sid in sat_servers
+}
+bot.sat_update_checkers = sat_update_checkers
+
+update_checker = sat_update_checkers.get(_SAT_ERSTER) or UpdateChecker(
     steamcmd_path=get_env("STEAMCMD_PATH", "/usr/games/steamcmd"),
-    install_dir=get_env("SATISFACTORY_SERVER_PATH",
-                        "/home/satisfactory/SatisfactoryDedicatedServer"),
-    server_user=get_env("SATISFACTORY_USER", "satisfactory"),
+    install_dir=str(sat_server.server_path),
+    server_user=sat_server.server_user,
 )
 
 # Notification services
@@ -232,8 +253,37 @@ email_notifier = EmailNotifier(
     enabled=EMAIL_ENABLED,
 )
 
-# Backup services
-backup_manager = BackupManager(
+# Backup services — je Instanz eigene Quelle und eigenes Ziel.
+#
+# Die Speicherstaende liegen unter dem HOME der Instanz. Ein gemeinsames
+# Backup-Ziel wuerde beide Welten in einen Topf sichern und die Rotation
+# ueber Kreuz laufen lassen.
+
+
+def _sat_save_pfad(sid: str) -> Path:
+    """SaveGames-Ordner einer Instanz."""
+    eigen = get_env(f"SAT_{sid}_SAVE_PATH", "")
+    if not eigen and sid == _SAT_ERSTER:
+        eigen = get_env("SATISFACTORY_SAVE_PATH", "")
+    return Path(eigen) if eigen else sat_servers[sid].save_path / "SaveGames"
+
+
+def _sat_backup_pfad(sid: str) -> Path:
+    """Backup-Ziel einer Instanz."""
+    eigen = get_env(f"SAT_{sid}_BACKUP_PATH", "")
+    if not eigen and sid == _SAT_ERSTER:
+        eigen = get_env("BACKUP_PATH", "")
+    return Path(eigen) if eigen else PROJECT_ROOT / "backups" / sid.lower()
+
+
+sat_backup_mgrs: dict[str, BackupManager] = {
+    _sid: BackupManager(savegame_path=_sat_save_pfad(_sid),
+                        backup_path=_sat_backup_pfad(_sid))
+    for _sid in sat_servers
+}
+bot.sat_backup_mgrs = sat_backup_mgrs
+
+backup_manager = sat_backup_mgrs.get(_SAT_ERSTER) or BackupManager(
     savegame_path=Path(get_env("SATISFACTORY_SAVE_PATH",
                         "/home/satisfactory/.config/Epic/FactoryGame/Saved/SaveGames")),
     backup_path=Path(get_env("BACKUP_PATH", str(PROJECT_ROOT / "backups"))),
@@ -276,23 +326,57 @@ stats_tracker = sat_stats_trackers.get(
 # Server optimizer
 optimizer = ServerOptimizer(config)
 
-# Savegame analyzer for building/power stats
-savegame_analyzer = SavegameAnalyzer(
+# Savegame analyzer for building/power stats — je Instanz eigener Zwischenspeicher,
+# sonst ueberschreiben sich die Analysen der beiden Welten gegenseitig.
+sat_savegame_analyzers: dict[str, SavegameAnalyzer] = {
+    _sid: SavegameAnalyzer(
+        savegame_path=_sat_save_pfad(_sid),
+        cache_dir=PROJECT_ROOT / "data" / "analyzer_cache" / _sid.lower(),
+    )
+    for _sid in sat_servers
+}
+bot.sat_savegame_analyzers = sat_savegame_analyzers
+
+savegame_analyzer = sat_savegame_analyzers.get(_SAT_ERSTER) or SavegameAnalyzer(
     savegame_path=Path(get_env("SATISFACTORY_SAVE_PATH",
                         "/home/satisfactory/.config/Epic/FactoryGame/Saved/SaveGames")),
     cache_dir=PROJECT_ROOT / "data" / "analyzer_cache",
 )
 
-# Crash replay - captures log context on crashes
-crash_replay = CrashReplay(
-    log_path=sat_server.server_path / "FactoryGame" / "Saved" / "Logs" / "FactoryGame.log",
+# Crash replay — liest die Logdatei der jeweiligen Installation.
+sat_crash_replays: dict[str, CrashReplay] = {
+    _sid: CrashReplay(
+        log_path=sat_servers[_sid].log_path,
+        replay_dir=PROJECT_ROOT / "data" / "crash_replays" / _sid.lower(),
+        context_lines=50,
+        max_replays=20,
+    )
+    for _sid in sat_servers
+}
+bot.sat_crash_replays = sat_crash_replays
+
+crash_replay = sat_crash_replays.get(_SAT_ERSTER) or CrashReplay(
+    log_path=sat_server.log_path,
     replay_dir=PROJECT_ROOT / "data" / "crash_replays",
     context_lines=50,
     max_replays=20,
 )
 
-# Player IP tracker - maps player names to IPs for kick/ban
-player_ip_tracker = PlayerIPTracker(
+# Player IP tracker — die Ports gehoeren je Instanz getrennt, sonst sperrt ein
+# Bann auf dem einen Server die Verbindung zum anderen mit.
+sat_ip_trackers: dict[str, PlayerIPTracker] = {
+    _sid: PlayerIPTracker(
+        game_type="sat",
+        game_ports=[
+            get_env(f"SAT_{_sid}_PORT", 7777 if _sid == _SAT_ERSTER else 7778, cast=int),
+            get_env(f"SAT_{_sid}_API_PORT", 7777 if _sid == _SAT_ERSTER else 7778, cast=int),
+        ],
+    )
+    for _sid in sat_servers
+}
+bot.sat_ip_trackers = sat_ip_trackers
+
+player_ip_tracker = sat_ip_trackers.get(_SAT_ERSTER) or PlayerIPTracker(
     game_type="sat",
     game_ports=[7777, 7778, 8888, 8889],
 )
@@ -1653,12 +1737,83 @@ async def before_ssl_check():
     await asyncio.sleep(60)
 
 
+# Ausfall-Zaehler der zusaetzlichen Satisfactory-Instanzen. Die erste laeuft
+# ueber die Modul-Variablen darunter; fuer weitere braucht jede ihren eigenen
+# Stand, sonst wuerde ein Ausfall des einen den Zaehler des anderen ruecksetzen.
+_sat_offline_checks: dict[str, int] = {}
+_sat_downtime_notified: dict[str, bool] = {}
+
+
+async def _weitere_sat_pruefen() -> None:
+    """
+    Health-Check fuer alle Satisfactory-Instanzen ausser der ersten.
+
+    Ohne diesen Durchlauf bliebe ein zweiter Server unbeobachtet: seine
+    Statusdatei veraltete, und ein Ausfall faende keinen Alarm — genau die
+    stille Sorte Ausfall, die dieser Bot verhindern soll.
+    """
+    from modules.monitoring import manual_stop_state
+
+    for sid, checker in list(sat_health_checkers.items()):
+        if sid == _SAT_ERSTER:
+            continue
+        try:
+            status = await checker.check()
+        except Exception as e:  # noqa: BLE001 — eine Instanz darf die anderen nicht mitreissen
+            logger.warning(f"[{sid}] Health-Check fehlgeschlagen: {e}")
+            continue
+
+        srv = sat_servers.get(sid)
+        name = srv.display_name if srv else sid
+        kennung = f"sat_{sid.lower()}"
+
+        if status.state == ServerState.ONLINE:
+            if _sat_downtime_notified.get(sid) and ADMIN_LOG_CHANNEL_ID:
+                minuten = _sat_offline_checks.get(sid, 0) * 2
+                kanal = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
+                if kanal:
+                    try:
+                        await kanal.send(embed=success_embed(
+                            title=f"🟢 {name} ist wieder online",
+                            description=f"War {minuten} Minuten offline.",
+                        ))
+                    except Exception as e:  # noqa: BLE001
+                        logger.error(f"[{sid}] Erholungs-Meldung fehlgeschlagen: {e}")
+            _sat_offline_checks[sid] = 0
+            _sat_downtime_notified[sid] = False
+            continue
+
+        if manual_stop_state.is_manually_stopped(kennung):
+            _sat_offline_checks[sid] = 0
+            _sat_downtime_notified[sid] = False
+            continue
+
+        _sat_offline_checks[sid] = _sat_offline_checks.get(sid, 0) + 1
+        if (_sat_offline_checks[sid] >= 3 and not _sat_downtime_notified.get(sid)
+                and ADMIN_LOG_CHANNEL_ID):
+            _sat_downtime_notified[sid] = True
+            kanal = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
+            if kanal:
+                try:
+                    await kanal.send(embed=error_embed(
+                        title=f"🔴 {name} ist offline",
+                        description=(f"Seit {_sat_offline_checks[sid] * 2} Minuten "
+                                     f"nicht erreichbar."),
+                    ))
+                except Exception as e:  # noqa: BLE001
+                    logger.error(f"[{sid}] Ausfall-Meldung fehlgeschlagen: {e}")
+
+
 @tasks.loop(seconds=120)
 async def health_check_task():
     """Health check every 2 minutes"""
     global _consecutive_offline_checks, _downtime_notified
     try:
         status = await health_checker.check()
+
+        # Zusaetzliche Instanzen mitpruefen. Die erste laeuft unveraendert
+        # ueber die Logik darunter.
+        await _weitere_sat_pruefen()
 
         # -- Downtime Notification (Phase 10b) --
         if status.state != ServerState.ONLINE:
