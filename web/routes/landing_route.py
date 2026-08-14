@@ -43,7 +43,7 @@ async def _public_payload() -> dict:
 async def landing(request: Request):
     """Öffentliche Landing-Page mit Live-Status (ohne Event-Log)."""
     data = await _public_payload()
-    return templates.TemplateResponse("landing.html", {"request": request, **data})
+    return templates.TemplateResponse(request, "landing.html", {"request": request, **data})
 
 
 @router.get("/partials/landing-stats", response_class=HTMLResponse,
@@ -51,4 +51,4 @@ async def landing(request: Request):
 async def landing_stats(request: Request):
     """30s-Poll-Target: rendert nur den Live-Stat-Strip."""
     data = await _public_payload()
-    return templates.TemplateResponse("_landing_stats.html", {"request": request, **data})
+    return templates.TemplateResponse(request, "_landing_stats.html", {"request": request, **data})

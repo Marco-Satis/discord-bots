@@ -132,7 +132,7 @@ async def errors_page(request: Request, level: str = "", current_user: dict = De
     # Pruefen ob es ein HTMX-Request ist (nur Tabellen-Fragment zurueckgeben)
     is_htmx = request.headers.get("HX-Request") == "true"
 
-    return templates.TemplateResponse("errors.html", {
+    return templates.TemplateResponse(request, "errors.html", {
         "request": request,
         "user": current_user,
         "entries": entries,

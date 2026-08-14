@@ -16,14 +16,16 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from modules.database.db_manager import get_db
 from utils.logger import get_logger
-from web.auth import require_auth_api
+from web.auth import require_auth_api, require_perm
 
 logger = get_logger("web.routes.export")
 
 router = APIRouter(
     prefix="/api/export",
     tags=["Export"],
-    dependencies=[Depends(require_auth_api)],
+    # Nicht nur "angemeldet": hier gehen Audit-Trail und Spielerdaten raus.
+    # Vorher konnte jedes Guild-Mitglied mit Dashboard-Zugang beides ziehen.
+    dependencies=[Depends(require_perm("audit", "view"))],
 )
 
 # Unterstuetzte Exportzeitraeume (in Tagen)

@@ -16,6 +16,7 @@ from fastapi.templating import Jinja2Templates
 from utils.config import PROJECT_ROOT, DATA_DIR, MONITOR_DATA_DIR, get_env
 from utils.logger import get_logger
 from web.auth import require_auth, require_auth_api, require_perm
+from web.dashboard_feed import BOT_ANZEIGE, bot_eintrag
 from modules.database.db_manager import get_db, get_read_db
 
 EVENTS_FILE = MONITOR_DATA_DIR / "events.json"
@@ -128,26 +129,16 @@ def _collect_system_stats() -> dict:
 def _collect_bot_status() -> list[dict]:
     """
     Sammelt Bot-Status-Informationen aus bekannten Status-Dateien.
+
+    Namen und Frische-Pruefung kommen aus web/dashboard_feed.py — dieselbe
+    Kachel wird beim Seitenaufbau hier und danach per WebSocket dort erzeugt.
+    Zwei Kopien der Liste haben schon einmal auseinandergedriftet: hier standen
+    noch die Bot-Namen von vor der Umbenennung, und pipeline-bot fehlte.
     """
-    bots = []
-    bot_names = {
-        "gameserver": "GameServer Bot",
-        "monitor": "Monitor Bot",
-        "admin": "Admin Bot",
-    }
-
-    for bot_id, display_name in bot_names.items():
-        status_file = DATA_DIR / bot_id / "bot_status.json"
-        data = _load_json_safe(status_file)
-        bots.append({
-            "id": bot_id,
-            "name": display_name,
-            "status": data.get("status", "unknown"),
-            "ping": data.get("ping_ms", "N/A"),
-            "uptime": data.get("uptime", "N/A"),
-        })
-
-    return bots
+    return [
+        bot_eintrag(bot_id, name, _load_json_safe(DATA_DIR / bot_id / "bot_status.json"))
+        for bot_id, name in BOT_ANZEIGE.items()
+    ]
 
 
 def _collect_recent_events_json() -> list[dict]:
@@ -212,7 +203,7 @@ async def dashboard_overview(request: Request, current_user: dict = Depends(requ
         _collect_recent_events_db(),
     )
 
-    return templates.TemplateResponse("dashboard.html", {
+    return templates.TemplateResponse(request, "dashboard.html", {
         "request": request,
         "user": current_user,
         "servers": servers,

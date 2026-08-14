@@ -21,7 +21,7 @@
                     <div style="display: flex; gap: 0.35rem;">
                         <button class="btn btn-sm btn-secondary"
                                 hx-post="/api/server/{{ server_id }}/action"
-                                hx-vals='{"action": "download_backup", "filename": "{{ backup.filename }}"}'
+                                hx-vals='{"action": "download_backup", "filename": {{ backup.filename | tojson }}}'
                                 hx-target="#action-result"
                                 hx-swap="innerHTML"
                                 style="padding: 0.2rem 0.5rem; font-size: 0.75rem;">
@@ -29,7 +29,7 @@
                         </button>
                         <button class="btn btn-sm btn-danger"
                                 hx-post="/api/server/{{ server_id }}/action"
-                                hx-vals='{"action": "delete_backup", "filename": "{{ backup.filename }}"}'
+                                hx-vals='{"action": "delete_backup", "filename": {{ backup.filename | tojson }}}'
                                 hx-target="#action-result"
                                 hx-swap="innerHTML"
                                 hx-confirm="Backup {{ backup.filename }} wirklich loeschen? Diese Aktion kann nicht rueckgaengig gemacht werden."

@@ -20,6 +20,7 @@ from fastapi.templating import Jinja2Templates
 
 from utils.config import load_env, get_env, get_config
 from utils.logger import get_logger
+from web import session_invalidation
 from utils.client_ip import client_ip_from_scope
 
 logger = get_logger("web.auth")
@@ -148,11 +149,20 @@ def _create_jwt(user_data: dict) -> str:
 
 
 def _decode_jwt(token: str) -> Optional[dict]:
-    """Dekodiert ein JWT-Token. Gibt None zurueck bei ungueltigem Token."""
+    """Dekodiert ein JWT-Token. Gibt None zurueck bei ungueltigem Token.
+
+    Prueft zusaetzlich die Abmelde-Sperre: ein Token, das vor der letzten
+    Abmeldung des Nutzers ausgestellt wurde, gilt nicht mehr. Ohne diesen
+    Schritt bliebe ein kopiertes Cookie bis zum Ablauf gueltig — Abmelden
+    loescht es nur im Browser.
+    """
     try:
-        return jwt.decode(token, WEB_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+        payload = jwt.decode(token, WEB_SECRET_KEY, algorithms=[JWT_ALGORITHM])
     except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
         return None
+    if session_invalidation.ist_abgemeldet(payload.get("sub"), payload.get("iat")):
+        return None
+    return payload
 
 
 # --- Oeffentliche Hilfsfunktionen ---
@@ -271,7 +281,7 @@ def allow_anon():
 async def login_page(request: Request, error: str = "", reason: str = ""):
     """Zeigt die Login-Seite an. `reason` (inactive/timeout) → Sitzungs-Ablauf-Hinweis."""
     oauth_configured = bool(DISCORD_CLIENT_ID and DISCORD_CLIENT_SECRET)
-    return templates.TemplateResponse("login.html", {
+    return templates.TemplateResponse(request, "login.html", {
         "request": request,
         "error": error,
         "reason": reason,
@@ -457,7 +467,7 @@ async def login_post(request: Request, username: str = Form(""), password: str =
     # Rate-Limit pruefen
     if not _check_rate_limit(client_ip):
         logger.warning(f"Rate-Limit erreicht fuer IP {client_ip}")
-        return templates.TemplateResponse("login.html", {
+        return templates.TemplateResponse(request, "login.html", {
             "request": request,
             "error": "Zu viele Login-Versuche. Bitte 15 Minuten warten.",
             "oauth_configured": bool(DISCORD_CLIENT_ID and DISCORD_CLIENT_SECRET),
@@ -468,14 +478,14 @@ async def login_post(request: Request, username: str = Form(""), password: str =
     # B2/M13-Fix: Fallback-Login nur bei explizit gesetztem Flag (Owner-Total-Compromise-Schutz)
     if not WEB_FALLBACK_LOGIN:
         logger.warning(f"[AUDIT] Fallback-Login-Versuch bei deaktiviertem Flag von {client_ip}")
-        return templates.TemplateResponse("login.html", {
+        return templates.TemplateResponse(request, "login.html", {
             "request": request,
             "error": "Passwort-Login ist deaktiviert. Bitte ueber Discord anmelden.",
             "oauth_configured": bool(DISCORD_CLIENT_ID and DISCORD_CLIENT_SECRET),
         }, status_code=403)
 
     if not username or not password:
-        return templates.TemplateResponse("login.html", {
+        return templates.TemplateResponse(request, "login.html", {
             "request": request,
             "error": "Benutzername und Passwort erforderlich.",
             "oauth_configured": bool(DISCORD_CLIENT_ID and DISCORD_CLIENT_SECRET),
@@ -484,7 +494,7 @@ async def login_post(request: Request, username: str = Form(""), password: str =
     # Benutzername pruefen
     if username != WEB_ADMIN_USER:
         logger.warning(f"Fehlgeschlagener Login-Versuch: Benutzer '{username}' von {client_ip}")
-        return templates.TemplateResponse("login.html", {
+        return templates.TemplateResponse(request, "login.html", {
             "request": request,
             "error": "Ungueltiger Benutzername oder Passwort.",
             "oauth_configured": bool(DISCORD_CLIENT_ID and DISCORD_CLIENT_SECRET),
@@ -493,7 +503,7 @@ async def login_post(request: Request, username: str = Form(""), password: str =
     # Passwort mit bcrypt pruefen
     if not WEB_ADMIN_PASS_HASH:
         logger.error("WEB_ADMIN_PASS_HASH ist nicht gesetzt — Fallback-Login deaktiviert")
-        return templates.TemplateResponse("login.html", {
+        return templates.TemplateResponse(request, "login.html", {
             "request": request,
             "error": "Passwort-Login ist nicht konfiguriert.",
             "oauth_configured": bool(DISCORD_CLIENT_ID and DISCORD_CLIENT_SECRET),
@@ -503,14 +513,14 @@ async def login_post(request: Request, username: str = Form(""), password: str =
         import bcrypt
         if not bcrypt.checkpw(password.encode("utf-8"), WEB_ADMIN_PASS_HASH.encode("utf-8")):
             logger.warning(f"Falsches Passwort fuer '{username}' von {client_ip}")
-            return templates.TemplateResponse("login.html", {
+            return templates.TemplateResponse(request, "login.html", {
                 "request": request,
                 "error": "Ungueltiger Benutzername oder Passwort.",
                 "oauth_configured": bool(DISCORD_CLIENT_ID and DISCORD_CLIENT_SECRET),
             }, status_code=401)
     except Exception as e:
         logger.error(f"bcrypt-Fehler: {e}")
-        return templates.TemplateResponse("login.html", {
+        return templates.TemplateResponse(request, "login.html", {
             "request": request,
             "error": "Interner Fehler bei der Passwort-Pruefung.",
             "oauth_configured": bool(DISCORD_CLIENT_ID and DISCORD_CLIENT_SECRET),
@@ -553,14 +563,22 @@ async def login_post(request: Request, username: str = Form(""), password: str =
 
 # --- Logout ---
 
-@auth_router.get("/logout")
+@auth_router.post("/logout")
 async def logout(request: Request):
-    """Meldet den Benutzer ab und loescht die Session."""
+    """Meldet den Benutzer ab — auf allen Geraeten.
+
+    POST statt GET: als GET liess sich die Abmeldung von fremden Seiten
+    ausloesen (`<img src=".../auth/logout">`), und die CSRF-Middleware greift
+    nur bei schreibenden Methoden.
+    """
     user = get_current_user(request)
     if user:
+        # Erst die Sperre setzen, dann das Cookie loeschen. Umgekehrt bliebe
+        # ein Zeitfenster, in dem ein kopiertes Token noch gilt.
+        session_invalidation.abmelden(str(user.get("sub", "")))
         logger.info(f"Benutzer abgemeldet: {user.get('username', 'Unbekannt')}")
 
-    response = RedirectResponse(url="/auth/login", status_code=302)
+    response = RedirectResponse(url="/auth/login", status_code=303)
     response.delete_cookie("dashboard_token")
     request.session.clear()
     return response

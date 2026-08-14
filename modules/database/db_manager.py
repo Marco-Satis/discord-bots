@@ -99,6 +99,12 @@ async def init_db(db_path: Optional[Path] = None) -> aiosqlite.Connection:
         await _connection.execute("PRAGMA foreign_keys=ON")
         # Busy Timeout: 5 Sekunden warten bei Lock
         await _connection.execute("PRAGMA busy_timeout=5000")
+        # Die drei folgenden schreibt .claude/rules/database.md vor, sie fehlten
+        # aber. Der Default-Seitencache liegt bei 2 MB — fuer eine 82-MB-Datei
+        # mit 32 MB Indizes heisst das: fast jede Abfrage geht auf die Platte.
+        await _connection.execute("PRAGMA cache_size=-64000")   # 64 MB
+        await _connection.execute("PRAGMA temp_store=MEMORY")   # Temp-Tabellen im RAM
+        await _connection.execute("PRAGMA mmap_size=268435456")  # 256 MB
 
         # Row-Factory fuer dict-aehnlichen Zugriff
         _connection.row_factory = aiosqlite.Row
@@ -134,6 +140,11 @@ async def _init_read_pool() -> None:
                 conn = await aiosqlite.connect(ro_uri, uri=True)
                 # busy_timeout auch fuer Reader (sollte selten triggern in WAL)
                 await conn.execute("PRAGMA busy_timeout=5000")
+                # Der Lesepool profitiert am meisten davon: hier laufen die
+                # Analytics- und Statistik-Abfragen.
+                await conn.execute("PRAGMA cache_size=-64000")
+                await conn.execute("PRAGMA temp_store=MEMORY")
+                await conn.execute("PRAGMA mmap_size=268435456")
                 conn.row_factory = aiosqlite.Row
                 _read_pool.append(conn)
             except Exception as e:

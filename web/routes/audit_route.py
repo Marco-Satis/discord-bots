@@ -52,7 +52,7 @@ async def audit_page(
         limit=_DEFAULT_LIMIT,
     )
 
-    return templates.TemplateResponse("audit.html", {
+    return templates.TemplateResponse(request, "audit.html", {
         "request": request,
         "user_ctx": current_user,
         "entries": entries,

@@ -196,6 +196,9 @@ class UpdateManager:
                 "error": None,
             }
 
+            # Merker fuer den Fehlerpfad: liegt der neue Stand schon am Platz?
+            geswapped = False
+            rollback_dir = None
             try:
                 # Version-Info holen falls nicht übergeben
                 if not version_info:
@@ -317,6 +320,11 @@ class UpdateManager:
                         rollback_dir=rollback_dir,
                     )
                     result["phases"]["swap"] = swap_meta
+                    # Ab hier liegt der neue Stand am Platz und der alte im
+                    # Rollback-Ordner. Scheitert danach noch etwas (etwa die
+                    # NeoForge-Installation), ist ein blosser Serverstart die
+                    # falsche Reaktion — dann muss zurueckgerollt werden.
+                    geswapped = True
 
                     # Etappe 4.12: RCON-Bind-Hardening enforcen post-Update
                     # (Major-Updates koennten rcon.host=127.0.0.1 zuruecksetzen)
@@ -427,8 +435,7 @@ class UpdateManager:
                     version_info.get("latest", "?") if version_info else "?",
                     str(e),
                 )
-                # Versuche Server trotzdem zu starten
-                await self._safe_start_server()
+                await self._nach_fehler_aufraeumen(geswapped, rollback_dir, server_path)
                 return False, result
 
             except Exception as e:
@@ -438,7 +445,7 @@ class UpdateManager:
                     await self._finalize_update_log(
                         self._current_update_id, "failed", error=str(e)
                     )
-                await self._safe_start_server()
+                await self._nach_fehler_aufraeumen(geswapped, rollback_dir, server_path)
                 return False, result
 
             finally:
@@ -619,6 +626,13 @@ class UpdateManager:
         logger.warning(f"[{self.server_id}] RCON stop nicht erfolgreich — systemctl stop")
         try:
             success, msg = await self.mc_server.stop()
+            if not success:
+                # Die Meldung wurde bisher weggeworfen — beim Nachstellen eines
+                # fehlgeschlagenen Stops stand nur "Server laeuft noch" im Log,
+                # ohne den Grund.
+                logger.warning(
+                    f"[{self.server_id}] systemctl stop meldet Fehlschlag: {msg}"
+                )
             for _ in range(5):
                 await asyncio.sleep(2)
                 if not await self.mc_server.is_running():
@@ -727,38 +741,99 @@ class UpdateManager:
             logger.error(f"[{self.server_id}] Start-Fehler: {e}")
             return False
 
+    async def _lauf(self, *befehl: str, timeout: int = 60) -> None:
+        """Externen Befehl ausfuehren und den Rueckgabewert pruefen.
+
+        Bis 2026-08-14 wurden die Rollback-Befehle abgesetzt, ohne das Ergebnis
+        anzusehen — ein gescheitertes ``mv`` fuehrte trotzdem zur Meldung
+        „Rollback erfolgreich", und danach startete der Server auf einem
+        Zwischenstand. Ein stiller Fehlschlag ist hier der teuerste Fall.
+        """
+        proc = await asyncio.create_subprocess_exec(
+            *befehl,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        if proc.returncode != 0:
+            meldung = (stderr or stdout or b"").decode("utf-8", "replace").strip()
+            raise RuntimeError(
+                f"Befehl fehlgeschlagen (rc={proc.returncode}): "
+                f"{' '.join(befehl)} — {meldung[:200]}"
+            )
+
     async def _perform_rollback(
         self, rollback_dir: Path, server_path: Path
-    ) -> None:
-        """Stellt den alten Server-Zustand aus dem Rollback wieder her."""
+    ) -> bool:
+        """Stellt den alten Server-Zustand wieder her.
+
+        Returns:
+            True, wenn der alte Stand nachweislich zurueck ist. Bei False steht
+            der Server in einem Zwischenzustand und braucht Handarbeit — der
+            Aufrufer darf das nicht als Erfolg behandeln.
+        """
         logger.info(f"[{self.server_id}] Rollback wird durchgeführt...")
 
+        if not rollback_dir.exists():
+            logger.error(
+                f"[{self.server_id}] Rollback-Verzeichnis nicht gefunden: "
+                f"{rollback_dir} — kein Rollback moeglich"
+            )
+            return False
+
         try:
-            if rollback_dir.exists():
-                # Fehlerhaften neuen Ordner entfernen
-                if server_path.exists():
-                    proc = await asyncio.create_subprocess_exec(
-                        "sudo", "rm", "-rf", str(server_path),
-                    )
-                    await asyncio.wait_for(proc.communicate(), timeout=60)
+            # Fehlerhaften neuen Ordner entfernen
+            if server_path.exists():
+                await self._lauf("sudo", "rm", "-rf", str(server_path))
 
-                # Rollback zurückschieben
-                proc = await asyncio.create_subprocess_exec(
-                    "sudo", "mv", str(rollback_dir), str(server_path),
+            # Rollback zurückschieben
+            await self._lauf("sudo", "mv", str(rollback_dir), str(server_path))
+
+            if not server_path.exists():
+                raise RuntimeError(
+                    f"Nach dem Zurueckschieben fehlt {server_path}"
                 )
-                await asyncio.wait_for(proc.communicate(), timeout=60)
 
-                logger.info(f"[{self.server_id}] Rollback erfolgreich")
-
-                # Server mit alter Version starten
-                await self._safe_start_server()
-            else:
-                logger.error(
-                    f"[{self.server_id}] Rollback-Verzeichnis nicht gefunden: "
-                    f"{rollback_dir}"
-                )
+            logger.info(f"[{self.server_id}] Rollback erfolgreich")
+            await self._safe_start_server()
+            return True
         except Exception as e:
-            logger.error(f"[{self.server_id}] Rollback fehlgeschlagen: {e}")
+            logger.error(
+                f"[{self.server_id}] ROLLBACK FEHLGESCHLAGEN: {e} — der Server "
+                f"steht in einem Zwischenzustand und startet NICHT automatisch. "
+                f"Alter Stand liegt unter {rollback_dir}",
+                exc_info=True,
+            )
+            return False
+
+    async def _nach_fehler_aufraeumen(
+        self,
+        geswapped: bool,
+        rollback_dir: Optional[Path],
+        server_path: Optional[Path],
+    ) -> None:
+        """Aufraeumen nach einem gescheiterten Update.
+
+        Der Unterschied, um den es geht: **vor** dem Atomic-Swap liegt der alte
+        Stand noch am Platz — dann genuegt ein Serverstart. **Nach** dem Swap
+        liegt der neue, halbfertige Stand dort; ein blosser Start wuerde den
+        kaputten Zustand hochfahren. Bis 2026-08-14 machte der Fehlerpfad
+        keinen Unterschied und startete immer nur.
+        """
+        if geswapped and rollback_dir and server_path:
+            logger.warning(
+                f"[{self.server_id}] Fehler nach dem Austausch — der neue Stand "
+                f"liegt bereits am Platz. Rollback wird durchgefuehrt."
+            )
+            erfolg = await self._perform_rollback(rollback_dir, server_path)
+            if not erfolg:
+                logger.error(
+                    f"[{self.server_id}] Rollback misslungen — Server bleibt "
+                    f"gestoppt. Handarbeit noetig."
+                )
+            return
+        # Vor dem Austausch: der alte Stand ist unberuehrt.
+        await self._safe_start_server()
 
     async def _safe_start_server(self) -> None:
         """Versucht den Server zu starten (best-effort, keine Exception)."""

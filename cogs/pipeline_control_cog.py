@@ -67,7 +67,12 @@ _VALID_ACTIONS = ("start", "stop", "mode", "sweepmode", "daylimit", "status")
 # Discords Edit-Rate-Limit weit entfernt; entscheidend ist, dass wir NUR editieren wenn
 # sich der gerenderte Inhalt geaendert hat (siehe _panel_signature). Im Leerlauf geht
 # also gar kein API-Call raus, nur ein billiger lokaler Subprocess.
-REFRESH_SECONDS = int(os.getenv("PIPELINE_PANEL_REFRESH_SECONDS", "15") or "15")
+# 30 Sekunden statt der frueheren 15: das Panel zeigt Zustaende, die sich im
+# Minutentakt aendern (Dienst laeuft / laeuft nicht, letzte Ausfuehrung), und
+# jeder Takt ist eine Nachrichten-Bearbeitung gegen die Discord-API. Der halbe
+# Takt kostete das doppelte Kontingent ohne sichtbaren Gewinn. Ueber
+# PIPELINE_PANEL_REFRESH_SECONDS weiterhin einstellbar.
+REFRESH_SECONDS = int(os.getenv("PIPELINE_PANEL_REFRESH_SECONDS", "30") or "30")
 
 
 def _marco_uid() -> int:

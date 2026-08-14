@@ -63,7 +63,7 @@ async def rbac_page(
 ):
     """Rollen-Mapping-Seite anzeigen (Owner-only)."""
     ctx = await _ctx()
-    return templates.TemplateResponse("rbac.html", {
+    return templates.TemplateResponse(request, "rbac.html", {
         "request": request,
         "user": current_user,
         "success": "",
@@ -135,7 +135,7 @@ async def rbac_config_save(
         error = "Fehler beim Speichern. Details im Server-Log."
 
     ctx = await _ctx()
-    return templates.TemplateResponse("partials/rbac_config.html", {
+    return templates.TemplateResponse(request, "partials/rbac_config.html", {
         "request": request,
         "success": success,
         "error": error,

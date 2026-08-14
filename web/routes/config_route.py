@@ -99,7 +99,7 @@ async def config_page(request: Request, current_user: dict = Depends(require_aut
 
     config = get_config()
 
-    return templates.TemplateResponse("config.html", {
+    return templates.TemplateResponse(request, "config.html", {
         "request": request,
         "user": current_user,
         "config": config,
@@ -212,7 +212,7 @@ async def config_save(request: Request, current_user: dict = Depends(require_aut
         save_config(config)
         logger.info(f"Konfiguration gespeichert von {user.get('username', 'Unbekannt')}")
 
-        return templates.TemplateResponse("config.html", {
+        return templates.TemplateResponse(request, "config.html", {
             "request": request,
             "user": user,
             "config": config,
@@ -223,7 +223,7 @@ async def config_save(request: Request, current_user: dict = Depends(require_aut
     except Exception as e:
         logger.error(f"Fehler beim Speichern der Konfiguration: {e}")
         config = get_config()
-        return templates.TemplateResponse("config.html", {
+        return templates.TemplateResponse(request, "config.html", {
             "request": request,
             "user": user,
             "config": config,
@@ -245,7 +245,7 @@ async def notifications_page(request: Request, current_user: dict = Depends(requ
     config = get_config()
     routing = config.get("notification_routing", DEFAULT_NOTIFICATION_ROUTING)
 
-    return templates.TemplateResponse("partials/config_notifications.html", {
+    return templates.TemplateResponse(request, "partials/config_notifications.html", {
         "request": request,
         "user": current_user,
         "routing": routing,
@@ -286,7 +286,7 @@ async def save_notifications(request: Request, current_user: dict = Depends(requ
         save_config(config)
         logger.info(f"Benachrichtigungs-Routing gespeichert von {user.get('username', 'Unbekannt')}")
 
-        return templates.TemplateResponse("partials/config_notifications.html", {
+        return templates.TemplateResponse(request, "partials/config_notifications.html", {
             "request": request,
             "user": user,
             "routing": routing,
@@ -301,7 +301,7 @@ async def save_notifications(request: Request, current_user: dict = Depends(requ
         logger.error(f"Fehler beim Speichern des Benachrichtigungs-Routings: {e}")
         config = get_config()
         routing = config.get("notification_routing", DEFAULT_NOTIFICATION_ROUTING)
-        return templates.TemplateResponse("partials/config_notifications.html", {
+        return templates.TemplateResponse(request, "partials/config_notifications.html", {
             "request": request,
             "user": user,
             "routing": routing,
@@ -327,7 +327,7 @@ async def login_management(request: Request, current_user: dict = Depends(requir
     allowed_roles = config.get("web_allowed_role_ids", [])
     allowed_users = config.get("web_allowed_user_ids", [])
 
-    return templates.TemplateResponse("partials/config_login.html", {
+    return templates.TemplateResponse(request, "partials/config_login.html", {
         "request": request,
         "user": current_user,
         "allowed_roles": allowed_roles,
@@ -367,7 +367,7 @@ async def save_login_settings(request: Request, current_user: dict = Depends(req
         save_config(config)
         logger.info(f"Login-Einstellungen gespeichert von {user.get('username', 'Unbekannt')}")
 
-        return templates.TemplateResponse("partials/config_login.html", {
+        return templates.TemplateResponse(request, "partials/config_login.html", {
             "request": request,
             "user": user,
             "allowed_roles": allowed_roles,
@@ -379,7 +379,7 @@ async def save_login_settings(request: Request, current_user: dict = Depends(req
     except Exception as e:
         logger.error(f"Fehler beim Speichern der Login-Einstellungen: {e}")
         config = get_config()
-        return templates.TemplateResponse("partials/config_login.html", {
+        return templates.TemplateResponse(request, "partials/config_login.html", {
             "request": request,
             "user": user,
             "allowed_roles": config.get("web_allowed_role_ids", []),
@@ -402,7 +402,7 @@ async def bot_profiles(request: Request, current_user: dict = Depends(require_au
     config = get_config()
     profiles = config.get("bot_profiles", DEFAULT_BOT_PROFILES)
 
-    return templates.TemplateResponse("partials/config_bot_profiles.html", {
+    return templates.TemplateResponse(request, "partials/config_bot_profiles.html", {
         "request": request,
         "user": current_user,
         "profiles": profiles,
@@ -438,7 +438,7 @@ async def save_bot_profiles(request: Request, current_user: dict = Depends(requi
         save_config(config)
         logger.info(f"Bot-Profile gespeichert von {user.get('username', 'Unbekannt')}")
 
-        return templates.TemplateResponse("partials/config_bot_profiles.html", {
+        return templates.TemplateResponse(request, "partials/config_bot_profiles.html", {
             "request": request,
             "user": user,
             "profiles": profiles,
@@ -450,7 +450,7 @@ async def save_bot_profiles(request: Request, current_user: dict = Depends(requi
         logger.error(f"Fehler beim Speichern der Bot-Profile: {e}")
         config = get_config()
         profiles = config.get("bot_profiles", DEFAULT_BOT_PROFILES)
-        return templates.TemplateResponse("partials/config_bot_profiles.html", {
+        return templates.TemplateResponse(request, "partials/config_bot_profiles.html", {
             "request": request,
             "user": user,
             "profiles": profiles,

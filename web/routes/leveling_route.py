@@ -119,7 +119,7 @@ async def leveling_page(request: Request, current_user: dict = Depends(require_a
         entries = await _load_leaderboard(guild_id)
         cfg = await _load_levelup_config(guild_id)
 
-    return templates.TemplateResponse("leveling.html", {
+    return templates.TemplateResponse(request, "leveling.html", {
         "request": request,
         "user": current_user,
         "entries": entries,
@@ -191,7 +191,7 @@ async def leveling_config_save(
 
     # Partial zurueck (HTMX-Swap des Config-Blocks) — CSRF-Header kommt via
     # body[hx-headers] aus base_v5.html, daher HTMX statt nativem Form-Post.
-    return templates.TemplateResponse("partials/leveling_config.html", {
+    return templates.TemplateResponse(request, "partials/leveling_config.html", {
         "request": request,
         "guild_set": guild_id is not None,
         "cfg": cfg,

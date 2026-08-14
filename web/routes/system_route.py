@@ -129,7 +129,7 @@ def _get_system_info() -> dict:
 
 
 @router.get("/system", response_class=HTMLResponse)
-async def system_page(request: Request, current_user: dict = Depends(require_auth)):
+async def system_page(request: Request, current_user: dict = Depends(require_perm("system", "view"))):
     """
     Zeigt die System-Verwaltungsseite mit System-Info, Service-Status
     und einem Link zum Webmin-Interface.
@@ -140,7 +140,7 @@ async def system_page(request: Request, current_user: dict = Depends(require_aut
         _collect_service_status(),
     )
 
-    return templates.TemplateResponse("system.html", {
+    return templates.TemplateResponse(request, "system.html", {
         "request": request,
         "user": current_user,
         "webmin_url": WEBMIN_URL,
@@ -524,7 +524,7 @@ def _reboot_banner_html() -> str:
 
 
 @router.get("/api/system/packages/list", response_class=HTMLResponse)
-async def get_package_list(current_user: dict = Depends(require_auth_api)):
+async def get_package_list(current_user: dict = Depends(require_perm("system", "view"))):
     """Gibt die Liste verfuegbarer Updates als HTML-Partial zurueck."""
     packages, apt_error = await _get_upgradable_packages()
     reboot_banner = _reboot_banner_html()
@@ -764,7 +764,7 @@ def _pending_shutdown() -> bool:
 
 
 @router.get("/api/system/reboot/status", response_class=HTMLResponse)
-async def reboot_status(current_user: dict = Depends(require_auth_api)):
+async def reboot_status(current_user: dict = Depends(require_perm("system", "view"))):
     """Zeigt den Reboot-Bereich: Hinweis-Banner, geplanter Reboot, Buttons."""
     return HTMLResponse(_reboot_section_html())
 
@@ -898,7 +898,7 @@ def _read_json_file(filepath: Path) -> dict | None:
 
 
 @router.get("/api/system/packages/status")
-async def package_checker_status(current_user: dict = Depends(require_auth_api)):
+async def package_checker_status(current_user: dict = Depends(require_perm("system", "view"))):
     """F42: Gibt den letzten Package-Check-Status zurueck (aus JSON-Bridge)."""
     data = _read_json_file(MONITOR_DATA_DIR / "package_checker.json")
     if data is None:
@@ -907,7 +907,7 @@ async def package_checker_status(current_user: dict = Depends(require_auth_api))
 
 
 @router.get("/api/system/packages/history")
-async def package_checker_history(current_user: dict = Depends(require_auth_api)):
+async def package_checker_history(current_user: dict = Depends(require_perm("system", "view"))):
     """F42: Gibt die Historie der Package-Checks aus SQLite zurueck."""
     try:
         db = await get_db()

@@ -143,7 +143,7 @@ async def changelog_page(request: Request, current_user: dict = Depends(require_
         changelog_html = "<p>Kein Changelog vorhanden</p>"
         version = "unbekannt"
 
-    return templates.TemplateResponse("changelog.html", {
+    return templates.TemplateResponse(request, "changelog.html", {
         "request": request,
         "user": user,
         "changelog_html": changelog_html,

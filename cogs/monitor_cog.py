@@ -462,18 +462,18 @@ class MonitorCog(commands.Cog):
 
         # --- Uptime + Peak ---
         if stats_tracker:
-            uptime_pct = stats_tracker.get_uptime_percent(days)
+            uptime_pct = await stats_tracker.get_uptime_percent(days)
             kennzahlen.append((f"{uptime_pct}%", "Uptime"))
             balken = (uptime_pct, 100)
             zeilen.append(subtext(
                 f"{start_date} – {end_date} · {days} Tage · "
-                f"{stats_tracker.get_total_checks(days)} Checks · "
-                f"Peak {stats_tracker.get_peak_players(days)} Spieler"
+                f"{await stats_tracker.get_total_checks(days)} Checks · "
+                f"Peak {await stats_tracker.get_peak_players(days)} Spieler"
             ))
 
         # --- Crashes ---
         if stats_tracker:
-            crashes = stats_tracker.get_crashes(days)
+            crashes = await stats_tracker.get_crashes(days)
             kennzahlen.append((str(len(crashes)), "Crashes"))
             for c in crashes[-5:]:
                 ts = c["ts"][:16].replace("T", " ")
@@ -529,7 +529,7 @@ class MonitorCog(commands.Cog):
 
         # --- Savegame-Wachstum ---
         if stats_tracker:
-            growth = stats_tracker.get_savegame_growth(days)
+            growth = await stats_tracker.get_savegame_growth(days)
             if growth:
                 pfeil = "\U0001f4c8" if growth["growth_mb"] > 0 else "\U0001f4c9" if growth["growth_mb"] < 0 else "➡️"
                 zeilen.append(subtext(
@@ -885,12 +885,12 @@ class MonitorCog(commands.Cog):
                 # Stats-Tracker Daten
                 mc_st = getattr(self.bot, "mc_stats_trackers", {}).get(sid)
                 if mc_st:
-                    uptime_pct = mc_st.get_uptime_percent(7)
-                    peak = mc_st.get_peak_players(7)
+                    uptime_pct = await mc_st.get_uptime_percent(7)
+                    peak = await mc_st.get_peak_players(7)
                     lines.append(f"Uptime (7d): {uptime_pct}%")
                     lines.append(f"Peak Spieler (7d): {peak}")
 
-                    growth = mc_st.get_savegame_growth(7)
+                    growth = await mc_st.get_savegame_growth(7)
                     if growth:
                         lines.append(
                             f"Welt-Wachstum: {growth['growth_mb']:+.1f} MB"
@@ -979,23 +979,23 @@ class MonitorCog(commands.Cog):
             lines = []
 
             # Uptime
-            uptime_pct = mc_st.get_uptime_percent(days)
+            uptime_pct = await mc_st.get_uptime_percent(days)
             uptime_bar = self._make_bar(uptime_pct)
             lines.append(f"Uptime: {uptime_bar} **{uptime_pct}%**")
 
             # Peak Spieler
-            peak = mc_st.get_peak_players(days)
+            peak = await mc_st.get_peak_players(days)
             lines.append(f"Peak Spieler: **{peak}**")
 
             # Crashes
-            crashes = mc_st.get_crashes(days)
+            crashes = await mc_st.get_crashes(days)
             if crashes:
                 lines.append(f"Crashes: **{len(crashes)}**")
             else:
                 lines.append("Crashes: ✅ Keine")
 
             # World-Wachstum
-            growth = mc_st.get_savegame_growth(days)
+            growth = await mc_st.get_savegame_growth(days)
             if growth:
                 icon = "📈" if growth["growth_mb"] > 0 else "📉" if growth["growth_mb"] < 0 else "➡️"
                 lines.append(

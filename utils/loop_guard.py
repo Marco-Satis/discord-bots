@@ -49,6 +49,12 @@ BACKOFF_SEKUNDEN = (5.0, 15.0, 60.0, 300.0, 900.0)
 _laufende: Set[asyncio.Task] = set()
 _historie: Dict[str, List[float]] = {}
 
+# Alle bewachten Schleifen, damit das Herunterfahren sie geordnet stoppen kann.
+# Ohne das laufen die Modul-Schleifen (die zu keinem Cog gehoeren und deshalb
+# kein cog_unload haben) noch waehrend des Shutdowns weiter und greifen auf
+# bereits geschlossene Verbindungen zu.
+_bewacht: Dict[str, tasks.Loop] = {}
+
 _melder: Optional[Callable[[str, str], Awaitable[None]]] = None
 
 
@@ -59,8 +65,9 @@ def set_reporter(fn: Optional[Callable[[str, str], Awaitable[None]]]) -> None:
 
 
 def reset_historie() -> None:
-    """Neustart-Zaehler leeren (fuer Tests)."""
+    """Neustart-Zaehler und Schleifen-Verzeichnis leeren (fuer Tests)."""
     _historie.clear()
+    _bewacht.clear()
 
 
 async def _wiederbeleben(schleife: tasks.Loop, name: str, verzoegerung: float) -> None:
@@ -73,6 +80,41 @@ async def _wiederbeleben(schleife: tasks.Loop, name: str, verzoegerung: float) -
     except RuntimeError as e:
         # start() wirft, wenn inzwischen jemand anders neu gestartet hat.
         logger.warning("Neustart von %s abgelehnt: %s", name, e)
+
+
+def _faehrt_herunter() -> bool:
+    """Laeuft gerade ein Shutdown? Traege importiert wegen des Ringschlusses."""
+    try:
+        from utils.shutdown import is_shutting_down
+        return is_shutting_down()
+    except ImportError:
+        return False
+
+
+def alle_stoppen() -> List[str]:
+    """
+    Alle bewachten Schleifen abbrechen. Wird beim Herunterfahren aufgerufen.
+
+    ``cancel()`` statt ``stop()``: ``stop()`` laesst den laufenden Durchlauf
+    zu Ende laufen, und genau der wuerde noch in eine gerade geschlossene
+    Datenbank schreiben. Gibt die Namen der Schleifen zurueck, die liefen.
+
+    Achtung: das ist ein Endzustand. Nach ``alle_stoppen()`` startet nichts
+    von selbst wieder — der Fehler-Handler weigert sich waehrend des
+    Shutdowns ebenfalls, neu zu starten.
+    """
+    gestoppt: List[str] = []
+    for name, schleife in _bewacht.items():
+        try:
+            if schleife.is_running():
+                schleife.cancel()
+                gestoppt.append(name)
+        except Exception as e:  # noqa: BLE001 — ein Fehler hier darf den Rest nicht aufhalten
+            logger.warning("Schleife %s liess sich nicht stoppen: %s", name, e)
+    if gestoppt:
+        logger.info("%d Hintergrund-Schleifen gestoppt: %s",
+                    len(gestoppt), ", ".join(sorted(gestoppt)))
+    return gestoppt
 
 
 def guard(schleife: tasks.Loop, name: Optional[str] = None) -> tasks.Loop:
@@ -89,6 +131,14 @@ def guard(schleife: tasks.Loop, name: Optional[str] = None) -> tasks.Loop:
         # Signatur ist (fehler,) bei Modul-Schleifen und (self, fehler) bei
         # Cog-Schleifen — der Fehler steht immer am Ende.
         fehler = args[-1]
+
+        # Beim Herunterfahren brechen Schleifen an geschlossenen Verbindungen
+        # ab. Das ist kein Ausfall: es waere sinnlos, deswegen den Admin-Kanal
+        # zu belegen und einen Neustart zu planen, den niemand mehr erlebt.
+        if _faehrt_herunter():
+            logger.info("Schleife %s beim Herunterfahren beendet: %s", label, fehler)
+            return
+
         jetzt = time.monotonic()
         treffer = [t for t in _historie.get(label, []) if jetzt - t < WINDOW_SEKUNDEN]
         treffer.append(jetzt)
@@ -127,6 +177,7 @@ def guard(schleife: tasks.Loop, name: Optional[str] = None) -> tasks.Loop:
         task.add_done_callback(_laufende.discard)
 
     schleife.error(_bei_fehler)  # type: ignore[arg-type]
+    _bewacht[label] = schleife
     return schleife
 
 
@@ -137,4 +188,4 @@ def guard_all(*schleifen: tasks.Loop) -> None:
 
 
 __all__ = ["guard", "guard_all", "set_reporter", "reset_historie",
-           "MAX_NEUSTARTS", "WINDOW_SEKUNDEN"]
+           "alle_stoppen", "MAX_NEUSTARTS", "WINDOW_SEKUNDEN"]

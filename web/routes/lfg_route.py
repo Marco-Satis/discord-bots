@@ -52,7 +52,7 @@ async def lfg_page(request: Request, current_user: dict = Depends(require_auth))
     """LFG-Konfigurationsseite der Haupt-Guild anzeigen."""
     guild_id = get_primary_guild_id()
     cfg = await _load_cfg(guild_id) if guild_id is not None else {}
-    return templates.TemplateResponse("lfg.html", {
+    return templates.TemplateResponse(request, "lfg.html", {
         "request": request,
         "user": current_user,
         "cfg": cfg,
@@ -107,7 +107,7 @@ async def lfg_config_save(
             error = "Fehler beim Speichern. Details im Server-Log."
         cfg = await _load_cfg(guild_id)
 
-    return templates.TemplateResponse("partials/lfg_config.html", {
+    return templates.TemplateResponse(request, "partials/lfg_config.html", {
         "request": request,
         "cfg": cfg,
         "guild_set": guild_id is not None,

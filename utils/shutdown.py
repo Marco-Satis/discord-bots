@@ -99,7 +99,18 @@ async def _graceful_shutdown(bot, bot_name: str,
         except Exception as e:
             logger.debug(f"Shutdown-Nachricht fehlgeschlagen: {e}")
 
-    # 2. Registrierte Cleanup-Callbacks ausfuehren
+    # 2. Hintergrund-Schleifen stoppen, BEVOR die Cleanup-Callbacks
+    #    Verbindungen schliessen. Die Modul-Schleifen der Bots gehoeren zu
+    #    keinem Cog und haben deshalb kein cog_unload, das discord.py beim
+    #    Schliessen aufrufen wuerde — sie liefen bis zum Prozessende weiter und
+    #    schrieben dabei in eine bereits geschlossene Datenbank.
+    try:
+        from utils.loop_guard import alle_stoppen
+        alle_stoppen()
+    except Exception as e:  # noqa: BLE001 — Shutdown darf daran nicht haengen
+        logger.warning(f"Schleifen-Stopp fehlgeschlagen: {e}")
+
+    # 3. Registrierte Cleanup-Callbacks ausfuehren
     for callback in reversed(_cleanup_callbacks):
         try:
             logger.debug(f"Cleanup: {callback.__name__}")
@@ -109,7 +120,7 @@ async def _graceful_shutdown(bot, bot_name: str,
         except Exception as e:
             logger.warning(f"Cleanup-Fehler in {callback.__name__}: {e}")
 
-    # 3. Bot schliessen
+    # 4. Bot schliessen
     try:
         logger.info(f"{bot_name} wird geschlossen...")
         await bot.close()

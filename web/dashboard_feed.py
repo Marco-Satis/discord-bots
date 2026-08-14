@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 from utils.config import DATA_DIR, MONITOR_DATA_DIR, get_env
@@ -96,25 +97,62 @@ def collect_system_stats() -> dict:
     return stats
 
 
-def collect_bot_status() -> list[dict]:
-    """Bot-Status aus data/<bot>/bot_status.json (gameserver/monitor/admin)."""
-    bots: list[dict] = []
-    bot_names = {
-        "gameserver": "GameServer Bot",
-        "monitor": "Monitor Bot",
-        "admin": "Admin Bot",
+# Anzeigenamen der Bots. Die Verzeichnisse heissen weiter wie vor der
+# Umbenennung vom 2026-06-13 (monitor/gameserver/admin) — dorthin schreiben die
+# Bots, das bleibt. Angezeigt werden die heutigen Namen. pipeline-bot fehlte
+# hier bisher ganz, obwohl er seinen Status genauso schreibt.
+BOT_ANZEIGE: dict[str, str] = {
+    "monitor": "Recon Bot",
+    "gameserver": "Operator Bot",
+    "admin": "Marshal Bot",
+    "pipeline": "Pipeline Bot",
+}
+
+# Alle Bots schreiben ihre Statusdatei alle 30 Sekunden. Bleibt sie laenger als
+# das Vierfache aus, ist der Bot nicht mehr da — dann darf die Kachel nicht
+# weiter „online" behaupten, nur weil die alte Datei das noch sagt.
+STATUS_MAX_ALTER_SEKUNDEN = 120
+
+
+def bot_eintrag(bot_id: str, anzeigename: str, daten: dict) -> dict:
+    """Eine Bot-Kachel aus der Statusdatei bauen, inklusive Frische-Pruefung."""
+    status = daten.get("status", "unknown")
+    ping = daten.get("ping_ms", "N/A")
+    uptime = daten.get("uptime", "N/A")
+
+    zeitstempel = daten.get("last_update")
+    if status == "online" and zeitstempel:
+        try:
+            geschrieben = datetime.fromisoformat(str(zeitstempel))
+            if geschrieben.tzinfo is None:
+                geschrieben = geschrieben.replace(tzinfo=timezone.utc)
+            alter = (datetime.now(timezone.utc) - geschrieben).total_seconds()
+            if alter > STATUS_MAX_ALTER_SEKUNDEN:
+                # Ping und Uptime stammen aus derselben veralteten Datei —
+                # sie stehen zu lassen waere eine zweite Falschaussage.
+                status, ping, uptime = "veraltet", "N/A", "N/A"
+        except (TypeError, ValueError) as e:
+            logger.warning(f"Unlesbarer Zeitstempel in {bot_id}/bot_status.json: {e}")
+            status = "unknown"
+    elif status == "online" and not zeitstempel:
+        # Ohne Zeitstempel laesst sich „online" nicht pruefen.
+        status = "unknown"
+
+    return {
+        "id": bot_id,
+        "name": anzeigename,
+        "status": status,
+        "ping": ping,
+        "uptime": uptime,
     }
-    for bot_id, display_name in bot_names.items():
-        status_file = DATA_DIR / bot_id / "bot_status.json"
-        data = _load_json_safe(status_file)
-        bots.append({
-            "id": bot_id,
-            "name": display_name,
-            "status": data.get("status", "unknown"),
-            "ping": data.get("ping_ms", "N/A"),
-            "uptime": data.get("uptime", "N/A"),
-        })
-    return bots
+
+
+def collect_bot_status() -> list[dict]:
+    """Bot-Status aus data/<bot>/bot_status.json (alle vier Bots)."""
+    return [
+        bot_eintrag(bot_id, name, _load_json_safe(DATA_DIR / bot_id / "bot_status.json"))
+        for bot_id, name in BOT_ANZEIGE.items()
+    ]
 
 
 async def collect_recent_events(limit: int = 20) -> list[dict]:

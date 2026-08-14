@@ -12,7 +12,7 @@ from typing import Optional, Callable, Awaitable, Dict, List, Set, Any
 
 from utils.logger import get_logger
 from utils.async_tasks import schedule_from_sync
-from modules.database.db_manager import get_db
+from modules.database.db_manager import get_db, get_read_db, transaction
 
 logger = get_logger("player_tracker")
 
@@ -177,62 +177,58 @@ class PlayerTracker:
         except Exception as e:
             logger.warning(f"SQLite upsert player '{record.name}' fehlgeschlagen: {e}")
 
-    async def _db_insert_session(
-        self, player_name: str, join_time: str, leave_time: str, duration_seconds: int
+    async def _db_sitzung_abschliessen(
+        self,
+        record: "PlayerRecord",
+        join_time: str,
+        leave_time: str,
+        duration_seconds: int,
     ) -> None:
-        """Insert a session row into player_sessions."""
-        try:
-            db = await get_db()
+        """Sitzung eintragen und die Spielzeit fortschreiben — in einem Zug.
 
-            # Resolve player_id
-            cursor = await db.execute(
-                "SELECT id FROM players WHERE name = ?", (player_name,)
-            )
-            row = await cursor.fetchone()
-            if not row:
-                logger.warning(
-                    f"SQLite: Spieler '{player_name}' nicht in players-Tabelle — "
-                    f"Session-Insert uebersprungen"
+        Vorher waren das zwei Funktionen mit je eigenem Commit. Brach etwas
+        dazwischen ab, stand die Sitzung in der Tabelle, ohne dass die
+        Gesamtspielzeit sie enthielt — oder umgekehrt. Beides zusammen gehoert
+        in eine Transaktion; ``transaction()`` benutzt dafuer eine eigene
+        Verbindung, damit fremde Schreibvorgaenge nicht mitgerollt werden.
+        """
+        try:
+            async with transaction() as conn:
+                cursor = await conn.execute(
+                    "SELECT id FROM players WHERE name = ?", (record.name,)
                 )
-                return
-            player_id = row[0]
+                row = await cursor.fetchone()
+                if not row:
+                    logger.warning(
+                        f"SQLite: Spieler '{record.name}' nicht in players-Tabelle — "
+                        f"Session-Insert uebersprungen"
+                    )
+                    return
+                player_id = row[0]
 
-            await db.execute(
-                """
-                INSERT INTO player_sessions (player_id, server_type, join_time, leave_time, duration_seconds)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (player_id, self.server_type, join_time, leave_time, duration_seconds),
-            )
-            await db.commit()
+                await conn.execute(
+                    """
+                    INSERT INTO player_sessions (player_id, server_type, join_time, leave_time, duration_seconds)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (player_id, self.server_type, join_time, leave_time, duration_seconds),
+                )
+                await conn.execute(
+                    """
+                    UPDATE players
+                    SET last_seen = ?,
+                        total_playtime_seconds = ?
+                    WHERE name = ?
+                    """,
+                    (
+                        record.last_seen,
+                        record.total_playtime_minutes * 60,
+                        record.name,
+                    ),
+                )
         except Exception as e:
             logger.warning(
-                f"SQLite insert session fuer '{player_name}' fehlgeschlagen: {e}"
-            )
-
-    async def _db_update_player_after_leave(
-        self, record: PlayerRecord
-    ) -> None:
-        """Update last_seen and total_playtime_seconds after a leave event."""
-        try:
-            db = await get_db()
-            await db.execute(
-                """
-                UPDATE players
-                SET last_seen = ?,
-                    total_playtime_seconds = ?
-                WHERE name = ?
-                """,
-                (
-                    record.last_seen,
-                    record.total_playtime_minutes * 60,
-                    record.name,
-                ),
-            )
-            await db.commit()
-        except Exception as e:
-            logger.warning(
-                f"SQLite update player '{record.name}' nach Leave fehlgeschlagen: {e}"
+                f"SQLite: Sitzungsabschluss fuer '{record.name}' fehlgeschlagen: {e}"
             )
 
     # ------------------------------------------------------------------
@@ -321,14 +317,14 @@ class PlayerTracker:
             record.total_playtime_minutes += duration_min
             record.current_session_start = None
 
-            # Persist to SQLite: insert session + update player
-            await self._db_insert_session(
-                player_name=name,
+            # Beides in EINER Transaktion — Sitzung und fortgeschriebene
+            # Spielzeit duerfen nicht auseinanderlaufen.
+            await self._db_sitzung_abschliessen(
+                record=record,
                 join_time=join_time_str,
                 leave_time=now.isoformat(),
                 duration_seconds=duration_sec,
             )
-            await self._db_update_player_after_leave(record)
 
         if self.on_leave:
             try:
@@ -524,48 +520,55 @@ class PlayerTracker:
 
     async def _persist_closed_sessions(self, sessions: list[dict]) -> None:
         """Persist batch of closed sessions to SQLite (called from fire-and-forget task)."""
+        # Eine Transaktion fuer den ganzen Stapel. Vorher lief das ueber die
+        # geteilte Schreibverbindung mit einem Commit am Ende — und weil jeder
+        # andere Aufrufer dort pro Anweisung committet, konnte ein fremder
+        # Commit den halbfertigen Stapel mit festschreiben. Die Atomaritaet war
+        # eine Illusion.
         try:
-            db = await get_db()
-
-            for s in sessions:
-                # Update player record
-                try:
-                    await db.execute(
-                        """
-                        UPDATE players
-                        SET last_seen = ?,
-                            total_playtime_seconds = ?
-                        WHERE name = ?
-                        """,
-                        (
-                            s["last_seen"],
-                            s["total_playtime_minutes"] * 60,
-                            s["name"],
-                        ),
-                    )
-                except Exception as e:
-                    logger.warning(f"SQLite update player '{s['name']}' bei Shutdown fehlgeschlagen: {e}")
-
-                # Insert session
-                try:
-                    cursor = await db.execute(
-                        "SELECT id FROM players WHERE name = ?", (s["name"],)
-                    )
-                    row = await cursor.fetchone()
-                    if row:
-                        await db.execute(
+            async with transaction() as conn:
+                geschrieben = 0
+                for s in sessions:
+                    try:
+                        await conn.execute(
                             """
-                            INSERT INTO player_sessions
-                                (player_id, server_type, join_time, leave_time, duration_seconds)
-                            VALUES (?, ?, ?, ?, ?)
+                            UPDATE players
+                            SET last_seen = ?,
+                                total_playtime_seconds = ?
+                            WHERE name = ?
                             """,
-                            (row[0], self.server_type, s["join_time"], s["leave_time"], s["duration_seconds"]),
+                            (
+                                s["last_seen"],
+                                s["total_playtime_minutes"] * 60,
+                                s["name"],
+                            ),
                         )
-                except Exception as e:
-                    logger.warning(f"SQLite insert session '{s['name']}' bei Shutdown fehlgeschlagen: {e}")
+                        cursor = await conn.execute(
+                            "SELECT id FROM players WHERE name = ?", (s["name"],)
+                        )
+                        row = await cursor.fetchone()
+                        if row:
+                            await conn.execute(
+                                """
+                                INSERT INTO player_sessions
+                                    (player_id, server_type, join_time, leave_time, duration_seconds)
+                                VALUES (?, ?, ?, ?, ?)
+                                """,
+                                (row[0], self.server_type, s["join_time"],
+                                 s["leave_time"], s["duration_seconds"]),
+                            )
+                        geschrieben += 1
+                    except Exception as e:
+                        # Ein kaputter Datensatz darf den Rest nicht mitnehmen;
+                        # die Transaktion traegt die uebrigen weiter.
+                        logger.warning(
+                            f"SQLite: Sitzung '{s.get('name', '?')}' beim Herunterfahren "
+                            f"uebersprungen: {e}"
+                        )
 
-            await db.commit()
-            logger.info(f"SQLite: {len(sessions)} Shutdown-Sessions persistiert")
+            logger.info(
+                f"SQLite: {geschrieben} von {len(sessions)} Shutdown-Sessions persistiert"
+            )
 
         except Exception as e:
             logger.warning(f"SQLite Shutdown-Persist fehlgeschlagen: {e}")

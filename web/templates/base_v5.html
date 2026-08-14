@@ -235,9 +235,15 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span class="lbl">Changelog</span>
         </a>
 
-        <a class="nav-i" href="/auth/logout" style="margin-top:8px">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg><span class="lbl">Abmelden</span>
-        </a>
+        {# Abmelden per POST: als Link liess sich die Abmeldung von fremden
+           Seiten ausloesen (<img src=".../auth/logout">). Der Knopf sieht aus
+           wie die uebrigen Navigationseintraege. #}
+        <form method="POST" action="/auth/logout" style="margin-top:8px">
+          <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token if request.state.csrf_token is defined else '' }}">
+          <button type="submit" class="nav-i" style="width:100%;background:none;border:none;cursor:pointer;font:inherit;color:inherit;text-align:left">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg><span class="lbl">Abmelden</span>
+          </button>
+        </form>
       </nav>
       <div class="sb-foot">
         {% if user %}

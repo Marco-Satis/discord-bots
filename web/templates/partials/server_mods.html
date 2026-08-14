@@ -98,7 +98,7 @@
                         <div style="display: flex; gap: 0.35rem;">
                             <button class="btn btn-sm {{ 'btn-secondary' if mod.enabled else 'btn-primary' }}"
                                     hx-post="/api/server/{{ server_id }}/mods/toggle"
-                                    hx-vals='{"mod_id": {{ mod.mod_id|tojson }}, "enable": "{{ 0 if mod.enabled else 1 }}"}'
+                                    hx-vals='{"mod_id": {{ mod.mod_id|tojson }}, "enable": {{ (0 if mod.enabled else 1)|tojson }}}'
                                     hx-target="#mod-update-result"
                                     hx-swap="innerHTML"
                                     style="padding: 0.2rem 0.5rem; font-size: 0.75rem;"

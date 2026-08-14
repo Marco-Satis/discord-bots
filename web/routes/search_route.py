@@ -79,7 +79,7 @@ async def search_page(request: Request, q: str = "", current_user: dict = Depend
         recent_searches = recent_searches[:5]
         request.session["recent_searches"] = recent_searches
 
-    return templates.TemplateResponse("search.html", {
+    return templates.TemplateResponse(request, "search.html", {
         "request": request,
         "user": current_user,
         "query": q,

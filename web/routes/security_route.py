@@ -46,7 +46,7 @@ def _read_json(filepath: Path) -> dict:
 
 
 @router.get("/security", response_class=HTMLResponse)
-async def security_page(request: Request, current_user: dict = Depends(require_auth)):
+async def security_page(request: Request, current_user: dict = Depends(require_perm("system", "view"))):
     """Sicherheits-Dashboard mit Fail2Ban, SSL und Port-Status."""
     # Fail2Ban-Status aus StatusWriter JSON lesen
     fail2ban_data = _read_json(MONITOR_DATA_DIR / "fail2ban_status.json")
@@ -56,7 +56,7 @@ async def security_page(request: Request, current_user: dict = Depends(require_a
     # F44: IP-Uebersicht fuer das Template sammeln
     ip_overview = await _collect_ip_overview(fail2ban_data)
 
-    return templates.TemplateResponse("security.html", {
+    return templates.TemplateResponse(request, "security.html", {
         "request": request,
         "user": current_user,
         "fail2ban": fail2ban_data,
@@ -224,7 +224,7 @@ async def _collect_ip_overview(fail2ban_data: dict | None = None) -> dict:
 
 
 @router.get("/api/security/ip-overview")
-async def api_ip_overview(current_user: dict = Depends(require_auth_api)) -> JSONResponse:
+async def api_ip_overview(current_user: dict = Depends(require_perm("system", "view"))) -> JSONResponse:
     """Gibt alle IP-Sperren als JSON zurueck (iptables, Fail2Ban, Blacklist, Bans)."""
     try:
         overview = await _collect_ip_overview()
@@ -412,7 +412,7 @@ async def api_unban_ip(request: Request, current_user: dict = Depends(require_pe
 
 
 @router.get("/api/security/ban-stats")
-async def api_ban_stats(current_user: dict = Depends(require_auth_api)) -> JSONResponse:
+async def api_ban_stats(current_user: dict = Depends(require_perm("system", "view"))) -> JSONResponse:
     """Gibt Ban-Statistiken zurueck: Gesamt, letzte 7 Tage, haeufigste IPs."""
     try:
         db = await get_db()

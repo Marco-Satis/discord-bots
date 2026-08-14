@@ -11,7 +11,7 @@ from utils.logger import get_logger
 logger = get_logger("database.migrations")
 
 # Aktuelle Schema-Version
-CURRENT_VERSION = 10
+CURRENT_VERSION = 11
 
 
 # Komplettes Schema (23 Tabellen + Indices + FTS5)
@@ -432,6 +432,13 @@ async def run_migrations(db: aiosqlite.Connection) -> None:
         await set_schema_version(db, 10)
         logger.info("Migration v9 → v10 abgeschlossen")
 
+    # Version 10 → 11: ungenutzten Index idx_sst_server entfernen
+    if current < 11:
+        logger.info("Migration v10 → v11: idx_sst_server entfernen")
+        await _apply_migration_v11(db)
+        await set_schema_version(db, 11)
+        logger.info("Migration v10 → v11 abgeschlossen")
+
     final = await get_schema_version(db)
     logger.info(f"Alle Migrationen abgeschlossen. Schema-Version: {final}")
 
@@ -461,6 +468,7 @@ async def _apply_schema_v1(db: aiosqlite.Connection) -> None:
     await _apply_migration_v8(db)
     await _apply_migration_v9(db)
     await _apply_migration_v10(db)
+    await _apply_migration_v11(db)
 
     # Tabellen zaehlen zur Verifikation
     cursor = await db.execute(
@@ -490,10 +498,16 @@ CREATE TABLE IF NOT EXISTS server_stats_tracker (
     value_int INTEGER,
     value_real REAL
 );
+-- Ein Index, nicht zwei. Der frueher zusaetzlich angelegte idx_sst_server
+-- (server_type, server_id, metric_type, timestamp) wurde von keiner Abfrage
+-- benutzt: alle vier Leser und der Aufraeum-Lauf filtern server_id ueber
+-- `(server_id = ? OR (server_id IS NULL AND ? IS NULL))`, und ein OR ueber
+-- dieselbe Spalte kann SQLite nicht in einen Index-Zugriff aufloesen. Gemessen
+-- an der Live-Datenbank (EXPLAIN QUERY PLAN): jede Abfrage nimmt idx_sst_lookup.
+-- Der zweite Index kostete 16,5 MB und Schreibarbeit bei jedem Insert.
+-- Entfernt in Migration v11.
 CREATE INDEX IF NOT EXISTS idx_sst_lookup
     ON server_stats_tracker(server_type, metric_type, timestamp);
-CREATE INDEX IF NOT EXISTS idx_sst_server
-    ON server_stats_tracker(server_type, server_id, metric_type, timestamp);
 """
 
 
@@ -908,3 +922,30 @@ async def _apply_migration_v10(db: aiosqlite.Connection) -> None:
     await db.executescript(SCHEMA_V10_TODOS)
     await db.commit()
     logger.info("Migration v10: todos + todo_board fertig")
+
+
+# =====================================================
+# Migration v11: ungenutzten Index entfernen
+# =====================================================
+
+
+async def _apply_migration_v11(db: aiosqlite.Connection) -> None:
+    """
+    Entfernt idx_sst_server auf server_stats_tracker.
+
+    Die Tabelle trug zwei Indizes. Benutzt wird nur idx_sst_lookup — belegt
+    per EXPLAIN QUERY PLAN gegen die Live-Datenbank fuer alle vier Leser in
+    modules/monitoring/stats_tracker.py und den Retention-DELETE. Der Grund
+    liegt an der Abfrageform: server_id wird als
+    `(server_id = ? OR (server_id IS NULL AND ? IS NULL))` geprueft, und diese
+    OR-Verzweigung ueber dieselbe Spalte laesst sich nicht in einen
+    Index-Zugriff uebersetzen. Damit war die Spalte an Position 2 von
+    idx_sst_server wertlos, der Index insgesamt toter Ballast: 16,5 MB Platz
+    plus Pflegeaufwand bei jedem der rund 3.100 taeglichen Inserts.
+
+    DROP INDEX ist umkehrbar — der Index laesst sich aus SCHEMA_V2 jederzeit
+    neu anlegen, ohne dass Daten verloren gehen.
+    """
+    await db.execute("DROP INDEX IF EXISTS idx_sst_server")
+    await db.commit()
+    logger.info("Migration v11: idx_sst_server entfernt (ungenutzt)")

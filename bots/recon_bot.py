@@ -1359,6 +1359,14 @@ async def before_player_log():
 # Minecraft Chat-Bridge Task
 # ------------------------------------------------------------------
 
+# Fehlerzaehler je Server fuer die Chat-Bridge. Die Schleife laeuft alle fuenf
+# Sekunden; ein dauerhaft kaputter Poll wuerde bei jedem Durchlauf melden.
+# Deshalb: erste Stoerung sofort sichtbar, danach nur noch alle fuenf Minuten,
+# und die Erholung wird gemeldet.
+_bridge_fehler: dict[str, int] = {}
+_BRIDGE_MELDE_INTERVALL = 60  # 60 × 5 s = alle 5 Minuten
+
+
 @tasks.loop(seconds=5)
 async def mc_chat_bridge_task():
     """Minecraft Log-Polling fuer Chat-Bridge (alle 5 Sekunden)"""
@@ -1369,7 +1377,18 @@ async def mc_chat_bridge_task():
         try:
             await bridge.poll()
         except Exception as e:
-            logger.debug(f"[{sid}] Chat-Bridge Poll Fehler: {e}")
+            # Frueher logger.debug — damit war eine dauerhaft tote Chat-Bruecke
+            # im Normalbetrieb (Log-Level INFO) unsichtbar.
+            anzahl = _bridge_fehler.get(sid, 0) + 1
+            _bridge_fehler[sid] = anzahl
+            if anzahl == 1 or anzahl % _BRIDGE_MELDE_INTERVALL == 0:
+                logger.warning(
+                    f"[{sid}] Chat-Bridge Poll fehlgeschlagen "
+                    f"({anzahl}. Mal in Folge): {e}"
+                )
+        else:
+            if _bridge_fehler.pop(sid, 0):
+                logger.info(f"[{sid}] Chat-Bridge liefert wieder")
 
 
 @mc_chat_bridge_task.before_loop

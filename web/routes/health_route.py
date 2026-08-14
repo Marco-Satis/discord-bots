@@ -5,10 +5,12 @@ Stellt GET /api/health und GET /api/health/selftest bereit.
 Kein Auth erforderlich (Rate-Limiting kommt in spaeterer Phase).
 Liest Status-JSON-Dateien aus data/monitor/ und data/gameserver/.
 
-NOTE (3.4 Refactor 2026-05-01 evening): KEIN Depends(require_auth) — alle
-Health-Endpunkte sind bewusst PUBLIC (allow_anon) fuer externe Monitoring-
-Systeme (Uptime Robot, Healthcheck.io etc.). Geben nur Status-Daten aus,
-keine Writes. Rate-Limiting + IP-Allowlist in Plan v1.3 / v1.4.
+Zugriff (Stand 2026-08-14, nach Sicherheits-Review W-11/W-12):
+  * `GET /api/health` bleibt oeffentlich — der schlanke Statusendpunkt fuer
+    externe Uptime-Pruefer (Uptime Robot, Healthchecks.io).
+  * Alle uebrigen Endpunkte verlangen eine Anmeldung. Sie geben RCON-Ports,
+    Plattenkapazitaet, Dienstnamen und absolute Pfade aus — das ist eine
+    Landkarte des Servers, kein Statussignal.
 """
 
 import asyncio
@@ -17,9 +19,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
+from web.auth import require_auth_api
 from utils.logger import get_logger
 from utils.config import get_config, get_env, PROJECT_ROOT
 from utils.config import MONITOR_DATA_DIR, GAMESERVER_DATA_DIR, ADMIN_DATA_DIR
@@ -219,7 +222,7 @@ async def health_check() -> JSONResponse:
     return JSONResponse(content=response, status_code=status_code)
 
 
-@router.get("/api/health/selftest")
+@router.get("/api/health/selftest", dependencies=[Depends(require_auth_api)])
 async def health_selftest() -> JSONResponse:
     """
     Selftest-Endpunkt — fuehrt den Startup-Selftest aus und gibt Ergebnisse zurueck.
@@ -270,7 +273,7 @@ async def health_selftest() -> JSONResponse:
 # F27: Health Auto-Restart Status
 # ------------------------------------------------------------------
 
-@router.get("/api/health/auto-restart")
+@router.get("/api/health/auto-restart", dependencies=[Depends(require_auth_api)])
 async def health_auto_restart() -> JSONResponse:
     """F27: Gibt den Status der Health-Auto-Restart-Ueberwachung zurueck."""
     data = await asyncio.to_thread(_read_status_file, MONITOR_DATA_DIR / "health_auto_restart.json")
@@ -283,7 +286,7 @@ async def health_auto_restart() -> JSONResponse:
 # F49: Disk Guard Status
 # ------------------------------------------------------------------
 
-@router.get("/api/health/disk")
+@router.get("/api/health/disk", dependencies=[Depends(require_auth_api)])
 async def health_disk() -> JSONResponse:
     """F49: Gibt den aktuellen Festplatten-Status zurueck."""
     data = await asyncio.to_thread(_read_status_file, MONITOR_DATA_DIR / "disk_guard.json")
@@ -296,7 +299,7 @@ async def health_disk() -> JSONResponse:
 # F50: Service Watchdog Status
 # ------------------------------------------------------------------
 
-@router.get("/api/health/services")
+@router.get("/api/health/services", dependencies=[Depends(require_auth_api)])
 async def health_services() -> JSONResponse:
     """F50: Gibt den Status der ueberwachten Services zurueck."""
     data = await asyncio.to_thread(_read_status_file, MONITOR_DATA_DIR / "service_watchdog.json")
@@ -309,7 +312,7 @@ async def health_services() -> JSONResponse:
 # F51: DuckDNS Monitor Status
 # ------------------------------------------------------------------
 
-@router.get("/api/health/dns")
+@router.get("/api/health/dns", dependencies=[Depends(require_auth_api)])
 async def health_dns() -> JSONResponse:
     """F51: Gibt den DuckDNS DNS-Check-Status zurueck."""
     data = await asyncio.to_thread(_read_status_file, MONITOR_DATA_DIR / "duckdns_monitor.json")
@@ -322,7 +325,7 @@ async def health_dns() -> JSONResponse:
 # F52: Port Monitor Status
 # ------------------------------------------------------------------
 
-@router.get("/api/health/ports")
+@router.get("/api/health/ports", dependencies=[Depends(require_auth_api)])
 async def health_ports() -> JSONResponse:
     """F52: Gibt den Port-Monitor-Status zurueck."""
     data = await asyncio.to_thread(_read_status_file, MONITOR_DATA_DIR / "port_monitor.json")

@@ -294,10 +294,13 @@
                 </a>
             </div>
 
-            <a href="/auth/logout" class="nav-item nav-logout">
-                <span class="nav-icon" aria-hidden="true">&#10140;</span>
-                <span class="nav-label">Abmelden</span>
-            </a>
+            <form method="POST" action="/auth/logout" class="nav-logout-form">
+                <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token if request.state.csrf_token is defined else '' }}">
+                <button type="submit" class="nav-item nav-logout" style="width:100%;background:none;border:none;cursor:pointer;font:inherit;color:inherit;text-align:left">
+                    <span class="nav-icon" aria-hidden="true">&#10140;</span>
+                    <span class="nav-label">Abmelden</span>
+                </button>
+            </form>
         </nav>
 
         <div class="sidebar-footer">

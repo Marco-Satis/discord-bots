@@ -25,5 +25,5 @@ async def home(request: Request, current_user: dict = Depends(require_auth)):
     """Post-Login-Startseite mit Status-Snapshot + Quick-Links."""
     data = await _public_payload()
     return templates.TemplateResponse(
-        "home.html", {"request": request, "user": current_user, **data}
+        request, "home.html", {"request": request, "user": current_user, **data}
     )

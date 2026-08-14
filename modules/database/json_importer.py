@@ -52,26 +52,52 @@ async def import_all(db: aiosqlite.Connection) -> dict:
     stats = {}
     logger.info("=== JSON → SQLite Import gestartet ===")
 
-    stats["players"] = await _import_player_stats(db)
-    stats["player_ips"] = await _import_player_ips(db)
-    stats["stats_history"] = await _import_stats_history(db)
-    stats["events"] = await _import_events(db)
-    stats["warns"] = await _import_warns(db)
-    stats["tickets"] = await _import_tickets(db)
-    stats["leveling"] = await _import_leveling(db)
-    stats["giveaways"] = await _import_giveaways(db)
-    stats["whitelist"] = await _import_whitelist(db)
-    stats["blacklist"] = await _import_blacklist(db)
-    stats["mc_blacklist"] = await _import_mc_blacklist(db)
-    stats["backup_history"] = await _import_backup_history(db)
-    stats["reaction_roles"] = await _import_reaction_roles(db)
+    # Je Tabelle einzeln kapseln und committen. Vorher lief alles in einer
+    # Kette mit einem Commit am Ende: ein Fehler in der Mitte riss die
+    # nachfolgenden Importe mit, und das bereits Importierte war ebenfalls weg.
+    schritte = [
+        ("players", _import_player_stats),
+        ("player_ips", _import_player_ips),
+        ("stats_history", _import_stats_history),
+        ("events", _import_events),
+        ("warns", _import_warns),
+        ("tickets", _import_tickets),
+        ("leveling", _import_leveling),
+        ("giveaways", _import_giveaways),
+        ("whitelist", _import_whitelist),
+        ("blacklist", _import_blacklist),
+        ("mc_blacklist", _import_mc_blacklist),
+        ("backup_history", _import_backup_history),
+        ("reaction_roles", _import_reaction_roles),
+    ]
+    fehlgeschlagen = []
+    for name, funktion in schritte:
+        try:
+            stats[name] = await funktion(db)
+            await db.commit()
+        except Exception as e:  # noqa: BLE001
+            await db.rollback()
+            stats[name] = 0
+            fehlgeschlagen.append(name)
+            logger.error(f"Import '{name}' fehlgeschlagen: {e}", exc_info=True)
 
-    await db.commit()
+    if fehlgeschlagen:
+        logger.error(
+            f"Import unvollstaendig — diese Tabellen fehlen: "
+            f"{', '.join(fehlgeschlagen)}"
+        )
+        stats["_fehlgeschlagen"] = fehlgeschlagen
 
     total = sum(v for v in stats.values() if isinstance(v, int))
-    logger.info(f"=== Import abgeschlossen: {total} Eintraege gesamt ===")
+    if fehlgeschlagen:
+        logger.warning(
+            f"=== Import mit Luecken beendet: {total} Eintraege, "
+            f"{len(fehlgeschlagen)} Tabelle(n) fehlgeschlagen ==="
+        )
+    else:
+        logger.info(f"=== Import abgeschlossen: {total} Eintraege gesamt ===")
     for table, count in stats.items():
-        if count > 0:
+        if isinstance(count, int) and count > 0:
             logger.info(f"  {table}: {count} Eintraege")
 
     return stats
@@ -497,23 +523,49 @@ async def _import_leveling(db: aiosqlite.Connection) -> int:
         logger.info(f"Leveling: Uebersprungen ({row[0]} Eintraege bereits vorhanden)")
         return 0
 
+    # Dieselbe Quelle, die auch die Schema-Migration zum Backfill benutzt.
+    from utils.config import get_env
+    guild_id = str(get_env("GUILD_ID", "0") or "0")
+    if guild_id == "0":
+        logger.warning(
+            "Leveling-Import: GUILD_ID fehlt — die Daten landen in der "
+            "Default-Guild '0' und tauchen im Leaderboard der echten Guild "
+            "nicht auf. GUILD_ID setzen und erneut importieren."
+        )
+    uebersprungen = 0
+
     for user_id, info in data.items():
         if not isinstance(info, dict):
             continue
 
-        await db.execute(
+        # guild_id ist seit Schema v6 NOT NULL. Ohne die Spalte scheiterte jedes
+        # INSERT an der Constraint — und weil INSERT OR IGNORE das verschluckt
+        # und der Zaehler trotzdem hochlief, meldete der Import Erfolg, obwohl
+        # null Zeilen geschrieben wurden. Im Wiederherstellungsfall waere damit
+        # die gesamte XP-Historie still verlorengegangen.
+        cursor = await db.execute(
             "INSERT OR IGNORE INTO leveling "
-            "(user_id, xp, level, messages, voice_minutes, last_xp_time) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (user_id,
+            "(guild_id, user_id, xp, level, messages, voice_minutes, last_xp_time) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (guild_id,
+             user_id,
              info.get("xp", 0),
              info.get("level", 0),
              info.get("total_messages", 0),
              info.get("voice_minutes", 0),
              _parse_iso(info.get("last_xp_at")))
         )
-        count += 1
+        # Nur zaehlen, was wirklich geschrieben wurde.
+        if cursor.rowcount:
+            count += cursor.rowcount
+        else:
+            uebersprungen += 1
 
+    if uebersprungen:
+        logger.warning(
+            f"Leveling: {uebersprungen} Eintraege nicht geschrieben "
+            f"(bereits vorhanden oder Constraint) — {count} importiert"
+        )
     return count
 
 
@@ -634,7 +686,7 @@ async def _import_blacklist(db: aiosqlite.Connection) -> int:
             continue
 
         await db.execute(
-            "INSERT INTO blacklist "
+            "INSERT OR IGNORE INTO blacklist "
             "(player_name, server_type, reason, added_by, added_at) "
             "VALUES (?, ?, ?, ?, ?)",
             (entry.get("name", ""),
@@ -680,7 +732,7 @@ async def _import_mc_blacklist(db: aiosqlite.Connection) -> int:
 
             # In blacklist Tabelle
             await db.execute(
-                "INSERT INTO blacklist "
+                "INSERT OR IGNORE INTO blacklist "
                 "(player_name, ip_address, server_type, reason, added_by, added_at) "
                 "VALUES (?, ?, ?, ?, ?, ?)",
                 (player_name,

@@ -116,7 +116,11 @@ class MinecraftServer:
                 except Exception as e:
                     logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
             return None
-        except Exception:
+        except Exception as e:
+            # Vorher stumm: jeder Fehler ausser dem Timeout verschwand hier
+            # spurlos, und der Aufrufer sah nur "keine PID" — nicht
+            # unterscheidbar von "Server laeuft nicht".
+            logger.debug(f"[{self.server_id}] PID nicht ermittelbar: {e}")
             return None
 
     # ------------------------------------------------------------------

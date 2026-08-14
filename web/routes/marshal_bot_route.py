@@ -522,7 +522,7 @@ async def marshal_bot_page(request: Request, current_user: dict = Depends(requir
         asyncio.to_thread(_read_admin_status),
     )
 
-    return templates.TemplateResponse("marshal_bot.html", {
+    return templates.TemplateResponse(request, "marshal_bot.html", {
         "request": request,
         "user": user,
         "active_tab": "temp_voice",
@@ -549,7 +549,7 @@ async def marshal_bot_tab(request: Request, tab_name: str, current_user: dict = 
     config = await _load_tab_config(tab_name)
     template_name = TAB_TEMPLATES[tab_name]
 
-    return templates.TemplateResponse(template_name, {
+    return templates.TemplateResponse(request, template_name, {
         "request": request,
         "config": config,
         "success": "",
@@ -617,7 +617,7 @@ async def marshal_bot_save(request: Request, module_name: str, current_user: dic
         error_msg = "Fehler beim Speichern der Einstellungen. Details im Server-Log."
         config = await asyncio.to_thread(_load_module_config, module_name)
 
-    return templates.TemplateResponse(template_name, {
+    return templates.TemplateResponse(request, template_name, {
         "request": request,
         "config": config,
         "success": success_msg,

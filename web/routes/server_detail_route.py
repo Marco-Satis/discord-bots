@@ -383,7 +383,7 @@ async def server_detail_page(request: Request, server_id: str, current_user: dic
 
     server = _get_server_info(server_id)
 
-    return templates.TemplateResponse("server_detail.html", {
+    return templates.TemplateResponse(request, "server_detail.html", {
         "request": request,
         "user": current_user,
         "server": server,
@@ -405,7 +405,7 @@ async def server_players_partial(request: Request, server_id: str, current_user:
     players_data = _load_json_safe(players_file)
     player_list = players_data.get("players", [])
 
-    return templates.TemplateResponse("partials/server_players.html", {
+    return templates.TemplateResponse(request, "partials/server_players.html", {
         "request": request,
         "players": player_list,
         "server_id": server_id,
@@ -422,7 +422,7 @@ async def server_backups_partial(request: Request, server_id: str, current_user:
 
     backups = _list_backups(server_id)
 
-    return templates.TemplateResponse("partials/server_backups.html", {
+    return templates.TemplateResponse(request, "partials/server_backups.html", {
         "request": request,
         "backups": backups,
         "server_id": server_id,
@@ -440,7 +440,7 @@ async def server_blacklist_partial(request: Request, server_id: str, current_use
     server_type = _get_server_type(server_id)
     entries = await _get_blacklist_entries(server_type)
 
-    return templates.TemplateResponse("partials/server_blacklist.html", {
+    return templates.TemplateResponse(request, "partials/server_blacklist.html", {
         "request": request,
         "entries": entries,
         "server_id": server_id,
@@ -933,7 +933,7 @@ async def server_mods_partial(request: Request, server_id: str, current_user: di
             logger.warning(f"Mod-Liste fuer {server_id} fehlgeschlagen: {e}")
             status = {"ready": False, "detail": str(e)[:200], "backend": "-"}
 
-    return templates.TemplateResponse("partials/server_mods.html", {
+    return templates.TemplateResponse(request, "partials/server_mods.html", {
         "request": request,
         "mods": mods,
         "server_id": server_id,

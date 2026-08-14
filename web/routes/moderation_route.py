@@ -55,7 +55,7 @@ async def moderation_page(request: Request, current_user: dict = Depends(require
     if guild_id is not None:
         rules = await _load_rules(guild_id)
 
-    return templates.TemplateResponse("moderation.html", {
+    return templates.TemplateResponse(request, "moderation.html", {
         "request": request,
         "user": current_user,
         "rules": rules,
@@ -100,7 +100,7 @@ async def moderation_config_save(
             error = "Fehler beim Speichern. Details im Server-Log."
         rules = await _load_rules(guild_id)
 
-    return templates.TemplateResponse("partials/moderation_config.html", {
+    return templates.TemplateResponse(request, "partials/moderation_config.html", {
         "request": request,
         "rules": rules,
         "guild_set": guild_id is not None,
