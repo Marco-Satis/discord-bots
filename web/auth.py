@@ -16,7 +16,7 @@ import jwt
 import httpx
 from fastapi import APIRouter, Request, Form, HTTPException
 from fastapi.responses import RedirectResponse, HTMLResponse
-from fastapi.templating import Jinja2Templates
+from web.templates_setup import erstelle_templates
 
 from utils.config import load_env, get_env, get_config
 from utils.logger import get_logger
@@ -27,7 +27,7 @@ logger = get_logger("web.auth")
 
 # Templates-Verzeichnis
 TEMPLATE_DIR = Path(__file__).parent / "templates"
-templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
+templates = erstelle_templates(TEMPLATE_DIR)
 
 auth_router = APIRouter(prefix="/auth", tags=["Authentifizierung"])
 

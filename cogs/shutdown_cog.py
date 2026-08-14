@@ -24,6 +24,8 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from modules.database.db_manager import get_db
+from modules.server_registry import (alle as alle_server, kennung_zu_label,
+                                     kennung_zu_service)
 from utils.logger import get_logger
 from utils.embeds import (
     COLOR_WARNING,
@@ -35,28 +37,19 @@ from utils.loop_guard import guard
 
 logger = get_logger("cogs.shutdown")
 
-# Server-ID auf systemd Service-Name
-SERVER_SERVICES = {
-    "satisfactory": "satisfactory.service",
-    "mc_bmc": "minecraft-bmc.service",
-    "mc_vanilla": "minecraft-vanilla.service",
-}
-
-# Lesbare Anzeigenamen
-SERVER_DISPLAY_NAMES = {
-    "satisfactory": "Satisfactory",
-    "mc_bmc": "Minecraft BMC",
-    "mc_vanilla": "Minecraft Vanilla",
-}
+# Server-ID auf systemd Service-Name, Anzeigenamen und die Auswahlliste des
+# Slash-Commands kommen aus der ENV (modules.server_registry). Bis 2026-08-14
+# standen sie hier dreimal aufgezählt — ein stillgelegter Server blieb dann in
+# der Discord-Auswahl stehen und lief beim Anklicken ins Leere.
+SERVER_SERVICES = kennung_zu_service()
+SERVER_DISPLAY_NAMES = kennung_zu_label()
 
 # Warnungszeitpunkte in Minuten vor dem Shutdown
 WARNING_THRESHOLDS = [30, 15, 5, 1]
 
 # Choices für die Server-Auswahl im Slash Command
 _SERVER_CHOICES = [
-    app_commands.Choice(name="Satisfactory", value="satisfactory"),
-    app_commands.Choice(name="Minecraft BMC", value="mc_bmc"),
-    app_commands.Choice(name="Minecraft Vanilla", value="mc_vanilla"),
+    app_commands.Choice(name=srv.label, value=srv.kennung) for srv in alle_server()
 ]
 
 
@@ -207,7 +200,7 @@ class ShutdownCog(commands.Cog):
         # Minecraft: RCON say-Befehl
         if server_id.startswith("mc_"):
             mc_servers = getattr(self.bot, "mc_servers", {})
-            # Server-ID-Mapping: mc_bmc -> BMC, mc_vanilla -> VANILLA
+            # Server-ID-Mapping: mc_bmc -> BMC
             mc_key = server_id.replace("mc_", "").upper()
             srv = mc_servers.get(mc_key) or mc_servers.get(server_id)
             if srv:

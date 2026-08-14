@@ -835,7 +835,7 @@ class MonitorCog(commands.Cog):
 
     @app_commands.command(name="mcstats",
                           description="Minecraft Server-Statistiken anzeigen")
-    @app_commands.describe(server="Server-ID (VANILLA/BMC, Standard: alle)")
+    @app_commands.describe(server="Server-ID (Standard: alle)")
     async def mcstats_cmd(self, interaction: discord.Interaction,
                           server: Optional[str] = None):
         await interaction.response.defer()
@@ -936,7 +936,7 @@ class MonitorCog(commands.Cog):
                           description="Minecraft Wochenbericht anzeigen")
     @app_commands.describe(
         zeitraum="Zeitraum in Tagen (Standard: 7)",
-        server="Server-ID (VANILLA/BMC, Standard: alle)"
+        server="Server-ID (Standard: alle)"
     )
     async def mcreport_cmd(self, interaction: discord.Interaction,
                            zeitraum: Optional[int] = 7,
@@ -1048,16 +1048,19 @@ class MonitorCog(commands.Cog):
                           description="Minecraft Crash-Replays anzeigen oder herunterladen")
     @app_commands.describe(
         nummer="Crash-Nummer zum Herunterladen (leer = Liste)",
-        server="Server-ID (VANILLA/BMC)"
+        server="Server-ID (leer = erster Server)"
     )
     @app_commands.check(is_admin)
     async def mccrashlog_cmd(self, interaction: discord.Interaction,
-                              server: str = "VANILLA",
+                              server: str = "",
                               nummer: Optional[int] = None):
         await interaction.response.defer(ephemeral=True)
 
         mc_crs = getattr(self.bot, "mc_crash_replays", {})
-        sid = server.upper()
+        # Ohne Angabe der erste konfigurierte Server. Frueher stand hier fest
+        # "VANILLA" als Vorgabe — nach dessen Stilllegung lief der Befehl ohne
+        # Argument ins Leere.
+        sid = server.upper() if server else next(iter(mc_crs), "")
         cr = mc_crs.get(sid)
         if not cr:
             await interaction.followup.send(

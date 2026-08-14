@@ -14,9 +14,10 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.templating import Jinja2Templates
+from web.templates_setup import erstelle_templates
 
 from utils.config import get_env, MONITOR_DATA_DIR
+from modules.server_registry import alle as alle_server
 from utils.logger import get_logger
 from web.auth import require_auth, require_auth_api, require_perm
 from modules.database.db_manager import get_db
@@ -24,22 +25,26 @@ from modules.database.db_manager import get_db
 logger = get_logger("web.routes.system")
 
 TEMPLATE_DIR = Path(__file__).parent.parent / "templates"
-templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
+templates = erstelle_templates(TEMPLATE_DIR)
 
 router = APIRouter(tags=["System"])
 
 # Webmin-URL konfigurierbar (Standard: Webmin auf Port 9090)
 WEBMIN_URL = get_env("WEB_WEBMIN_URL", "https://203.0.113.10:9090")
 
-# Bekannte Services mit Anzeigenamen
-KNOWN_SERVICES = [
+# Bekannte Services mit Anzeigenamen. Die Bots stehen fest, die Spielserver
+# kommen aus der ENV (modules.server_registry) — sonst bleibt ein stillgelegter
+# Server auf der Systemseite mit Start-Knopf stehen.
+BOT_SERVICES = [
     {"service_name": "operator-bot.service", "display_name": "Operator"},
     {"service_name": "recon-bot.service", "display_name": "Recon"},
     {"service_name": "marshal-bot.service", "display_name": "Marshal"},
     {"service_name": "web-dashboard.service", "display_name": "Web Dashboard"},
-    {"service_name": "satisfactory.service", "display_name": "Satisfactory Server"},
-    {"service_name": "minecraft-bmc.service", "display_name": "MC Better MC"},
-    {"service_name": "minecraft-vanilla.service", "display_name": "MC Vanilla"},
+]
+
+KNOWN_SERVICES = BOT_SERVICES + [
+    {"service_name": srv.service, "display_name": srv.label}
+    for srv in alle_server()
 ]
 
 # Erlaubte Services für Start/Stop/Restart

@@ -7,7 +7,6 @@ Status-Dateien, die das Web-Dashboard zum Anzeigen der Übersicht liest.
 Erzeugte Dateien (JSON-Bridge fuer Dashboard):
   - data/monitor/satisfactory_status.json
   - data/monitor/mc_bmc_status.json
-  - data/monitor/mc_vanilla_status.json
   - data/gameserver/bot_status.json
   - data/monitor/bot_status.json
   - data/admin/bot_status.json
@@ -225,7 +224,7 @@ class StatusWriter:
         mc_consecutive_offline = getattr(self.bot, "_mc_consecutive_offline", {})
 
         for sid, srv in mc_servers.items():
-            # Server-ID fuer Dateiname: BMC → mc_bmc, VANILLA → mc_vanilla
+            # Server-ID fuer Dateiname: BMC → mc_bmc
             file_id = f"mc_{sid.lower()}"
 
             # Status direkt via systemctl pruefen (async)
@@ -296,7 +295,7 @@ class StatusWriter:
             # Port aus Server-Konfiguration
             mc_port = getattr(srv, "rcon_port", 25565)
             # Game-Port ist typischerweise rcon_port - 10 oder aus ENV
-            # Standardmäßig: 25565 für Vanilla, 25566 für BMC
+            # Standardmäßig 25565, BMC nutzt 25566
             if sid.upper() == "BMC":
                 mc_port = 25566
             else:

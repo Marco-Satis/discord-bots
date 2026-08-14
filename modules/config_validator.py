@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Optional, Tuple, List
 
 from utils.logger import get_logger
-from utils.config import PROJECT_ROOT, get_env
+from utils.config import PROJECT_ROOT, get_env, server_ids
 
 logger = get_logger("config_validator")
 
@@ -214,7 +214,7 @@ class ConfigValidator:
     def _check_minecraft(self) -> List[ConfigValidationError]:  # type: ignore
         """Minecraft Multi-Server Konfiguration pruefen (nur wenn aktiviert)"""
         errors = []
-        mc_server_ids = ["BMC", "VANILLA"]
+        mc_server_ids = server_ids("MC_SERVER_IDS", "BMC")
 
         any_enabled = False
         for sid in mc_server_ids:

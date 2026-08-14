@@ -216,16 +216,15 @@
         </a>
         {% endif %}
 
+        {# Serverliste aus der ENV — siehe web/templates_setup.py #}
+        {% if spielserver %}
         <div class="sb-sec">Game-Server</div>
-        <a class="nav-i {% block nav_sat %}{% endblock %}" href="/server/satisfactory">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><circle cx="7" cy="7" r="1" fill="currentColor"/><circle cx="7" cy="17" r="1" fill="currentColor"/></svg><span class="lbl">Satisfactory</span>
+        {% for srv in spielserver %}
+        <a class="nav-i {{ 'active' if aktiver_server == srv.kennung else '' }}" href="/server/{{ srv.kennung }}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><circle cx="7" cy="7" r="1" fill="currentColor"/><circle cx="7" cy="17" r="1" fill="currentColor"/></svg><span class="lbl">{{ srv.label }}</span>
         </a>
-        <a class="nav-i {% block nav_mc_bmc %}{% endblock %}" href="/server/mc_bmc">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><circle cx="7" cy="7" r="1" fill="currentColor"/><circle cx="7" cy="17" r="1" fill="currentColor"/></svg><span class="lbl">MC Better MC</span>
-        </a>
-        <a class="nav-i {% block nav_mc_vanilla %}{% endblock %}" href="/server/mc_vanilla">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><circle cx="7" cy="7" r="1" fill="currentColor"/><circle cx="7" cy="17" r="1" fill="currentColor"/></svg><span class="lbl">MC Vanilla</span>
-        </a>
+        {% endfor %}
+        {% endif %}
 
         <div class="sb-sec">Info</div>
         <a class="nav-i {% block nav_search %}{% endblock %}" href="/search">

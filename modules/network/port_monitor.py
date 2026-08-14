@@ -32,16 +32,37 @@ DEFAULT_PORTS: list[Dict[str, Any]] = [
 # Timeout fuer einzelne Port-Checks (Sekunden)
 DEFAULT_CONNECT_TIMEOUT: float = 5.0
 
-# Port → server_id Mapping fuer manual_stop_state-Suppression.
-# Manuell gestoppte Server sollen keine Port-Down-Warnings erzeugen.
-PORT_TO_SERVER_ID: dict[int, str] = {
-    25575: "mc_bmc",       # BMC RCON
-    25566: "mc_bmc",       # BMC Game
-    25576: "mc_vanilla",   # Vanilla RCON
-    25565: "mc_vanilla",   # Vanilla Game
-    7777: "satisfactory",  # SAT Game (UDP, hier nur Vollstaendigkeit)
-    15777: "satisfactory", # SAT Query
-}
+# Port → Kennung fuer die manual_stop_state-Unterdrueckung: manuell gestoppte
+# Server sollen keine Port-Down-Warnungen erzeugen.
+#
+# Gebaut aus der ENV (modules.server_registry) statt aufgezaehlt — bis
+# 2026-08-14 standen hier zwei Vanilla-Ports, die nach der Stilllegung auf einen
+# Server gezeigt haetten, den es nicht mehr gibt.
+
+
+def _port_zuordnung() -> dict[int, str]:
+    """Ports aller konfigurierten Server auf ihre Kennung abbilden."""
+    from modules.server_registry import alle as alle_server
+
+    zuordnung: dict[int, str] = {}
+    for srv in alle_server():
+        if srv.spiel == "minecraft":
+            kandidaten = [
+                get_env(f"{srv.env_praefix}RCON_PORT", 25575, cast=int),
+                get_env(f"{srv.env_praefix}GAME_PORT", 0, cast=int),
+            ]
+        else:
+            kandidaten = [
+                get_env(f"{srv.env_praefix}PORT", 7777, cast=int),
+                get_env(f"{srv.env_praefix}QUERY_PORT", 15777, cast=int),
+            ]
+        for port in kandidaten:
+            if port:
+                zuordnung[port] = srv.kennung
+    return zuordnung
+
+
+PORT_TO_SERVER_ID: dict[int, str] = _port_zuordnung()
 
 
 def _port_belongs_to_stopped_server(port: int) -> bool:

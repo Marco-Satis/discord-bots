@@ -10,10 +10,13 @@ Format: {"<server_id>": "<ISO-Timestamp wann gestoppt>", ...}
 Operationen sind atomic (tmp + os.replace) und mehrfach-sicher per asyncio.Lock.
 Sync-Read fuer schnelle Lookups in Watchdog-Loop (lesen ist file-read OK).
 
-Server-IDs (Marco-facing): "satisfactory", "mc_bmc", "mc_vanilla"
-Service-Names (systemd): "satisfactory.service", "minecraft-bmc.service", "minecraft-vanilla.service"
+Server-IDs (Marco-facing) und systemd-Unit-Namen kommen aus
+``modules.server_registry`` — also aus der ENV, nicht aus einer Liste hier.
+Ein stillgelegter Server verschwindet damit von selbst, statt hier haengen zu
+bleiben (bis 2026-08-14 stand hier noch "mc_vanilla").
 
 Mapping in beide Richtungen via SERVER_ID_TO_SERVICE und SERVICE_TO_SERVER_ID.
+Beide sind Funktionen mit Aufruf beim Import — die ENV steht zu dem Zeitpunkt.
 """
 from __future__ import annotations
 
@@ -32,11 +35,10 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 STATE_FILE = _PROJECT_ROOT / "data" / "manual_stop_state.json"
 
 # Mapping -------------------------------------------------------------------
-SERVER_ID_TO_SERVICE: dict[str, str] = {
-    "satisfactory": "satisfactory.service",
-    "mc_bmc": "minecraft-bmc.service",
-    "mc_vanilla": "minecraft-vanilla.service",
-}
+# Kommt aus der ENV (modules.server_registry), nicht aus einer Liste hier.
+from modules.server_registry import kennung_zu_service  # noqa: E402
+
+SERVER_ID_TO_SERVICE: dict[str, str] = kennung_zu_service()
 SERVICE_TO_SERVER_ID: dict[str, str] = {v: k for k, v in SERVER_ID_TO_SERVICE.items()}
 
 _write_lock = asyncio.Lock()

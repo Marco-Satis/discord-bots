@@ -9,7 +9,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
+from web.templates_setup import erstelle_templates
 
 import modules.rbac as rbac
 from modules.dashboard_audit import fetch_audit
@@ -19,7 +19,7 @@ from web.auth import require_perm
 logger = get_logger("web.routes.audit")
 
 TEMPLATE_DIR = Path(__file__).parent.parent / "templates"
-templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
+templates = erstelle_templates(TEMPLATE_DIR)
 
 router = APIRouter(tags=["Audit"])
 

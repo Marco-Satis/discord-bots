@@ -25,25 +25,31 @@ class MinecraftUpdateChecker:
     """
     Prueft auf Paper-Server-Updates via Paper API.
 
-    Fuer Paper/Spigot-basierte Server (z.B. Vanilla mit Paper).
+    Fuer Paper/Spigot-basierte Server.
     Nicht geeignet fuer NeoForge/Forge-Server (z.B. Better MC 5).
 
     Usage:
-        checker = MinecraftUpdateChecker(server_path, server_id="VANILLA")
+        checker = MinecraftUpdateChecker(server_path, server_id="BMC")
         checker.on_update_available = my_callback
         available, info = await checker.check()
     """
 
     def __init__(self,
                  server_path: Path,
-                 server_id: str = "VANILLA",
+                 server_id: str = "",
                  jar_name: str = "server.jar") -> None:
         """
         Args:
             server_path: Pfad zum Server-Verzeichnis
-            server_id: Server-ID fuer Log-Prefix
+            server_id: Server-ID fuer Log-Prefix. Leer = erster konfigurierter
+                Minecraft-Server. Frueher stand hier fest "VANILLA" — nach
+                dessen Stilllegung ergab der Log-Prefix einen Server, den es
+                nicht mehr gibt.
             jar_name: Name der Server-JAR-Datei
         """
+        if not server_id:
+            from modules.server_registry import vorgabe
+            server_id = vorgabe("minecraft") or "MC"
         self.server_path = server_path
         self.server_id = server_id.upper()
         self.jar_name = jar_name

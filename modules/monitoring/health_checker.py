@@ -42,9 +42,12 @@ DEFAULT_CHECK_TIMEOUT: int = 10            # Sekunden pro Probe
 # Setups nicht aktiv/gebunden. Stattdessen direkt den Game-Port 7777 per UDP
 # pruefen, der nachweislich offen ist.
 SAT_QUERY_PORT: int = 7777
-MC_DEFAULT_PORTS: Dict[str, int] = {       # Minecraft Game-Ports pro Server-ID
+# Rueckfallwerte fuer Minecraft-Game-Ports. Die Quelle ist MC_{ID}_GAME_PORT
+# (siehe :293) — diese Tabelle greift nur, wenn die Variable fehlt. Neue Server
+# setzen ihren Port in der ENV statt hier; BMC steht drin, weil sein Port seit
+# jeher ohne Variable auskam.
+MC_DEFAULT_PORTS: Dict[str, int] = {
     "BMC": 25566,
-    "VANILLA": 25565,
 }
 
 
@@ -710,7 +713,7 @@ class HealthAutoRestart:
 
         Args:
             server_type: "sat" oder "mc"
-            server_id: z.B. "main", "BMC", "VANILLA"
+            server_id: z.B. "main", "BMC"
             duration_seconds: Wie lange unterdrücken (Standard: 10 Minuten)
         """
         key = f"{server_type}:{server_id}"

@@ -33,7 +33,7 @@ from typing import List, Optional
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from utils.config import load_env, get_env, get_config
+from utils.config import load_env, get_env, get_config, server_ids
 from utils.logger import get_logger
 from utils.formatting import format_uptime, format_bytes, status_emoji
 from utils.async_tasks import track_task
@@ -359,7 +359,10 @@ bot.package_checker = package_checker
 # Minecraft Multi-Server + Chat-Bridge
 # ------------------------------------------------------------------
 
-MC_SERVER_IDS = ["BMC", "VANILLA"]
+# Welche Server es gibt, steht in der ENV — siehe utils.config.server_ids.
+# Vanilla wurde am 2026-08-14 stillgelegt; zurueck geht es ueber
+# MC_SERVER_IDS=BMC,VANILLA plus den MC_VANILLA_*-Block, ohne Code-Aenderung.
+MC_SERVER_IDS = server_ids("MC_SERVER_IDS", "BMC")
 mc_servers: dict[str, MinecraftServer] = {}
 mc_chat_bridges: dict[str, MinecraftChatBridge] = {}
 

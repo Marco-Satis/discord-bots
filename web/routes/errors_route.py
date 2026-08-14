@@ -12,7 +12,7 @@ from pathlib import Path
 import aiofiles
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
+from web.templates_setup import erstelle_templates
 
 from utils.config import LOG_DIR
 from utils.logger import get_logger
@@ -21,7 +21,7 @@ from web.auth import require_perm, require_auth, require_auth_api
 logger = get_logger("web.routes.errors")
 
 TEMPLATE_DIR = Path(__file__).parent.parent / "templates"
-templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
+templates = erstelle_templates(TEMPLATE_DIR)
 
 router = APIRouter(tags=["Fehler"])
 

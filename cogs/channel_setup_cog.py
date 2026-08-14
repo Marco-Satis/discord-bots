@@ -28,9 +28,8 @@ logger = get_logger("cogs.channel_setup")
 # Keys sind Channel-Namen (lowercase). Voice/Privat-Pipeline-Channels ausgelassen.
 DEFAULT_TOPICS: dict[str, str] = {
     "live-server-status": (
-        "📊 Live-Status aller Gameserver (Satisfactory, Minecraft BMC5 & "
-        "Vanilla) — Online/Offline, Spielerzahl, Performance. Auto-aktualisiert, "
-        "nur lesen."
+        "📊 Live-Status aller Gameserver — Online/Offline, Spielerzahl, "
+        "Performance. Auto-aktualisiert, nur lesen."
     ),
     "willkommen": (
         "👋 Automatische Begrüßung neuer Mitglieder. Schau ins #regelwerk und "
@@ -62,9 +61,6 @@ DEFAULT_TOPICS: dict[str, str] = {
     "bmc-chat-bridge": (
         "🌉 2-Wege-Chat-Bridge zum Minecraft BMC5-Server: was du hier schreibst "
         "landet in-game — und umgekehrt."
-    ),
-    "mc-chat-bridge": (
-        "🌉 2-Wege-Chat-Bridge zum Minecraft Vanilla-Server: Discord ↔ In-Game-Chat."
     ),
     "euer-setup": "🖥️ Zeig dein Gaming-Setup: PC, Peripherie, Zimmer.",
     "eure-clips": "🎬 Deine besten Clips & Highlights.",

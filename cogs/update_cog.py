@@ -121,7 +121,7 @@ class UpdateCog(commands.Cog):
     @modpack_grp.command(
         name="status", description="Zeigt Modpack-Version und Update-Status"
     )
-    @app_commands.describe(server="Server-ID (z.B. BMC, VANILLA)")
+    @app_commands.describe(server="Server-ID (z.B. BMC)")
     async def mc_modpack_status(
         self, interaction: discord.Interaction, server: Optional[str] = None
     ):
@@ -212,7 +212,7 @@ class UpdateCog(commands.Cog):
     @modpack_grp.command(
         name="update", description="Startet manuelles Modpack-Update mit Countdown"
     )
-    @app_commands.describe(server="Server-ID (z.B. BMC, VANILLA)")
+    @app_commands.describe(server="Server-ID (z.B. BMC)")
     @admin_only()
     async def mc_modpack_update(
         self, interaction: discord.Interaction, server: Optional[str] = None
@@ -318,7 +318,7 @@ class UpdateCog(commands.Cog):
     @modpack_grp.command(
         name="force-update", description="Sofortiges Update OHNE Countdown (Testing)"
     )
-    @app_commands.describe(server="Server-ID (z.B. BMC, VANILLA)")
+    @app_commands.describe(server="Server-ID (z.B. BMC)")
     @admin_only()
     async def mc_modpack_force_update(
         self, interaction: discord.Interaction, server: Optional[str] = None
@@ -417,7 +417,7 @@ class UpdateCog(commands.Cog):
     @modpack_grp.command(
         name="cancel", description="Bricht laufendes Update/Countdown ab"
     )
-    @app_commands.describe(server="Server-ID (z.B. BMC, VANILLA)")
+    @app_commands.describe(server="Server-ID (z.B. BMC)")
     @admin_only()
     async def mc_modpack_cancel(
         self, interaction: discord.Interaction, server: Optional[str] = None
@@ -463,7 +463,7 @@ class UpdateCog(commands.Cog):
     @modpack_grp.command(
         name="rollback", description="Manueller Rollback auf vorherige Version"
     )
-    @app_commands.describe(server="Server-ID (z.B. BMC, VANILLA)")
+    @app_commands.describe(server="Server-ID (z.B. BMC)")
     @owner_only()
     async def mc_modpack_rollback(
         self, interaction: discord.Interaction, server: Optional[str] = None
@@ -613,7 +613,7 @@ class UpdateCog(commands.Cog):
     @modpack_grp.command(
         name="history", description="Zeigt die letzten 5 Updates"
     )
-    @app_commands.describe(server="Server-ID (z.B. BMC, VANILLA)")
+    @app_commands.describe(server="Server-ID (z.B. BMC)")
     async def mc_modpack_history(
         self, interaction: discord.Interaction, server: Optional[str] = None
     ):
@@ -709,7 +709,7 @@ class UpdateCog(commands.Cog):
     @modpack_grp.command(
         name="check", description="Prueft CurseForge auf neue Version"
     )
-    @app_commands.describe(server="Server-ID (z.B. BMC, VANILLA)")
+    @app_commands.describe(server="Server-ID (z.B. BMC)")
     @admin_only()
     async def mc_modpack_check(
         self, interaction: discord.Interaction, server: Optional[str] = None

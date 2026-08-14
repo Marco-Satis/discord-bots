@@ -11,7 +11,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
+from web.templates_setup import erstelle_templates
 
 from utils.config import PROJECT_ROOT, DATA_DIR, MONITOR_DATA_DIR, get_env
 from utils.logger import get_logger
@@ -24,7 +24,7 @@ EVENTS_FILE = MONITOR_DATA_DIR / "events.json"
 logger = get_logger("web.routes.dashboard")
 
 TEMPLATE_DIR = Path(__file__).parent.parent / "templates"
-templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
+templates = erstelle_templates(TEMPLATE_DIR)
 
 router = APIRouter(tags=["Dashboard"])
 

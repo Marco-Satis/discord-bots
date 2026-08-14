@@ -16,7 +16,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
+from web.templates_setup import erstelle_templates
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -119,7 +119,7 @@ TEMPLATE_DIR = Path(__file__).parent / "templates"
 
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
+templates = erstelle_templates(TEMPLATE_DIR)
 
 
 # --- WebSocket-Verbindungsverwaltung ---

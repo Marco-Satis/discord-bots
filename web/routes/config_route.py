@@ -14,7 +14,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
+from web.templates_setup import erstelle_templates
 
 from utils.config import get_config, save_config
 from utils.logger import get_logger
@@ -23,7 +23,7 @@ from web.auth import require_auth
 logger = get_logger("web.routes.config")
 
 TEMPLATE_DIR = Path(__file__).parent.parent / "templates"
-templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
+templates = erstelle_templates(TEMPLATE_DIR)
 
 router = APIRouter(tags=["Konfiguration"], dependencies=[Depends(require_auth)])
 

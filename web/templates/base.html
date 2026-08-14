@@ -266,21 +266,21 @@
                 </a>
             </div>
 
+            {# Die Spielserver kommen aus der ENV (modules.server_registry, als
+               Jinja-Global in web/templates_setup.py). Bis 2026-08-14 standen
+               sie hier aufgezaehlt — der stillgelegte Vanilla blieb im Menue
+               stehen und ein neuer Server bekam keinen Eintrag. #}
+            {% if spielserver %}
             <div class="nav-group">
                 <div class="nav-group-label">Game-Server</div>
-                <a href="/server/satisfactory" class="nav-item {% block nav_sat %}{% endblock %}">
-                    <span class="nav-icon" aria-hidden="true">&#127981;</span>
-                    <span class="nav-label">Satisfactory</span>
+                {% for srv in spielserver %}
+                <a href="/server/{{ srv.kennung }}" class="nav-item {{ 'active' if aktiver_server == srv.kennung else '' }}">
+                    <span class="nav-icon" aria-hidden="true">{% if srv.spiel == 'satisfactory' %}&#127981;{% else %}&#9935;{% endif %}</span>
+                    <span class="nav-label">{{ srv.label }}</span>
                 </a>
-                <a href="/server/mc_bmc" class="nav-item {% block nav_mc_bmc %}{% endblock %}">
-                    <span class="nav-icon" aria-hidden="true">&#9935;</span>
-                    <span class="nav-label">MC Better MC</span>
-                </a>
-                <a href="/server/mc_vanilla" class="nav-item {% block nav_mc_vanilla %}{% endblock %}">
-                    <span class="nav-icon" aria-hidden="true">&#9968;</span>
-                    <span class="nav-label">MC Vanilla</span>
-                </a>
+                {% endfor %}
             </div>
+            {% endif %}
 
             <div class="nav-group">
                 <div class="nav-group-label">Info</div>

@@ -31,6 +31,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from modules.database.db_manager import get_db
+from modules.server_registry import alle as alle_server, kennung_zu_label
 from utils.logger import get_logger
 from utils.embeds import (
     error_embed,
@@ -103,19 +104,14 @@ CREATE TABLE IF NOT EXISTS notify_subscriptions (
 )
 """
 
-# Verfügbare Server als Choices
+# Verfügbare Server und ihre Anzeigenamen kommen aus der ENV
+# (modules.server_registry) — wer einen Server stilllegt, soll ihn nicht
+# weiterhin abonnieren können.
 _SERVER_CHOICES = [
-    app_commands.Choice(name="Satisfactory", value="satisfactory"),
-    app_commands.Choice(name="Minecraft BMC", value="mc_bmc"),
-    app_commands.Choice(name="Minecraft Vanilla", value="mc_vanilla"),
+    app_commands.Choice(name=srv.label, value=srv.kennung) for srv in alle_server()
 ]
 
-# Lesbare Server-Namen für Anzeige
-_SERVER_LABELS: dict[str, str] = {
-    "satisfactory": "Satisfactory",
-    "mc_bmc": "Minecraft BMC",
-    "mc_vanilla": "Minecraft Vanilla",
-}
+_SERVER_LABELS: dict[str, str] = kennung_zu_label()
 
 # Lesbare Event-Typen für Anzeige
 _EVENT_LABELS: dict[str, str] = {

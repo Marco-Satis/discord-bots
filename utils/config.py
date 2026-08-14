@@ -134,3 +134,34 @@ def get_env(key: str, default=None, cast=None) -> str | int | float | bool | Non
     if cast is bool:
         return str(val).lower() in ("true", "1", "yes", "on")
     return val
+
+
+def server_ids(key: str, default: str) -> list[str]:
+    """
+    Liest eine Server-Liste aus einer ENV-Variable.
+
+    Welche Spielserver es gibt, stand bis 2026-08-14 an drei Stellen im Code
+    (`bots/recon_bot.py`, `bots/operator_bot.py`, `modules/config_validator.py`)
+    plus in einem halben Dutzend Anzeige- und Port-Tabellen. Einen Server
+    hinzuzunehmen oder stillzulegen hiess deshalb: Code aendern, testen,
+    deployen. Jetzt steht es an einer Stelle, und der Wechsel ist ein Neustart.
+
+    Args:
+        key: Name der ENV-Variable, z.B. ``MC_SERVER_IDS``.
+        default: Kommaliste, die gilt, wenn die Variable fehlt.
+
+    Returns:
+        Grossgeschriebene IDs in der angegebenen Reihenfolge, ohne Leereintraege
+        und ohne Dubletten. Die Reihenfolge zaehlt: der erste Eintrag ist der
+        Vorgabe-Server fuer Befehle ohne Server-Angabe.
+
+    >>> server_ids("MC_SERVER_IDS", "BMC")          # ohne gesetzte Variable
+    ['BMC']
+    """
+    roh = get_env(key, default) or default
+    gesehen: dict[str, None] = {}
+    for teil in str(roh).split(","):
+        sid = teil.strip().upper()
+        if sid:
+            gesehen.setdefault(sid, None)
+    return list(gesehen)

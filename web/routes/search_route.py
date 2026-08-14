@@ -20,7 +20,7 @@ def _sanitize_snippet(snippet: str) -> str:
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.templating import Jinja2Templates
+from web.templates_setup import erstelle_templates
 
 from utils.logger import get_logger
 from web.auth import require_auth, require_auth_api, require_perm
@@ -29,7 +29,7 @@ from modules.database.search_indexer import SearchIndexer
 logger = get_logger("web.routes.search")
 
 TEMPLATE_DIR = Path(__file__).parent.parent / "templates"
-templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
+templates = erstelle_templates(TEMPLATE_DIR)
 
 router = APIRouter(tags=["Search"])
 

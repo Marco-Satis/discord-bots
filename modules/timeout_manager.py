@@ -2,7 +2,7 @@
 Timeout Manager — Serveruebergreifendes temporaeres Ban-System
 
 Verwaltet Timeouts (temporaere Bans) zentral in einer JSON-Datei.
-Unterstuetzt mehrere Server gleichzeitig (SAT, BMC, Vanilla, etc.)
+Unterstuetzt mehrere Server gleichzeitig (SAT, BMC, etc.)
 und trackt aktive Timeouts sowie Ban-Historie.
 
 Der Manager kuemmert sich NUR um die Datenverwaltung (Speichern,
@@ -20,7 +20,7 @@ Dateiformat (data/timeouts.json):
       "set_by_id": 789,
       "set_at": "2025-01-01T00:00:00",
       "expires_at": "2025-01-01T01:00:00",
-      "servers": ["sat", "bmc", "vanilla"],
+      "servers": ["sat", "bmc"],
       "ip": "1.2.3.4",
       "active": true
     }
@@ -131,7 +131,7 @@ class TimeoutManager:
             reason: Grund fuer den Timeout
             set_by: Display-Name des Admins
             set_by_id: Discord-ID des Admins
-            servers: Liste von Server-IDs (z.B. ["sat", "bmc", "vanilla"])
+            servers: Liste von Server-IDs (z.B. ["sat", "bmc"])
             bot: Bot-Instanz (fuer zukuenftige Erweiterungen, aktuell unused)
 
         Returns:

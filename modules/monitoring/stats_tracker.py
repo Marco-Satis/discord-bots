@@ -55,7 +55,7 @@ class StatsTracker:
         """
         Args:
             server_type: "sat", "mc" etc.
-            server_id: Optionale Server-ID (z.B. "vanilla", "bmc")
+            server_id: Optionale Server-ID (z.B. "bmc")
         """
         self.server_type = server_type
         self.server_id = server_id

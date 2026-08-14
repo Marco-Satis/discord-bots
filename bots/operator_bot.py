@@ -24,7 +24,7 @@ from datetime import datetime, timezone
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from utils.config import load_env, get_env, get_config, DATA_DIR
+from utils.config import load_env, get_env, get_config, DATA_DIR, server_ids
 from utils.logger import get_logger
 from utils.selftest import execute_selftest
 from utils.shutdown import setup_signal_handlers, register_cleanup
@@ -127,7 +127,7 @@ bot.settings_backup = SettingsBackup(
 from modules.minecraft.server import MinecraftServer
 bot.mc_servers: dict[str, MinecraftServer] = {}
 
-MC_SERVER_IDS = ["BMC", "VANILLA"]
+MC_SERVER_IDS = server_ids("MC_SERVER_IDS", "BMC")
 for _sid in MC_SERVER_IDS:
     _srv = MinecraftServer(_sid)
     if _srv.enabled:

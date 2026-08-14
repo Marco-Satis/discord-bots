@@ -17,7 +17,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.templating import Jinja2Templates
+from web.templates_setup import erstelle_templates
 
 from modules.database.db_manager import get_db
 from utils.config import DATA_DIR
@@ -27,7 +27,7 @@ from web.auth import require_auth, require_auth_api, require_perm
 logger = get_logger("web.routes.security")
 
 TEMPLATE_DIR = Path(__file__).parent.parent / "templates"
-templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
+templates = erstelle_templates(TEMPLATE_DIR)
 
 router = APIRouter(tags=["Security"])
 

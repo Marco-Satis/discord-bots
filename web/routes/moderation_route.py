@@ -11,7 +11,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
+from web.templates_setup import erstelle_templates
 
 from modules.guild_context import GuildConfig, get_primary_guild_id
 from utils.logger import get_logger
@@ -20,7 +20,7 @@ from web.auth import require_auth, require_perm
 logger = get_logger("web.routes.moderation")
 
 TEMPLATE_DIR = Path(__file__).parent.parent / "templates"
-templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
+templates = erstelle_templates(TEMPLATE_DIR)
 
 router = APIRouter(tags=["Moderation"])
 

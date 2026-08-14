@@ -13,9 +13,10 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, Request, Form
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
+from web.templates_setup import erstelle_templates
 
 from utils.config import PROJECT_ROOT, DATA_DIR, MONITOR_DATA_DIR, get_config, get_env
+from modules.server_registry import SAT_DEFAULT, alle as alle_server
 from utils.logger import get_logger
 from web.auth import require_auth, require_auth_api, require_perm
 from modules.minecraft.rcon import MinecraftRCON
@@ -26,53 +27,57 @@ from modules.database.db_manager import get_db
 logger = get_logger("web.routes.server_detail")
 
 TEMPLATE_DIR = Path(__file__).parent.parent / "templates"
-templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
+templates = erstelle_templates(TEMPLATE_DIR)
 
 router = APIRouter(tags=["Server-Detail"])
 
-# Gueltige Server-IDs und deren Anzeigenamen
-VALID_SERVER_IDS = {
-    "satisfactory": "Satisfactory",
-    "mc_bmc": "Minecraft BMC",
-    "mc_vanilla": "Minecraft Vanilla",
-}
+# Sechs Zuordnungen, eine Quelle: modules.server_registry liest die Serverliste
+# aus der ENV. Bis 2026-08-14 standen sie hier aufgezaehlt — ein stillgelegter
+# Server behielt dadurch eine Detailseite mit Start-Knopf, und ein neuer bekam
+# keine, bis jemand alle sechs Stellen nachtrug.
+_SERVER = alle_server()
 
-# Server-Typ-Zuordnung (fuer Feature-Flags wie RCON)
-SERVER_TYPES = {
-    "satisfactory": "satisfactory",
-    "mc_bmc": "minecraft",
-    "mc_vanilla": "minecraft",
-}
 
-# Backup-Verzeichnisse pro Server (aus ENV oder Standard-Pfade)
-BACKUP_DIRS = {
-    "satisfactory": Path(get_env("BACKUP_PATH", "/home/satisfactory/backups")),
-    "mc_bmc": Path(get_env("MC_BMC_BACKUP_PATH", "/home/minecraft/backups/bmc")),
-    "mc_vanilla": Path(get_env("MC_VANILLA_BACKUP_PATH", "/home/minecraft/backups/vanilla")),
-}
+def _backup_verzeichnis(srv) -> Path:
+    """Backup-Ziel eines Servers aus der ENV, mit dem gewohnten Standardpfad."""
+    if srv.spiel == "minecraft":
+        return Path(get_env(f"{srv.env_praefix}BACKUP_PATH",
+                            f"/home/minecraft/backups/{srv.server_id.lower()}"))
+    # Der erste Satisfactory-Server benutzt weiter BACKUP_PATH ohne ID.
+    if srv.server_id == SAT_DEFAULT:
+        return Path(get_env("BACKUP_PATH", "/home/satisfactory/backups"))
+    return Path(get_env(f"{srv.env_praefix}BACKUP_PATH",
+                        f"/home/satisfactory/backups/{srv.server_id.lower()}"))
 
-# Server-ID → systemd Service-Name Zuordnung
-SERVICE_NAMES = {
-    "satisfactory": "satisfactory.service",
-    "mc_bmc": "minecraft-bmc.service",
-    "mc_vanilla": "minecraft-vanilla.service",
-}
 
-# Mod-Verzeichnisse pro Server. Paper/Vanilla nutzt plugins/ statt mods/.
-MOD_DIRS = {
-    "satisfactory": Path("/home/satisfactory/SatisfactoryDedicatedServer"),
-    "mc_bmc": Path(get_env("MC_BMC_PATH", "/home/minecraft/bmc5")) / "mods",
-    "mc_vanilla": Path(get_env("MC_VANILLA_PATH", "/home/minecraft/vanilla")) / "plugins",
-}
+def _mod_verzeichnis(srv) -> Path:
+    """Mod-Ordner eines Servers. Paper und Bukkit benutzen plugins/, sonst mods/."""
+    if srv.spiel == "satisfactory":
+        vorgabe = "/home/satisfactory/SatisfactoryDedicatedServer"
+        if srv.server_id == SAT_DEFAULT:
+            return Path(get_env("SATISFACTORY_SERVER_PATH", vorgabe))
+        return Path(get_env(f"{srv.env_praefix}PATH", vorgabe))
+    pfad = Path(get_env(f"{srv.env_praefix}PATH",
+                        f"/home/minecraft/{srv.server_id.lower()}"))
+    loader = get_env(f"{srv.env_praefix}LOADER", "neoforge").lower()
+    return pfad / ("plugins" if loader in ("paper", "spigot", "bukkit") else "mods")
 
-# Minecraft-Version je Server — noetig, damit Modrinth die passende Datei liefert
+
+VALID_SERVER_IDS = {srv.kennung: srv.label for srv in _SERVER}
+SERVER_TYPES = {srv.kennung: srv.spiel for srv in _SERVER}
+BACKUP_DIRS = {srv.kennung: _backup_verzeichnis(srv) for srv in _SERVER}
+SERVICE_NAMES = {srv.kennung: srv.service for srv in _SERVER}
+MOD_DIRS = {srv.kennung: _mod_verzeichnis(srv) for srv in _SERVER}
+
+# Minecraft-Version und Loader je Server — noetig, damit Modrinth die passende
+# Datei liefert.
 MC_GAME_VERSIONS = {
-    "mc_bmc": get_env("MC_BMC_VERSION", "1.21.1"),
-    "mc_vanilla": get_env("MC_VANILLA_VERSION", "1.21.1"),
+    srv.kennung: get_env(f"{srv.env_praefix}VERSION", "1.21.1")
+    for srv in _SERVER if srv.spiel == "minecraft"
 }
 MC_LOADERS = {
-    "mc_bmc": get_env("MC_BMC_LOADER", "neoforge"),
-    "mc_vanilla": get_env("MC_VANILLA_LOADER", "paper"),
+    srv.kennung: get_env(f"{srv.env_praefix}LOADER", "neoforge")
+    for srv in _SERVER if srv.spiel == "minecraft"
 }
 
 
@@ -138,6 +143,19 @@ def _get_server_display_name(server_id: str) -> str:
 def _get_server_type(server_id: str) -> str:
     """Gibt den Server-Typ zurück (minecraft, satisfactory)."""
     return SERVER_TYPES.get(server_id, "unknown")
+
+
+def _rcon_praefix(server_id: str) -> str:
+    """
+    ENV-Praefix eines Servers fuer die RCON-Zugangsdaten, z.B. ``MC_BMC_``.
+
+    Bis 2026-08-14 stand die Zuordnung dreimal als Literal im File und nannte
+    einen Server mit, den es nicht mehr gibt.
+    """
+    for srv in _SERVER:
+        if srv.kennung == server_id:
+            return srv.env_praefix
+    return ""
 
 
 def _list_backups(server_id: str) -> list[dict]:
@@ -521,8 +539,7 @@ async def server_action(request: Request, server_id: str, current_user: dict = D
 
         note = ""
         if server_type == "minecraft":
-            rcon_prefixes = {"mc_bmc": "MC_BMC_", "mc_vanilla": "MC_VANILLA_"}
-            prefix = rcon_prefixes.get(server_id, "")
+            prefix = _rcon_praefix(server_id)
             rcon_host = get_env(f"{prefix}RCON_HOST", "127.0.0.1")
             rcon_port = int(get_env(f"{prefix}RCON_PORT", "25575"))
             rcon_password = get_env(f"{prefix}RCON_PASSWORD", "")
@@ -608,8 +625,7 @@ async def server_action(request: Request, server_id: str, current_user: dict = D
 
         if server_type == "minecraft":
             # RCON-Konfiguration laden
-            rcon_prefixes = {"mc_bmc": "MC_BMC_", "mc_vanilla": "MC_VANILLA_"}
-            prefix = rcon_prefixes.get(server_id, "")
+            prefix = _rcon_praefix(server_id)
             rcon_host = get_env(f"{prefix}RCON_HOST", "127.0.0.1")
             rcon_port = int(get_env(f"{prefix}RCON_PORT", "25575"))
             rcon_password = get_env(f"{prefix}RCON_PASSWORD", "")
@@ -1242,12 +1258,8 @@ async def server_rcon(request: Request, server_id: str, command: str = Form(""),
     timestamp = datetime.now().strftime("%H:%M:%S")
     safe_command = html_escape_module.escape(command)
 
-    # RCON-Konfiguration aus ENV laden (MC_BMC_ oder MC_VANILLA_ Prefix)
-    rcon_prefixes = {
-        "mc_bmc": "MC_BMC_",
-        "mc_vanilla": "MC_VANILLA_",
-    }
-    prefix = rcon_prefixes.get(server_id, "")
+    # RCON-Konfiguration aus der ENV (Praefix des jeweiligen Servers)
+    prefix = _rcon_praefix(server_id)
     rcon_host = get_env(f"{prefix}RCON_HOST", "127.0.0.1")
     rcon_port = int(get_env(f"{prefix}RCON_PORT", "25575"))
     rcon_password = get_env(f"{prefix}RCON_PASSWORD", "")

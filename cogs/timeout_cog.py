@@ -9,7 +9,7 @@ Command-Struktur:
   /timeout history <spieler>                     (Timeout-Historie - Admin)
 
 Neues Verhalten gegenüber v3.1.0:
-- Multi-Server Ban: SAT + MC (BMC/Vanilla) gleichzeitig
+- Multi-Server Ban: SAT + alle konfigurierten MC-Server gleichzeitig
 - IP-Ban via UFW + RCON-Ban (MC)
 - Persistenz in data/timeouts.json
 - Background-Task prueft alle 60s auf abgelaufene Timeouts
@@ -27,6 +27,7 @@ from discord.ext import commands, tasks
 
 from modules.timeout_manager import TimeoutManager
 from utils import get_logger, admin_only, DATA_DIR, is_admin
+from modules.server_registry import alle as alle_server
 from utils.embeds import (
     COLOR_ERROR,
     COLOR_SUCCESS,
@@ -47,12 +48,10 @@ def _sanitize_input(text: str, max_length: int = 100) -> str:
 
 logger = get_logger("cogs.timeout")
 
-# Server-Optionen für den Autocomplete
-_SERVER_CHOICES = [
-    app_commands.Choice(name="Alle Server", value="alle"),
-    app_commands.Choice(name="Satisfactory", value="sat"),
-    app_commands.Choice(name="Minecraft BMC", value="bmc"),
-    app_commands.Choice(name="Minecraft Vanilla", value="vanilla"),
+# Server-Optionen für den Autocomplete — aus der ENV (modules.server_registry),
+# damit ein stillgelegter Server nicht in der Auswahl stehen bleibt.
+_SERVER_CHOICES = [app_commands.Choice(name="Alle Server", value="alle")] + [
+    app_commands.Choice(name=srv.label, value=srv.kurz_id) for srv in alle_server()
 ]
 
 
@@ -328,11 +327,9 @@ class TimeoutCog(commands.Cog):
 
         servers = timeout_data.get("servers", [])
         if servers:
-            server_labels = {
-                "sat": "Satisfactory",
-                "bmc": "Minecraft BMC",
-                "vanilla": "Minecraft Vanilla",
-            }
+            # Alte Eintraege koennen Server nennen, die es nicht mehr gibt —
+            # dann bleibt die Kurzform stehen, statt die Anzeige zu verlieren.
+            server_labels = {srv.kurz_id: srv.label for srv in alle_server()}
             server_names = [server_labels.get(s, s) for s in servers]
             embed.add_field(
                 name="Betroffene Server",

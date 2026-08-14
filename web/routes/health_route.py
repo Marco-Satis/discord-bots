@@ -25,6 +25,7 @@ from fastapi.responses import JSONResponse
 from web.auth import require_auth_api
 from utils.logger import get_logger
 from utils.config import get_config, get_env, PROJECT_ROOT
+from modules.server_registry import alle as alle_server
 from utils.config import MONITOR_DATA_DIR, GAMESERVER_DATA_DIR, ADMIN_DATA_DIR
 
 logger = get_logger("web.routes.health")
@@ -32,23 +33,16 @@ logger = get_logger("web.routes.health")
 router = APIRouter(tags=["Health"])
 # allow_anon: bewusst public — Monitoring-Endpunkte fuer externe Health-Checks
 
-# Bekannte Server-Status-Dateien die geprueft werden
+# Bekannte Server-Status-Dateien die geprueft werden. Aus der ENV
+# (modules.server_registry) — ein stillgelegter Server soll die Gesamtlage nicht
+# dauerhaft auf "degraded" ziehen, nur weil seine Datei nicht mehr frisch wird.
 SERVER_STATUS_FILES: list[dict] = [
     {
-        "id": "satisfactory",
-        "name": "Satisfactory",
-        "file": MONITOR_DATA_DIR / "satisfactory_status.json",
-    },
-    {
-        "id": "mc_bmc",
-        "name": "Minecraft Better MC",
-        "file": MONITOR_DATA_DIR / "mc_bmc_status.json",
-    },
-    {
-        "id": "mc_vanilla",
-        "name": "Minecraft Vanilla",
-        "file": MONITOR_DATA_DIR / "mc_vanilla_status.json",
-    },
+        "id": srv.kennung,
+        "name": srv.label,
+        "file": MONITOR_DATA_DIR / f"{srv.kennung}_status.json",
+    }
+    for srv in alle_server()
 ]
 
 # Maximales Alter einer Status-Datei in Sekunden bevor sie als veraltet gilt
