@@ -878,6 +878,100 @@ for _hc_sid, _hc in sat_health_checkers.items():
     )
 
 
+def _sat_crash_meldung_binden(sid: str) -> None:
+    """
+    Crash-Meldungen einer weiteren Satisfactory-Instanz verdrahten.
+
+    Ohne das haengen `on_crash` und die Neustart-Rueckmeldungen nur am ersten
+    Server. Eine zweite Instanz stuerzte dann ab, wurde automatisch neu
+    gestartet — und niemand erfuhr davon. Ein Absturz, den keiner sieht, ist
+    schlimmer als einer, der meldet: die Ursache bleibt unbemerkt, bis der
+    Server gar nicht mehr hochkommt.
+
+    Die Meldungen tragen den Instanznamen, sonst sind zwei gleich aussehende
+    Absturzmeldungen nicht auseinanderzuhalten.
+    """
+    checker = sat_health_checkers.get(sid)
+    if checker is None or checker is health_checker:
+        return
+
+    srv = sat_servers.get(sid)
+    name = srv.display_name if srv else sid
+    replay = sat_crash_replays.get(sid)
+    tracker = sat_stats_trackers.get(sid)
+
+    async def _kanal():
+        if not ADMIN_LOG_CHANNEL_ID:
+            return None
+        return bot.get_channel(ADMIN_LOG_CHANNEL_ID)
+
+    async def _crash(ereignis, _name=name, _replay=replay, _tracker=tracker):
+        # Replay zuerst — danach rotiert das Log unter Umstaenden weg.
+        datei = None
+        if _replay is not None:
+            try:
+                datei = await _replay.capture(ereignis.crash_number)
+            except Exception as e:  # noqa: BLE001
+                logger.error(f"[{sid}] Crash-Replay fehlgeschlagen: {e}")
+        if _tracker is not None:
+            try:
+                _tracker.record_crash(ereignis.crash_number)
+            except Exception as e:  # noqa: BLE001
+                logger.debug(f"[{sid}] record_crash: {e}")
+
+        logger.warning(f"[{sid}] Absturz Nr. {ereignis.crash_number}")
+        kanal = await _kanal()
+        if kanal is None:
+            return
+        try:
+            embed = error_embed(
+                title=f"💥 {_name} abgestuerzt (Nr. {ereignis.crash_number})",
+                description="Der automatische Neustart laeuft an.",
+            )
+            if datei:
+                await kanal.send(embed=embed,
+                                 file=discord.File(str(datei), filename=datei.name))
+            else:
+                await kanal.send(embed=embed)
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"[{sid}] Absturz-Meldung fehlgeschlagen: {e}")
+
+    async def _neustart_ok(ereignis, _name=name):
+        kanal = await _kanal()
+        if kanal is None:
+            return
+        try:
+            await kanal.send(embed=success_embed(
+                title=f"🟢 {_name} nach Absturz neu gestartet",
+                description=f"Absturz Nr. {ereignis.crash_number} behoben.",
+            ))
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"[{sid}] Neustart-Meldung fehlgeschlagen: {e}")
+
+    async def _neustart_fehlgeschlagen(ereignis, grund, _name=name):
+        logger.error(f"[{sid}] Neustart nach Absturz fehlgeschlagen: {grund}")
+        kanal = await _kanal()
+        if kanal is None:
+            return
+        try:
+            await kanal.send(embed=error_embed(
+                title=f"🔴 {_name} laesst sich nicht neu starten",
+                description=f"Absturz Nr. {ereignis.crash_number}\nGrund: {grund}",
+            ))
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"[{sid}] Fehlschlag-Meldung fehlgeschlagen: {e}")
+
+    checker.on_crash = _crash
+    checker.on_restart_success = _neustart_ok
+    checker.on_restart_failed = _neustart_fehlgeschlagen
+    # on_recovery bleibt frei: die Rueckkehr meldet bereits
+    # _weitere_sat_pruefen(), sonst kaeme dieselbe Nachricht doppelt.
+
+
+for _cb_sid in sat_health_checkers:
+    _sat_crash_meldung_binden(_cb_sid)
+
+
 async def _on_player_join(name):
     # No public join notification - status embed shows who's online
     # Only log to admin channel if: banned player/IP or new player
