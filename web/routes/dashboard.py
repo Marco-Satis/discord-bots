@@ -61,8 +61,24 @@ def _collect_server_status() -> list[dict]:
     #   bot_status.json -> wird unter Bot-Status angezeigt
     #   ssl_status.json -> SSL-Zertifikats-Monitor, gehoert auf /security
     _non_server = {"bot_status.json", "ssl_status.json"}
+
+    # Nur Server, die die Registry kennt. Ein stillgelegter Server hinterlaesst
+    # seine letzte Statusdatei (die Daten bleiben bewusst liegen) — ohne diesen
+    # Abgleich stand er weiter als Kachel im Dashboard, mit eingefrorenen Werten
+    # und einem Detail-Link, der 404 liefert. Genau so war es am 2026-08-15 mit
+    # mc_vanilla_status.json vom Vortag.
+    try:
+        from modules.server_registry import alle as _alle_server
+        _bekannt = {srv.kennung for srv in _alle_server()}
+    except Exception as e:  # noqa: BLE001 — lieber alle zeigen als keine
+        logger.debug(f"Registry nicht lesbar, zeige alle Statusdateien: {e}")
+        _bekannt = None
+
     for json_file in sorted(monitor_dir.glob("*_status.json")):
         if json_file.name in _non_server:
+            continue
+        if _bekannt is not None and json_file.stem.replace("_status", "") not in _bekannt:
+            logger.debug(f"Statusdatei ohne Server in der Registry uebersprungen: {json_file.name}")
             continue
         data = _load_json_safe(json_file)
         if data:
