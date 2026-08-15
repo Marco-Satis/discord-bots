@@ -154,6 +154,83 @@ class SatisfactoryCog(commands.Cog):
         alle = getattr(self.bot, "sat_backup_mgrs", {}) or {}
         return alle.get(sid or "") or self.bot.backup_mgr
 
+    async def _neustart_nach_upload(self, interaction: discord.Interaction,
+                                    sid: Optional[str] = None) -> None:
+        """
+        Startet nach einem Blueprint-Upload selbsttaetig den Neustart.
+
+        Der Server liest Blaupausen nur beim Start ein — ohne Neustart liegen
+        frisch hochgeladene Dateien zwar auf der Platte, sind im Spiel aber
+        nicht da. Frueher stand hier nur ein Knopf; wurde er nicht gedrueckt,
+        blieb der Upload wirkungslos, ohne dass es jemandem auffiel (belegt am
+        2026-08-15: fuenf Blaupausen um 08:49 hochgeladen, Server lief bis
+        14:00 unveraendert weiter).
+
+        Der Neustart laeuft mit fuenf Minuten Vorlauf und Warnungen im Spiel —
+        abbrechen laesst er sich mit ``/sat cancel``.
+        """
+        srv, api, sid = self._instanz(sid)
+        if srv is None:
+            return
+
+        if self.bot.timer_mgr.has_active:
+            await interaction.followup.send(
+                embed=info_embed(
+                    title="Neustart nicht gestartet",
+                    description=(
+                        "Es läuft bereits ein Countdown. Die Blueprints sind "
+                        "nach dessen Neustart verfügbar."
+                    ),
+                ),
+                ephemeral=True,
+            )
+            return
+
+        timer = self.bot.timer_mgr.get_or_create(
+            self._timer_key(sid), api=api, channel=interaction.channel,
+        )
+        try:
+            ergebnis = await timer.countdown(
+                duration_minutes=5,
+                action_name="Neustart (Blueprint-Upload)",
+                warnings=[5, 3, 1],
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"[{sid}] Countdown nach Upload fehlgeschlagen: {e}")
+            return
+
+        if ergebnis == TimerResult.CANCELLED:
+            logger.info(f"[{sid}] Neustart nach Blueprint-Upload abgebrochen")
+            return
+        if ergebnis != TimerResult.COMPLETED:
+            await interaction.channel.send(
+                "Timer-Fehler — der Server wurde NICHT neu gestartet. "
+                "Bitte von Hand: `/sat restart`."
+            )
+            return
+
+        # Auto-Restart-Wache waehrend des geplanten Neustarts stillstellen,
+        # sonst faehrt sie den gerade bootenden Server ein zweites Mal hoch.
+        har = getattr(self.bot, "health_auto_restart", None)
+        if har:
+            try:
+                har.suppress("sat", (sid or "main").lower(), duration_seconds=300)
+            except Exception as e:  # noqa: BLE001
+                logger.debug(f"[{sid}] Suppression fehlgeschlagen: {e}")
+
+        erfolg, meldung = await srv.restart(api=api)
+        if erfolg:
+            await interaction.channel.send(embed=success_embed(
+                title=f"{srv.display_name} neugestartet",
+                description="Die neuen Blueprints sind jetzt im Spiel verfügbar.",
+            ))
+        else:
+            await interaction.channel.send(embed=error_embed(
+                title="Neustart fehlgeschlagen",
+                description=f"{meldung}\n\nDie Blueprints liegen bereit, sind "
+                            f"aber erst nach einem Neustart im Spiel sichtbar.",
+            ))
+
     def _timer_key(self, sid: Optional[str] = None) -> str:
         """
         Schluessel des Neustart-Countdowns einer Instanz.
@@ -1078,8 +1155,15 @@ class SatisfactoryCog(commands.Cog):
             embed.add_field(name="Kategorie", value=kategorie, inline=True)
             embed.set_footer(text=f"von {interaction.user.display_name}")
 
-            view = BlueprintRestartView(self, interaction, sid=sid)
-            await interaction.followup.send(embed=embed, view=view)
+            embed.add_field(
+                name="Neustart",
+                value=("Läuft automatisch in **5 Minuten** an — Spieler werden "
+                       "im Spiel gewarnt.\nAbbrechen mit `/sat cancel`."),
+                inline=False,
+            )
+            await interaction.followup.send(embed=embed)
+            # Im Hintergrund, damit die Interaktion nicht fuenf Minuten offen haengt.
+            asyncio.create_task(self._neustart_nach_upload(interaction, sid))
             return
 
         # Single blueprint upload
@@ -1122,8 +1206,14 @@ class SatisfactoryCog(commands.Cog):
         embed.add_field(name="Kategorie", value=kategorie, inline=True)
         embed.set_footer(text=f"von {interaction.user.display_name}")
 
-        view = BlueprintRestartView(self, interaction, sid=sid)
-        await interaction.followup.send(embed=embed, view=view)
+        embed.add_field(
+            name="Neustart",
+            value=("Läuft automatisch in **5 Minuten** an — Spieler werden "
+                   "im Spiel gewarnt.\nAbbrechen mit `/sat cancel`."),
+            inline=False,
+        )
+        await interaction.followup.send(embed=embed)
+        asyncio.create_task(self._neustart_nach_upload(interaction, sid))
 
     @blueprints_upload.autocomplete("kategorie")
     async def kategorie_autocomplete(
@@ -1591,10 +1681,13 @@ class SatisfactoryCog(commands.Cog):
         """
         srv, api, _sid = self._instanz(server)
         if srv is None:
-            srv, api = self.server, self.api
+            srv, api, _sid = self.server, self.api, None
         har = getattr(self.bot, "health_auto_restart", None)
         if har:
-            har.suppress("sat", "main", duration_seconds=300)
+            # Schluessel der Instanz: mit fest verdrahtetem "main" haette die
+            # Wache der ZWEITEN Instanz die Unterdrueckung nie gesehen und den
+            # gerade bootenden Server ein zweites Mal hochgefahren.
+            har.suppress("sat", (_sid or "main").lower(), duration_seconds=300)
         success, msg = await srv.restart(api=api)
         if channel is None:
             return
@@ -1937,95 +2030,6 @@ class LoadConfirmView(discord.ui.View):
         )
 
 
-class BlueprintRestartView(discord.ui.View):
-    """Ask if server should be restarted after blueprint upload"""
-
-    def __init__(self, cog, interaction, sid: Optional[str] = None):
-        super().__init__(timeout=120)
-        # Zielinstanz mitfuehren: ohne sie handelte jede Bestaetigung
-        # auf dem ersten Server, egal welcher gemeint war.
-        self.sid = sid
-        self.srv, self.api, _ = cog._instanz(sid)
-        self.cog = cog
-        self.original_user = interaction.user.id
-
-    @discord.ui.button(
-        label="Server neustarten (5 Min)",
-        style=discord.ButtonStyle.primary,
-        emoji="\ud83d\udd04",
-    )
-    async def restart(
-        self, interaction: discord.Interaction, button: discord.ui.Button
-    ):
-        if interaction.user.id != self.original_user:
-            await interaction.response.send_message(
-                "Nur der Uploader kann den Restart ausloesen.",
-                ephemeral=True,
-            )
-            return
-
-        if not is_admin(interaction):
-            await interaction.response.send_message(
-                "Nur Admins können den Server neustarten.",
-                ephemeral=True,
-            )
-            return
-
-        if self.cog.bot.timer_mgr.has_active:
-            await interaction.response.send_message(
-                "Es läuft bereits ein Timer.",
-                ephemeral=True,
-            )
-            return
-
-        await interaction.response.edit_message(view=None)
-
-        timer = self.cog.bot.timer_mgr.get_or_create(
-            self.cog._timer_key(self.sid),
-            api=self.api,
-            channel=interaction.channel,
-        )
-        result = await timer.countdown(
-            duration_minutes=5,
-            action_name="Neustart (Blueprint-Upload)",
-            warnings=[5, 3, 1],
-        )
-
-        if result == TimerResult.COMPLETED:
-            # Health-Check unterdruecken waehrend Restart
-            har = getattr(self.cog.bot, "health_auto_restart", None)
-            if har:
-                har.suppress("sat", "main", duration_seconds=300)
-            # Save-vor-Restart: api durchreichen → SaveGame + Flush vor Restart
-            success, msg = await self.srv.restart(api=self.api)
-            if success:
-                embed = success_embed(
-                    title="Server neugestartet",
-                    description="Blueprints sind jetzt verfügbar!",
-                )
-                await interaction.channel.send(embed=embed)
-            else:
-                await interaction.channel.send(
-                    f"Restart fehlgeschlagen: {msg}"
-                )
-        elif result == TimerResult.CANCELLED:
-            pass
-        else:
-            await interaction.channel.send(
-                "Timer-Fehler. Bitte manuell neustarten."
-            )
-
-    @discord.ui.button(
-        label="Nein, spaeter", style=discord.ButtonStyle.secondary
-    )
-    async def skip(
-        self, interaction: discord.Interaction, button: discord.ui.Button
-    ):
-        await interaction.response.edit_message(view=None)
-        await interaction.followup.send(
-            "Blueprints sind nach dem nächsten Server-Restart verfügbar.",
-            ephemeral=True,
-        )
 
 
 class MigrateConflictView(discord.ui.View):

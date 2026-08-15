@@ -232,6 +232,7 @@ sat_update_checkers: dict[str, UpdateChecker] = {
         steamcmd_path=get_env("STEAMCMD_PATH", "/usr/games/steamcmd"),
         install_dir=str(sat_servers[_sid].server_path),
         server_user=sat_servers[_sid].server_user,
+        server_id=_sid,
     )
     for _sid in sat_servers
 }
@@ -862,7 +863,9 @@ health_checker.on_restart_success = _on_restart_success
 health_checker.on_restart_failed = _on_restart_failed
 # Crash-Detection waehrend geplantem Update/Restart unterdruecken (nutzt die
 # bestehende HAR-Suppression; perform_update ruft har.suppress("sat","main")).
-health_checker.suppress_crash_check = lambda: health_auto_restart.is_suppressed("sat", "main")
+health_checker.suppress_crash_check = (
+    lambda: health_auto_restart.is_suppressed("sat", _SAT_ERSTER.lower())
+)
 
 # Dieselbe Unterdrueckung fuer JEDE weitere Instanz — mit ihrem eigenen
 # Schluessel, so wie der Scheduler ihn setzt (`har.suppress("sat", sid.lower())`).

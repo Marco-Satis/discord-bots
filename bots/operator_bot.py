@@ -13,6 +13,7 @@ Architecture:
 import os
 import sys
 import json
+from typing import Optional
 import time
 import asyncio
 import discord
@@ -132,9 +133,35 @@ bot.sat_blueprint_mgrs: dict[str, BlueprintManager] = {}
 bot.sat_savegame_stats: dict[str, SavegameStats] = {}
 bot.sat_backup_mgrs: dict[str, BackupManager] = {}
 
+def _sitzungsname(sid: str):
+    """
+    Sitzungsname des laufenden Servers aus der Statusdatei.
+
+    Die schreibt der recon-bot alle 30 Sekunden; sie ist damit die frischeste
+    synchrone Auskunft darueber, WELCHE Welt gerade laeuft. Der Blueprint-
+    Manager leitete das frueher aus Dateizeiten ab und lag falsch, sobald sein
+    eigener Sync eine Aenderungszeit gesetzt hatte.
+    """
+    def lesen() -> Optional[str]:
+        kennung = "satisfactory" if sid == _SAT_ERSTER else f"sat_{sid.lower()}"
+        pfad = DATA_DIR / "monitor" / f"{kennung}_status.json"
+        try:
+            with open(pfad, "r", encoding="utf-8") as f:
+                daten = json.load(f)
+        except Exception:  # noqa: BLE001 — keine Datei, keine Auskunft
+            return None
+        # Nur wenn der Server auch laeuft: der Name einer beendeten Sitzung
+        # waere eine Aussage ueber die Vergangenheit.
+        if daten.get("status") != "online":
+            return None
+        return daten.get("session_name") or None
+    return lesen
+
+
 for _mgr_sid, _mgr_srv in bot.sat_servers.items():
     bot.sat_blueprint_mgrs[_mgr_sid] = BlueprintManager(
-        blueprint_path=_mgr_srv.blueprint_path
+        blueprint_path=_mgr_srv.blueprint_path,
+        session_provider=_sitzungsname(_mgr_sid),
     )
     bot.sat_savegame_stats[_mgr_sid] = SavegameStats(
         savegame_path=_mgr_srv.savegame_path

@@ -20,7 +20,7 @@ import shutil
 import zipfile
 import aiofiles
 from pathlib import Path
-from typing import List, Optional, Tuple, Dict, Any
+from typing import Callable, List, Optional, Tuple, Dict, Any
 from datetime import datetime
 from utils.logger import get_logger
 from utils.config import DATA_DIR
@@ -44,10 +44,15 @@ class BlueprintManager:
     Erkennt automatisch den aktiven Welt-Ordner und kopiert
     Blueprints bei Welt-Wechsel automatisch mit."""
 
-    def __init__(self, blueprint_path: Path) -> None:
+    def __init__(self, blueprint_path: Path,
+                 session_provider: Optional[Callable[[], Optional[str]]] = None) -> None:
         self.base_path = blueprint_path  # .../SaveGames/blueprints/
         self._data: Dict[str, Any] = {"blueprints": []}
         self._active_world: Optional[str] = None
+        # Liefert den Sitzungsnamen des LAUFENDEN Servers. Damit ist die aktive
+        # Welt eine Auskunft des Servers statt einer Vermutung aus Dateizeiten
+        # (siehe _detect_active_world).
+        self._session_provider = session_provider
 
     @property
     def active_world_path(self) -> Path:
@@ -61,12 +66,42 @@ class BlueprintManager:
         return self.active_world_path
 
     def _detect_active_world(self) -> str:
-        """Erkennt den aktiven Welt-Ordner (neuester nach Änderungszeit).
-        Cached das Ergebnis in _active_world."""
+        """
+        Erkennt den aktiven Welt-Ordner.
+
+        Zuerst wird der laufende Server gefragt (Sitzungsname). Erst wenn der
+        keine Auskunft gibt — Server aus, Statusdatei alt — faellt die
+        Erkennung auf den zuletzt geaenderten Ordner zurueck.
+
+        Warum nicht mehr nur die Aenderungszeit: der Blueprint-Sync schreibt
+        selbst in einen Welt-Ordner und setzt damit dessen Aenderungszeit. Beim
+        naechsten Lauf gilt genau dieser Ordner als "aktiv" — die Erkennung
+        bestaetigt sich also selbst. Am 2026-08-15 sprang sie so von
+        `FactorySatis` auf `BoberKurwa`, waehrend der Server unveraendert
+        FactorySatis spielte. Der Sitzungsname kommt dagegen vom Server selbst
+        und ist damit keine Vermutung.
+        """
         try:
             if not self.base_path.exists():
                 self.base_path.mkdir(parents=True, exist_ok=True)
                 return "default"
+
+            sitzung = None
+            if self._session_provider is not None:
+                try:
+                    sitzung = (self._session_provider() or "").strip()
+                except Exception as e:  # noqa: BLE001 — Auskunft fehlt, kein Grund zu scheitern
+                    logger.debug(f"Sitzungsname nicht abrufbar: {e}")
+                    sitzung = None
+            if sitzung:
+                if self._active_world and self._active_world != sitzung:
+                    logger.info(
+                        f"Welt-Wechsel laut Server: {self._active_world} -> {sitzung}"
+                    )
+                    self._sync_blueprints(self._active_world, sitzung)
+                (self.base_path / sitzung).mkdir(parents=True, exist_ok=True)
+                self._active_world = sitzung
+                return sitzung
 
             worlds = [
                 d for d in self.base_path.iterdir()

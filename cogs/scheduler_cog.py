@@ -620,6 +620,17 @@ class SchedulerCog(commands.Cog):
     # Update Check
     # ------------------------------------------------------------------
 
+    def _erste_sat_kennung(self) -> str:
+        """
+        Schluessel der ERSTEN Instanz fuer die Auto-Restart-Wache.
+
+        Die beiden Pfade, die das benutzen (Auto-Update-Installation und
+        Rollback), arbeiten auf der ersten Instanz. Frueher stand dort ein
+        festes "main" — richtig nur, solange die erste Instanz so heisst.
+        """
+        servers = getattr(self.bot, "sat_servers", {}) or {}
+        return (next(iter(servers), "MAIN")).lower()
+
     async def _check_update(self, now: datetime):
         """
         Update-Pruefung fuer jede Satisfactory-Installation.
@@ -782,7 +793,7 @@ class SchedulerCog(commands.Cog):
                 # Health-Check unterdruecken waehrend Auto-Update
                 har = getattr(self.bot, "health_auto_restart", None)
                 if har:
-                    har.suppress("sat", "main", duration_seconds=900)
+                    har.suppress("sat", self._erste_sat_kennung(), duration_seconds=900)
                 stop_ok, stop_msg = await self.sat_server.stop()
                 if not stop_ok:
                     logger.error(f"Auto-Update: Server Stop fehlgeschlagen: {stop_msg}")
@@ -950,7 +961,7 @@ class SchedulerCog(commands.Cog):
             # Health-Check unterdruecken waehrend Rollback (15 Min)
             har = getattr(self.bot, "health_auto_restart", None)
             if har:
-                har.suppress("sat", "main", duration_seconds=900)
+                har.suppress("sat", self._erste_sat_kennung(), duration_seconds=900)
 
             # Server stoppen falls er haengt
             try:

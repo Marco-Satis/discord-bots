@@ -41,6 +41,20 @@ logger = get_logger("cogs.shutdown")
 # Slash-Commands kommen aus der ENV (modules.server_registry). Bis 2026-08-14
 # standen sie hier dreimal aufgezählt — ein stillgelegter Server blieb dann in
 # der Discord-Auswahl stehen und lief beim Anklicken ins Leere.
+def _har_schluessel(kennung: str) -> str:
+    """
+    Kennung (satisfactory / sat_second) zum Schluessel der Auto-Restart-Wache.
+
+    Die Wache fuehrt ihre Instanzen als "main", "second", ... — mit fest
+    verdrahtetem "main" haette ein geplanter Shutdown des ZWEITEN Servers
+    dessen Wache nie stillgestellt, und sie haette ihn sofort wieder
+    hochgefahren.
+    """
+    if kennung.startswith("sat_"):
+        return kennung[4:].lower()
+    return "main"
+
+
 SERVER_SERVICES = kennung_zu_service()
 SERVER_DISPLAY_NAMES = kennung_zu_label()
 
@@ -242,7 +256,9 @@ class ShutdownCog(commands.Cog):
         if har:
             # Server-Typ und ID für Health-Checker bestimmen
             if server_id == "satisfactory":
-                har.suppress("sat", "main", duration_seconds=600)
+                har.suppress(
+                    "sat", _har_schluessel(server_id), duration_seconds=600
+                )
             elif server_id.startswith("mc_"):
                 mc_id = server_id.replace("mc_", "").upper()
                 har.suppress("mc", mc_id, duration_seconds=600)

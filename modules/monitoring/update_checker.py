@@ -60,7 +60,13 @@ class UpdateChecker:
     def __init__(self, steamcmd_path: str = "/usr/games/steamcmd",
                  install_dir: str = "/home/satisfactory/SatisfactoryDedicatedServer",
                  app_id: str = SATISFACTORY_APP_ID,
-                 server_user: str = "satisfactory") -> None:
+                 server_user: str = "satisfactory",
+                 server_id: str = "main") -> None:
+        # Schluessel dieser Instanz fuer die Auto-Restart-Wache. Fest
+        # verdrahtet war er "main" — ein Update der zweiten Instanz haette
+        # damit die Wache der ERSTEN stillgestellt und die eigene laufen
+        # lassen: falsch in beide Richtungen.
+        self.server_id: str = (server_id or "main").lower()
         self.steamcmd: str = steamcmd_path
         self.install_dir: str = install_dir
         self.app_id: str = app_id
@@ -309,7 +315,7 @@ class UpdateChecker:
         try:
             # Schritt 1: HAR unterdrücken
             if har and hasattr(har, "suppress"):
-                har.suppress("sat", "main", duration_seconds=900)  # 15 Minuten
+                har.suppress("sat", self.server_id, duration_seconds=900)  # 15 Minuten
                 logger.info("Health-Auto-Restart für 15 Min unterdrückt")
 
             # service_watchdog/Daily-Restart blocken waehrend des Updates, damit
