@@ -74,6 +74,59 @@ class UpdateCog(commands.Cog):
         return getattr(self.bot, "sat_server", None)
 
     # ------------------------------------------------------------------
+    # Mehrere Satisfactory-Instanzen
+    # ------------------------------------------------------------------
+
+    @property
+    def sat_servers(self) -> Dict[str, Any]:
+        """Alle konfigurierten Satisfactory-Instanzen."""
+        return getattr(self.bot, "sat_servers", {}) or {}
+
+    async def _sat_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        """Autocomplete der Satisfactory-Instanzen."""
+        return [
+            app_commands.Choice(name=srv.display_name, value=sid)
+            for sid, srv in self.sat_servers.items()
+            if current.lower() in sid.lower()
+            or current.lower() in srv.display_name.lower()
+        ]
+
+    def _sat_instanz(self, server: Optional[str] = None):
+        """
+        Server, UpdateChecker und ID zu einer Server-Angabe.
+
+        Jede Instanz hat eine eigene Installation und damit eine eigene
+        Build-ID. Ein Update, das immer die erste aktualisiert, laesst die
+        zweite zurueckfallen — und ein Server mit falscher Version nimmt keine
+        Spieler mehr an.
+
+        Returns:
+            (SatisfactoryServer, UpdateChecker, server_id) oder (None, None, None)
+        """
+        checker_alle = getattr(self.bot, "sat_update_checkers", {}) or {}
+        if not self.sat_servers:
+            if server:
+                return None, None, None
+            return self.sat_server, self.update_checker, "MAIN"
+        sid = (server or next(iter(self.sat_servers))).upper()
+        srv = self.sat_servers.get(sid)
+        if srv is None:
+            return None, None, None
+        return srv, checker_alle.get(sid, self.update_checker), sid
+
+    async def _sat_unbekannt(self, interaction: discord.Interaction,
+                             server: str) -> None:
+        """Einheitliche Antwort auf eine unbekannte Server-Angabe."""
+        bekannt = ", ".join(self.sat_servers) or "keiner konfiguriert"
+        await interaction.followup.send(
+            f"❌ `{discord.utils.escape_markdown(server)}` gibt es nicht. "
+            f"Verfügbar: {bekannt}",
+            ephemeral=True,
+        )
+
+    # ------------------------------------------------------------------
     # Hilfsmethoden
     # ------------------------------------------------------------------
 
@@ -782,18 +835,26 @@ class UpdateCog(commands.Cog):
     @sat_update_grp.command(
         name="start", description="Startet manuelles SAT-Update via SteamCMD"
     )
+    @app_commands.describe(server="Server (leer = erster)")
+    @app_commands.autocomplete(server=_sat_autocomplete)
     @admin_only()
-    async def sat_update_start(self, interaction: discord.Interaction):
+    async def sat_update_start(self, interaction: discord.Interaction,
+                               server: Optional[str] = None):
         """Startet ein manuelles SAT-Update (SteamCMD app_update)."""
         await interaction.response.defer()
 
-        if not self.update_checker:
+        sat_srv, update_checker, sat_sid = self._sat_instanz(server)
+        if sat_srv is None:
+            await self._sat_unbekannt(interaction, server or "")
+            return
+
+        if not update_checker:
             await interaction.followup.send(
                 "SAT UpdateChecker ist nicht konfiguriert.", ephemeral=True
             )
             return
 
-        if not self.sat_server:
+        if not sat_srv:
             await interaction.followup.send(
                 "SAT Server-Instanz ist nicht verfügbar.", ephemeral=True
             )
@@ -801,7 +862,7 @@ class UpdateCog(commands.Cog):
 
         # Aktuellen Status prüfen
         try:
-            available, info = await self.update_checker.check()
+            available, info = await update_checker.check()
         except Exception as e:
             logger.error(f"SAT Update-Check fehlgeschlagen: {e}")
             await interaction.followup.send(
@@ -835,17 +896,18 @@ class UpdateCog(commands.Cog):
         har = getattr(self.bot, "health_auto_restart", None)
         if har:
             try:
-                har.suppress("sat", "main", duration_seconds=900)
+                har.suppress("sat", sat_sid.lower(), duration_seconds=900)
             except Exception as e:
                 logger.debug(f"HAR-Suppress Fehler: {e}")
 
         # Update durchfuehren
         try:
-            running = await self.sat_server.is_running()
+            running = await sat_srv.is_running()
 
             if running:
                 # In-Game Warnung
-                sat_api = getattr(self.bot, "sat_api", None)
+                sat_api = (getattr(self.bot, "sat_apis", {}) or {}).get(sat_sid) \
+                    or getattr(self.bot, "sat_api", None)
                 if sat_api:
                     try:
                         await sat_api.run_command(
@@ -855,7 +917,7 @@ class UpdateCog(commands.Cog):
                         logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
 
                 # Server stoppen
-                stop_ok, stop_msg = await self.sat_server.stop()
+                stop_ok, stop_msg = await sat_srv.stop()
                 if not stop_ok:
                     await interaction.channel.send(
                         f"\u274c Server-Stop fehlgeschlagen: {stop_msg}"
@@ -863,15 +925,15 @@ class UpdateCog(commands.Cog):
                     return
 
             # SteamCMD Update
-            update_ok, update_msg = await self.update_checker.perform_update(
-                self.sat_server, har=har
+            update_ok, update_msg = await update_checker.perform_update(
+                sat_srv, har=har
             )
 
             if update_ok:
                 # Neue Build-ID prüfen
                 new_info_build = "?"
                 try:
-                    _, new_info = await self.update_checker.check()
+                    _, new_info = await update_checker.check()
                     new_info_build = new_info.get("installed_buildid", "?")
                 except Exception as e:
                     logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
@@ -903,12 +965,20 @@ class UpdateCog(commands.Cog):
     @sat_update_grp.command(
         name="cancel", description="Bricht laufendes SAT-Update ab"
     )
+    @app_commands.describe(server="Server (leer = erster)")
+    @app_commands.autocomplete(server=_sat_autocomplete)
     @admin_only()
-    async def sat_update_cancel(self, interaction: discord.Interaction):
+    async def sat_update_cancel(self, interaction: discord.Interaction,
+                                server: Optional[str] = None):
         """Bricht ein laufendes SAT-Update ab (sofern möglich)."""
         await interaction.response.defer(ephemeral=True)
 
-        if not self.update_checker:
+        sat_srv, update_checker, sat_sid = self._sat_instanz(server)
+        if sat_srv is None:
+            await self._sat_unbekannt(interaction, server or "")
+            return
+
+        if not update_checker:
             await interaction.followup.send(
                 "SAT UpdateChecker ist nicht konfiguriert.",
             )
@@ -917,13 +987,13 @@ class UpdateCog(commands.Cog):
         # SAT hat keinen Timer-basierten Countdown wie MC,
         # daher ist Abbruch nur möglich, solange SteamCMD noch nicht gestartet hat.
         # Wir setzen update_available zurück und informieren.
-        self.update_checker.update_available = False
+        update_checker.update_available = False
 
         # HAR wieder aktivieren
         har = getattr(self.bot, "health_auto_restart", None)
         if har:
             try:
-                har.unsuppress("sat", "main")
+                har.unsuppress("sat", sat_sid.lower())
             except Exception as e:
                 logger.debug(f"Exception swallowed (B110-refactor 3.1): {e}")
 

@@ -32,25 +32,54 @@ class ModCog(commands.Cog):
         self.bot = bot
         self.mod_managers = {}  # Cache für ModManager-Instanzen
 
-    def _get_mod_manager(self, game: str) -> ModManager:
-        """ModManager-Instanz für ein Spiel holen oder erstellen"""
+    @property
+    def sat_servers(self) -> dict:
+        """Alle konfigurierten Satisfactory-Instanzen."""
+        return getattr(self.bot, "sat_servers", {}) or {}
+
+    async def _sat_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ):
+        """Autocomplete der Satisfactory-Instanzen."""
+        return [
+            app_commands.Choice(name=srv.display_name, value=sid)
+            for sid, srv in self.sat_servers.items()
+            if current.lower() in sid.lower()
+            or current.lower() in srv.display_name.lower()
+        ]
+
+    def _get_mod_manager(self, game: str, sid: Optional[str] = None) -> ModManager:
+        """
+        ModManager fuer ein Spiel (und bei Satisfactory: fuer eine Instanz).
+
+        Mods liegen im Installationsverzeichnis. Zwei Satisfactory-Instanzen
+        haben zwei Verzeichnisse — ein gemeinsamer Manager haette die Mods des
+        ersten Servers als die des zweiten ausgegeben.
+        """
         game_lower = game.lower()
-        if game_lower not in self.mod_managers:
-            if game_lower == "satisfactory":
-                server_path = Path(self.bot.sat_server.server_path) if hasattr(self.bot, 'sat_server') else Path("/opt/satisfactory")
-            else:  # minecraft
-                server_path = Path("/opt/minecraft") if not hasattr(self.bot, 'minecraft_path') else Path(self.bot.minecraft_path)
+        if game_lower == "satisfactory":
+            srv = self.sat_servers.get(sid or "") or getattr(self.bot, "sat_server", None)
+            schluessel = f"satisfactory:{sid or 'MAIN'}"
+            pfad = Path(srv.server_path) if srv is not None else Path("/opt/satisfactory")
+        else:  # minecraft
+            schluessel = "minecraft"
+            pfad = (Path(self.bot.minecraft_path)
+                    if hasattr(self.bot, "minecraft_path") else Path("/opt/minecraft"))
 
-            self.mod_managers[game_lower] = ModManager(game_lower, server_path)
-
-        return self.mod_managers[game_lower]
+        if schluessel not in self.mod_managers:
+            self.mod_managers[schluessel] = ModManager(game_lower, pfad)
+        return self.mod_managers[schluessel]
 
     # ==================================================================
     # /mod list - Installierte Mods anzeigen (Spieler)
     # ==================================================================
 
     @mod.command(name="list", description="Installierte Mods auflisten")
-    async def mod_list(self, interaction: discord.Interaction, game: Optional[str] = None):
+    @app_commands.describe(server="Satisfactory-Instanz (leer = erste)")
+    @app_commands.autocomplete(server=_sat_autocomplete)
+    async def mod_list(self, interaction: discord.Interaction,
+                       game: Optional[str] = None,
+                       server: Optional[str] = None):
         """Alle installierten Mods für ein Spiel anzeigen"""
         await interaction.response.defer()
 
@@ -66,7 +95,18 @@ class ModCog(commands.Cog):
                 )
                 return
 
-            mod_mgr = self._get_mod_manager(game)
+            sat_sid = None
+            if game == "satisfactory" and self.sat_servers:
+                sat_sid = (server or next(iter(self.sat_servers))).upper()
+                if sat_sid not in self.sat_servers:
+                    await interaction.followup.send(
+                        f"Unbekannter Server: `{discord.utils.escape_markdown(server or '')}`. "
+                        f"Verfügbar: {', '.join(self.sat_servers)}",
+                        ephemeral=True,
+                    )
+                    return
+
+            mod_mgr = self._get_mod_manager(game, sat_sid)
             mods = mod_mgr.list_installed()
 
             if not mods:
@@ -125,11 +165,13 @@ class ModCog(commands.Cog):
             mod_entry = None
             game_found = None
 
-            for game in ["satisfactory", "minecraft"]:
-                mod_mgr = self._get_mod_manager(game)
+            suchraum = [("satisfactory", sid) for sid in (self.sat_servers or {"": None})]
+            suchraum.append(("minecraft", None))
+            for game, sid in suchraum:
+                mod_mgr = self._get_mod_manager(game, sid)
                 mod_entry = mod_mgr.get_mod_info(mod_name)
                 if mod_entry:
-                    game_found = game
+                    game_found = game if not sid else f"{game} ({sid})"
                     break
 
             if not mod_entry:

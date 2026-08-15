@@ -16,6 +16,8 @@ from discord.ext import commands
 from datetime import datetime, timedelta
 from typing import List, Optional, Tuple
 
+from modules.satisfactory.api_client import SAT_TICK_SOLL
+
 from utils.logger import get_logger
 from utils.formatting import format_uptime, format_bytes, progress_bar
 from utils.ui_kit import progress_bar as ui_progress_bar, subtext, truncate, zahl
@@ -220,6 +222,64 @@ class MonitorCog(commands.Cog):
         return getattr(self.bot, "sat_server", None)
 
     # ------------------------------------------------------------------
+    # Mehrere Satisfactory-Instanzen
+    # ------------------------------------------------------------------
+
+    @property
+    def sat_servers(self) -> dict:
+        """Alle konfigurierten Satisfactory-Instanzen."""
+        return getattr(self.bot, "sat_servers", {}) or {}
+
+    async def _sat_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> List[app_commands.Choice[str]]:
+        """Autocomplete der Satisfactory-Instanzen."""
+        return [
+            app_commands.Choice(name=srv.display_name, value=sid)
+            for sid, srv in self.sat_servers.items()
+            if current.lower() in sid.lower()
+            or current.lower() in srv.display_name.lower()
+        ]
+
+    def _sat_sid(self, server: Optional[str] = None) -> Optional[str]:
+        """
+        Instanz-ID zu einer Server-Angabe, ``None`` bei unbekannter Angabe.
+
+        Ohne Angabe die erste. Eine unbekannte ID ergibt bewusst ``None``,
+        damit der Aufrufer meldet statt die Daten des falschen Servers unter
+        fremdem Namen anzuzeigen.
+        """
+        if not self.sat_servers:
+            return None if server else "MAIN"
+        sid = (server or next(iter(self.sat_servers))).upper()
+        return sid if sid in self.sat_servers else None
+
+    def _sat_name(self, sid: Optional[str]) -> str:
+        """Anzeigename der Instanz."""
+        srv = self.sat_servers.get(sid or "")
+        return getattr(srv, "display_name", None) or "Satisfactory"
+
+    def _sat_analyzer(self, sid: Optional[str] = None):
+        """Savegame-Analyzer der Instanz."""
+        alle = getattr(self.bot, "sat_savegame_analyzers", {}) or {}
+        return alle.get(sid or "") or getattr(self.bot, "savegame_analyzer", None)
+
+    def _sat_crash_replay(self, sid: Optional[str] = None):
+        """Crash-Replay-Puffer der Instanz."""
+        alle = getattr(self.bot, "sat_crash_replays", {}) or {}
+        return alle.get(sid or "") or getattr(self.bot, "crash_replay", None)
+
+    async def _sat_unbekannt(self, interaction: discord.Interaction,
+                             server: str) -> None:
+        """Einheitliche Antwort auf eine unbekannte Server-Angabe."""
+        bekannt = ", ".join(self.sat_servers) or "keiner konfiguriert"
+        await interaction.followup.send(
+            f"❌ `{discord.utils.escape_markdown(server)}` gibt es nicht. "
+            f"Verfügbar: {bekannt}",
+            ephemeral=True,
+        )
+
+    # ------------------------------------------------------------------
     # /performance
     # ------------------------------------------------------------------
 
@@ -261,8 +321,27 @@ class MonitorCog(commands.Cog):
             inline=False,
         )
 
-        # Per-process info
-        if self.sat_server:
+        # Prozesswerte JEDER Satisfactory-Instanz. Vorher stand hier nur die
+        # erste — auf einem Host mit zwei Servern ist "der Spielserver-Prozess"
+        # keine Auskunft mehr, sondern eine Verwechslungsgefahr.
+        for _sid, _srv in (self.sat_servers or {}).items():
+            try:
+                sat_status = await _srv.get_status()
+            except Exception as e:  # noqa: BLE001 — eine Instanz darf die Anzeige nicht kippen
+                logger.debug(f"[{_sid}] Prozessstatus nicht lesbar: {e}")
+                continue
+            if not sat_status.get("running"):
+                continue
+            embed.add_field(
+                name=f"{_srv.display_name} (Prozess)",
+                value=(
+                    f"CPU: {sat_status['cpu_percent']:.1f}% | "
+                    f"RAM: {sat_status['memory_mb']} MB | "
+                    f"PID: {sat_status['pid']}"
+                ),
+                inline=False,
+            )
+        if not self.sat_servers and self.sat_server:
             sat_status = await self.sat_server.get_status()
             if sat_status.get("running"):
                 embed.add_field(
@@ -290,17 +369,39 @@ class MonitorCog(commands.Cog):
                     inline=False,
                 )
 
-        # Health checker info
-        if self.health_checker:
-            summary = self.health_checker.get_summary()
-            health_text = (
-                f"Status: {summary['state']} | "
-                f"Spieler: {summary['players']} | "
-                f"Tick: {summary['tick_rate']:.1f} | "
-                f"Crashes: {summary['crashes_total']} "
-                f"({summary['crashes_last_hour']} letzte Stunde)"
+        # Health je Instanz — mit zwei Servern ist "Server Health" ohne Namen
+        # nicht zuzuordnen.
+        _checker_alle = getattr(self.bot, "sat_health_checkers", {}) or {}
+        for _sid, _hc in (_checker_alle.items() or []):
+            try:
+                summary = _hc.get_summary()
+            except Exception as e:  # noqa: BLE001
+                logger.debug(f"[{_sid}] Health-Zusammenfassung nicht lesbar: {e}")
+                continue
+            embed.add_field(
+                name=f"Health: {self._sat_name(_sid)}",
+                value=(
+                    f"Status: {summary['state']} | "
+                    f"Spieler: {summary['players']} | "
+                    f"Tick: {summary['tick_rate']:.1f}/{SAT_TICK_SOLL:.0f} | "
+                    f"Crashes: {summary['crashes_total']} "
+                    f"({summary['crashes_last_hour']} letzte Stunde)"
+                ),
+                inline=False,
             )
-            embed.add_field(name="Server Health", value=health_text, inline=False)
+        if not _checker_alle and self.health_checker:
+            summary = self.health_checker.get_summary()
+            embed.add_field(
+                name="Server Health",
+                value=(
+                    f"Status: {summary['state']} | "
+                    f"Spieler: {summary['players']} | "
+                    f"Tick: {summary['tick_rate']:.1f}/{SAT_TICK_SOLL:.0f} | "
+                    f"Crashes: {summary['crashes_total']} "
+                    f"({summary['crashes_last_hour']} letzte Stunde)"
+                ),
+                inline=False,
+            )
 
         await interaction.followup.send(embed=embed)
 
@@ -616,10 +717,18 @@ class MonitorCog(commands.Cog):
     )
 
     @mon_grp.command(name="world", description="Detaillierte Welt-Statistiken anzeigen")
-    async def mon_world_cmd(self, interaction: discord.Interaction):
+    @app_commands.describe(server="Server (leer = erster)")
+    @app_commands.autocomplete(server=_sat_autocomplete)
+    async def mon_world_cmd(self, interaction: discord.Interaction,
+                            server: Optional[str] = None):
         await interaction.response.defer()
 
-        analyzer = getattr(self.bot, "savegame_analyzer", None)
+        sat_sid = self._sat_sid(server)
+        if sat_sid is None:
+            await self._sat_unbekannt(interaction, server or "")
+            return
+
+        analyzer = self._sat_analyzer(sat_sid)
         if not analyzer:
             await interaction.followup.send("❌ Savegame-Analyzer nicht verfügbar.")
             return
@@ -1505,13 +1614,21 @@ class MonitorCog(commands.Cog):
 
     @app_commands.command(name="crashlog",
                           description="Crash-Replays anzeigen oder herunterladen")
-    @app_commands.describe(nummer="Crash-Nummer zum Herunterladen (leer = Liste)")
+    @app_commands.describe(nummer="Crash-Nummer zum Herunterladen (leer = Liste)",
+                           server="Server (leer = erster)")
+    @app_commands.autocomplete(server=_sat_autocomplete)
     @app_commands.check(is_admin)
     async def crashlog_cmd(self, interaction: discord.Interaction,
-                           nummer: Optional[int] = None):
+                           nummer: Optional[int] = None,
+                           server: Optional[str] = None):
         await interaction.response.defer(ephemeral=True)
 
-        cr = getattr(self.bot, "crash_replay", None)
+        sat_sid = self._sat_sid(server)
+        if sat_sid is None:
+            await self._sat_unbekannt(interaction, server or "")
+            return
+
+        cr = self._sat_crash_replay(sat_sid)
         if not cr:
             await interaction.followup.send(
                 "❌ Crash Replay nicht verfügbar.", ephemeral=True

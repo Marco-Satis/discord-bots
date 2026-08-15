@@ -570,24 +570,52 @@ class TimeoutCog(commands.Cog):
         results: list[str] = []
 
         for srv in servers:
-            if srv == "sat":
-                result = await self._ban_sat(player_name, grund)
-                results.append(f"SAT: {result}")
+            # Die zweite Satisfactory-Instanz heisst "sat_second". Ohne den
+            # Praefix-Vergleich landete sie im Minecraft-Zweig, der nach einem
+            # MC-Server namens SAT_SECOND suchte, keinen fand — und still nichts
+            # tat. Ein Timeout, der nicht wirkt, ohne dass es jemand merkt.
+            if srv == "sat" or srv.startswith("sat_"):
+                sid = self._sat_sid(srv)
+                result = await self._ban_sat(player_name, grund, sid)
+                results.append(f"{self._sat_label(sid)}: {result}")
             else:
                 result = await self._ban_mc(player_name, srv, grund)
                 results.append(f"MC-{srv.upper()}: {result}")
 
         return results
 
-    async def _ban_sat(self, player_name: str, grund: str) -> str:
+    def _sat_sid(self, kurz_id: str) -> str:
+        """Kennung des Timeout-Systems ("sat", "sat_second") zur Instanz-ID."""
+        if kurz_id == "sat":
+            servers = getattr(self.bot, "sat_servers", {}) or {}
+            return next(iter(servers), "MAIN")
+        return kurz_id[4:].upper()
+
+    def _sat_label(self, sid: str) -> str:
+        """Anzeigename der Instanz fuer die Rueckmeldung."""
+        srv = (getattr(self.bot, "sat_servers", {}) or {}).get(sid)
+        return getattr(srv, "display_name", None) or f"SAT-{sid}"
+
+    def _sat_tracker(self, sid: str):
+        """IP-Tracker der Instanz — sonst bannt man auf dem falschen Server."""
+        alle = getattr(self.bot, "sat_ip_trackers", {}) or {}
+        return alle.get(sid) or getattr(self.bot, "player_ip_tracker", None)
+
+    def _sat_api_von(self, sid: str):
+        """API-Client der Instanz."""
+        alle = getattr(self.bot, "sat_apis", {}) or {}
+        return alle.get(sid) or self.sat_api
+
+    async def _ban_sat(self, player_name: str, grund: str,
+                       sid: Optional[str] = None) -> str:
         """SAT-Server: IP-Ban via iptables REJECT (sofortige Trennung)"""
-        # IP-Ban via PlayerIPTracker (nutzt iptables REJECT)
+        sid = sid or self._sat_sid("sat")
         ip_banned = False
-        sat_tracker = getattr(self.bot, "player_ip_tracker", None)
+        sat_tracker = self._sat_tracker(sid)
         if sat_tracker:
             success, msg = await sat_tracker.ban_player(
                 player_name, grund, "Timeout-System",
-                api=self.sat_api  # SaveGame vor Ban
+                api=self._sat_api_von(sid)  # SaveGame vor Ban
             )
             ip_banned = success
 
@@ -638,14 +666,16 @@ class TimeoutCog(commands.Cog):
     ) -> None:
         """Spieler auf allen angegebenen Servern entbannen"""
         for srv in servers:
-            if srv == "sat":
-                await self._unban_sat(player_name)
+            if srv == "sat" or srv.startswith("sat_"):
+                await self._unban_sat(player_name, self._sat_sid(srv))
             else:
                 await self._unban_mc(player_name, srv)
 
-    async def _unban_sat(self, player_name: str) -> None:
+    async def _unban_sat(self, player_name: str,
+                         sid: Optional[str] = None) -> None:
         """SAT IP-Ban aufheben"""
-        sat_tracker = getattr(self.bot, "player_ip_tracker", None)
+        sid = sid or self._sat_sid("sat")
+        sat_tracker = self._sat_tracker(sid)
         if sat_tracker:
             try:
                 await sat_tracker.unban_player(player_name)
