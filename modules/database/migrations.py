@@ -937,6 +937,21 @@ async def _apply_migration_v10(db: aiosqlite.Connection) -> None:
 # =====================================================
 
 
+async def _tabelle_vorhanden(db: aiosqlite.Connection, name: str) -> bool:
+    """
+    Prueft, ob eine Tabelle existiert.
+
+    Eine Migration darf nie voraussetzen, dass eine bestimmte Tabelle schon da
+    ist: sie laeuft auch auf alten, unvollstaendigen und von Hand aufgebauten
+    Datenbanken. Faellt sie dort mit `no such table` aus, bleibt die ganze
+    Kette stehen — und die Datenbank haengt auf halber Version fest.
+    """
+    cursor = await db.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)
+    )
+    return await cursor.fetchone() is not None
+
+
 async def _apply_migration_v11(db: aiosqlite.Connection) -> None:
     """
     Entfernt idx_sst_server auf server_stats_tracker.
@@ -981,7 +996,16 @@ async def _apply_migration_v12(db: aiosqlite.Connection) -> None:
 
     Minecraft-Zeilen (auch die 62.593 des stillgelegten Vanilla) bleiben
     unberuehrt.
+
+    Fehlt die Tabelle, ist nichts nachzutragen — dann ist das kein Fehler,
+    sondern eine Datenbank, die diese Messwerte nie gefuehrt hat. Ohne die
+    Pruefung brach die Migrationskette dort ab (`no such table`), und eine
+    abgebrochene Kette laesst die Datenbank auf halber Version stehen.
     """
+    if not await _tabelle_vorhanden(db, "server_stats_tracker"):
+        logger.info("Migration v12: server_stats_tracker fehlt — nichts nachzutragen")
+        return
+
     cursor = await db.execute(
         "UPDATE server_stats_tracker SET server_id = 'MAIN' "
         "WHERE server_type = 'sat' AND server_id IS NULL"
