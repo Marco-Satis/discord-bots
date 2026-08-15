@@ -2477,6 +2477,59 @@ async def before_status_embed():
 _voice_channel_cache: dict[str, int] = {}
 
 
+async def _voice_channels_aufraeumen(
+    category: discord.CategoryChannel,
+    sat_servers_jetzt: dict,
+    mc_servers_jetzt: dict,
+) -> None:
+    """Statuskanaele entfernen, zu denen es keinen Server mehr gibt.
+
+    Anlass (2026-08-15): Nach der Stilllegung von Minecraft Vanilla blieb
+    `MC-VANILLA | 🔴 Offline` im Discord stehen. Die Schleife legt Kanaele an,
+    hat aber nie einen entfernt — ein abgeschalteter Server erzaehlt damit auf
+    unbestimmte Zeit weiter, es gaebe ihn. Wer auf die Kanalliste schaut,
+    bekommt ein falsches Bild des Systems, und niemand merkt es, weil nichts
+    kaputtgeht.
+
+    Das Loeschen ist bewusst eng gefuehrt — es passiert unbeaufsichtigt alle
+    fuenf Minuten, und ein zu weit gefasster Filter loescht Sprachkanaele von
+    Leuten:
+
+      * angefasst werden nur Kanaele, deren Name **exakt** dem Statusmuster
+        folgt (`SAT-<Zahl> | …` oder `MC-<KENNUNG> | …`)
+      * es wird nichts geloescht, solange **beide** Registries leer sind — das
+        waere eher ein Konfigurationsfehler als ein Rueckbau
+      * Kanaele mit Zuhoerern bleiben stehen
+    """
+    if not sat_servers_jetzt and not mc_servers_jetzt:
+        logger.debug("Voice-Aufraeumen uebersprungen: keine Server in der Registry")
+        return
+
+    erlaubt = {f"SAT-{i}" for i in range(1, len(sat_servers_jetzt) + 1)}
+    erlaubt |= {f"MC-{sid}".upper() for sid in mc_servers_jetzt}
+
+    muster = re.compile(r"^(SAT-\d+|MC-[A-Z0-9_]+)\s*\|", re.IGNORECASE)
+
+    for vc in list(category.voice_channels):
+        treffer = muster.match(vc.name.strip())
+        if not treffer:
+            continue                       # kein Statuskanal — nicht anfassen
+        kennung = treffer.group(1).upper()
+        if kennung in erlaubt:
+            continue
+        if vc.members:
+            logger.info(f"Voice-Kanal {vc.name} nicht entfernt — es sind Leute drin")
+            continue
+        try:
+            await vc.delete(reason="Server nicht mehr in der Registry")
+            _voice_channel_cache.pop(kennung, None)
+            logger.info(f"Voice-Kanal entfernt (Server stillgelegt): {vc.name}")
+        except discord.Forbidden:
+            logger.warning(f"Keine Berechtigung zum Entfernen von {vc.name}")
+        except Exception as e:
+            logger.error(f"Voice-Kanal {vc.name} entfernen fehlgeschlagen: {e}")
+
+
 async def _get_or_create_voice_channel(
     category: discord.CategoryChannel, key: str, initial_name: str
 ) -> Optional[discord.VoiceChannel]:
@@ -2537,44 +2590,67 @@ async def update_voice_stats():
         if not category or not isinstance(category, discord.CategoryChannel):
             return
 
-        # --- Satisfactory Status ---
-        try:
-            sat_running = await sat_server.is_running()
-        except Exception:
-            sat_running = False
-
-        sat_players = 0
-        sat_limit = 0
-        if sat_running:
-            status = health_checker.status
-            sat_players = status.players_online
-            sat_limit = status.player_limit
+        # --- Satisfactory Status, je Instanz ---
+        #
+        # Bis 2026-08-15 stand hier ein einzelner Server: `sat_server`,
+        # `sat_api` und der fest geschriebene Name "SAT-1". Der
+        # Mehrinstanz-Umbau hat Befehle, Panels, Kacheln und Alarme
+        # umgestellt — diese Schleife wurde uebersehen. Folge: der zweite
+        # Server hatte ueberhaupt keinen Sprachkanal, und niemandem fiel es
+        # auf, weil der erste ja weiter richtig anzeigte.
+        for _v_index, (_v_sid, _v_srv) in enumerate(sat_servers.items(), start=1):
             try:
-                api_state = await sat_api.query_server_state()
-                # ok=False heisst: Abfrage gescheitert, die Werte sind Defaults.
-                if api_state and api_state.ok:
-                    sat_players = api_state.num_players
-                    if api_state.player_limit > 0:
-                        sat_limit = api_state.player_limit
-            except Exception as e:
-                logger.debug(f"Status-Write/API-Query swallowed (B110-refactor 3.1): {e}")
+                sat_running = await _v_srv.is_running()
+            except Exception:
+                sat_running = False
 
-        # SAT Voice-Channel
-        sat_vc = await _get_or_create_voice_channel(
-            category, "SAT", "SAT-1 | 🔴 Offline"
-        )
-        if sat_vc:
+            sat_players = 0
+            sat_limit = 0
             if sat_running:
-                new_name = f"SAT-1 | 🟢 {sat_players}/{sat_limit}"
+                _v_hc = sat_health_checkers.get(_v_sid)
+                if _v_hc is not None:
+                    sat_players = _v_hc.status.players_online
+                    sat_limit = _v_hc.status.player_limit
+                try:
+                    _v_api = sat_apis.get(_v_sid)
+                    api_state = await _v_api.query_server_state() if _v_api else None
+                    # ok=False heisst: Abfrage gescheitert, die Werte sind Defaults.
+                    if api_state and api_state.ok:
+                        sat_players = api_state.num_players
+                        if api_state.player_limit > 0:
+                            sat_limit = api_state.player_limit
+                except Exception as e:
+                    logger.debug(f"Status-Write/API-Query swallowed (B110-refactor 3.1): {e}")
+
+            # Schluessel und Anzeigename sind derselbe Text, und das mit Absicht:
+            # `_get_or_create_voice_channel` sucht den Kanal ueber "Schluessel
+            # kommt im Namen vor". Ein Schluessel "SAT" wuerde deshalb auch
+            # "SAT-2 | ..." treffen — je nach Reihenfolge der Kanaele bekaeme die
+            # erste Instanz den Kanal der zweiten. "SAT-1" und "SAT-2" sind
+            # dagegen keine Teilzeichenketten voneinander.
+            #
+            # Die Nummer kommt aus der Position in SAT_SERVER_IDS. Wird die
+            # Reihenfolge dort geaendert, tauschen die Kanaele ihre Bedeutung —
+            # das ist der Preis dafuer, dass der bestehende Kanal "SAT-1"
+            # weiterbenutzt wird statt umbenannt zu werden.
+            _v_label = f"SAT-{_v_index}"
+            _v_key = _v_label
+            sat_vc = await _get_or_create_voice_channel(
+                category, _v_key, f"{_v_label} | 🔴 Offline"
+            )
+            if not sat_vc:
+                continue
+            if sat_running:
+                new_name = f"{_v_label} | 🟢 {sat_players}/{sat_limit}"
             else:
-                new_name = "SAT-1 | 🔴 Offline"
+                new_name = f"{_v_label} | 🔴 Offline"
             try:
                 if sat_vc.name != new_name:
                     await sat_vc.edit(name=new_name)
             except discord.Forbidden:
                 logger.warning(f"Keine Berechtigung fuer Voice-Channel: {sat_vc.name}")
             except Exception as e:
-                logger.error(f"Voice stats SAT error: {e}")
+                logger.error(f"Voice stats {_v_label} error: {e}")
 
         # --- Minecraft Voice-Channels ---
         if hasattr(bot, 'mc_servers'):
@@ -2622,6 +2698,10 @@ async def update_voice_stats():
                         logger.warning(f"Keine Berechtigung fuer Voice-Channel: {mc_vc.name}")
                     except Exception as e:
                         logger.error(f"Voice stats MC-{sid} error: {e}")
+
+        # --- Kanaele stillgelegter Server entfernen ---
+        await _voice_channels_aufraeumen(category, sat_servers, bot.mc_servers
+                                         if hasattr(bot, "mc_servers") else {})
     except Exception as e:  # noqa: BLE001
         logger.error(f"Voice-Statistik fehlgeschlagen: {e}", exc_info=True)
 

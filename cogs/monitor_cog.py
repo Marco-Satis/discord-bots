@@ -17,6 +17,7 @@ from datetime import datetime, timedelta
 from typing import List, Optional, Tuple
 
 from modules.satisfactory.api_client import SAT_TICK_SOLL
+from modules.database.db_manager import get_read_db
 
 from utils.logger import get_logger
 from utils.formatting import format_uptime, format_bytes, progress_bar
@@ -835,41 +836,42 @@ class MonitorCog(commands.Cog):
     ):
         await interaction.response.defer(ephemeral=True)
 
-        # Ensure data directory exists
-        data_dir = Path(PROJECT_ROOT / "data")
-        data_dir.mkdir(parents=True, exist_ok=True)
-
-        log_file = data_dir / "command_log.json"
-
-        # Check if log file exists
-        if not log_file.exists():
-            await interaction.followup.send(
-                "ℹ️ Noch keine Command-Logs vorhanden.", ephemeral=True
-            )
-            return
+        # Quelle ist die Tabelle `command_log`, nicht eine Datei.
+        #
+        # Bis 2026-08-15 las dieser Befehl `data/command_log.json` — eine Datei,
+        # die im ganzen Projekt nur hier vorkommt, und zwar lesend. Geschrieben
+        # hat sie nie jemand. Der Befehl antwortete deshalb seit jeher
+        # "Noch keine Command-Logs vorhanden", obwohl `modules/command_logger.py`
+        # jeden Aufruf in die Datenbank schreibt (beim Fund: 65 Zeilen).
+        # Ein Fehler, den man nicht sehen konnte: die Antwort war plausibel.
+        anzahl = min(max(anzahl, 1), 50)
 
         try:
-            # Read command log (async)
-            def _read_log():
-                with open(log_file, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            all_logs = await asyncio.to_thread(_read_log)
+            rconn = await get_read_db()
+            cursor = await rconn.execute(
+                "SELECT timestamp, user_name, command_name, success "
+                "FROM command_log ORDER BY id DESC LIMIT ?",
+                (anzahl,),
+            )
+            rows = await cursor.fetchall()
 
-            if not all_logs:
+            if not rows:
                 await interaction.followup.send(
                     "ℹ️ Noch keine Command-Logs vorhanden.", ephemeral=True
                 )
                 return
 
-            # Get last N entries
-            anzahl = min(max(anzahl, 1), 50)  # 1-50 range
-            entries = all_logs[-anzahl:] if len(all_logs) > 0 else []
-
-            if not entries:
-                await interaction.followup.send(
-                    "ℹ️ Noch keine Command-Logs vorhanden.", ephemeral=True
-                )
-                return
+            # Die Abfrage liefert bereits neueste zuerst; die Anzeige unten
+            # dreht die Liste noch einmal um, deshalb hier zurueckdrehen.
+            entries = [
+                {
+                    "timestamp": r[0],
+                    "user": r[1] or "Unbekannt",
+                    "command": r[2] or "unbekannt",
+                    "success": bool(r[3]),
+                }
+                for r in reversed(rows)
+            ]
 
             # Build embed with latest entries
             embed = info_embed(
@@ -890,7 +892,10 @@ class MonitorCog(commands.Cog):
                 except Exception:
                     ts = "?"
 
-                lines.append(f"`{ts}` • **{user}** → `/{command}`")
+                # Fehlgeschlagene Aufrufe kennzeichnen — sie sind der
+                # eigentliche Grund, warum man in dieses Protokoll schaut.
+                marke = "" if entry.get("success", True) else " ⚠️"
+                lines.append(f"`{ts}` • **{user}** → `/{command}`{marke}")
 
             # Add to embed (Discord field limit is ~1024 chars)
             if lines:
