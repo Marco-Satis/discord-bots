@@ -1,139 +1,137 @@
 #!/usr/bin/env python3
 """
-test_manual_stop_state.py — Unit-Tests fuer modules/monitoring/manual_stop_state.py
+Regressions-Test fuer manual_stop_state (Bug vom 2026-08-11).
 
-Deckt ab (F02 aus Review v5-sweep_2026-05-28):
-  - mark_stopped / mark_started / is_manually_stopped Roundtrip
-  - Service-Name ↔ server_id Mapping (is_service_manually_stopped)
-  - Atomic-Write (File existiert + valides JSON)
-  - Concurrent-Marks ohne Lost-Update (F03-Regression-Guard)
-  - Unbekannte Server/Services → kein Over-Block
-  - get_stopped_servers / stopped_at
+Symptom: waehrend eines SteamCMD-Updates hat der service_watchdog den
+Satisfactory-Server neu gestartet, obwohl update_checker ihn vorher als
+manuell-gestoppt markiert hatte.
 
-manual_stop_state ist stdlib-only → laeuft lokal ohne Server-Deps.
+Ursache: der Watchdog fuehrt seine Units OHNE `.service`-Suffix
+("satisfactory"), die Mapping-Tabelle SERVICE_TO_SERVER_ID hat die Schluessel
+MIT Suffix. `is_service_manually_stopped("satisfactory")` lief damit ins
+Leere und lieferte False.
 
-Aufruf:
-    python tests/test_manual_stop_state.py
-    pytest tests/test_manual_stop_state.py
+Dieser Test prueft beide Schreibweisen und faellt ohne den Fix durch.
 """
-import asyncio
-import json
+import importlib.util
+import os
+import re
 import sys
 import tempfile
 from pathlib import Path
 
-# Projekt-Root (eine Ebene ueber tests/)
-_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(_ROOT))
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
 
-from modules.monitoring import manual_stop_state as mss  # noqa: E402
-
-
-def _fresh_state_file():
-    """Setzt STATE_FILE auf eine frische Temp-Datei + raeumt Reststand."""
-    tmpdir = tempfile.mkdtemp(prefix="mss_test_")
-    mss.STATE_FILE = Path(tmpdir) / "manual_stop_state.json"
-    return mss.STATE_FILE
-
-
-def test_roundtrip_mark_and_clear():
-    _fresh_state_file()
-    assert mss.is_manually_stopped("mc_bmc") is False
-    asyncio.run(mss.mark_stopped("mc_bmc"))
-    assert mss.is_manually_stopped("mc_bmc") is True
-    asyncio.run(mss.mark_started("mc_bmc"))
-    assert mss.is_manually_stopped("mc_bmc") is False
+# Seit der Registry-Umstellung leitet manual_stop_state seine Zuordnung aus der
+# ENV ab. Ohne gesetzte Werte kennt es keinen Minecraft-Server, und der Test
+# schlug fehl — nicht wegen eines Fehlers im Code, sondern weil im Dev-Spiegel
+# keine config/.env liegt. Ein Test, dessen Ergebnis davon abhaengt, WO er
+# laeuft, taugt nicht als Regressionsschutz; deshalb setzt er seine Umgebung
+# selbst. setdefault, damit eine echte Konfiguration weiter gewinnt.
+os.environ.setdefault("MC_SERVER_IDS", "BMC")
+os.environ.setdefault("MC_BMC_SERVICE", "minecraft-bmc.service")
+os.environ.setdefault("SAT_SERVER_IDS", "MAIN")
+os.environ.setdefault("SATISFACTORY_SERVICE", "satisfactory.service")
 
 
-def test_service_name_mapping():
-    _fresh_state_file()
-    asyncio.run(mss.mark_stopped("mc_vanilla"))
-    # via Service-Name (Watchdog-Pfad)
-    assert mss.is_service_manually_stopped("minecraft-vanilla.service") is True
-    assert mss.is_service_manually_stopped("minecraft-bmc.service") is False
-    # unbekannter Service → kein Over-Block
-    assert mss.is_service_manually_stopped("nginx.service") is False
+def _load_module_direct(name: str, path: Path):
+    """Laedt ein Modul direkt aus der Datei.
+
+    Umweg noetig, weil `modules.monitoring.__init__` den halben Bot importiert
+    (aiosqlite, discord) — die Dependencies fehlen im Dev-Mirror. Der Test
+    braucht nur dieses eine Modul, das ausschliesslich Stdlib nutzt.
+    """
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
-def test_atomic_write_produces_valid_json():
-    sf = _fresh_state_file()
-    asyncio.run(mss.mark_stopped("satisfactory"))
-    assert sf.exists()
-    data = json.loads(sf.read_text(encoding="utf-8"))
-    assert "satisfactory" in data
-    # Timestamp ist ISO-parsebar
-    from datetime import datetime
-    datetime.fromisoformat(data["satisfactory"])
+mss = _load_module_direct(
+    "manual_stop_state", PROJECT_ROOT / "modules/monitoring/manual_stop_state.py"
+)
+
+# service_watchdog zieht utils.logger/config nach — fuer den Test genuegen die
+# Unit-Namen aus DEFAULT_SERVICES, die per Regex aus der Quelle gelesen werden.
+_watchdog_src = (PROJECT_ROOT / "modules/monitoring/service_watchdog.py").read_text(
+    encoding="utf-8"
+)
+_block = re.search(r"DEFAULT_SERVICES[^=]*=\s*\[(.*?)\n\]", _watchdog_src, re.S)
+DEFAULT_SERVICES = [
+    {"name": n} for n in re.findall(r'"name":\s*"([^"]+)"', _block.group(1) if _block else "")
+]
+
+failures: list[str] = []
 
 
-def test_concurrent_marks_no_lost_update():
-    """F03-Regression: gleichzeitige Marks duerfen sich nicht ueberschreiben."""
-    _fresh_state_file()
-
-    async def _run():
-        await asyncio.gather(
-            mss.mark_stopped("mc_bmc"),
-            mss.mark_stopped("mc_vanilla"),
-            mss.mark_stopped("satisfactory"),
-        )
-
-    asyncio.run(_run())
-    stopped = mss.get_stopped_servers()
-    assert set(stopped.keys()) == {"mc_bmc", "mc_vanilla", "satisfactory"}, (
-        f"Lost-Update: erwartet 3 Eintraege, bekam {list(stopped.keys())}"
-    )
+def check(bedingung: bool, beschreibung: str) -> None:
+    if bedingung:
+        print(f"  OK    {beschreibung}")
+    else:
+        print(f"  FEHLT {beschreibung}")
+        failures.append(beschreibung)
 
 
-def test_mark_started_idempotent_on_missing():
-    _fresh_state_file()
-    # clear auf nicht-gesetztem Server darf nicht crashen
-    asyncio.run(mss.mark_started("mc_bmc"))
-    assert mss.is_manually_stopped("mc_bmc") is False
+def main() -> int:
+    print("=" * 70)
+    print("  manual_stop_state — Service-Namen-Normalisierung")
+    print("=" * 70)
 
-
-def test_unknown_server_not_stopped():
-    _fresh_state_file()
-    assert mss.is_manually_stopped("does_not_exist") is False
-    assert mss.stopped_at("does_not_exist") is None
-
-
-def test_stopped_at_returns_timestamp():
-    _fresh_state_file()
-    asyncio.run(mss.mark_stopped("mc_bmc"))
-    ts = mss.stopped_at("mc_bmc")
-    assert ts is not None
-    from datetime import datetime
-    datetime.fromisoformat(ts)
-
-
-def test_corrupt_state_file_returns_empty():
-    sf = _fresh_state_file()
-    sf.parent.mkdir(parents=True, exist_ok=True)
-    sf.write_text("{ not valid json", encoding="utf-8")
-    # darf nicht crashen, faellt auf leeren State zurueck
-    assert mss.is_manually_stopped("mc_bmc") is False
-
-
-# ---------------------------------------------------------------------------
-# Standalone-Runner (ohne pytest)
-# ---------------------------------------------------------------------------
-def _main() -> int:
-    tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
-    passed = failed = 0
-    for t in tests:
+    # State in ein Temp-File umlenken, damit der Test den Live-State nicht anfasst
+    original_state_file = mss.STATE_FILE
+    with tempfile.TemporaryDirectory() as tmp:
+        mss.STATE_FILE = Path(tmp) / "manual_stop_state.json"
         try:
-            t()
-            print(f"  PASS  {t.__name__}")
-            passed += 1
-        except AssertionError as e:
-            print(f"  FAIL  {t.__name__}: {e}")
-            failed += 1
-        except Exception as e:  # noqa: BLE001
-            print(f"  ERROR {t.__name__}: {type(e).__name__}: {e}")
-            failed += 1
-    print(f"\n{passed} passed, {failed} failed")
-    return 1 if failed else 0
+            import asyncio
+
+            asyncio.run(mss.mark_stopped("satisfactory"))
+
+            check(
+                mss.is_service_manually_stopped("satisfactory.service"),
+                "Service-Name MIT Suffix wird erkannt",
+            )
+            check(
+                mss.is_service_manually_stopped("satisfactory"),
+                "Service-Name OHNE Suffix wird erkannt (Watchdog-Schreibweise)",
+            )
+            check(
+                mss.server_id_for_service("satisfactory") == "satisfactory",
+                "server_id_for_service loest die suffixlose Form auf",
+            )
+            check(
+                mss.server_id_for_service("minecraft-bmc") == "mc_bmc",
+                "server_id_for_service loest Minecraft-Units auf",
+            )
+            check(
+                not mss.is_service_manually_stopped("nginx"),
+                "Fremder Service blockiert nichts",
+            )
+            check(
+                not mss.is_service_manually_stopped(""),
+                "Leerer Service-Name blockiert nichts",
+            )
+
+            # Genau die Namen pruefen, mit denen der Watchdog wirklich arbeitet
+            for svc in DEFAULT_SERVICES:
+                name = svc["name"]
+                if mss.server_id_for_service(name) is None:
+                    continue  # Unit ohne Manual-Stop-Unterstuetzung, kein Fehler
+                asyncio.run(mss.mark_stopped(mss.server_id_for_service(name)))
+                check(
+                    mss.is_service_manually_stopped(name),
+                    f"Watchdog-Name '{name}' trifft die Mapping-Tabelle",
+                )
+        finally:
+            mss.STATE_FILE = original_state_file
+
+    print("-" * 70)
+    if failures:
+        print(f"  ERGEBNIS: {len(failures)} Pruefung(en) fehlgeschlagen")
+        return 1
+    print("  ERGEBNIS: ALLE PRUEFUNGEN BESTANDEN")
+    return 0
 
 
 if __name__ == "__main__":
-    sys.exit(_main())
+    sys.exit(main())

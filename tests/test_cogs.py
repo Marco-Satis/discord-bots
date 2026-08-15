@@ -25,10 +25,13 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 COGS_DIR = PROJECT_ROOT / "cogs"
 BOTS_DIR = PROJECT_ROOT / "bots"
 
+# Alle Bots, die Cogs laden. pipeline_bot fehlte hier bis 2026-08-14 — dadurch
+# meldete der Test jeden nur von ihm geladenen Cog als "in keinem Bot geladen".
 BOT_FILES = {
     "operator_bot": BOTS_DIR / "operator_bot.py",
     "recon_bot":    BOTS_DIR / "recon_bot.py",
     "marshal_bot":  BOTS_DIR / "marshal_bot.py",
+    "pipeline_bot": BOTS_DIR / "pipeline_bot.py",
 }
 
 # ---------------------------------------------------------------------------

@@ -97,7 +97,12 @@ async def test_auth():
             ("/marshal-bot", [200]),
             ("/server/satisfactory", [200]),
             ("/server/mc_bmc", [200]),
-            ("/server/mc_vanilla", [200]),
+            # Vanilla wurde am 2026-08-14 stillgelegt. Die Detailseite leitet
+            # bei unbekannter Server-ID auf die Startseite um (302) — bewusst
+            # keine 404-Fehlerseite, weil es eine Seiten-URL ist und kein
+            # API-Aufruf. Die HTMX-Teilansichten derselben Route antworten
+            # dagegen mit 404.
+            ("/server/mc_vanilla", [302]),
             ("/api/analytics/summary", [200]),
             ("/api/health", [200, 503]),
             ("/api/theme", [200]),

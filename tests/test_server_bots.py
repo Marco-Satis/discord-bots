@@ -18,15 +18,6 @@ async def test_rcon():
     except Exception as e:
         print(f"RCON BMC5: FAIL — {e}")
 
-    # Vanilla RCON
-    pw2 = os.getenv("MC_VANILLA_RCON_PASSWORD", "")
-    if pw2:
-        try:
-            async with MinecraftRCON("localhost", 25576, pw2, timeout=5.0) as rcon:
-                r = await rcon.command("list")
-                print(f"RCON Vanilla: OK — {r[:80]}")
-        except Exception as e:
-            print(f"RCON Vanilla: FAIL — {e}")
 
 def test_sat_port():
     import socket

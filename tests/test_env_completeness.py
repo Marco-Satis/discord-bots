@@ -42,6 +42,10 @@ PATTERNS = [
     re.compile(r"""os\.environ\[\s*["']([A-Z_][A-Z0-9_]*)["']\s*\]"""),
     # os.environ.get("VAR_NAME" ...)
     re.compile(r"""os\.environ\.get\(\s*["']([A-Z_][A-Z0-9_]*)["']"""),
+    # server_ids("VAR_NAME", ...) -- die Server-Registry (utils.config), seit
+    # 2026-08-14. Ohne dieses Muster meldet der Test SAT_SERVER_IDS als
+    # ungenutzt, obwohl recon_bot damit die Instanzen aufbaut.
+    re.compile(r"""server_ids\(\s*["']([A-Z_][A-Z0-9_]*)["']"""),
 ]
 
 # Dynamische Variablen werden via f-String konstruiert (z.B. f"MC_{sid}_SERVICE").
@@ -59,6 +63,12 @@ DYNAMIC_PATTERNS = [
 # einem dieser Muster passt, wird sie als "dynamisch genutzt" gewertet.
 DYNAMIC_PREFIX_PATTERNS = [
     re.compile(r"^MC_[A-Z0-9]+_"),   # MC_BMC_*, MC_VANILLA_*, ...
+    re.compile(r"^SAT_[A-Z0-9]+_"),  # SAT_MAIN_*, SAT_SECOND_*, ...
+    # Die alten Satisfactory-Namen ohne ID liest SatisfactoryServer seit
+    # 2026-08-14 als Rueckfall des ersten Servers — ueber einen Parameter,
+    # nicht als Literal. Statisch ist das nicht mehr sichtbar, benutzt werden
+    # sie trotzdem.
+    re.compile(r"^SATISFACTORY_"),
 ]
 
 

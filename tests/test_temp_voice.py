@@ -25,7 +25,11 @@ try:
         _normalize_hub,
         _render_channel_name,
     )
-    from modules.temp_voice_views import build_panel_embed, build_interface_embed
+    from modules.temp_voice_views import (
+        TempVoiceControlView,
+        build_channel_container,
+        build_interface_container,
+    )
     HAVE_DISCORD = True
 except ImportError:
     HAVE_DISCORD = False
@@ -33,8 +37,53 @@ except ImportError:
 _results: list[tuple[str, bool, str]] = []
 
 
+_ERWARTETE_BUTTON_IDS = {
+    "temp_voice:rename", "temp_voice:limit", "temp_voice:private",
+    "temp_voice:public", "temp_voice:transfer", "temp_voice:ban",
+    "temp_voice:unban", "temp_voice:claim", "temp_voice:logs",
+    "temp_voice:accounts",
+}
+
+
 def _check(name: str, cond: bool, msg: str = "") -> None:
     _results.append((name, bool(cond), msg))
+
+
+def _panel_text(element) -> str:
+    """Allen Text eines Containers einsammeln (TextDisplay ist verschachtelt)."""
+    stuecke: list[str] = []
+
+    def _lauf(teil) -> None:
+        inhalt = getattr(teil, "content", None)
+        if isinstance(inhalt, str):
+            stuecke.append(inhalt)
+        for attribut in ("children", "items", "_children"):
+            kinder = getattr(teil, attribut, None)
+            if kinder:
+                for kind in kinder:
+                    _lauf(kind)
+
+    _lauf(element)
+    return "\n".join(stuecke)
+
+
+def _button_ids(view) -> set:
+    """custom_ids aller Buttons im Layout."""
+    gefunden = set()
+
+    def _lauf(teil) -> None:
+        cid = getattr(teil, "custom_id", None)
+        if cid:
+            gefunden.add(cid)
+        for attribut in ("children", "items", "_children"):
+            kinder = getattr(teil, attribut, None)
+            if kinder:
+                for kind in kinder:
+                    _lauf(kind)
+
+    for kind in view.children:
+        _lauf(kind)
+    return gefunden
 
 
 def _new_manager() -> "TempVoiceManager":
@@ -174,7 +223,7 @@ async def run_tests() -> None:
     mgr5.record_join(333, 42)
     _check("record_join_once", len(mgr5.get_events(333)) == ev_before + 1)
 
-    # build_panel_embed: Slot-Liste enthaelt Owner mit Crown + Status-Feld
+    # Kanal-Panel (Components V2): Slot-Liste mit Krone + Status-Zeile
     pch = MagicMock()
     pch.id = 333
     pch.name = "Test Voice"
@@ -182,10 +231,12 @@ async def run_tests() -> None:
     owner_m = MagicMock(); owner_m.bot = False; owner_m.id = 1
     owner_m.display_name = "Chef"
     pch.members = [owner_m]
-    embed = build_panel_embed(pch, mgr5)
-    field_blob = " ".join(f.value or "" for f in embed.fields)
-    _check("embed_slot_owner", "Chef" in field_blob and "👑" in field_blob)
-    _check("embed_status_open", "Öffentlich" in field_blob)
+    panel_text = _panel_text(build_channel_container(pch, mgr5))
+    _check("panel_slot_owner", "Chef" in panel_text and "👑" in panel_text, panel_text)
+    _check("panel_status_open", "öffentlich" in panel_text, panel_text)
+    _check("panel_titel", "TEST VOICE" in panel_text, panel_text)
+    _check("panel_belegung", "**1/∞** Mitglieder" in panel_text, panel_text)
+
 
     # --- Sub-4: Interface-Kanal Config + Embed ---
     mgr6 = _new_manager()
@@ -215,10 +266,46 @@ async def run_tests() -> None:
     _check("iface_clear",
            mgr6.interface_channel_id is None and mgr6.interface_message_id is None)
 
-    # build_interface_embed: statisch, mit Steuerungs-Hinweisen
-    ie = build_interface_embed()
-    _check("iface_embed_static",
-           "Temp-Voice" in (ie.title or "") and "Umbenennen" in (ie.description or ""))
+    # Interface-Panel: statisch, erklaert die Voraussetzung
+    iface = _panel_text(build_interface_container())
+    _check("iface_panel_static", "TEMP-VOICE" in iface, iface)
+    _check("iface_panel_hinweis", "Join-to-Create" in iface, iface)
+
+    # Die Buttons haengen im Panel und behalten ihre custom_ids (sonst sterben
+    # die Knoepfe aller bereits stehenden Panels nach dem Deploy).
+    async def _view_checks() -> None:
+        view = TempVoiceControlView()
+        ids = _button_ids(view)
+        _check("view_ist_layout", isinstance(view, discord.ui.LayoutView))
+        # is_persistent() taugt bei LayoutView nicht als Netz — Container
+        # melden unbedingt True. Deshalb direkt die Buttons pruefen.
+        _check("view_persistent", view.timeout is None)
+        _check("view_jeder_button_hat_id",
+               all(getattr(b, "custom_id", None)
+                   for b in view.walk_children()
+                   if isinstance(b, discord.ui.Button)),
+               "Button ohne custom_id im Layout")
+        _check("view_alle_buttons", ids == _ERWARTETE_BUTTON_IDS, str(sorted(ids)))
+        _check("view_unter_limit", view._total_children <= 40, str(view._total_children))
+        kanal_view = TempVoiceControlView(pch, mgr5)
+        _check("view_kanal_buttons", _button_ids(kanal_view) == _ERWARTETE_BUTTON_IDS)
+
+    await _view_checks()
+
+    # Berechtigung: eine Regel fuer Button UND Modal (vorher zwei, die
+    # auseinanderliefen — der Admin bekam das Modal und beim Absenden eine Absage)
+    from modules.temp_voice_views import _darf_steuern
+    kanal = MagicMock(); kanal.id = 333
+    mgr5.set_owner(333, 1) if hasattr(mgr5, "set_owner") else None
+    besitzer = MagicMock(); besitzer.id = mgr5.get_owner(333)
+    besitzer.guild_permissions.manage_channels = False
+    fremder = MagicMock(); fremder.id = 999999
+    fremder.guild_permissions.manage_channels = False
+    admin = MagicMock(); admin.id = 888888
+    admin.guild_permissions.manage_channels = True
+    _check("owner_darf", _darf_steuern(mgr5, kanal, besitzer))
+    _check("fremder_darf_nicht", not _darf_steuern(mgr5, kanal, fremder))
+    _check("admin_darf", _darf_steuern(mgr5, kanal, admin))
 
     # --- Multi-Hub (C1) ---
     # _render_channel_name: Platzhalter + Clamp + Whitespace-Normalisierung
