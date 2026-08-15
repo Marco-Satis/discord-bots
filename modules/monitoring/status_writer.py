@@ -419,6 +419,25 @@ class StatusWriter:
         }
         _write_json_safe(MONITOR_DATA_DIR / "satisfactory_players.json", data)
 
+        # Weitere Instanzen: ihre Namen kommen aus dem eigenen Log-Parser
+        # (recon_bot._weitere_spieler_lesen). Ohne eigene Datei zeigte die
+        # Detailseite des zweiten Servers die Spieler des ersten.
+        weitere = getattr(self.bot, "sat_weitere_online", None) or {}
+        servers = getattr(self.bot, "sat_servers", None) or {}
+        erster = next(iter(servers), None)
+        for sid, namen in weitere.items():
+            if sid == erster:
+                continue
+            kennung = f"sat_{sid.lower()}"
+            _write_json_safe(
+                MONITOR_DATA_DIR / f"{kennung}_players.json",
+                {
+                    "server_id": kennung,
+                    "players": [{"name": n} for n in sorted(namen)],
+                    "last_update": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+
     async def _write_bot_status(self) -> None:
         """Schreibt den Bot-Status (Ping, Uptime) fuer alle Bots (async fuer systemctl)."""
         now = time.time()

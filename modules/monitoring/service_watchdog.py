@@ -20,10 +20,29 @@ COLOR_ERROR: int = 0xE74C3C
 COLOR_SUCCESS: int = 0x2ECC71
 COLOR_INFO: int = 0x5865F2
 
+def _standard_dienste() -> list[Dict[str, str]]:
+    """
+    Ueberwachte Dienste aus der Registry statt aus einer festen Liste.
+
+    Vorher stand hier genau ein Satisfactory-Eintrag. Eine zweite Instanz waere
+    damit unbewacht gelaufen — ausgerechnet der Dienst, der neu und deshalb am
+    ehesten instabil ist.
+    """
+    try:
+        from modules.server_registry import satisfactory_server
+        dienste = [
+            {"name": srv.service.replace(".service", ""), "label": srv.label}
+            for srv in satisfactory_server()
+        ]
+        if dienste:
+            return dienste
+    except Exception:  # noqa: BLE001 — Watchdog darf am Import nicht scheitern
+        pass
+    return [{"name": "satisfactory", "label": "Satisfactory Server"}]
+
+
 # Standardmäßig überwachte Services (kann per Config überschrieben werden)
-DEFAULT_SERVICES: list[Dict[str, str]] = [
-    {"name": "satisfactory", "label": "Satisfactory Server"},
-]
+DEFAULT_SERVICES: list[Dict[str, str]] = _standard_dienste()
 
 
 class ServiceWatchdog:

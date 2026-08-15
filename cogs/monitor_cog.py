@@ -1387,8 +1387,17 @@ class MonitorCog(commands.Cog):
         )
 
         # Satisfactory Backups
-        sat_bm = getattr(self.bot, "backup_manager", None)
-        if sat_bm:
+        # Backups JEDER Satisfactory-Instanz. Vorher stand hier nur die erste;
+        # die Sicherungen des zweiten Servers waeren unsichtbar geblieben — und
+        # niemand haette bemerkt, wenn sie ausbleiben.
+        sat_bms = getattr(self.bot, "sat_backup_mgrs", {}) or {}
+        if not sat_bms:
+            _einzel = getattr(self.bot, "backup_manager", None) or getattr(
+                self.bot, "backup_mgr", None)
+            if _einzel is not None:
+                sat_bms = {"": _einzel}
+        for _bm_sid, sat_bm in sat_bms.items():
+            _bm_name = self._sat_name(_bm_sid) if _bm_sid else "Satisfactory"
             try:
                 sat_backups = await loop.run_in_executor(None, sat_bm.list_backups, 999)
                 sat_count = len(sat_backups)
@@ -1396,7 +1405,7 @@ class MonitorCog(commands.Cog):
                 oldest = sat_backups[-1].get("created_at", "?")[:10] if sat_backups else "—"
                 newest = sat_backups[0].get("created_at", "?")[:10] if sat_backups else "—"
                 embed.add_field(
-                    name="Satisfactory",
+                    name=_bm_name,
                     value=(
                         f"**Anzahl:** {sat_count}\n"
                         f"**Größe:** {format_bytes(sat_total)}\n"
@@ -1406,9 +1415,7 @@ class MonitorCog(commands.Cog):
                     inline=True,
                 )
             except Exception as e:
-                embed.add_field(
-                    name="Satisfactory", value=f"Fehler: {e}", inline=True
-                )
+                embed.add_field(name=_bm_name, value=f"Fehler: {e}", inline=True)
 
         # Minecraft Backups (pro Server)
         mc_backup_mgrs = getattr(self.bot, "mc_backup_mgrs", {})

@@ -1452,6 +1452,13 @@ sat_log_players = SatLogPlayerParser()
 # er einen eigenen Parser und eine eigene Leseposition; ein gemeinsamer
 # Parser wuerde die Namen beider Welten in einen Topf werfen.
 _sat_log_path = sat_server.log_path
+# Je weiterer Instanz ein eigener Parser, eine eigene Leseposition und eine
+# eigene Namensliste (siehe _weitere_spieler_lesen).
+_sat_log_parser: dict[str, SatLogPlayerParser] = {}
+_sat_log_pos: dict[str, int] = {}
+_sat_weitere_online: dict[str, set] = {}
+# Der StatusWriter schreibt daraus die Spielerdatei je Instanz.
+bot.sat_weitere_online = _sat_weitere_online
 _log_last_pos: int = 0
 _log_last_size: int = 0
 _log_lock = asyncio.Lock()
@@ -1578,16 +1585,74 @@ async def _poll_player_events():
 # Background Tasks
 # ------------------------------------------------------------------
 
+async def _weitere_spieler_lesen() -> None:
+    """
+    Spielernamen der zusaetzlichen Satisfactory-Instanzen aus deren Logs lesen.
+
+    Je Instanz ein eigener Parser und eine eigene Leseposition: ein gemeinsamer
+    Parser wuerde die Namen beider Welten in einen Topf werfen, und eine
+    gemeinsame Position liesse jede Instanz die Zeilen der anderen ueberspringen.
+
+    Die Namen landen in ``_sat_weitere_online`` — Panel und Statusdateien lesen
+    von dort.
+    """
+    for sid, srv in sat_servers.items():
+        if sid == _SAT_ERSTER:
+            continue
+        checker = sat_health_checkers.get(sid)
+        if checker is None or checker.status.state != ServerState.ONLINE:
+            _sat_weitere_online.pop(sid, None)
+            continue
+
+        pfad = Path(srv.log_path)
+        parser = _sat_log_parser.get(sid)
+        if parser is None:
+            parser = _sat_log_parser[sid] = SatLogPlayerParser()
+            # Erststart: das ganze Log lesen, sonst fehlen alle Spieler, die
+            # sich vor dem Start des Bots angemeldet haben.
+            _sat_log_pos[sid] = 0
+
+        def _lesen(_pfad=pfad, _sid=sid):
+            if not _pfad.exists():
+                return None, 0
+            groesse = _pfad.stat().st_size
+            pos = _sat_log_pos.get(_sid, 0)
+            if groesse < pos:      # Logrotation: von vorne
+                pos = 0
+            with open(_pfad, "r", encoding="utf-8", errors="ignore") as f:
+                f.seek(pos)
+                inhalt = f.read()
+                return inhalt, f.tell()
+
+        try:
+            inhalt, neue_pos = await asyncio.to_thread(_lesen)
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"[{sid}] Log nicht lesbar: {e}")
+            continue
+        if inhalt is None:
+            continue
+        _sat_log_pos[sid] = neue_pos
+        if inhalt:
+            parser.feed(inhalt)
+        _sat_weitere_online[sid] = set(parser.online)
+
+
 @tasks.loop(seconds=10)
 async def player_log_task():
     """Poll server log for player join/leave events every 10 seconds"""
-    if health_checker.status.state != ServerState.ONLINE:
-        return
+    if health_checker.status.state == ServerState.ONLINE:
+        try:
+            await _poll_player_events()
+        except Exception as e:
+            logger.warning(f"Spieler-Log-Task fehlgeschlagen: {e}")
 
+    # Weitere Instanzen haben eigene Logdateien — ohne eigenen Parser blieben
+    # ihre Spielernamen unsichtbar. Die Zahl kaeme weiter aus der API, aber
+    # eine Zahl ohne Namen ist im Panel genau die halbe Auskunft.
     try:
-        await _poll_player_events()
-    except Exception as e:
-        logger.warning(f"Spieler-Log-Task fehlgeschlagen: {e}")
+        await _weitere_spieler_lesen()
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"Spieler-Log weiterer Instanzen: {e}")
 
 
 @player_log_task.before_loop
@@ -2264,11 +2329,71 @@ async def _update_status_embed_impl():
 
         server_lines.append(ServerLine(
             liste_unvollstaendig=_spielerliste_unvollstaendig,
-            name="Satisfactory", online=True, players=sat_count,
+            name=sat_server.display_name, online=True, players=sat_count,
             limit=sat_limit or None, note=notiz, details=details,
         ))
     else:
-        server_lines.append(ServerLine(name="Satisfactory", online=False))
+        server_lines.append(ServerLine(name=sat_server.display_name, online=False))
+
+    # -- Weitere Satisfactory-Instanzen --
+    # Ohne diese Schleife fehlte der zweite Server im Panel vollstaendig: er
+    # lief, wurde ueberwacht, gesichert und alarmiert — aber die eine Stelle,
+    # auf die alle im Discord schauen, kannte ihn nicht.
+    for _p_sid, _p_srv in sat_servers.items():
+        if _p_sid == _SAT_ERSTER:
+            continue
+        try:
+            _p_hc = sat_health_checkers.get(_p_sid)
+            _p_status = _p_hc.status if _p_hc else None
+            _p_laeuft = bool(_p_status and _p_status.process_running)
+            if not _p_laeuft:
+                server_lines.append(ServerLine(name=_p_srv.display_name, online=False))
+                continue
+
+            _p_notiz = f"Uptime {format_uptime(_p_status.uptime)}"
+            if _p_status.tick_rate > 0:
+                _p_notiz += (
+                    f" · {status_dot(tick_zustand(_p_status.tick_rate))} "
+                    f"{_p_status.tick_rate:.0f}/{SAT_TICK_SOLL:.0f} Ticks/s"
+                )
+
+            _p_details: List[str] = []
+            _p_namen = sorted(_sat_weitere_online.get(_p_sid, set()))
+            if _p_namen:
+                # Namen kommen vom Gameserver — ohne Escaping koennte einer das
+                # Panel-Markdown umformatieren.
+                _p_details.append("👤 " + ", ".join(
+                    discord.utils.escape_markdown(n) for n in _p_namen
+                ))
+            _p_uc = sat_update_checkers.get(_p_sid)
+            if _p_uc is not None and getattr(_p_uc, "update_available", False):
+                _p_details.append("📦 Server-Update verfügbar")
+
+            _p_analyzer = sat_savegame_analyzers.get(_p_sid)
+            if _p_analyzer is not None:
+                try:
+                    _p_welt = await _p_analyzer.get_stats()
+                    if _p_welt and _p_welt.available:
+                        _p_leistung = f"{_p_welt.total_power_mw:,.0f} MW".replace(",", ".")
+                        _p_details.append(
+                            f"🏗️ {_p_welt.total_buildings:,} Gebäude · "
+                            f"⚡ {_p_welt.generators} Gen ({_p_leistung}) · "
+                            f"🏭 {_p_welt.production_machines} Prod"
+                        )
+                    elif _p_welt and _p_welt.session_name:
+                        _p_details.append(f"📋 Session {_p_welt.session_name}")
+                except Exception as e:  # noqa: BLE001
+                    logger.debug(f"[{_p_sid}] Weltdaten nicht lesbar: {e}")
+
+            server_lines.append(ServerLine(
+                name=_p_srv.display_name, online=True,
+                players=_p_status.players_online,
+                limit=_p_status.player_limit or None,
+                note=_p_notiz, details=_p_details,
+            ))
+        except Exception as e:  # noqa: BLE001 — eine Instanz darf das Panel nicht kippen
+            logger.error(f"[{_p_sid}] Panel-Zeile fehlgeschlagen: {e}")
+            server_lines.append(ServerLine(name=_p_srv.display_name, online=False))
 
     # -- Minecraft --
     for mc_sid, mc_srv in mc_servers.items():
