@@ -135,6 +135,44 @@ class SatisfactoryCog(commands.Cog):
             return None, None, None
         return srv, apis.get(sid, self.api), sid
 
+    # Pfadgebundene Manager je Instanz. Als Einzelstueck zeigten sie immer auf
+    # den ersten Server — /sat blueprints list haette auf dem zweiten die
+    # Blaupausen des ersten gezeigt. Der Rueckfall auf das Einzelstueck greift
+    # nur, wenn die Registry leer ist (degradierter Start).
+    def _blueprints(self, sid: Optional[str] = None):
+        """Blueprint-Manager der Instanz."""
+        alle = getattr(self.bot, "sat_blueprint_mgrs", {}) or {}
+        return alle.get(sid or "") or self.bot.blueprint_mgr
+
+    def _savegames(self, sid: Optional[str] = None):
+        """Savegame-Statistik der Instanz."""
+        alle = getattr(self.bot, "sat_savegame_stats", {}) or {}
+        return alle.get(sid or "") or self.bot.savegame_stats
+
+    def _backups(self, sid: Optional[str] = None):
+        """Backup-Manager der Instanz."""
+        alle = getattr(self.bot, "sat_backup_mgrs", {}) or {}
+        return alle.get(sid or "") or self.bot.backup_mgr
+
+    def _timer_key(self, sid: Optional[str] = None) -> str:
+        """
+        Schluessel des Neustart-Countdowns einer Instanz.
+
+        Die erste behaelt "satisfactory" — ein laufender Countdown ueberlebt
+        damit das Deployment dieser Aenderung. Weitere bekommen einen eigenen
+        Schluessel, sonst wuerde ein Countdown auf Server 2 den auf Server 1
+        abbrechen: derselbe Timer, zwei Bedeutungen.
+        """
+        erste = next(iter(self.servers), None)
+        if not sid or sid == erste:
+            return "satisfactory"
+        return f"satisfactory_{sid.lower()}"
+
+    def _ip_tracker(self, sid: Optional[str] = None):
+        """IP-/Bann-Tracker der Instanz."""
+        alle = getattr(self.bot, "sat_ip_trackers", {}) or {}
+        return alle.get(sid or "") or getattr(self.bot, "player_ip_tracker", None)
+
     async def _unbekannt_melden(self, interaction: discord.Interaction,
                                 server: str) -> None:
         """Einheitliche Antwort auf eine unbekannte Server-Angabe."""
@@ -227,8 +265,11 @@ class SatisfactoryCog(commands.Cog):
         await interaction.followup.send(embed=embed)
 
     @sat.command(name="cancel", description="Laufenden Neustart-Countdown abbrechen")
+    @app_commands.describe(server="Server (leer = erster)")
+    @app_commands.autocomplete(server=_server_autocomplete)
     @admin_only()
-    async def sat_cancel(self, interaction: discord.Interaction):
+    async def sat_cancel(self, interaction: discord.Interaction,
+                         server: Optional[str] = None):
         """
         Countdown abbrechen.
 
@@ -239,7 +280,15 @@ class SatisfactoryCog(commands.Cog):
         """
         await interaction.response.defer(ephemeral=True)
 
-        timer = self.timer_mgr.get_active()
+        srv, api, sid = self._instanz(server)
+        if srv is None:
+            await self._unbekannt_melden(interaction, server or "")
+            return
+
+        # Gezielt den Countdown DIESER Instanz. cancel_all() haette den des
+        # anderen Servers mit abgeraeumt — ein Abbruch, den niemand angefordert
+        # hat, und der erst auffaellt, wenn der Neustart ausbleibt.
+        timer = self.timer_mgr.get_active(self._timer_key(sid))
         if timer is None:
             await interaction.followup.send(
                 embed=info_embed(
@@ -251,7 +300,7 @@ class SatisfactoryCog(commands.Cog):
             return
 
         name = timer.action_name
-        self.timer_mgr.cancel_all()
+        timer.cancel()
         logger.info(
             f"Countdown '{name}' abgebrochen von {interaction.user} "
             f"({interaction.user.id})"
@@ -403,12 +452,19 @@ class SatisfactoryCog(commands.Cog):
         ][:25]
 
     @players_grp.command(name="unban", description="Spieler-Ban aufheben (IP freigeben)")
-    @app_commands.describe(player="Name des Spielers")
+    @app_commands.describe(player="Name des Spielers", server="Server (leer = erster)")
+    @app_commands.autocomplete(server=_server_autocomplete)
     @admin_only()
-    async def players_unban(self, interaction: discord.Interaction, player: str):
+    async def players_unban(self, interaction: discord.Interaction, player: str,
+                            server: Optional[str] = None):
         await interaction.response.defer()
 
-        ip_tracker = getattr(self.bot, "player_ip_tracker", None)
+        srv, api, sid = self._instanz(server)
+        if srv is None:
+            await self._unbekannt_melden(interaction, server or "")
+            return
+
+        ip_tracker = self._ip_tracker(sid)
         if not ip_tracker:
             await interaction.followup.send("❌ IP-Tracker nicht verfügbar.")
             return
@@ -445,11 +501,19 @@ class SatisfactoryCog(commands.Cog):
         ][:25]
 
     @players_grp.command(name="bans", description="Aktive Bans anzeigen")
+    @app_commands.describe(server="Server (leer = erster)")
+    @app_commands.autocomplete(server=_server_autocomplete)
     @admin_only()
-    async def players_bans(self, interaction: discord.Interaction):
+    async def players_bans(self, interaction: discord.Interaction,
+                           server: Optional[str] = None):
         await interaction.response.defer()
 
-        ip_tracker = getattr(self.bot, "player_ip_tracker", None)
+        srv, api, sid = self._instanz(server)
+        if srv is None:
+            await self._unbekannt_melden(interaction, server or "")
+            return
+
+        ip_tracker = self._ip_tracker(sid)
         if not ip_tracker:
             await interaction.followup.send("❌ IP-Tracker nicht verfügbar.")
             return
@@ -514,12 +578,18 @@ class SatisfactoryCog(commands.Cog):
     @sav_grp.command(
         name="download", description="Neuestes Savegame herunterladen"
     )
+    @app_commands.describe(server="Server (leer = erster)")
+    @app_commands.autocomplete(server=_server_autocomplete)
     @spieler_only()
-    async def backup_download(self, interaction: discord.Interaction):
+    async def backup_download(self, interaction: discord.Interaction, server: Optional[str] = None):
         await interaction.response.defer()
 
+        srv, api, sid = self._instanz(server)
+        if srv is None:
+            await self._unbekannt_melden(interaction, server or "")
+            return
         try:
-            stats_mgr = self.bot.savegame_stats
+            stats_mgr = self._savegames(sid)
             latest = stats_mgr.get_latest_save()
 
             if not latest:
@@ -556,11 +626,17 @@ class SatisfactoryCog(commands.Cog):
             await interaction.followup.send(f"Download fehlgeschlagen: {e}")
 
     @sav_grp.command(name="list", description="Alle Backups auflisten")
+    @app_commands.describe(server="Server (leer = erster)")
+    @app_commands.autocomplete(server=_server_autocomplete)
     @spieler_only()
-    async def backup_list(self, interaction: discord.Interaction):
+    async def backup_list(self, interaction: discord.Interaction, server: Optional[str] = None):
         await interaction.response.defer()
 
-        backups = self.bot.backup_mgr.list_backups(max_results=20)
+        srv, api, sid = self._instanz(server)
+        if srv is None:
+            await self._unbekannt_melden(interaction, server or "")
+            return
+        backups = self._backups(sid).list_backups(max_results=20)
 
         if not backups:
             await interaction.followup.send("Keine Backups vorhanden.")
@@ -580,9 +656,9 @@ class SatisfactoryCog(commands.Cog):
             )
 
         embed.description = "\n".join(entries)
-        total = format_bytes(self.bot.backup_mgr.total_size())
+        total = format_bytes(self._backups(sid).total_size())
         embed.set_footer(
-            text=f"Gesamt: {total} | Max: {self.bot.backup_mgr.max_backups}"
+            text=f"Gesamt: {total} | Max: {self._backups(sid).max_backups}"
         )
         await interaction.followup.send(embed=embed)
 
@@ -619,7 +695,7 @@ class SatisfactoryCog(commands.Cog):
             )
             return
 
-        view = RestoreConfirmView(self, interaction, backup_name)
+        view = RestoreConfirmView(self, interaction, backup_name, sid=sid)
         embed = error_embed(
             title="Restore bestaetigen",
             description=(
@@ -745,15 +821,22 @@ class SatisfactoryCog(commands.Cog):
     @sav_grp.command(
         name="load", description="Savegame laden (Owner)"
     )
+    @app_commands.describe(server="Server (leer = erster)")
+    @app_commands.autocomplete(server=_server_autocomplete)
     @app_commands.describe(savename="Name des Savegames")
     @owner_only()
     @server_online_required("server")
     async def sav_load(
-        self, interaction: discord.Interaction, savename: str
+        self, interaction: discord.Interaction, savename: str,
+        server: Optional[str] = None
     ):
         await interaction.response.defer()
 
-        view = LoadConfirmView(self, interaction, savename)
+        srv, api, sid = self._instanz(server)
+        if srv is None:
+            await self._unbekannt_melden(interaction, server or "")
+            return
+        view = LoadConfirmView(self, interaction, savename, sid=sid)
         embed = warning_embed(
             title="Savegame laden bestaetigen",
             description=(
@@ -783,12 +866,18 @@ class SatisfactoryCog(commands.Cog):
     @sav_grp.command(
         name="stats", description="Savegame-Statistiken anzeigen"
     )
+    @app_commands.describe(server="Server (leer = erster)")
+    @app_commands.autocomplete(server=_server_autocomplete)
     @spieler_only()
-    async def sav_stats(self, interaction: discord.Interaction):
+    async def sav_stats(self, interaction: discord.Interaction, server: Optional[str] = None):
         await interaction.response.defer()
 
+        srv, api, sid = self._instanz(server)
+        if srv is None:
+            await self._unbekannt_melden(interaction, server or "")
+            return
         try:
-            stats_mgr = self.bot.savegame_stats
+            stats_mgr = self._savegames(sid)
             stats = await stats_mgr.analyze()
 
             if stats.get("error"):
@@ -846,6 +935,8 @@ class SatisfactoryCog(commands.Cog):
         name="upload",
         description="Savegame hochladen (.sav Datei)",
     )
+    @app_commands.describe(server="Server (leer = erster)")
+    @app_commands.autocomplete(server=_server_autocomplete)
     @app_commands.describe(
         datei="Savegame-Datei (.sav)",
     )
@@ -854,9 +945,14 @@ class SatisfactoryCog(commands.Cog):
         self,
         interaction: discord.Interaction,
         datei: discord.Attachment,
+        server: Optional[str] = None
     ):
         await interaction.response.defer()
 
+        srv, api, sid = self._instanz(server)
+        if srv is None:
+            await self._unbekannt_melden(interaction, server or "")
+            return
         # Nur .sav Dateien erlauben
         if not datei.filename.lower().endswith(".sav"):
             await interaction.followup.send(
@@ -874,7 +970,7 @@ class SatisfactoryCog(commands.Cog):
             return
 
         try:
-            savegame_dir = self.bot.savegame_stats.savegame_path / "server"
+            savegame_dir = self._savegames(sid).savegame_path / "server"
             savegame_dir.mkdir(parents=True, exist_ok=True)
             target_path = savegame_dir / datei.filename
 
@@ -883,7 +979,7 @@ class SatisfactoryCog(commands.Cog):
 
             # Bestaetigungs-View anzeigen
             view = UploadConfirmView(
-                self, interaction, datei, target_path, exists
+                self, interaction, datei, target_path, exists, sid=sid
             )
             # escape_markdown: Filename koennte *, _, ~, ` enthalten -> Embed-Format brechen.
             safe_filename = discord.utils.escape_markdown(datei.filename)
@@ -917,6 +1013,8 @@ class SatisfactoryCog(commands.Cog):
         name="upload",
         description="Blueprint(s) hochladen (.sbp+.sbpcfg oder .zip)",
     )
+    @app_commands.describe(server="Server (leer = erster)")
+    @app_commands.autocomplete(server=_server_autocomplete)
     @app_commands.describe(
         kategorie="Kategorie für den Blueprint",
         datei1="Blueprint-Datei (.sbp, .sbpcfg, oder .zip)",
@@ -929,9 +1027,14 @@ class SatisfactoryCog(commands.Cog):
         kategorie: str,
         datei1: discord.Attachment,
         datei2: discord.Attachment = None,
+        server: Optional[str] = None
     ):
         await interaction.response.defer()
 
+        srv, api, sid = self._instanz(server)
+        if srv is None:
+            await self._unbekannt_melden(interaction, server or "")
+            return
         from modules.satisfactory.blueprint_manager import CATEGORIES
 
         if kategorie not in CATEGORIES:
@@ -955,7 +1058,7 @@ class SatisfactoryCog(commands.Cog):
                 return
 
             zip_data = await zip_att.read()
-            count, added, errors = await self.bot.blueprint_mgr.add_from_zip(
+            count, added, errors = await self._blueprints(sid).add_from_zip(
                 zip_data,
                 kategorie,
                 interaction.user.id,
@@ -975,12 +1078,12 @@ class SatisfactoryCog(commands.Cog):
             embed.add_field(name="Kategorie", value=kategorie, inline=True)
             embed.set_footer(text=f"von {interaction.user.display_name}")
 
-            view = BlueprintRestartView(self, interaction)
+            view = BlueprintRestartView(self, interaction, sid=sid)
             await interaction.followup.send(embed=embed, view=view)
             return
 
         # Single blueprint upload
-        valid, error, pairs = self.bot.blueprint_mgr.validate_files(filenames)
+        valid, error, pairs = self._blueprints(sid).validate_files(filenames)
         if not valid:
             await interaction.followup.send(
                 f"Validierung fehlgeschlagen:\n{error}\n\n"
@@ -997,7 +1100,7 @@ class SatisfactoryCog(commands.Cog):
             sbp_data = await sbp_att.read()
             cfg_data = await cfg_att.read()
 
-            success, msg = await self.bot.blueprint_mgr.add_blueprint(
+            success, msg = await self._blueprints(sid).add_blueprint(
                 name,
                 kategorie,
                 interaction.user.id,
@@ -1019,7 +1122,7 @@ class SatisfactoryCog(commands.Cog):
         embed.add_field(name="Kategorie", value=kategorie, inline=True)
         embed.set_footer(text=f"von {interaction.user.display_name}")
 
-        view = BlueprintRestartView(self, interaction)
+        view = BlueprintRestartView(self, interaction, sid=sid)
         await interaction.followup.send(embed=embed, view=view)
 
     @blueprints_upload.autocomplete("kategorie")
@@ -1037,14 +1140,21 @@ class SatisfactoryCog(commands.Cog):
     @blueprints_grp.command(
         name="list", description="Alle Blueprints auf dem Server anzeigen"
     )
+    @app_commands.describe(server="Server (leer = erster)")
+    @app_commands.autocomplete(server=_server_autocomplete)
     @spieler_only()
     async def blueprints_list(
         self,
         interaction: discord.Interaction,
+        server: Optional[str] = None
     ):
         await interaction.response.defer()
 
-        mgr = self.bot.blueprint_mgr
+        srv, api, sid = self._instanz(server)
+        if srv is None:
+            await self._unbekannt_melden(interaction, server or "")
+            return
+        mgr = self._blueprints(sid)
         blueprints = mgr.list_from_filesystem()
 
         if not blueprints:
@@ -1075,16 +1185,23 @@ class SatisfactoryCog(commands.Cog):
         name="download",
         description="Blueprint(s) herunterladen — Einzel, Mehrfach (1,3,5), Bereich (1-5) oder Name",
     )
+    @app_commands.describe(server="Server (leer = erster)")
+    @app_commands.autocomplete(server=_server_autocomplete)
     @app_commands.describe(
         blueprint="Nummern: 3 | 1,3,5 | 1-5 | 1,3-7 | oder Name (lädt automatisch .sbp + .sbpcfg)"
     )
     @spieler_only()
     async def blueprints_download(
-        self, interaction: discord.Interaction, blueprint: str
+        self, interaction: discord.Interaction, blueprint: str,
+        server: Optional[str] = None
     ):
         await interaction.response.defer()
 
-        all_bps = self.bot.blueprint_mgr.list_from_filesystem()
+        srv, api, sid = self._instanz(server)
+        if srv is None:
+            await self._unbekannt_melden(interaction, server or "")
+            return
+        all_bps = self._blueprints(sid).list_from_filesystem()
         input_str = blueprint.strip()
 
         # Auswahl aufloesen (gleiche Logik wie delete): Nummern/Bereiche/Name
@@ -1136,7 +1253,7 @@ class SatisfactoryCog(commands.Cog):
         collected: list[tuple[str, Path, Path]] = []  # (name, sbp, cfg)
         not_found: list[str] = []
         for name in names_to_get:
-            sbp_path, cfg_path = self.bot.blueprint_mgr.get_files(name)
+            sbp_path, cfg_path = self._blueprints(sid).get_files(name)
             if not sbp_path:
                 not_found.append(name)
                 continue
@@ -1235,16 +1352,23 @@ class SatisfactoryCog(commands.Cog):
     @blueprints_grp.command(
         name="delete", description="Blueprints löschen (Einzel, Mehrfach, Bereich)"
     )
+    @app_commands.describe(server="Server (leer = erster)")
+    @app_commands.autocomplete(server=_server_autocomplete)
     @app_commands.describe(
         blueprint="Nummern: 3 | 1,3,5 | 1-5 | 1,3-7,12 | oder Name"
     )
     @spieler_only()
     async def blueprints_delete(
-        self, interaction: discord.Interaction, blueprint: str
+        self, interaction: discord.Interaction, blueprint: str,
+        server: Optional[str] = None
     ):
         await interaction.response.defer()
 
-        all_bps = self.bot.blueprint_mgr.list_from_filesystem()
+        srv, api, sid = self._instanz(server)
+        if srv is None:
+            await self._unbekannt_melden(interaction, server or "")
+            return
+        all_bps = self._blueprints(sid).list_from_filesystem()
         input_str = blueprint.strip()
 
         # Namen aufloesen
@@ -1293,7 +1417,7 @@ class SatisfactoryCog(commands.Cog):
         # Loeschen mit Bestaetigungs-View bei Mehrfachauswahl
         if len(names_to_delete) > 1:
             view = BlueprintDeleteConfirmView(
-                self, interaction, names_to_delete
+                self, interaction, names_to_delete, sid=sid
             )
             desc = f"**{len(names_to_delete)} Blueprints** löschen?\n\n"
             desc += "\n".join(
@@ -1310,7 +1434,7 @@ class SatisfactoryCog(commands.Cog):
         else:
             # Einzeln direkt löschen (mit Rechte-Pruefung)
             name = names_to_delete[0]
-            success, msg = await self.bot.blueprint_mgr.delete(
+            success, msg = await self._blueprints(sid).delete(
                 name, interaction.user.id, is_admin(interaction)
             )
             if success:
@@ -1348,6 +1472,8 @@ class SatisfactoryCog(commands.Cog):
         name="migrate",
         description="[Owner] Alle Blueprints von einer Welt in eine andere migrieren + Server-Neustart",
     )
+    @app_commands.describe(server="Server (leer = erster)")
+    @app_commands.autocomplete(server=_server_autocomplete)
     @app_commands.describe(
         von="Quell-Welt (alte Welt)",
         nach="Ziel-Welt (neue Welt)",
@@ -1358,9 +1484,14 @@ class SatisfactoryCog(commands.Cog):
         interaction: discord.Interaction,
         von: str,
         nach: str,
+        server: Optional[str] = None
     ):
         await interaction.response.defer()
 
+        srv, api, sid = self._instanz(server)
+        if srv is None:
+            await self._unbekannt_melden(interaction, server or "")
+            return
         von = von.strip()
         nach = nach.strip()
 
@@ -1369,7 +1500,7 @@ class SatisfactoryCog(commands.Cog):
             return
 
         # Kategorisierung: new / identical (Hash gleich) / conflict (Hash anders)
-        cat = self.bot.blueprint_mgr.categorize_migration(von, nach)
+        cat = self._blueprints(sid).categorize_migration(von, nach)
         if cat.get("error"):
             await interaction.followup.send(f"Migration nicht möglich: {cat['error']}")
             return
@@ -1389,7 +1520,7 @@ class SatisfactoryCog(commands.Cog):
         copied: list[str] = []
         copy_errors: list[str] = []
         if new_bps:
-            copied, _, copy_errors = self.bot.blueprint_mgr.migrate_world(
+            copied, _, copy_errors = self._blueprints(sid).migrate_world(
                 von, nach, overwrite=False, only_names=new_bps
             )
 
@@ -1438,7 +1569,7 @@ class SatisfactoryCog(commands.Cog):
                 text="Konflikte: gleicher Name, anderer Inhalt. "
                 "Überschreiben, aus Ziel löschen, oder behalten?"
             )
-            view = MigrateConflictView(self, interaction, von, nach, conflict)
+            view = MigrateConflictView(self, interaction, von, nach, conflict, sid=sid)
             await interaction.followup.send(embed=embed, view=view)
             return
 
@@ -1509,7 +1640,7 @@ class SatisfactoryCog(commands.Cog):
     # ╚════════════════════════════════════════════════════════════════╝
 
     @whitelist_grp.command(
-        name="add", description="Spieler zur Whitelist hinzufuegen"
+        name="add", description="Spieler zur Whitelist hinzufuegen (gilt fuer alle Satisfactory-Server)"
     )
     @app_commands.describe(player="Name des Spielers")
     @admin_only()
@@ -1530,7 +1661,7 @@ class SatisfactoryCog(commands.Cog):
             )
 
     @whitelist_grp.command(
-        name="remove", description="Spieler von Whitelist entfernen"
+        name="remove", description="Spieler von Whitelist entfernen (gilt fuer alle Satisfactory-Server)"
     )
     @app_commands.describe(player="Name des Spielers")
     @admin_only()
@@ -1549,7 +1680,7 @@ class SatisfactoryCog(commands.Cog):
             )
 
     @whitelist_grp.command(
-        name="list", description="Whitelist anzeigen"
+        name="list", description="Whitelist anzeigen (gilt fuer alle Satisfactory-Server)"
     )
     @spieler_only()
     async def whitelist_list(self, interaction: discord.Interaction):
@@ -1579,7 +1710,7 @@ class SatisfactoryCog(commands.Cog):
 
     @blacklist_grp.command(
         name="add",
-        description="Spieler bannen / zur Blacklist hinzufuegen",
+        description="Spieler bannen / zur Blacklist hinzufuegen (gilt fuer alle Satisfactory-Server)",
     )
     @app_commands.describe(
         player="Name des Spielers", reason="Grund für den Ban"
@@ -1609,7 +1740,7 @@ class SatisfactoryCog(commands.Cog):
 
     @blacklist_grp.command(
         name="remove",
-        description="Spieler von Blacklist entfernen (entbannen)",
+        description="Spieler von Blacklist entfernen (entbannen) (gilt fuer alle Satisfactory-Server)",
     )
     @app_commands.describe(player="Name des Spielers")
     @admin_only()
@@ -1628,7 +1759,7 @@ class SatisfactoryCog(commands.Cog):
             )
 
     @blacklist_grp.command(
-        name="list", description="Blacklist anzeigen"
+        name="list", description="Blacklist anzeigen (gilt fuer alle Satisfactory-Server)"
     )
     @admin_only()
     async def blacklist_list(self, interaction: discord.Interaction):
@@ -1682,8 +1813,12 @@ class SatisfactoryCog(commands.Cog):
 class RestoreConfirmView(discord.ui.View):
     """Confirmation buttons for backup restore"""
 
-    def __init__(self, cog, interaction, backup_name):
+    def __init__(self, cog, interaction, backup_name, sid: Optional[str] = None):
         super().__init__(timeout=60)
+        # Zielinstanz mitfuehren: ohne sie handelte jede Bestaetigung
+        # auf dem ersten Server, egal welcher gemeint war.
+        self.sid = sid
+        self.srv, self.api, _ = cog._instanz(sid)
         self.cog = cog
         self.original_interaction = interaction
         self.backup_name = backup_name
@@ -1706,7 +1841,7 @@ class RestoreConfirmView(discord.ui.View):
             content="Restore wird durchgefuehrt...", embed=None, view=None
         )
 
-        success, msg = await self.cog.bot.backup_mgr.restore(self.backup_name)
+        success, msg = await self.cog._backups(self.sid).restore(self.backup_name)
 
         if success:
             embed = success_embed(
@@ -1736,8 +1871,12 @@ class RestoreConfirmView(discord.ui.View):
 class LoadConfirmView(discord.ui.View):
     """Confirmation for loading a savegame"""
 
-    def __init__(self, cog, interaction, savename):
+    def __init__(self, cog, interaction, savename, sid: Optional[str] = None):
         super().__init__(timeout=30)
+        # Zielinstanz mitfuehren: ohne sie handelte jede Bestaetigung
+        # auf dem ersten Server, egal welcher gemeint war.
+        self.sid = sid
+        self.srv, self.api, _ = cog._instanz(sid)
         self.cog = cog
         self.original_interaction = interaction
         self.savename = savename
@@ -1761,10 +1900,10 @@ class LoadConfirmView(discord.ui.View):
         )
 
         try:
-            await self.cog.api.save_game()
+            await self.api.save_game()
             import re as _re
             safe_name = _re.sub(r'[^\w\-]', '', self.savename)
-            result = await self.cog.api.run_command(
+            result = await self.api.run_command(
                 f"LoadGame {safe_name}"
             )
 
@@ -1801,8 +1940,12 @@ class LoadConfirmView(discord.ui.View):
 class BlueprintRestartView(discord.ui.View):
     """Ask if server should be restarted after blueprint upload"""
 
-    def __init__(self, cog, interaction):
+    def __init__(self, cog, interaction, sid: Optional[str] = None):
         super().__init__(timeout=120)
+        # Zielinstanz mitfuehren: ohne sie handelte jede Bestaetigung
+        # auf dem ersten Server, egal welcher gemeint war.
+        self.sid = sid
+        self.srv, self.api, _ = cog._instanz(sid)
         self.cog = cog
         self.original_user = interaction.user.id
 
@@ -1838,8 +1981,8 @@ class BlueprintRestartView(discord.ui.View):
         await interaction.response.edit_message(view=None)
 
         timer = self.cog.bot.timer_mgr.get_or_create(
-            "satisfactory",
-            api=self.cog.api,
+            self.cog._timer_key(self.sid),
+            api=self.api,
             channel=interaction.channel,
         )
         result = await timer.countdown(
@@ -1854,7 +1997,7 @@ class BlueprintRestartView(discord.ui.View):
             if har:
                 har.suppress("sat", "main", duration_seconds=300)
             # Save-vor-Restart: api durchreichen → SaveGame + Flush vor Restart
-            success, msg = await self.cog.server.restart(api=self.cog.api)
+            success, msg = await self.srv.restart(api=self.api)
             if success:
                 embed = success_embed(
                     title="Server neugestartet",
@@ -1890,8 +2033,12 @@ class MigrateConflictView(discord.ui.View):
     Drei Wege: Überschreiben (Quelle gewinnt), Löschen (aus Ziel entfernen),
     Behalten (Ziel bleibt). Alle lösen anschliessend Save-vor-Restart aus."""
 
-    def __init__(self, cog, interaction, von: str, nach: str, conflict: list):
+    def __init__(self, cog, interaction, von: str, nach: str, conflict: list, sid: Optional[str] = None):
         super().__init__(timeout=180)
+        # Zielinstanz mitfuehren: ohne sie handelte jede Bestaetigung
+        # auf dem ersten Server, egal welcher gemeint war.
+        self.sid = sid
+        self.srv, self.api, _ = cog._instanz(sid)
         self.cog = cog
         self.original_user = interaction.user.id
         self.von = von
@@ -1918,7 +2065,7 @@ class MigrateConflictView(discord.ui.View):
             return
         await interaction.response.edit_message(view=None)
 
-        copied, _, errors = self.cog.bot.blueprint_mgr.migrate_world(
+        copied, _, errors = self.cog._blueprints(self.sid).migrate_world(
             self.von, self.nach, overwrite=True, only_names=self.conflict
         )
         desc = f"**{len(copied)}** Konflikte mit Quell-Version überschrieben."
@@ -1950,7 +2097,7 @@ class MigrateConflictView(discord.ui.View):
             return
         await interaction.response.edit_message(view=None)
 
-        deleted, errors = self.cog.bot.blueprint_mgr.delete_from_world(
+        deleted, errors = self.cog._blueprints(self.sid).delete_from_world(
             self.nach, self.conflict
         )
         desc = f"**{deleted}** Konflikt-Blueprints aus '{self.nach}' gelöscht."
@@ -1999,8 +2146,12 @@ class MigrateConflictView(discord.ui.View):
 class UploadConfirmView(discord.ui.View):
     """Confirmation for uploading a savegame file"""
 
-    def __init__(self, cog, interaction, attachment, target_path, exists):
+    def __init__(self, cog, interaction, attachment, target_path, exists, sid: Optional[str] = None):
         super().__init__(timeout=60)
+        # Zielinstanz mitfuehren: ohne sie handelte jede Bestaetigung
+        # auf dem ersten Server, egal welcher gemeint war.
+        self.sid = sid
+        self.srv, self.api, _ = cog._instanz(sid)
         self.cog = cog
         self.original_interaction = interaction
         self.attachment = attachment
@@ -2146,8 +2297,12 @@ class BlueprintListView(discord.ui.View):
 class BlueprintDeleteConfirmView(discord.ui.View):
     """Bestaetigungs-View für Mehrfach-Blueprint-Loeschung"""
 
-    def __init__(self, cog, interaction: discord.Interaction, names: list[str]):
+    def __init__(self, cog, interaction: discord.Interaction, names: list[str], sid: Optional[str] = None):
         super().__init__(timeout=60)
+        # Zielinstanz mitfuehren: ohne sie handelte jede Bestaetigung
+        # auf dem ersten Server, egal welcher gemeint war.
+        self.sid = sid
+        self.srv, self.api, _ = cog._instanz(sid)
         self.cog = cog
         self.user_id = interaction.user.id
         self.names = names
@@ -2167,7 +2322,7 @@ class BlueprintDeleteConfirmView(discord.ui.View):
         failed = []
 
         for name in self.names:
-            success, msg = await self.cog.bot.blueprint_mgr.delete(
+            success, msg = await self.cog._blueprints(self.sid).delete(
                 name, interaction.user.id, is_admin(interaction)
             )
             if success:

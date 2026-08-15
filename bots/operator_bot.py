@@ -112,18 +112,56 @@ bot.sat_api = bot.sat_apis.get(_SAT_ERSTER) or SatisfactoryAPI(
 bot.config = get_config()
 
 # Phase 2: Whitelist, Blacklist, Blueprints, Savegame Stats, Backup
+#
+# Whitelist und Blacklist bleiben SPIELWEIT: beide liegen in der Datenbank und
+# filtern auf server_type='satisfactory'. Sie kennen keinen Pfad und keine
+# Instanz — ein gebannter Spieler ist auf jedem Satisfactory-Server gebannt,
+# und das ist die gewollte Wirkung.
 bot.whitelist_mgr = WhitelistManager()
 bot.blacklist_mgr = BlacklistManager()
-bot.blueprint_mgr = BlueprintManager(
+
+# Blueprints, Speicherstaende und Backups haengen dagegen am Dateipfad der
+# jeweiligen Instanz. Als Einzelstueck zeigten sie immer auf den ersten Server
+# — /sat blueprints list haette auf dem zweiten die Blaupausen des ersten
+# gezeigt, /sat backup list dessen Sicherungen. Nicht falsch aussehend,
+# sondern schlicht falsch.
+_max_backups = bot.config.get("backup", {}).get("max_local", 20)
+_backup_basis = Path(get_env("BACKUP_PATH", "/home/satisfactory/backups"))
+
+bot.sat_blueprint_mgrs: dict[str, BlueprintManager] = {}
+bot.sat_savegame_stats: dict[str, SavegameStats] = {}
+bot.sat_backup_mgrs: dict[str, BackupManager] = {}
+
+for _mgr_sid, _mgr_srv in bot.sat_servers.items():
+    bot.sat_blueprint_mgrs[_mgr_sid] = BlueprintManager(
+        blueprint_path=_mgr_srv.blueprint_path
+    )
+    bot.sat_savegame_stats[_mgr_sid] = SavegameStats(
+        savegame_path=_mgr_srv.savegame_path
+    )
+    # Eigenes Backup-Ziel je Instanz, sonst mischen sich die Sicherungen
+    # zweier Welten in einem Verzeichnis und die Rotation loescht querbeet.
+    _bpfad = getattr(_mgr_srv, "backup_path", None) or (
+        _backup_basis if _mgr_sid == _SAT_ERSTER else _backup_basis / _mgr_sid.lower()
+    )
+    bot.sat_backup_mgrs[_mgr_sid] = BackupManager(
+        savegame_path=_mgr_srv.savegame_path,
+        backup_path=Path(_bpfad),
+        max_backups=_max_backups,
+    )
+
+# Gewohnte Namen zeigen weiter auf die erste Instanz — Befehle ohne
+# Server-Angabe und aeltere Aufrufstellen bleiben dadurch unveraendert.
+bot.blueprint_mgr = bot.sat_blueprint_mgrs.get(_SAT_ERSTER) or BlueprintManager(
     blueprint_path=bot.sat_server.blueprint_path
 )
-bot.savegame_stats = SavegameStats(
+bot.savegame_stats = bot.sat_savegame_stats.get(_SAT_ERSTER) or SavegameStats(
     savegame_path=bot.sat_server.savegame_path
 )
-bot.backup_mgr = BackupManager(
+bot.backup_mgr = bot.sat_backup_mgrs.get(_SAT_ERSTER) or BackupManager(
     savegame_path=bot.sat_server.savegame_path,
-    backup_path=Path(get_env("BACKUP_PATH", "/home/satisfactory/backups")),
-    max_backups=bot.config.get("backup", {}).get("max_local", 20)
+    backup_path=_backup_basis,
+    max_backups=_max_backups,
 )
 
 # Phase 3: Restart Timer, Word Filter, Anti-Spam, Command Logger
@@ -404,11 +442,24 @@ async def setup_hook():
     except Exception as e:
         logger.error(f"Datenbank-Initialisierung fehlgeschlagen: {e}")
 
-    # Initialize async managers
-    await bot.blueprint_mgr.load()
-    await bot.backup_mgr.load()
+    # Initialize async managers — JEDE Instanz, nicht nur die erste. Ein
+    # ungeladener Manager liefert eine leere Liste, und eine leere Liste sieht
+    # aus wie "keine Blaupausen vorhanden" statt wie "nicht geladen".
+    for _ld_sid, _ld_mgr in bot.sat_blueprint_mgrs.items():
+        try:
+            await _ld_mgr.load()
+        except Exception as e:  # noqa: BLE001 — eine Instanz darf die anderen nicht mitreissen
+            logger.error(f"[{_ld_sid}] Blueprint-Manager laden fehlgeschlagen: {e}")
+    for _ld_sid, _ld_bak in bot.sat_backup_mgrs.items():
+        try:
+            await _ld_bak.load()
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"[{_ld_sid}] Backup-Manager laden fehlgeschlagen: {e}")
     await bot.word_filter.load()
-    logger.info("Blueprint/Backup/WordFilter managers initialized")
+    logger.info(
+        f"Blueprint/Backup/WordFilter geladen "
+        f"({len(bot.sat_blueprint_mgrs)} Satisfactory-Instanz(en))"
+    )
 
     # Daten aus SQLite laden (alleinige Datenquelle)
     try:

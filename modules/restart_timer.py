@@ -328,8 +328,20 @@ class RestartTimerManager:
                 timer.channel = channel
         return self._timers[key]
 
-    def get_active(self) -> Optional[RestartTimer]:
-        """Get the currently active timer, if any"""
+    def get_active(self, key: Optional[str] = None) -> Optional[RestartTimer]:
+        """
+        Laufenden Timer holen.
+
+        Mit ``key`` genau den dieses Schluessels — bei mehreren Spielservern ist
+        "irgendein laufender Timer" keine brauchbare Antwort mehr: ein Abbruch
+        traefe sonst den Countdown des falschen Servers.
+
+        Ohne ``key`` bleibt das alte Verhalten (erster laufender Timer), damit
+        bestehende Aufrufer unveraendert funktionieren.
+        """
+        if key is not None:
+            timer = self._timers.get(key)
+            return timer if (timer is not None and timer.is_active) else None
         for timer in self._timers.values():
             if timer.is_active:
                 return timer
