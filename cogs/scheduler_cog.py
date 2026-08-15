@@ -93,12 +93,20 @@ class SchedulerCog(commands.Cog):
         self._last_auto_update: Optional[datetime] = None
         self._last_daily_report: Optional[datetime] = None
         self._pending_update: bool = False
-        # Je Instanz, nur zur Anzeige/Diagnose — den Installer steuert
-        # weiterhin ausschliesslich `_pending_update` der ersten Instanz.
+        # Der Auto-Installer arbeitet seit 2026-08-15 auf JEDER Instanz. Jede
+        # hat ihre eigene Installation und damit ihre eigene Build-ID; ein
+        # Installer, der nur die erste aktualisiert, laesst die zweite
+        # zurueckfallen — und ein Server mit falscher Version nimmt keine
+        # Spieler mehr an.
         self._pending_update_je: dict[str, bool] = {}
+        self._last_auto_update_je: dict[str, datetime] = {}
         # Loop-Guard (2026-06-25): nach 3 Fehlversuchen denselben Ziel-Build
-        # nicht mehr endlos alle 30min retryn — aufgeben bis ein NEUER Build kommt.
-        self._auto_update_fail_count: int = 0
+        # nicht mehr endlos alle 30min retryn — aufgeben bis ein NEUER Build
+        # kommt. Je Instanz: der Fehlschlag des einen Servers darf den anderen
+        # nicht ausbremsen.
+        self._auto_update_fails_je: dict[str, int] = {}
+        self._auto_update_giveup_je: dict[str, Optional[str]] = {}
+        self._auto_update_fail_count: int = 0          # Anzeige /scheduler
         self._auto_update_giveup_build: Optional[str] = None
 
         # Minecraft State (pro Server)
@@ -319,8 +327,8 @@ class SchedulerCog(commands.Cog):
             if self._update_check_enabled:
                 await self._check_update(now)
 
-            # Auto-update install (separate from check)
-            if self._auto_update_enabled and self._pending_update:
+            # Auto-update install (separate from check) — je Instanz
+            if self._auto_update_enabled:
                 await self._check_auto_update_install(now)
 
             # Daily report
@@ -620,6 +628,11 @@ class SchedulerCog(commands.Cog):
     # Update Check
     # ------------------------------------------------------------------
 
+    def _sat_name_von(self, sid: str) -> str:
+        """Anzeigename einer Instanz, mit der ID als Rueckfall."""
+        srv = (getattr(self.bot, "sat_servers", {}) or {}).get(sid)
+        return getattr(srv, "display_name", None) or sid
+
     def _erste_sat_kennung(self) -> str:
         """
         Schluessel der ERSTEN Instanz fuer die Auto-Restart-Wache.
@@ -649,11 +662,9 @@ class SchedulerCog(commands.Cog):
         self._last_update_check = now
         instanzen = self.sat_instanzen or ["MAIN"]
         erste = instanzen[0]
-        # `_pending_update` steuert den Auto-Installer, und der arbeitet auf der
-        # ERSTEN Instanz. Deshalb darf nur ein Update DIESER Instanz ihn
-        # ausloesen — sonst faehrt er den falschen Server herunter, findet dort
-        # nichts zu tun und loescht dabei die Markierung, sodass das echte
-        # Update des anderen Servers still verlorengeht.
+        # Der Auto-Installer arbeitet seit 2026-08-15 auf jeder Instanz und
+        # liest dafuer `_pending_update_je`. `_pending_update` bleibt nur noch
+        # der Anzeigewert der ersten Instanz fuer /scheduler.
         update_je_instanz: dict[str, bool] = {}
 
         for sid in instanzen:
@@ -692,24 +703,49 @@ class SchedulerCog(commands.Cog):
                 except Exception as e:
                     logger.warning(f"[{sid}] Update-Mail fehlgeschlagen: {e}")
 
-        # Nur die erste Instanz steuert den Auto-Installer (siehe oben).
-        self._pending_update = update_je_instanz.get(erste, False)
-        self._pending_update_je = update_je_instanz
+        # Bereits aufgegebene Builds nicht wieder scharf schalten: der
+        # Loop-Guard haette sonst keine Wirkung, weil jeder Check das Flag
+        # erneut setzt.
+        for _sid, _offen in update_je_instanz.items():
+            if _offen and self._auto_update_giveup_je.get(_sid):
+                continue
+            self._pending_setzen(_sid, _offen)
 
-        # Ein Update auf einer weiteren Instanz wird gemeldet, aber nicht
-        # automatisch installiert — der Installer ist noch nicht mehrinstanzfaehig.
-        weitere = [s for s, offen in update_je_instanz.items() if offen and s != erste]
-        if weitere and self._auto_update_enabled:
+        offene = [s for s, offen in update_je_instanz.items() if offen]
+        if offene and self._auto_update_enabled:
             logger.info(
-                f"Update verfuegbar auf {', '.join(weitere)} — Auto-Installation "
-                f"laeuft nur fuer {erste}, bitte dort von Hand aktualisieren"
+                f"Update verfuegbar auf {', '.join(offene)} — Auto-Installation "
+                f"laeuft fuer jede dieser Instanzen"
             )
 
     # ------------------------------------------------------------------
     # Auto-Update Install
     # ------------------------------------------------------------------
 
-    async def _check_auto_update_install(self, now: datetime):
+    def _pending_setzen(self, sid: str, wert: bool) -> None:
+        """Merkt je Instanz, ob noch ein Update aussteht."""
+        self._pending_update_je[sid] = wert
+        erste = next(iter(getattr(self.bot, "sat_servers", {}) or {}), None)
+        if sid == erste or erste is None:
+            self._pending_update = wert          # Anzeige in /scheduler
+
+    async def _check_auto_update_install(self, now: datetime) -> None:
+        """
+        Auto-Update fuer jede Instanz mit ausstehendem Update.
+
+        Nacheinander statt parallel: zwei gleichzeitige SteamCMD-Laeufe teilen
+        sich Bandbreite und Platte, und ein fehlgeschlagenes Update soll nicht
+        auch noch am zweiten Server scheitern, weil beide gleichzeitig stoppen.
+        """
+        for sid in list(self.sat_instanzen):
+            if not self._pending_update_je.get(sid):
+                continue
+            try:
+                await self._auto_update_einer(sid, now)
+            except Exception as e:  # noqa: BLE001 — eine Instanz darf die andere nicht mitreissen
+                logger.error(f"[{sid}] Auto-Update abgebrochen: {e}", exc_info=True)
+
+    async def _auto_update_einer(self, sid: str, now: datetime):
         """Auto-Update sofort ausführen wenn Server leer oder offline.
 
         Phase 10e (F20): Uhrzeitbedingung entfernt — Update wird bei
@@ -717,28 +753,34 @@ class SchedulerCog(commands.Cog):
         Auto-Rollback bei fehlgeschlagenem Update (3 Min Health-Check).
         Spieler-Benachrichtigung nach erfolgreichem Update.
         """
-        if not self.update_checker or not self.sat_server:
+        checker = self.update_checker_von(sid)
+        srv = self.sat_server_von(sid)
+        api = self.sat_api_von(sid)
+        health = self.health_checker_von(sid)
+        backup_mgr = self.backup_manager_von(sid)
+        name = getattr(srv, "display_name", sid)
+        if not checker or not srv:
             return
 
-        running = await self.sat_server.is_running()
+        running = await srv.is_running()
 
         # Server läuft + Spieler online → Update verschieben
         if running:
-            if self.health_checker and self.health_checker.status.players_online > 0:
+            if health and health.status.players_online > 0:
                 return  # Warten bis Server leer
 
         # Cooldown: Nicht oefter als alle 30 Minuten versuchen
-        if self._last_auto_update and (now - self._last_auto_update).total_seconds() < 1800:
+        if self._last_auto_update_je.get(sid) and (now - self._last_auto_update_je.get(sid)).total_seconds() < 1800:
             return
 
-        logger.info("Auto-Update startet (Server leer oder offline)...")
-        self._last_auto_update = now
+        logger.info(f"[{sid}] Auto-Update startet (Server leer oder offline)...")
+        self._last_auto_update_je[sid] = now
 
         # Alte Build-ID merken (für Spieler-Benachrichtigung) + Ziel-Build (Loop-Guard)
         old_build = "?"
         target_build: Optional[str] = None
         try:
-            _, info = await self.update_checker.check()
+            _, info = await checker.check()
             old_build = info.get("installed_buildid", "?")
             target_build = info.get("available_buildid")
         except Exception as e:
@@ -746,12 +788,12 @@ class SchedulerCog(commands.Cog):
 
         # Loop-Guard: einen nach 3 Fehlversuchen aufgegebenen Ziel-Build nicht
         # weiter alle 30min retryn — erst wieder bei NEUEM Build (2026-06-25-Loop).
-        if target_build and target_build == self._auto_update_giveup_build:
+        if target_build and target_build == self._auto_update_giveup_je.get(sid):
             logger.warning(
                 f"Auto-Update fuer Build {target_build} aufgegeben "
                 f"(>=3 Fehlversuche) — warte auf neueren Build, kein Retry."
             )
-            self._pending_update = False
+            self._pending_setzen(sid, False)
             return
 
         pre_update_backup_path = None
@@ -759,21 +801,21 @@ class SchedulerCog(commands.Cog):
         try:
             if self.notifier:
                 await self.notifier.send_admin(
-                    "Auto-Update gestartet",
+                    f"Auto-Update gestartet: {name}",
                     "Server wird für Update gestoppt...",
                     level=NotifyLevel.WARNING if running else NotifyLevel.INFO,
                 )
 
             # 1. Backup vor Update erstellen
             was_running = running
-            if running and self.backup_manager:
+            if running and backup_mgr:
                 try:
-                    await self.sat_api.save_game()
+                    await api.save_game()
                     await asyncio.sleep(5)
                 except Exception as e:
                     logger.warning(f"save_game() vor Auto-Update fehlgeschlagen: {e}")
 
-                success, msg, backup_path = await self.backup_manager.create_backup(
+                success, msg, backup_path = await backup_mgr.create_backup(
                     name="pre-update", created_by="auto-update"
                 )
                 if success and backup_path:
@@ -783,7 +825,7 @@ class SchedulerCog(commands.Cog):
             # 2. Server stoppen falls laufend
             if running:
                 try:
-                    await self.sat_api.run_command(
+                    await api.run_command(
                         "ServerChat Server wird in 2 Minuten für ein Update neu gestartet!"
                     )
                 except Exception as e:
@@ -793,13 +835,13 @@ class SchedulerCog(commands.Cog):
                 # Health-Check unterdruecken waehrend Auto-Update
                 har = getattr(self.bot, "health_auto_restart", None)
                 if har:
-                    har.suppress("sat", self._erste_sat_kennung(), duration_seconds=900)
-                stop_ok, stop_msg = await self.sat_server.stop()
+                    har.suppress("sat", sid.lower(), duration_seconds=900)
+                stop_ok, stop_msg = await srv.stop()
                 if not stop_ok:
-                    logger.error(f"Auto-Update: Server Stop fehlgeschlagen: {stop_msg}")
+                    logger.error(f"[{sid}] Auto-Update: Server Stop fehlgeschlagen: {stop_msg}")
                     if self.notifier:
                         await self.notifier.send_admin(
-                            "Auto-Update FEHLGESCHLAGEN",
+                            f"Auto-Update FEHLGESCHLAGEN: {name}",
                             f"Server konnte nicht gestoppt werden: {stop_msg}",
                             level=NotifyLevel.ERROR,
                             ping_role=True,
@@ -808,33 +850,33 @@ class SchedulerCog(commands.Cog):
                 await asyncio.sleep(10)
 
             # 3. Update durchfuehren
-            update_ok, update_msg = await self.update_checker.perform_update(self.sat_server)
+            update_ok, update_msg = await checker.perform_update(srv)
 
             if update_ok:
-                self._pending_update = False
-                self._auto_update_fail_count = 0
-                self._auto_update_giveup_build = None
-                logger.info(f"Auto-Update: {update_msg}")
+                self._pending_setzen(sid, False)
+                self._auto_update_fails_je[sid] = 0
+                self._auto_update_giveup_je[sid] = None
+                logger.info(f"[{sid}] Auto-Update: {update_msg}")
 
                 # 4. Server starten falls er lief
                 if was_running:
-                    start_ok, start_msg = await self.sat_server.start()
+                    start_ok, start_msg = await srv.start()
                     if not start_ok:
                         logger.error(f"Server Start nach Update fehlgeschlagen: {start_msg}")
 
                     # 5. Health-Check (3 Minuten warten, dann prüfen)
                     if start_ok:
-                        rollback_needed = await self._health_check_after_update()
+                        rollback_needed = await self._health_check_after_update(sid)
                         if rollback_needed and pre_update_backup_path:
                             await self._perform_rollback(
-                                pre_update_backup_path, update_msg
+                                pre_update_backup_path, update_msg, sid
                             )
                             return
 
                 # 6. Erfolgsbenachrichtigung
                 new_build = "?"
                 try:
-                    _, new_info = await self.update_checker.check()
+                    _, new_info = await checker.check()
                     new_build = new_info.get("installed_buildid", "?")
                 except Exception as e:
                     logger.debug(f"Post-Update build-id-Check fehlgeschlagen (informational): {e}")
@@ -842,8 +884,8 @@ class SchedulerCog(commands.Cog):
                 server_state = "gestartet" if was_running else "war offline"
                 if self.notifier:
                     await self.notifier.send_admin(
-                        "Auto-Update erfolgreich",
-                        f"{update_msg}\n\nServer {server_state}.",
+                        f"Auto-Update erfolgreich: {name}",
+                        f"{update_msg}\n\n{name} {server_state}.",
                         NotifyLevel.SUCCESS,
                     )
                     # Spieler-Channel Benachrichtigung
@@ -856,29 +898,29 @@ class SchedulerCog(commands.Cog):
 
                 if self.email_notifier:
                     await self.email_notifier._send_email(
-                        "Auto-Update erfolgreich",
+                        f"Auto-Update erfolgreich: {name}",
                         f"{update_msg}\nServer {server_state}.",
                         "auto_update_success",
                     )
             else:
-                logger.error(f"Auto-Update fehlgeschlagen: {update_msg}")
+                logger.error(f"[{sid}] Auto-Update fehlgeschlagen: {update_msg}")
 
                 # Loop-Guard: Fehlversuche zaehlen, nach 3 denselben Ziel-Build
                 # aufgeben (kein 30-min-Endlos-Retry) bis ein neuerer Build kommt.
-                self._auto_update_fail_count += 1
-                if self._auto_update_fail_count >= 3 and target_build:
-                    self._auto_update_giveup_build = target_build
-                    self._pending_update = False
+                self._auto_update_fails_je[sid] = self._auto_update_fails_je.get(sid, 0) + 1
+                if self._auto_update_fails_je.get(sid, 0) >= 3 and target_build:
+                    self._auto_update_giveup_je[sid] = target_build
+                    self._pending_setzen(sid, False)
                     logger.error(
                         f"Auto-Update fuer Build {target_build} nach "
-                        f"{self._auto_update_fail_count} Fehlversuchen aufgegeben — "
+                        f"{self._auto_update_fails_je.get(sid, 0)} Fehlversuchen aufgegeben — "
                         f"kein Auto-Retry mehr bis neuer Build, manuell pruefen."
                     )
                     if self.notifier:
                         await self.notifier.send_admin(
-                            "Auto-Update aufgegeben (Loop-Guard)",
+                            f"Auto-Update aufgegeben (Loop-Guard): {name}",
                             f"Build {old_build} -> {target_build} schlug "
-                            f"{self._auto_update_fail_count}x fehl. Kein Auto-Retry "
+                            f"{self._auto_update_fails_je.get(sid, 0)}x fehl. Kein Auto-Retry "
                             f"mehr bis neuer Build. Bitte manuell pruefen.",
                             level=NotifyLevel.ERROR,
                             ping_role=True,
@@ -886,29 +928,29 @@ class SchedulerCog(commands.Cog):
 
                 # Rollback versuchen wenn Backup vorhanden
                 if was_running and pre_update_backup_path:
-                    await self._perform_rollback(pre_update_backup_path, update_msg)
+                    await self._perform_rollback(pre_update_backup_path, update_msg, sid)
                 elif was_running:
                     # Kein Backup — trotzdem versuchen zu starten
-                    await self.sat_server.start()
+                    await srv.start()
 
                 if self.notifier and not pre_update_backup_path:
                     await self.notifier.send_admin(
-                        "Auto-Update FEHLGESCHLAGEN",
+                        f"Auto-Update FEHLGESCHLAGEN: {name}",
                         update_msg,
                         level=NotifyLevel.ERROR,
                         ping_role=True,
                     )
 
         except Exception as e:
-            logger.error(f"Auto-Update Fehler: {e}", exc_info=True)
+            logger.error(f"[{sid}] Auto-Update Fehler: {e}", exc_info=True)
             try:
-                await self.sat_server.start()
+                await srv.start()
             except Exception as start_err:
                 logger.error(
                     f"Recovery-Start nach Auto-Update-Fehler fehlgeschlagen: {start_err}"
                 )
 
-    async def _health_check_after_update(self) -> bool:
+    async def _health_check_after_update(self, sid: str = None) -> bool:
         """Prueft ob der Server nach einem Update innerhalb von 3 Minuten
         wieder erreichbar ist.
 
@@ -916,7 +958,10 @@ class SchedulerCog(commands.Cog):
             True wenn Rollback noetig (Server nicht erreichbar),
             False wenn Server OK
         """
-        if not self.sat_server:
+        sid = sid or next(iter(self.sat_instanzen), "MAIN")
+        srv = self.sat_server_von(sid)
+        api = self.sat_api_von(sid)
+        if not srv:
             logger.error("Health-Check: sat_server nicht verfügbar")
             return True  # Rollback noetig
 
@@ -925,11 +970,11 @@ class SchedulerCog(commands.Cog):
         for i in range(6):
             await asyncio.sleep(30)
             try:
-                if await self.sat_server.is_running():
+                if await srv.is_running():
                     # API-Check für tiefere Pruefung
-                    if self.sat_api:
+                    if api:
                         try:
-                            await self.sat_api.query_server_state()
+                            await api.query_server_state()
                             logger.info(
                                 f"Post-Update Health-Check OK (nach {(i+1)*30}s)"
                             )
@@ -947,7 +992,8 @@ class SchedulerCog(commands.Cog):
         logger.error("Post-Update Health-Check FEHLGESCHLAGEN nach 3 Minuten")
         return True  # Rollback noetig
 
-    async def _perform_rollback(self, backup_path: Path, update_msg: str) -> None:
+    async def _perform_rollback(self, backup_path: Path, update_msg: str,
+                            sid: Optional[str] = None) -> None:
         """Fuehrt einen automatischen Rollback nach fehlgeschlagenem Update durch.
 
         1. Server stoppen (falls haengend)
@@ -957,23 +1003,28 @@ class SchedulerCog(commands.Cog):
         """
         logger.warning("Auto-Rollback: Stelle Pre-Update-Backup wieder her...")
 
+        sid = sid or next(iter(self.sat_instanzen), "MAIN")
+        srv = self.sat_server_von(sid)
+        backup_mgr = self.backup_manager_von(sid)
+        name = getattr(srv, "display_name", sid)
+
         try:
             # Health-Check unterdruecken waehrend Rollback (15 Min)
             har = getattr(self.bot, "health_auto_restart", None)
             if har:
-                har.suppress("sat", self._erste_sat_kennung(), duration_seconds=900)
+                har.suppress("sat", sid.lower(), duration_seconds=900)
 
             # Server stoppen falls er haengt
             try:
-                await self.sat_server.stop()
+                await srv.stop()
                 await asyncio.sleep(5)
             except Exception as e:
                 logger.debug(f"Sat-Server Stop vor Backup-Restore: {e} (vermutlich bereits gestoppt)")
 
             # Backup wiederherstellen
             restore_ok = False
-            if self.backup_manager:
-                restore_ok, restore_msg = await self.backup_manager.restore(
+            if backup_mgr:
+                restore_ok, restore_msg = await backup_mgr.restore(
                     backup_path.name if hasattr(backup_path, 'name') else str(backup_path)
                 )
                 if restore_ok:
@@ -982,7 +1033,7 @@ class SchedulerCog(commands.Cog):
                     logger.error(f"Rollback: Restore fehlgeschlagen — {restore_msg}")
 
             # Server neu starten
-            start_ok, start_msg = await self.sat_server.start()
+            start_ok, start_msg = await srv.start()
 
             if self.notifier:
                 if restore_ok and start_ok:
@@ -1700,9 +1751,6 @@ class SchedulerCog(commands.Cog):
         - 12:00: Bei neuem Build → sofort Auto-Update mit Countdown
         - 00:00: Bei neuem Build → Flag setzen für nächsten Restart
         """
-        if not self.update_checker or not self.sat_server:
-            return
-
         # Nur zu den konfigurierten Stunden
         if now.hour not in self._sat_check_hours or now.minute > 1:
             return
@@ -1716,46 +1764,60 @@ class SchedulerCog(commands.Cog):
 
         self._last_sat_auto_check = now
 
+        # Jede Instanz einzeln: sie haben getrennte Installationen und damit
+        # getrennte Build-IDs. Frueher lief hier nur die erste, und ihr
+        # Ergebnis setzte ein Flag, das fuer alle galt.
+        for sid in list(self.sat_instanzen):
+            await self._sat_update_pruefen_einer(sid, now)
+
+    async def _sat_update_pruefen_einer(self, sid: str, now: datetime) -> None:
+        """Build-ID-Pruefung einer Instanz (12:00 / 00:00)."""
+        checker = self.update_checker_von(sid)
+        srv = self.sat_server_von(sid)
+        if not checker or not srv:
+            return
+        name = getattr(srv, "display_name", sid)
+
         try:
-            available, info = await self.update_checker.check()
+            available, info = await checker.check()
             if not available:
-                logger.debug(f"SAT Update-Check ({now.hour:02d}:00): kein Update")
+                logger.debug(f"[{sid}] Update-Check ({now.hour:02d}:00): kein Update")
                 return
 
             installed = info.get("installed_buildid", "?")
             new_build = info.get("available_buildid", "?")
             logger.info(
-                f"SAT-Update gefunden: Build {installed} -> {new_build} "
+                f"[{sid}] Update gefunden: Build {installed} -> {new_build} "
                 f"(Check um {now.hour:02d}:00)"
             )
 
             if now.hour == self._sat_immediate_hour:
                 # 12:00: Sofort Auto-Update (vorhandener Auto-Update-Flow)
-                self._pending_update = True
+                self._pending_setzen(sid, True)
                 if self.notifier:
                     await self.notifier.send_admin(
-                        "SAT — SteamCMD-Update wird gestartet",
+                        f"{name} — SteamCMD-Update wird gestartet",
                         f"Build **{installed}** → **{new_build}**\n"
                         f"Auto-Update gestartet.",
                         NotifyLevel.WARNING,
                     )
                 # Bestehenden Auto-Update-Flow nutzen (Server-leer-Check intern)
-                logger.info("SAT 12:00-Check — Auto-Update-Flag gesetzt")
+                logger.info(f"[{sid}] 12:00-Check — Auto-Update-Flag gesetzt")
             else:
                 # 00:00: Flag setzen, Update beim nächsten Restart
-                self._pending_update = True
+                self._pending_setzen(sid, True)
                 if self.notifier:
                     await self.notifier.send_admin(
-                        "SAT — SteamCMD-Update geplant",
+                        f"{name} — SteamCMD-Update geplant",
                         f"Build **{installed}** → **{new_build}**\n"
                         f"Update wird beim nächsten Server-Leer-Moment "
                         f"oder Daily-Restart installiert.",
                         NotifyLevel.INFO,
                     )
-                logger.info("SAT 00:00-Check — pending_update Flag gesetzt")
+                logger.info(f"[{sid}] 00:00-Check — Update-Flag gesetzt")
 
         except Exception as e:
-            logger.error(f"SAT Auto-Update-Check Fehler: {e}", exc_info=True)
+            logger.error(f"[{sid}] Auto-Update-Check Fehler: {e}", exc_info=True)
 
     # ------------------------------------------------------------------
     # I2: Retention-Cleanup (Rollback-Ordner, Server-Pack-ZIPs, DB)
@@ -2001,8 +2063,12 @@ class SchedulerCog(commands.Cog):
 
             # Update status
             if self.update_checker:
-                if self._pending_update:
-                    report_parts.append("**Update:** \u26a0\ufe0f Verfuegbar!")
+                _offen = [self._sat_name_von(_s)
+                          for _s, _w in self._pending_update_je.items() if _w]
+                if _offen:
+                    report_parts.append(
+                        "**Update:** \u26a0\ufe0f Verfuegbar: " + ", ".join(_offen)
+                    )
                 else:
                     report_parts.append("**Update:** \u2705 Aktuell")
 
@@ -2143,9 +2209,13 @@ class SchedulerCog(commands.Cog):
 
         # Auto-Update
         au_status = "✅ Aktiv" if self._auto_update_enabled else "❌ Deaktiviert"
-        pending = "⚠️ Update verfügbar!" if self._pending_update else "Keins"
-        last_au = (self._last_auto_update.strftime("%d.%m. %H:%M")
-                    if self._last_auto_update else "Noch nicht")
+        # Ueber ALLE Instanzen: seit der Installer je Instanz laeuft, waere
+        # "Keins" auf Basis der ersten Instanz eine falsche Entwarnung, wenn
+        # der zweite Server ein Update braucht.
+        _offen = [self._sat_name_von(_s) for _s, _w in self._pending_update_je.items() if _w]
+        pending = ("⚠️ Update verfügbar: " + ", ".join(_offen)) if _offen else "Keins"
+        _laeufe = [z for z in self._last_auto_update_je.values() if z]
+        last_au = (max(_laeufe).strftime("%d.%m. %H:%M") if _laeufe else "Noch nicht")
         empty_req = "Ja" if self._auto_update_require_empty else "Nein"
         embed.add_field(
             name="Auto-Update",
