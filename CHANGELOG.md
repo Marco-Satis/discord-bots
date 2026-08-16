@@ -4,6 +4,196 @@ Alle relevanten Aenderungen am Discord Bot System werden hier dokumentiert.
 
 ---
 
+## [4.5.0] — Satisfactory mehrinstanzfaehig (live seit 2026-08-15)
+
+> Der Anlass war ein zweiter Satisfactory-Server. Die Arbeit lag nicht dort,
+> sondern an den ueber achtzig Stellen, an denen der Code „der Server" meinte
+> und „der erste Server" tat.
+
+### Behoben — Fehler, die Spieler gemerkt haben
+
+- **Niemand kam mehr auf Server 1.** Beide Instanzen banden den Reliable-Messaging-Port
+  8888 (TCP, Vorgabe seit Patch 1.1). Ueber ihn schickt der Server die Metadaten des
+  Spielstands, bevor der Spieler einsteigt — der zweite Server nahm ihn dem ersten weg.
+  Spieler bekamen einen Timeout, waehrend Statusanzeige, Query-Port und Spielerzaehler
+  gruen blieben. Die zweite Instanz laeuft jetzt auf `-ReliablePort=8889`;
+  `scripts/setup_satisfactory_second.sh` vergibt ihn seither mit, damit derselbe Fehler
+  bei einer dritten Instanz nicht wiederkehrt.
+- **Der zweite Server meldete „failed to connect to the server API".** Die
+  Firewall-Freigabe fuer `7778/tcp` fehlte — der Client sah den Server ueber UDP, kam
+  aber an die HTTPS-API nicht heran. Die eigenen Tests liefen lokal und konnten das
+  nicht treffen.
+- **Blaupausen-Uploads blieben wirkungslos.** Nach dem Upload erschien nur ein Knopf;
+  wurde er nicht gedrueckt, passierte nichts, weil der Server Blaupausen ausschliesslich
+  beim Start einliest. Belegt: fuenf Blaupausen um 08:49 hochgeladen, Server lief bis
+  14:00 unveraendert. Jetzt startet der Server selbsttaetig neu — 5-Minuten-Countdown,
+  abbrechbar mit `/sat cancel`.
+- **Die aktive Welt wurde geraten.** Die Erkennung nahm den zuletzt geaenderten Ordner.
+  Da der Blaupausen-Sync selbst in einen Welt-Ordner schreibt und damit dessen
+  Aenderungszeit setzt, bestaetigte sie sich selbst: sie sprang auf `BoberKurwa`, waehrend
+  der Server unveraendert `FactorySatis` spielte. Jetzt wird der Sitzungsname beim Server
+  erfragt; die Dateizeit ist nur noch der Rueckfall, wenn der Server nichts sagt.
+
+### Behoben — Fehler, die niemand sehen konnte
+
+- **Die Tick-Ampel war auf 30 kalibriert.** Der Server laeuft mit 60 Ticks. Ein Server bei
+  halber Geschwindigkeit wurde damit gruen angezeigt. Die Schwellen stehen jetzt einmal in
+  `modules/satisfactory/api_client.py` (`SAT_TICK_SOLL=60`, Warnung ab 50, kritisch ab 30).
+- **Der Tick-Alarm existierte gar nicht.** `SystemMetrics` hatte kein Feld `tick_rate`,
+  die Schwellenpruefung lief ueber Prozentwerte und gab fuer den Tick immer `[]` zurueck —
+  ein Grenzwert, der nie ausgewertet wurde. Der Tick wird jetzt als Untergrenze geprueft
+  und meldet in den Admin-Kanal.
+- **Absturz-Rueckrufe hingen nur an der ersten Instanz.** Ein Absturz der zweiten waere
+  ohne Meldung geblieben.
+- **Der Bann-Verteiler kannte nur die Kennung `sat`.** Ein Bann auf der zweiten Instanz
+  lief ins Leere.
+- **Fuenf fest verdrahtete `har.suppress("sat", "main")`** stellten bei jedem geplanten
+  Neustart die Wache der falschen Instanz still.
+- **Auto-Update installierte nur auf der ersten Instanz**, obwohl es je Instanz erkannte.
+- **Das Dashboard zeigte eine Kachel fuer den stillgelegten Vanilla-Server**, weil es
+  Statusdateien per Glob las statt gegen die Registry zu pruefen. Der Link fuehrte auf 404.
+- **Migration v12 brach auf Datenbanken ohne `server_stats_tracker` ab** und liess das
+  Schema auf halber Version stehen.
+
+### Neu
+
+- **Registry statt Aufzaehlung** (`modules/server_registry.py`): welche Server es gibt,
+  steht in `SAT_SERVER_IDS` / `MC_SERVER_IDS`. Auswahllisten, Anzeigenamen, Portzuordnung,
+  Dienstlisten, Navigationseintraege und Backup-Ziele werden daraus gebaut. Eine Instanz
+  zu- oder abschalten kostet einen ENV-Eintrag und einen Neustart, keine Codezeile.
+- **19 von 25 `/sat`-Befehlen** nehmen einen `server`-Parameter mit
+  Autovervollstaendigung. Ohne Angabe gilt die erste Instanz — eingeuebte Befehle
+  funktionieren unveraendert. Die sechs Ausnahmen sind Whitelist und Blacklist: sie sind
+  datenbankgestuetzt und gelten spielweit, was jetzt auch in ihrer Beschreibung steht.
+- **Je Instanz** eigener Log-Parser fuer Spielernamen, eigene Leseposition, eigene
+  Statusdatei, eigene Blaupausen-, Backup- und Mod-Verwaltung, eigener IP-Tracker.
+- **Vanilla-Minecraft stillgelegt** — aus Code, Befehlen und Auswahllisten entfernt,
+  Daten und Unit behalten. `MC_SERVER_IDS=BMC,VANILLA` holt ihn zurueck.
+
+### Tests
+
+Sechs neue Suiten (`test_sat_tickrate`, `test_tick_alarm`, `test_sat_crash_meldung`,
+`test_mehrinstanz_oberflaeche`, `test_blueprint_welt_neustart`,
+`test_auto_update_mehrinstanz`). Zwei bestehende Zusicherungen in
+`test_sat_review_regressionen` hatten die alte Nur-erste-Instanz-Behelfsloesung
+festgeschrieben und wurden korrigiert. Stand: **64 Dateien, alle gruen** — zu fahren mit
+`/home/botuser/Discord_Bots/venv/bin/python`, nicht mit dem System-`python3`.
+
+---
+
+## [Unreleased] — HUD-Rollout, Spielerzaehler, Betriebs-Haerte (live seit 2026-08-14)
+
+> Nachtlauf 13./14.08. Zwei Review-Durchgaenge mit neun Reviewern, Deploy in drei
+> Etappen am 14.08. 07:36-07:41.
+
+### Behoben — Fehler, die sichtbar waren
+- **Spielerzaehler zeigte Karteileichen.** Die Abmelde-Zeile des Satisfactory-Servers
+  enthaelt keinen Spielernamen (nur `Name: IpConnection_<id>`), die alte Leave-Regex
+  verlangte aber `PlayerName=` und traf deshalb nie. Spieler wurden hinzugefuegt und nie
+  entfernt; beim Bot-Start rechnete `_init_log_position()` zusaetzlich `joins - leaves`
+  ueber die gesamte Log-Historie und erweckte alte Sitzungen wieder. Neu
+  `modules/monitoring/sat_log_players.py`: Zuordnung ueber die Verbindungs-ID, Abgleich
+  bei jeder Abweichung statt nur bei null Spielern, unvollstaendige Namenslisten werden
+  im Panel gekennzeichnet. `ServerState.ok` unterscheidet jetzt „null Spieler" von
+  „API nicht erreichbar".
+- **`/config`-Speichern lief immer in ein 403.** Die CSRF-Pruefung las das Token nur aus
+  dem Header, das Formular schickt es als Feld. Der Body wird jetzt gepuffert und dem
+  Handler unveraendert weitergereicht (nur urlencodete Formulare, Uploads unberuehrt).
+- **Jedes Embed mit Footer wurde von Discord abgelehnt** (`400 Invalid Form Body`).
+  `discord.utils.MISSING` wird von `set_footer` nicht verworfen, sondern landet als
+  `"..."` im Feld. Gefunden im Journal drei Minuten nach dem Deploy.
+- **`/backup auto <n>` warf `RuntimeError`**, obwohl die Einstellung gespeichert wurde
+  (`cancel()` direkt gefolgt von `start()`).
+- **`/sat cancel` existierte nicht**, obwohl das Countdown-Panel darauf verwies — der
+  Neustart-Countdown war nicht abbrechbar. Befehl ergaenzt.
+
+### Behoben — Fehler, die niemand sehen konnte
+- **30 von 31 Dauerlaeufern starben lautlos.** `discord.ext.tasks` beendet eine Schleife
+  bei jeder unerwarteten Ausnahme endgueltig; der Dienst bleibt `active`. Betroffen unter
+  anderem der zentrale Scheduler (Backups, Neustarts, Updates), die DB-Sicherung und die
+  Timeout-Aufhebung. Neu `utils/loop_guard.py`: meldet in den Admin-Kanal, protokolliert
+  und startet begrenzt neu (fuenf Versuche je Stunde, mit Backoff). Der einzige zuvor
+  vorhandene Handler konnte nie neu starten — er prueft `is_running()`, das im
+  Fehler-Kontext noch `True` ist.
+- **Der Dienst-Watchdog ueberwachte keinen einzigen Bot.** Er liest
+  `config["service_watchdog"]["services"]`; diesen Block gab es nie, nur ein
+  Feature-Flag. Er fiel auf seinen Default zurueck: ausschliesslich der Spielserver.
+- **Vier Pakete mit 28 bekannten Schwachstellen** gehoben (`pillow` 12.2→12.3,
+  `aiohttp` 3.14.0→3.14.3, `python-multipart` 0.0.27→0.0.31, `click` 8.3.1→8.3.3).
+  Die Begruendung, `starlette` sei wegen fastapi nicht aktualisierbar, ist widerlegt —
+  fastapi 0.138.0 verlangt `starlette>=0.46.0` ohne Obergrenze; der Hauptversionswechsel
+  bleibt als getestete Entscheidung offen.
+- **Design-Attrappen waren oeffentlich erreichbar**, darunter eine Login-Attrappe auf der
+  echten Domain ohne die Security-Header der uebrigen Seiten. 33 HTML-Dateien nach
+  `docs/design_previews/` verschoben; die drei produktiv eingebundenen CSS-Dateien
+  bleiben unter `web/static/_preview/`.
+- **Zwei destruktive Dashboard-Endpunkte** (`/api/errors/clear`, `/api/events/clear`)
+  standen jedem angemeldeten Nutzer offen und verlangen jetzt Systemrecht.
+  `/openapi.json` war anonym abrufbar und ist abgeschaltet.
+
+### Geaendert — Darstellung
+- **HUD-Stil ausgerollt** (`docs/DESIGN_HUD.md`): Kennzahlen-Kopf statt Feld-Wueste in
+  `/mon report`, `/mon world`, `backup info`, `backup compare`, `/rank`, `/mc status`,
+  `/warn add` und dem Live-Status-Panel. Rendering je in eine testbare Funktion gezogen.
+- **Eine Balken-Optik** statt drei nebeneinander; `utils/ui_kit.zahl` als einziger Ort
+  fuer deutsches Zahlformat.
+- **195 Embed-Aufrufe in 30 Dateien** auf die semantischen Helfer umgestellt
+  (`success_embed`/`error_embed`/…), keine rohen Hex-Werte mehr in Cogs.
+- **Pipeline-Control und Temp-Voice auf Components V2** — Buttons gehoeren sichtbar ins
+  Panel. Eine bestehende Embed-Nachricht laesst sich nicht umstellen (Discord setzt das
+  Flag beim Senden), beide Panels erkennen ihre alte Fassung beim Start und ersetzen sie.
+
+### Geaendert — Leistung und Datenhaltung (Nachzug 14.08. vormittags)
+- **StatsTracker haelt keine Rohdaten mehr im Speicher.** Jeder Tracker hielt seine
+  90 Tage doppelt: in SQLite und als Python-Listen. Am Livebestand gemessen (284.434
+  Zeilen ueber vier Tracker, per tracemalloc nachgestellt) waren das 85,5 MB bei
+  `MemoryMax=768M`. Die sechs Auswertungs-Methoden fragen jetzt die Datenbank
+  (COUNT/SUM/MAX statt Listen-Durchlauf) und sind dadurch async.
+- **Drei fehlende SQLite-Pragmas nachgetragen** (`cache_size=-64000`,
+  `temp_store=MEMORY`, `mmap_size=256M`) — die eigene Projektregel schrieb sie vor,
+  gesetzt waren sie nie. Fuer Schreib-Verbindung und Lese-Pool.
+- **Migration v11 entfernt `idx_sst_server`.** Von den zwei Indizes auf
+  `server_stats_tracker` benutzte keine Abfrage den zweiten: server_id wird als
+  `(server_id = ? OR (server_id IS NULL AND ? IS NULL))` geprueft, und ein OR ueber
+  dieselbe Spalte laesst sich nicht in einen Index-Zugriff uebersetzen (per
+  EXPLAIN QUERY PLAN an der Live-Datenbank belegt). 16,5 MB gespart.
+- **Zwei Schreibpfade des Spieler-Trackers laufen jetzt in einer Transaktion.** Der
+  Abmelde-Pfad committete zweimal; brach es dazwischen ab, stand die Sitzung in der
+  Datenbank, die Gesamtspielzeit aber nicht.
+- **Pipeline-Panel aktualisiert alle 30 statt alle 15 Sekunden.**
+
+### Behoben — Betrieb (Nachzug 14.08. vormittags)
+- **Herunterfahren stoppt die Hintergrund-Schleifen**, bevor die Cleanup-Callbacks
+  Verbindungen schliessen. Modul-Schleifen gehoeren zu keinem Cog und haben kein
+  `cog_unload` — sie liefen bis zum Prozessende weiter und schrieben in eine bereits
+  geschlossene Datenbank. Der Loop-Guard meldet waehrend eines Shutdowns keinen
+  Ausfall mehr und plant keinen Neustart.
+- **Chat-Bruecke meldet Poll-Fehler sichtbar** (vorher `logger.debug`, im Normalbetrieb
+  also unsichtbar) — gedrosselt: erste Stoerung sofort, danach alle fuenf Minuten,
+  Erholung wird gemeldet.
+- **Bot-Kachel im Dashboard prueft die Frische.** Sie las nur das Feld `status`; stirbt
+  ein Bot, blieb die Datei mit „online" liegen und das Dashboard meldete ihn unbegrenzt
+  als laufend. Nach 120 Sekunden ohne frischen Zeitstempel gilt die Kachel als veraltet.
+  Dazu die aktuellen Bot-Namen (standen noch auf dem Stand vor der Umbenennung) und
+  `pipeline-bot`, der ganz fehlte.
+
+### Vorbereitet — starlette 1.x (Installation steht aus)
+`TemplateResponse` an 46 Stellen auf die Form `(request, name, context)` umgestellt —
+die alte Form ist in starlette 1.0 entfernt, die neue laeuft auf 0.52 genauso. Damit ist
+der Code auf beiden Versionen lauffaehig; das Paket-Upgrade selbst ist ein eigener
+Schritt, Anleitung samt Abnahme und Rueckweg in `docs/STARLETTE_1X.md`. Behebt fuenf
+bekannte Schwachstellen, die es nur in der 1er-Reihe behoben gibt.
+
+### Tests
+20 Suiten. Neu: `test_loop_guard`, `test_csrf_middleware`, `test_monitor_embeds`,
+`test_backup_embeds`, `test_leveling_embeds`, `test_pipeline_panel`, `test_status_panel`,
+`test_player_tracker`, `test_session_invalidation`, `test_update_rollback`,
+`test_json_importer`, `test_template_injection`, `test_migration_v11`,
+`test_stats_tracker`, `test_bot_kacheln`. `test_env_completeness` laeuft erstmals gruen —
+`config/.env.example` war durch `config/.env*` mit-ignoriert und nie versioniert.
+
+---
+
 ## [Unreleased] — Community-Rebuild (Branch-Linie, teils live seit 2026-06-04)
 
 > Multi-Tenant-Umbau + Community-Features (MVP-first). MVP + Wave-2 seit
@@ -55,7 +245,7 @@ Alle relevanten Aenderungen am Discord Bot System werden hier dokumentiert.
 - **Dashboard-Seite `/lfg`** (`web/routes/lfg_route.py` + `lfg.html` + Partial + Nav): Rollen-/Kanal-ID + Cooldown editierbar (HTMX, globale CSRFMiddleware, Snowflake-Validierung, schreibt `guild_config`). Tests `test_lfg_web` (9, Round-Trip + Isolation).
 
 ### Dashboard-Realtime (D3: SSE → WebSocket)
-- **SSE entfernt, WebSocket als echter Push-Kanal** (Plan-Entscheid „WS behalten, SSE raus"). Bisher war `/ws` ein passiver Ping/Pong-Shell (broadcastete nie) und die Live-Updates liefen über SSE (`/api/sse/dashboard`). Jetzt: Broadcaster in `web/app.py` pusht alle 5s `{type:'dashboard_update', servers, system, bots, events}` an alle verbundenen WS-Clients (nur wenn mind. 1 verbunden — kein Leerlauf-IO). Frontend (`dashboard.html`) nutzt `WebSocket` statt `EventSource` (Reconnect-Backoff + 25s-Keep-Alive-Ping). Daten-Sammler nach `web/dashboard_feed.py` ausgelagert (`gather_dashboard_payload`). **`web/routes/sse_route.py` gelöscht** (+ Import/Registrierung in app.py raus).
+- **SSE entfernt, WebSocket als echter Push-Kanal** (Plan-Entscheid „WS behalten, SSE raus"). Bisher war `/ws` ein passiver Ping/Pong-Shell (broadcastete nie) und die Live-Updates liefen über SSE (`/api/sse/dashboard`). Jetzt: Broadcaster in `web/app.py` pusht alle 5s `{type:'dashboard_update', servers, system, bots, events}` an alle verbundenen WS-Clients (nur wenn mind. 1 verbunden — kein Leerlauf-IO). Frontend (`dashboard.html`) nutzt `WebSocket` statt `EventSource` (Reconnect-Backoff + 25s-Keep-Alive-Ping). Daten-Sammler nach `web/dashboard_feed.py` ausgelagert (`gather_dashboard_payload`). **`web/routes/sse_route.py` ausgehängt** — Import und Registrierung in `app.py` entfernt. Die Datei selbst blieb bis 2026-08-14 als toter Code liegen (362 Zeilen, in vier Review-Berichten aufgetaucht) und ist seitdem gelöscht.
 - **Security:** WS-Endpoint jetzt **auth-gated** (`get_ws_user` prüft `dashboard_token`-JWT-Cookie, schließt 1008 bei Anon) — schließt die Lücke, dass ein offener `/ws` Server-/System-Daten an Nicht-Angemeldete gestreamt hätte (SSE war via `require_auth_api` gated). nginx `location /` proxyt Upgrade-Header bereits.
 
 ### Sonstiges

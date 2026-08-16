@@ -1,4 +1,4 @@
-# Discord Bot System v4.4.0
+# Discord Bot System v4.5.0
 
 **3-Bot-System + Web-Dashboard fuer Game-Server- UND Community-Management**
 
@@ -6,22 +6,31 @@ Satisfactory + Minecraft Server-Management mit Discord-Integration, Web-Dashboar
 
 Server: Netcup RS 4000 G12 (12 vCores, 31 GB RAM, 1 TB NVMe) | Ubuntu 22.04 LTS | Python 3.10
 
+> **Stand 2026-08-15.** Zwei Neuerungen praegen den aktuellen Aufbau:
+> **(1)** Satisfactory laeuft in **mehreren Instanzen** (heute zwei), und welche
+> es gibt, steht nicht mehr im Code, sondern in einer ENV-Variablen.
+> **(2)** Die Bots heissen seit dem 13.06.2026 **recon**, **operator** und
+> **marshal** — die alten Namen (monitor-, gameserver-, admin-bot) tauchen nur
+> noch in historischen Dokumenten auf.
+
 ---
 
 ## Architektur
 
 ```
 ┌──────────────────────┐  ┌──────────────────────┐  ┌──────────────────────┐
-│   GameServer Bot     │  │    Monitor Bot        │  │     Admin Bot        │
-│                      │  │                       │  │                      │
-│  /sat start/stop     │  │  Health Auto-Restart  │  │  Moderation (Warn/   │
-│  /sat players/ban    │  │  Service Watchdog     │  │    Ban/Timeout)      │
-│  /sat backup/save    │  │  Disk Guard           │  │  Leveling + XP       │
-│  /mc status/start    │  │  Port Monitor         │  │  Giveaways           │
-│  /mc players/backup  │  │  SSL/DuckDNS/Fail2Ban │  │  Tickets             │
-│  Chat Bridge         │  │  Stats Collector      │  │  Custom Commands     │
-│  General Commands    │  │  Crash Replay         │  │  Reaction Roles      │
-│                      │  │  Daily Reports        │  │  Audit Logging       │
+│     operator-bot     │  │      recon-bot       │  │     marshal-bot      │
+│   (ex gameserver)    │  │    (ex monitor)      │  │     (ex admin)       │
+│                      │  │                      │  │                      │
+│  /sat  (25 Befehle,  │  │  Health Auto-Restart │  │  Moderation (Warn/   │
+│    je Instanz)       │  │  Service Watchdog    │  │    Ban/Timeout)      │
+│  /mc   (22 Befehle)  │  │  Disk Guard          │  │  Leveling + XP       │
+│  /mod /todo /design  │  │  Port Monitor        │  │  Giveaways           │
+│  /timeout /help      │  │  SSL/DuckDNS/Fail2Ban│  │  Tickets             │
+│                      │  │  Stats Collector     │  │  Custom Commands     │
+│  Chat Bridge         │  │  Crash Replay        │  │  Reaction Roles      │
+│                      │  │  Scheduler + Reports │  │  Audit Logging       │
+│  9 Top-Level-Befehle │  │  24 Top-Level        │  │  24 Top-Level        │
 └──────────────────────┘  └──────────────────────┘  └──────────────────────┘
                                      │
                         ┌─────────────┴─────────────┐
@@ -37,9 +46,67 @@ Server: Netcup RS 4000 G12 (12 vCores, 31 GB RAM, 1 TB NVMe) | Ubuntu 22.04 LTS 
                         └───────────────────────────┘
 ```
 
+Ein vierter Bot, **pipeline-bot**, bedient die Content-Pipeline. Er hat keine
+Slash-Befehle, sondern arbeitet ueber Knoepfe und Ereignisse.
+
+---
+
+## Mehrere Server derselben Sorte — die Registry
+
+Frueher stand im Code, welche Server es gibt. Heute steht es in zwei
+ENV-Variablen, und der Code fragt eine Registry (`modules/server_registry.py`):
+
+```bash
+SAT_SERVER_IDS=MAIN,SECOND     # zwei Satisfactory-Instanzen
+MC_SERVER_IDS=BMC              # ein Minecraft-Server
+```
+
+Daraus folgt alles Weitere: Auswahllisten der Slash-Befehle, Anzeigenamen,
+Statusdateien, Dashboard-Kacheln, Portzuordnung, Watchdog-Liste, Backup-Ziele.
+Je Instanz gibt es einen eigenen ENV-Block (`SAT_MAIN_*`, `SAT_SECOND_*`).
+
+Praktische Folge — beides ohne eine einzige geaenderte Codezeile:
+
+| Ich will… | Das reicht |
+|---|---|
+| eine Instanz abschalten | ID aus `SAT_SERVER_IDS` entfernen, Bots neu starten |
+| eine dritte dazu | ID ergaenzen, `SAT_THIRD_*`-Block anlegen, Bots neu starten |
+| Minecraft Vanilla zurueck | `MC_SERVER_IDS=BMC,VANILLA`, ENV-Block einkommentieren |
+
+Befehle nehmen einen optionalen `server`-Parameter mit Autovervollstaendigung.
+Ohne Angabe gilt die erste Instanz — die eingeuebten Befehle funktionieren also
+unveraendert weiter.
+
+**Ausnahme, bewusst:** Whitelist und Blacklist sind datenbankgestuetzt und
+gelten spielweit, nicht je Instanz. Diese sechs Befehle haben deshalb keinen
+`server`-Parameter und sagen das in ihrer Beschreibung.
+
 ---
 
 ## Feature-Highlights
+
+### Satisfactory mehrinstanzfaehig (v4.5.0, 2026-08-15)
+
+Der Umbau betraf nicht nur die Serververwaltung, sondern jede Stelle, an der ein
+Server *gemeint* war:
+
+- **19 von 25 `/sat`-Befehlen** nehmen einen `server`-Parameter mit
+  Autovervollstaendigung; die uebrigen sechs sind die spielweiten Listen
+- **Bestaetigungs-Dialoge** loesen ihre Zielinstanz selbst auf, statt auf ein
+  festes Objekt zuzugreifen
+- **Statuspanel, Dashboard-Kacheln und Detailseiten** je Instanz
+- **Absturz-Meldungen, Bann-Verteiler, Timeouts, Backups, Mod-Listen** je Instanz
+- **Auto-Update** installiert auf jeder Instanz statt nur auf der ersten — ein
+  Satisfactory-Server mit falschem Build nimmt keine Spieler an, der Ausfall
+  haette also nicht nach „Update vergessen" ausgesehen, sondern nach „kaputt"
+- **Tick-Ampel** gegen den echten Sollwert 60 (vorher stillschweigend gegen 30
+  kalibriert: ein Server bei halber Geschwindigkeit wurde gruen angezeigt) —
+  faellt die Rate unter 50, meldet der Bot es
+- **Blaupausen:** die aktive Welt wird beim Server erfragt statt aus Dateizeiten
+  geraten, und nach einem Upload startet der Server selbsttaetig neu
+  (5-Minuten-Countdown, abbrechbar mit `/sat cancel`). Vorher stand dort nur ein
+  Knopf — wurde er nicht gedrueckt, blieb der Upload wirkungslos, weil der
+  Server Blaupausen nur beim Start einliest.
 
 ### Community-Rebuild (v4.4.0 — Multi-Tenant + Community-Toolkit)
 
@@ -120,26 +187,64 @@ Slash-Commands: `/modpack` + `/update` (siehe `cogs/update_cog.py`).
 
 ## Unterstuetzte Gameserver
 
-| Server | Typ | Steuerung | Chat-Bridge |
-|--------|-----|-----------|-------------|
-| Satisfactory | Dedicated Server (HTTPS-API, SteamCMD) | HTTP API + systemd | — |
-| MC Vanilla/Paper | Paper MC 1.21.4 | RCON + systemd | Log-Polling + RCON |
-| MC Better MC | Fabric Modpack (BMC3) | RCON + systemd | Log-Polling + RCON |
+Stand 2026-08-15, gegen `systemctl is-active` geprueft:
+
+| Server | Kennung | Dienst | Typ | Steuerung | Zustand |
+|--------|---------|--------|-----|-----------|---------|
+| Satisfactory | `MAIN` | `satisfactory` | Dedicated Server (HTTPS-API, SteamCMD) | HTTP-API + systemd | laeuft |
+| Satisfactory 2 | `SECOND` | `satisfactory2` | dito, eigene Installation + eigenes `HOME` | HTTP-API + systemd | laeuft |
+| MC Better MC | `BMC` | `minecraft-bmc` | Fabric-Modpack | RCON + systemd | laeuft |
+| MC Vanilla/Paper | `VANILLA` | `minecraft-vanilla` | Paper MC 1.21.4 | RCON + systemd | **stillgelegt** (`inactive`, `disabled`) |
+
+Vanilla ist aus Code, Befehlen und Auswahllisten heraus, aber nicht geloescht:
+Daten, Unit und ENV-Block bleiben, damit der Weg zurueck ein ENV-Eintrag ist.
+
+### Wie zwei Satisfactory-Instanzen nebeneinander laufen
+
+Beide laufen unter demselben Linux-Nutzer `satisfactory`, getrennt werden sie
+durch drei Dinge:
+
+- **eigenes `HOME`** (`/home/satisfactory/sat2`) — die Unreal-Engine loest
+  `~/.config` daraus auf, dort liegen Speicherstaende und Einstellungen
+- **eigenes Installationsverzeichnis** — sonst teilten sich beide dieselbe
+  `FactoryGame.log`, die der Spieler-Parser und das Crash-Replay lesen
+- **eigene Ports**, und zwar *vier*, nicht drei
+
+Der vierte Port ist der, an dem es am 2026-08-15 im Betrieb geknallt hat:
+**`-ReliablePort`** (TCP, Vorgabe 8888). Ueber ihn schickt der Server die
+Metadaten des Spielstands, bevor der Spieler ueberhaupt einsteigt. Beide
+Instanzen hatten ihn auf 8888 — der zweite Server nahm ihn dem ersten weg, und
+Spieler bekamen beim Beitritt einen Timeout, waehrend jede Statusanzeige gruen
+blieb. Seither hat die zweite Instanz `-ReliablePort=8889`.
 
 ---
 
 ## Ports-Uebersicht
 
-| Port | Protokoll | Service | Zugriff |
-|------|-----------|---------|---------|
-| 443 | TCP/HTTPS | Nginx → Web-Dashboard | Extern |
-| 8080 | TCP/HTTP | Web-Dashboard (uvicorn) | Nur localhost |
-| 4422 | TCP | SSH | Extern |
-| 7777 | TCP+UDP | Satisfactory Game | Extern |
-| 15777 | UDP | Satisfactory Query | Extern |
-| 25565 | TCP | MC Vanilla | Extern |
-| 25566 | TCP | MC Better MC | Extern |
-| 25575 | TCP | MC RCON (BMC) | Nur localhost |
+Gegen `ufw status` und `ss -tlnp` geprueft (2026-08-15):
+
+| Port | Protokoll | Dienst | Zugriff |
+|------|-----------|--------|---------|
+| 443 | TCP/HTTPS | Nginx → Web-Dashboard | extern |
+| 8080 | TCP/HTTP | Web-Dashboard (uvicorn) | nur localhost (`127.0.0.1:8080`) |
+| 4422 | TCP | SSH | extern (zusaetzlich ueber Tailscale) |
+| 7777 | TCP+UDP | Satisfactory MAIN — Spiel + HTTPS-API | extern |
+| 15000 | UDP | Satisfactory MAIN — Beacon | extern |
+| 15777 | UDP | Satisfactory MAIN — Query | extern |
+| 8888 | TCP | Satisfactory MAIN — Reliable Messaging | extern |
+| 7778 | TCP+UDP | Satisfactory SECOND — Spiel + HTTPS-API | extern |
+| 15001 | UDP | Satisfactory SECOND — Beacon | extern |
+| 15778 | UDP | Satisfactory SECOND — Query | extern |
+| 8889 | TCP | Satisfactory SECOND — Reliable Messaging | extern |
+| 25566 | TCP | MC Better MC | extern |
+| 25575 | TCP | MC RCON (BMC) | nur localhost (UFW `DENY`) |
+| 25565 | TCP | MC Vanilla | **UFW offen, kein Dienst dahinter** |
+
+Die letzte Zeile ist kein Tippfehler, sondern eine Altlast: die Freigabe fuer
+Vanilla steht noch, der Dienst ist stillgelegt. Ein offener Port ohne Dienst ist
+nicht ausnutzbar, aber er erzaehlt eine falsche Geschichte ueber das System.
+Dasselbe gilt fuer die UFW-Freigabe von 8080, die ins Leere laeuft, weil
+uvicorn auf `127.0.0.1` gebunden ist.
 
 ---
 
@@ -163,19 +268,29 @@ Slash-Commands: `/modpack` + `/update` (siehe `cogs/update_cog.py`).
 ## Quick Start
 
 ```bash
-# 1. Server-Grundeinrichtung (als root)
-bash scripts/setup_server.sh
+# 1. Abhaengigkeiten
+pip install -r requirements.txt      # requirements-lock.txt fuer exakte Staende
 
 # 2. Konfiguration
 cp config/.env.example config/.env
 nano config/.env    # Tokens, IDs, etc. eintragen
 
-# 3. Deployment
-bash scripts/deploy.sh
+# 3. Dienste einrichten
+sudo cp systemd/*.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now operator-bot recon-bot marshal-bot web-dashboard
 
 # 4. Status pruefen
 bash scripts/manage_bots.sh status
+
+# 5. Tests
+python -m pytest tests/ -q
 ```
+
+Die Server-Grundeinrichtung (nginx, Zertifikate, Gameserver-Dienste) laeuft von Hand und ist
+nicht Teil dieses Repositories. Alle Geheimnisse liegen ausschliesslich in `config/.env` —
+per `.gitignore` ausgeschlossen; `config/.env.example` dokumentiert die erwarteten Variablen
+ohne Werte.
 
 Ausfuehrliche Anleitung: siehe `docs/Projektdokumentation_v4.0.0.md`
 
@@ -190,13 +305,27 @@ Ausfuehrliche Anleitung: siehe `docs/Projektdokumentation_v4.0.0.md`
 | `docs/Projektdokumentation_v4.0.0.md` | Ausfuehrliche Basis-Projektdokumentation |
 | `docs/TEMPVOICE_UPGRADE_PLAN.md` | Temp-Voice-Spec (VOICEPANEL-Style) |
 | `docs/RBAC_SPEC_2026-06-04.md` | RBAC-Modell (Dashboard-Rollen + Audit-Log) |
-| `docs/production/` | Production-Guides (Security, Backup, Observability, Lavalink, …) |
-| `CLAUDE.md` | Claude-Code-Arbeitsanweisungen + Server-Zugang |
+| `CODE_DOKUMENTATION_DC_BOTS.md` | Ausfuehrliche Code- und Modulbeschreibung |
+
+---
+
+## Hinweise zum oeffentlichen Stand
+
+Dieses Repository zeigt den Code eines real betriebenen Systems. Betriebsinterna sind bewusst
+nicht enthalten: Serveradressen, Zugangsdaten, Konfigurationsschnappschuesse der Infrastruktur
+(nginx, systemd-Drop-ins), Runbooks und interne Arbeitsnotizen. Beispieladressen in Code und
+Dokumentation stammen aus den Dokumentationsbereichen nach RFC 5737 und zeigen auf kein echtes
+Ziel; Discord-IDs in Beispielen sind Platzhalter.
+
+Wer das System nachbauen will, findet in `config/.env.example` die vollstaendige Liste der
+erwarteten Variablen und in `systemd/` die Dienstdefinitionen.
 
 ---
 
 ## Lizenz
 
-Privates Projekt — privates GitHub-Repository (`Marco-Satis/discord-bots`). Kein Public-Release.
+Fuer dieses Repository ist keine Lizenz vergeben. Damit gilt das gesetzliche Urheberrecht:
+Der Code ist einsehbar, eine Nutzung, Aenderung oder Weiterverbreitung ist ohne ausdrueckliche
+Erlaubnis nicht gestattet. Bei Interesse an einer Nutzung bitte vorher anfragen.
 
 **Autor:** Marco

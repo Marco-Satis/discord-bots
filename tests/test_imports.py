@@ -317,24 +317,64 @@ def check_file(filepath: Path) -> dict:
         result["import_status"] = IMPORT_SKIPPED
         return result
 
-    # --- 2. Import (nur wenn keine Third-Party-Abhaengigkeit) ---
-    if _needs_third_party(filepath):
-        result["import_status"] = IMPORT_SKIPPED
-        return result
-
     module_name = _filepath_to_module(filepath)
     if not module_name:
         result["import_status"] = IMPORT_SKIPPED
         return result
 
+    # --- 2. Import ---
+    #
+    # Bis 2026-08-15 wurde jedes Modul mit Third-Party-Abhaengigkeit
+    # ueberhaupt nicht importiert — auf dem Server waren das 194 von 200,
+    # also praktisch alle. Der Test prueft dort nur noch, ob die Datei
+    # kompiliert, und ein vergessener Import (`get_read_db` in
+    # cogs/monitor_cog.py, 15.08.) faellt beim Kompilieren nicht auf: der
+    # Name existiert syntaktisch, er fehlt erst zur Laufzeit.
+    #
+    # Jetzt wird immer importiert. Uebersprungen wird nur, wenn dabei genau
+    # ein Third-Party-Paket fehlt — das ist der Fall, fuer den die alte
+    # Abkuerzung gedacht war (Test laeuft ausserhalb der Server-Umgebung).
+    # Jeder andere Fehler ist ein echter Fund.
     try:
         importlib.import_module(module_name)
         result["import_status"] = IMPORT_OK
+        return result
+    except RuntimeError as exc:
+        # Die Web-Module verweigern den Import, wenn ein Pflicht-Geheimnis
+        # fehlt (`WEB_SECRET_KEY`). Das ist gewolltes Fail-Closed-Verhalten,
+        # kein Codefehler — im Entwicklungs-Spiegel gibt es absichtlich keine
+        # config/.env. Als Fehler gezaehlt waeren das 28 Dauer-Rotmeldungen,
+        # und eine Suite, die immer rot ist, liest niemand mehr.
+        text = str(exc)
+        if "fehlt in config/.env" in text or "nicht gesetzt" in text:
+            result["import_status"] = IMPORT_SKIPPED
+            result["import_error"] = f"Umgebung unvollstaendig: {text.split('—')[0].strip()}"
+            return result
+        result["import_status"] = IMPORT_FAIL
+        result["import_error"] = f"{type(exc).__name__}: {exc}"
+        return result
+    except SystemExit:
+        # Die Bot-Einstiegsmodule steigen beim Import aus, wenn ihr Token
+        # fehlt (`bots/marshal_bot.py:49` und Geschwister). Ohne dieses
+        # except beendet der erste solche Import den GANZEN Testlauf — mit
+        # Rueckgabewert 0, also als Erfolg getarnt. Genau das passierte beim
+        # ersten Versuch dieser Umstellung am 2026-08-15.
+        result["import_status"] = IMPORT_SKIPPED
+        result["import_error"] = "Modul beendet sich beim Import (fehlender Token)"
+        return result
+    except ModuleNotFoundError as exc:
+        fehlend = (exc.name or "").split(".")[0]
+        if fehlend and fehlend in THIRD_PARTY_MODULES:
+            result["import_status"] = IMPORT_SKIPPED
+            result["import_error"] = f"Paket '{fehlend}' nicht installiert"
+            return result
+        result["import_status"] = IMPORT_FAIL
+        result["import_error"] = f"{type(exc).__name__}: {exc}"
+        return result
     except Exception as exc:
         result["import_status"] = IMPORT_FAIL
         result["import_error"] = f"{type(exc).__name__}: {exc}"
-
-    return result
+        return result
 
 
 def collect_py_files() -> list[Path]:

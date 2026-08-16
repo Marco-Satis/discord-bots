@@ -1,6 +1,6 @@
 # Dokumentations-Index
 
-Navigations-Übersicht aller Doku-Dateien. Projekt-Root: `../README.md` · Changelog: `../CHANGELOG.md` · Arbeitsanweisungen: `../CLAUDE.md`.
+Navigations-Übersicht aller Doku-Dateien. Projekt-Root: `../README.md` · Changelog: `../CHANGELOG.md` · Code-Referenz: `../CODE_DOKUMENTATION_DC_BOTS.md`.
 
 ---
 
@@ -9,7 +9,6 @@ Navigations-Übersicht aller Doku-Dateien. Projekt-Root: `../README.md` · Chang
 | Datei | Inhalt |
 |-------|--------|
 | [`Projektdokumentation_v4.0.0.md`](Projektdokumentation_v4.0.0.md) | Ausführliche Basis-Projektdokumentation (Architektur, Setup, Features) |
-| [`SERVER_INFO.md`](SERVER_INFO.md) | Server-Infrastruktur, Pfade, Service-Layout |
 | [`DISCORD_KANAL_BESCHREIBUNGEN.md`](DISCORD_KANAL_BESCHREIBUNGEN.md) | Kanal-Topics + Server-Struktur |
 
 ## Specs & Feature-Pläne
@@ -32,9 +31,12 @@ Navigations-Übersicht aller Doku-Dateien. Projekt-Root: `../README.md` · Chang
 
 > **Roadmap + Tagesstand** liegen ausserhalb des Repos in `~/.claude/audit/` (PROGRESS-Files, WEBPAGES_PLAN) — projekt-lokale Arbeitsdateien, nicht versioniert.
 
-## Production-Guides (`production/`)
+## Nicht im öffentlichen Repository
 
-Betriebs-Härtungs-Guides: `secret-management`, `security-headers`, `auth-hardening`, `database-hardening`, `backup-recovery`, `dependency-updates`, `observability`, `privacy-pii`, `server-config`, `memory-diagnostics`, `lavalink-setup` (Phase-E-Music-Vorbereitung).
+Betriebsnahe Dokumente werden bewusst nicht veröffentlicht, weil sie Infrastruktur beschreiben
+statt Code: die Production-Härtungs-Guides (`production/`), das Server-Layout (`SERVER_INFO.md`),
+Konfigurationsschnappschüsse (nginx, systemd-Drop-ins) sowie Sitzungsprotokolle. Sie liegen
+weiterhin lokal vor.
 
 ## Betrieb & Historie
 
@@ -42,7 +44,6 @@ Betriebs-Härtungs-Guides: `secret-management`, `security-headers`, `auth-harden
 |------|--------|
 | `incidents/` | Post-Mortems (Symptom → Wurzelursache → Lesson) |
 | `review/` · `reviews/` | Code-Review-Reports |
-| `session_logs/` · `sessions/` | Session-Protokolle |
 | `archiv/` | Abgeschlossene/veraltete Doku |
 | [`OFFEN.md`](OFFEN.md) · [`ABGESCHLOSSEN.md`](ABGESCHLOSSEN.md) | Offene / erledigte Punkte |
 
