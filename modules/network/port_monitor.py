@@ -65,6 +65,50 @@ def _port_zuordnung() -> dict[int, str]:
 PORT_TO_SERVER_ID: dict[int, str] = _port_zuordnung()
 
 
+def _standard_ports() -> list[Dict[str, Any]]:
+    """Zu ueberwachende Ports: Dashboard plus die Spiel-Ports aller Server.
+
+    Anlass (Audit-Befund, 2026-08-16): Ohne `port_monitor.ports` in der
+    config.json griff `DEFAULT_PORTS` — und das war **ein einziger Eintrag**,
+    das Dashboard auf 127.0.0.1. Im Log stand jahrelang unauffaellig
+    "PortMonitor initialisiert: 1/1 Ports aktiv".
+
+    Damit ueberwachte ausgerechnet die Port-Ueberwachung keinen einzigen Port,
+    auf den ein Spieler verbindet. Am selben Tag war Satisfactory sieben
+    Minuten nicht erreichbar, weil sich zwei Instanzen einen Port teilten —
+    genau der Fall, den diese Pruefung finden soll.
+
+    Die Liste kommt aus der Registry statt aus einer Aufzaehlung: kommt ein
+    Server dazu, wird er mitueberwacht, ohne dass jemand daran denken muss.
+    Faellt einer weg, verschwindet er ebenso. Das ist dieselbe Regel, die im
+    Rest des Projekts gilt.
+    """
+    ports: list[Dict[str, Any]] = [
+        {"port": 8080, "label": "Web-Dashboard", "host": "127.0.0.1", "enabled": True},
+    ]
+    try:
+        from modules.server_registry import alle as alle_server
+
+        for srv in alle_server():
+            if srv.spiel == "minecraft":
+                spiel_port = get_env(f"{srv.env_praefix}GAME_PORT", 0, cast=int)
+            else:
+                spiel_port = get_env(f"{srv.env_praefix}PORT", 0, cast=int)
+            if spiel_port:
+                ports.append({
+                    "port": spiel_port,
+                    "label": f"{srv.label} (Spiel)",
+                    # Von aussen pruefen waere ehrlicher, geht hier aber nicht
+                    # zuverlaessig — localhost belegt immerhin, dass der
+                    # Serverprozess lauscht.
+                    "host": "127.0.0.1",
+                    "enabled": True,
+                })
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Spiel-Ports konnten nicht aus der Registry gelesen werden: {e}")
+    return ports
+
+
 def _port_belongs_to_stopped_server(port: int) -> bool:
     """True wenn der Port zu einem manuell gestoppten Server gehoert."""
     server_id = PORT_TO_SERVER_ID.get(port)
@@ -105,7 +149,7 @@ class PortMonitor:
         if ports is not None:
             self.ports: List[Dict[str, Any]] = ports
         else:
-            self.ports = cfg.get("ports", DEFAULT_PORTS)
+            self.ports = cfg.get("ports") or _standard_ports()
 
         # Task-Referenz
         self._task: Optional[asyncio.Task[None]] = None
