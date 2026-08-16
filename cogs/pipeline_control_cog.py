@@ -16,7 +16,7 @@ Run-Achse (Start/Stop) und Modus-Achse (Burst/Normal) sind unabhaengig:
 Start/Stop schalten die Pipeline an/aus, der Modus-Toggle wechselt nur die Drosselung.
 
 Jeder Klick ruft via subprocess den CLI-Helper
-  /home/marco/n8n_stack/scripts/pipeline_control.py <action> --admin-id <uid>
+  <PIPELINE_CONTROL_SCRIPT> <action> --admin-id <uid>
 
 Panel posten:  !pipeline_panel   (im gewuenschten Channel, oder postet in
 PIPELINE_CONTROL_CHANNEL_ID).
@@ -55,7 +55,7 @@ PANEL_TITLE = "PIPELINE"
 LEGACY_PANEL_PREFIX = "🛠 Pipeline"
 
 PIPELINE_CONTROL_SCRIPT = os.getenv(
-    "PIPELINE_CONTROL_SCRIPT", "/home/marco/n8n_stack/scripts/pipeline_control.py"
+    "PIPELINE_CONTROL_SCRIPT", "/opt/n8n_stack/scripts/pipeline_control.py"
 )
 PYTHON_BIN = os.getenv("PIPELINE_PYTHON_BIN", "/usr/bin/python3")
 CONTROL_CHANNEL_ID = int(os.getenv("PIPELINE_CONTROL_CHANNEL_ID", "222222222222222222") or "0")

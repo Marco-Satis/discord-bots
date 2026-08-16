@@ -307,7 +307,7 @@ class DuckDNSMonitor:
             logger.error("auto_update: Keine Domain konfiguriert")
             return False
 
-        # Subdomain aus der Domain extrahieren (z.B. "marco-satisfactory" aus "marco-satisfactory.duckdns.org")
+        # Subdomain aus der Domain extrahieren (z.B. "meinserver" aus "meinserver.duckdns.org")
         subdomain = self.domain.split(".")[0] if "." in self.domain else self.domain
         url = f"https://www.duckdns.org/update?domains={subdomain}&token={token}&ip={ip}"
 

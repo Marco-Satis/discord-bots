@@ -460,7 +460,7 @@ bot.disk_guard = disk_guard
 
 duckdns_monitor = DuckDNSMonitor(
     bot,
-    domain=get_env("WEB_DOMAIN", "marco-satisfactory.duckdns.org"),
+    domain=get_env("WEB_DOMAIN", "beispiel.duckdns.org"),
 )
 bot.duckdns_monitor = duckdns_monitor
 

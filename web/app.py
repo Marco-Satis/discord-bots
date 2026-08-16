@@ -76,7 +76,7 @@ WEB_HTTPS = get_env("WEB_HTTPS", "true", cast=bool)
 
 # CORS-Middleware (innerste Schicht — laeuft als letztes)
 SERVER_IP = get_env("SERVER_IP", "203.0.113.10")
-DOMAIN = get_env("WEB_DOMAIN", "marco-satisfactory.duckdns.org")
+DOMAIN = get_env("WEB_DOMAIN", "beispiel.duckdns.org")
 ALLOWED_ORIGINS = [
     f"https://{DOMAIN}",
     f"https://{SERVER_IP}:8443",

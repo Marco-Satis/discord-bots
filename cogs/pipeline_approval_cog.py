@@ -2,7 +2,7 @@
 Pipeline-Approval-Cog (Phase E + Feature H Modell A)
 
 Empfaengt Discord-Component-Interactions der n8n-Pipeline-Notifications und ruft
-via subprocess den CLI-Helper `/home/marco/n8n_stack/scripts/pipeline_approve.py`.
+via subprocess den CLI-Helper aus PIPELINE_APPROVE_SCRIPT.
 
 Buttons (von pipeline_runner.step_discord_notify gesetzt) — Rework 2026-07-15:
   - "pipeline_delete_<run_id>"    🗑 -> delete   (Archiv + TikTok-Unsave-Queue, KEIN
@@ -43,7 +43,7 @@ logger = get_logger(__name__)
 BERLIN = ZoneInfo("Europe/Berlin")
 
 PIPELINE_APPROVE_SCRIPT = os.getenv(
-    "PIPELINE_APPROVE_SCRIPT", "/home/marco/n8n_stack/scripts/pipeline_approve.py"
+    "PIPELINE_APPROVE_SCRIPT", "/opt/n8n_stack/scripts/pipeline_approve.py"
 )
 PYTHON_BIN = os.getenv("PIPELINE_PYTHON_BIN", "/usr/bin/python3")
 

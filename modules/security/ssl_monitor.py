@@ -32,7 +32,7 @@ class SSLMonitor:
     Überwacht SSL/TLS-Zertifikate auf ihre Gültigkeit.
 
     Liest die Domain aus der Umgebungsvariable WEB_DOMAIN oder
-    fällt auf den Standard "marco-satisfactory.duckdns.org" zurück.
+    faellt auf einen Platzhalter zurueck — die echte Domain gehoert in WEB_DOMAIN.
     """
 
     def __init__(
@@ -49,7 +49,7 @@ class SSLMonitor:
             warning_days: Tage vor Ablauf für Warnung (Standard: 14)
             critical_days: Tage vor Ablauf für kritische Warnung (Standard: 3)
         """
-        self.domain: str = domain or get_env("WEB_DOMAIN", "marco-satisfactory.duckdns.org")
+        self.domain: str = domain or get_env("WEB_DOMAIN", "beispiel.duckdns.org")
         self.port: int = port
         self.warning_days: int = warning_days
         self.critical_days: int = critical_days
