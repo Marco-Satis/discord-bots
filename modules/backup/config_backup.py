@@ -127,7 +127,25 @@ class ConfigBackup:
                         upload_filename = filename + ".gpg"
                         logger.info(f"Config backup verschluesselt: {upload_filename}")
                     else:
-                        logger.warning("GPG-Verschluesselung fehlgeschlagen, lade unverschluesselt hoch")
+                        # Frueher wurde hier unverschluesselt hochgeladen und nur
+                        # eine Warnung geschrieben. Das ist ein Fail-Open auf einer
+                        # Sicherheitsfunktion: wer `config_encrypt` einschaltet,
+                        # bekommt seine Server-Konfiguration trotzdem im Klartext
+                        # in die Cloud — und merkt es nur, wenn er Logs liest.
+                        #
+                        # Gefunden am 2026-08-16: GPG_PASSPHRASE stand in der .env,
+                        # war aber leer. Der Schalter allein haette also nichts
+                        # bewirkt ausser einer Zeile im Protokoll.
+                        #
+                        # Jetzt gilt: verschluesselt gewollt und nicht moeglich
+                        # heisst kein Upload. Ein fehlendes Backup faellt auf,
+                        # ein unverschluesseltes nicht.
+                        logger.error(
+                            "GPG-Verschluesselung fehlgeschlagen — Upload abgebrochen. "
+                            "Ist GPG_PASSPHRASE in config/.env gesetzt und nicht leer?"
+                        )
+                        return False, ("Verschluesselung fehlgeschlagen (GPG_PASSPHRASE "
+                                       "gesetzt?). Es wurde NICHTS hochgeladen.")
 
                 # Upload to OneDrive
                 size_kb = round(upload_path.stat().st_size / 1024, 1)

@@ -48,6 +48,11 @@ class ModCog(commands.Cog):
             or current.lower() in srv.display_name.lower()
         ]
 
+    @property
+    def mc_instanzen(self) -> dict:
+        """Alle konfigurierten Minecraft-Server."""
+        return getattr(self.bot, "mc_servers", {}) or {}
+
     def _get_mod_manager(self, game: str, sid: Optional[str] = None) -> ModManager:
         """
         ModManager fuer ein Spiel (und bei Satisfactory: fuer eine Instanz).
@@ -55,6 +60,14 @@ class ModCog(commands.Cog):
         Mods liegen im Installationsverzeichnis. Zwei Satisfactory-Instanzen
         haben zwei Verzeichnisse — ein gemeinsamer Manager haette die Mods des
         ersten Servers als die des zweiten ausgegeben.
+
+        Fuer Minecraft galt bis 2026-08-16 dasselbe Problem in schlimmerer Form:
+        der Pfad kam aus `bot.minecraft_path`, das NIRGENDS gesetzt wird. Der
+        `hasattr`-Schutz verhinderte den Absturz und machte den Fehler damit
+        unsichtbar — `/mod list game:minecraft` las `/opt/minecraft`, ein
+        Verzeichnis, das es auf diesem System nicht gibt, und meldete brav
+        "keine Mods". Der richtige Pfad lag die ganze Zeit im selben Prozess
+        (`bot.mc_servers[<ID>].server_path`).
         """
         game_lower = game.lower()
         if game_lower == "satisfactory":
@@ -62,9 +75,16 @@ class ModCog(commands.Cog):
             schluessel = f"satisfactory:{sid or 'MAIN'}"
             pfad = Path(srv.server_path) if srv is not None else Path("/opt/satisfactory")
         else:  # minecraft
-            schluessel = "minecraft"
-            pfad = (Path(self.bot.minecraft_path)
-                    if hasattr(self.bot, "minecraft_path") else Path("/opt/minecraft"))
+            mc = self.mc_instanzen
+            kennung = (sid or "").upper()
+            srv = mc.get(kennung) or (next(iter(mc.values())) if mc else None)
+            schluessel = f"minecraft:{kennung or (next(iter(mc), 'MAIN') if mc else 'MAIN')}"
+            if srv is not None:
+                pfad = Path(srv.server_path)
+            else:
+                # Kein Minecraft konfiguriert. Der Platzhalter bleibt, damit der
+                # Aufruf nicht abstuerzt — dass nichts gefunden wird, stimmt dann.
+                pfad = Path("/opt/minecraft")
 
         if schluessel not in self.mod_managers:
             self.mod_managers[schluessel] = ModManager(game_lower, pfad)

@@ -35,6 +35,8 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from utils.config import load_env, get_env, get_config, server_ids
 from utils.logger import get_logger
+from utils.privacy import hash_player
+from modules.word_filter import WordFilter
 from utils.formatting import format_uptime, format_bytes, status_emoji
 from utils.async_tasks import track_task
 
@@ -497,6 +499,12 @@ bot.package_checker = package_checker
 # MC_SERVER_IDS=BMC,VANILLA plus den MC_VANILLA_*-Block, ohne Code-Aenderung.
 MC_SERVER_IDS = server_ids("MC_SERVER_IDS", "BMC")
 mc_servers: dict[str, MinecraftServer] = {}
+# Wortfilter fuer den In-Game-Chat. Er gehoert in DIESEN Prozess, weil hier
+# die Chat-Bruecke laeuft — im operator-bot wurde er zwar angelegt und
+# geladen, aber nie gefragt (Audit-Befund C-5, 2026-08-16).
+word_filter: Optional[WordFilter] = WordFilter()
+bot.word_filter = word_filter
+
 mc_chat_bridges: dict[str, MinecraftChatBridge] = {}
 
 for _mc_sid in MC_SERVER_IDS:
@@ -599,16 +607,49 @@ _NO_MENTIONS = discord.AllowedMentions.none()
 
 
 async def _mc_on_chat(server_id: str, player: str, message: str):
-    """MC Chat → Discord Channel"""
+    """MC Chat → Discord Channel
+
+    Der Wortfilter greift hier, weil hier die Grenze verlaeuft: was im Spiel
+    geschrieben wird, landet ueber diese Funktion im Discord und wird damit
+    fuer alle sichtbar, auch fuer die, die nie auf dem Spielserver waren.
+
+    Bis 2026-08-16 lief das ungefiltert. Der Grund war kein Denkfehler,
+    sondern eine Verwechslung: `WordFilter` wurde im operator-bot angelegt und
+    geladen (`bots/operator_bot.py:196`), die Chat-Bruecke laeuft aber im
+    recon-bot. Der Filter las brav seine 29 Muster ein und wurde nie gefragt —
+    im Journal 22-mal "Word filter loaded" in 48 Stunden, ohne eine einzige
+    Pruefung. Die Discord-seitige Moderation (`cogs/moderation_cog.py`) konnte
+    das nicht auffangen: sie sieht nur echte Nutzernachrichten, und was hier
+    ankommt, schreibt der Bot.
+    """
     srv = mc_servers.get(server_id)
     if not srv or not srv.game_chat_channel_id:
         return
     channel = bot.get_channel(srv.game_chat_channel_id)
-    if channel:
-        # Markdown/Mention-Injection verhindern
-        safe_player = discord.utils.escape_markdown(player)
-        safe_message = discord.utils.escape_markdown(message)
-        await channel.send(f"**<{safe_player}>** {safe_message}", allowed_mentions=_NO_MENTIONS)
+    if not channel:
+        return
+
+    ausgabe = message
+    if word_filter is not None:
+        try:
+            getroffen, wort = word_filter.check(message)
+            if getroffen:
+                # Ersetzen statt verwerfen: die Unterhaltung bleibt lesbar, und
+                # das Team sieht im Protokoll, dass etwas gefiltert wurde.
+                ausgabe = word_filter.filter_message(message)
+                logger.info(
+                    f"[{server_id}] In-Game-Chat gefiltert "
+                    f"(Spieler {hash_player(player)}, Muster '{wort}')"
+                )
+        except Exception as e:
+            # Ein kaputter Filter darf die Bruecke nicht abreissen — dann lieber
+            # ungefiltert weiterleiten und es sichtbar protokollieren.
+            logger.error(f"[{server_id}] Wortfilter fehlgeschlagen: {e}")
+
+    # Markdown/Mention-Injection verhindern
+    safe_player = discord.utils.escape_markdown(player)
+    safe_message = discord.utils.escape_markdown(ausgabe)
+    await channel.send(f"**<{safe_player}>** {safe_message}", allowed_mentions=_NO_MENTIONS)
 
 
 async def _mc_on_join(server_id: str, player: str):
@@ -3083,6 +3124,18 @@ async def on_ready():
 
     # Minecraft Chat-Bridge Channel-Map befuellen
     _build_mc_chat_channel_map()
+
+    # Wortfilter fuer den In-Game-Chat laden. Ohne diesen Aufruf haette der
+    # Filter keine Muster und wuerde stillschweigend nichts tun — genau der
+    # Zustand, der bis 2026-08-16 im operator-bot bestand.
+    if word_filter is not None:
+        try:
+            await word_filter.load()
+            logger.info(
+                f"In-Game-Wortfilter geladen: {len(word_filter._words)} Muster"
+            )
+        except Exception as e:
+            logger.error(f"In-Game-Wortfilter konnte nicht geladen werden: {e}")
 
     # F28: SQLite-Datenbank initialisieren (idempotent bei Reconnect)
     db = None
