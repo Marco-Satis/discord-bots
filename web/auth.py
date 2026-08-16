@@ -70,10 +70,38 @@ JWT_ALGORITHM = "HS256"
 # in web/middleware/session_timeout.py. prompt=consent bleibt entfernt → stiller Re-Login.
 JWT_EXPIRY_HOURS = 24
 
-# Erlaubte Rollen und Benutzer aus config.json
+# Erlaubte Rollen und Benutzer — bevorzugt aus der .env, sonst aus config.json.
+#
+# Warum die ENV zuerst kommt: `config/config.json` ist im Repo getrackt, und
+# das Repo wird oeffentlich gestellt. Discord-IDs sind zwar kein Geheimnis im
+# engeren Sinne, verraten aber Server, Rollen und Personen — sie gehoeren zu
+# den uebrigen Zugangsdaten in die `.env`, die nie getrackt wird.
+#
+# Der config.json-Weg bleibt als Rueckfall bestehen, damit bestehende
+# Installationen nicht ueber Nacht ausgesperrt werden.
 _config = get_config()
-WEB_ALLOWED_ROLE_IDS = _config.get("web_allowed_role_ids", [])
-WEB_ALLOWED_USER_IDS = _config.get("web_allowed_user_ids", [])
+
+
+def _id_liste(env_name: str, config_key: str) -> list[str]:
+    """Kommagetrennte IDs aus der ENV, sonst die Liste aus config.json."""
+    roh = get_env(env_name, "")
+    if roh:
+        return [t.strip() for t in str(roh).split(",") if t.strip()]
+    return _config.get(config_key, [])
+
+
+WEB_ALLOWED_ROLE_IDS = _id_liste("WEB_ALLOWED_ROLE_IDS", "web_allowed_role_ids")
+WEB_ALLOWED_USER_IDS = _id_liste("WEB_ALLOWED_USER_IDS", "web_allowed_user_ids")
+
+# Eine leere Liste bedeutet in der Auswertung weiter unten NICHT "niemand",
+# sondern "jedes Guild-Mitglied darf rein" (Zeile ~410). Genau das war der
+# Zustand bis zum 2026-08-15, weil beide Schluessel in config.json fehlten.
+# Deshalb hier eine deutliche Warnung beim Start statt eines stillen Defaults.
+if not WEB_ALLOWED_ROLE_IDS and not WEB_ALLOWED_USER_IDS:
+    logger.warning(
+        "WEB_ALLOWED_ROLE_IDS und WEB_ALLOWED_USER_IDS sind beide leer — "
+        "damit darf JEDES Guild-Mitglied ins Dashboard. In config/.env setzen."
+    )
 
 
 # --- Rate Limiting (einfach, dict-basiert) ---
