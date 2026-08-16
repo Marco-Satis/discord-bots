@@ -89,21 +89,45 @@ def _standard_ports() -> list[Dict[str, Any]]:
     try:
         from modules.server_registry import alle as alle_server
 
+        erster_sat = True
         for srv in alle_server():
             if srv.spiel == "minecraft":
-                spiel_port = get_env(f"{srv.env_praefix}GAME_PORT", 0, cast=int)
+                # Der Spielport steht bei Minecraft nicht zwingend in der ENV.
+                # Dann wird der RCON-Port geprueft: er ist gesetzt, er gehoert
+                # zum selben Prozess, und die Bots benutzen ihn ohnehin. Ein
+                # erreichbarer RCON-Port heisst, der Server laeuft.
+                port = get_env(f"{srv.env_praefix}GAME_PORT", 0, cast=int)
+                zusatz = "Spiel"
+                if not port:
+                    port = get_env(f"{srv.env_praefix}RCON_PORT", 0, cast=int)
+                    zusatz = "RCON"
             else:
-                spiel_port = get_env(f"{srv.env_praefix}PORT", 0, cast=int)
-            if spiel_port:
+                # Die erste Satisfactory-Instanz laeuft historisch ohne eigenen
+                # SAT_<ID>_PORT-Eintrag auf der Vorgabe 7777 — dieselbe Annahme
+                # trifft `_port_zuordnung()` weiter oben. Fuer jede weitere
+                # Instanz waere Raten gefaehrlich: sie koennte auf einem
+                # beliebigen Port liegen, und ein falsch ueberwachter Port
+                # meldet entweder nie oder dauernd.
+                port = get_env(f"{srv.env_praefix}PORT", 7777 if erster_sat else 0,
+                               cast=int)
+                zusatz = "Spiel"
+                erster_sat = False
+            if port:
                 ports.append({
-                    "port": spiel_port,
-                    "label": f"{srv.label} (Spiel)",
-                    # Von aussen pruefen waere ehrlicher, geht hier aber nicht
-                    # zuverlaessig — localhost belegt immerhin, dass der
+                    "port": port,
+                    "label": f"{srv.label} ({zusatz})",
+                    # Von aussen pruefen waere aussagekraeftiger, geht hier aber
+                    # nicht zuverlaessig — localhost belegt immerhin, dass der
                     # Serverprozess lauscht.
                     "host": "127.0.0.1",
                     "enabled": True,
                 })
+            else:
+                logger.warning(
+                    f"Kein pruefbarer Port fuer {srv.label} gefunden "
+                    f"({srv.env_praefix}PORT / GAME_PORT / RCON_PORT) — "
+                    f"dieser Server wird NICHT ueberwacht."
+                )
     except Exception as e:  # noqa: BLE001
         logger.warning(f"Spiel-Ports konnten nicht aus der Registry gelesen werden: {e}")
     return ports
