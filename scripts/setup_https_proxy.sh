@@ -2,14 +2,15 @@
 # =============================================================================
 # Setup HTTPS Reverse-Proxy fuer das Web-Dashboard
 # Verwendet Let's Encrypt (Certbot) fuer ein echtes SSL-Zertifikat
-# mit der Domain marco-satisfactory.duckdns.org
+# mit der Domain aus WEB_DOMAIN bzw. dem ersten Argument
 #
 # Aufruf: sudo bash scripts/setup_https_proxy.sh
 # =============================================================================
 
 set -euo pipefail
 
-DOMAIN="marco-satisfactory.duckdns.org"
+# Domain: 1. Argument, sonst WEB_DOMAIN aus der Umgebung, sonst Platzhalter.
+DOMAIN="${1:-${WEB_DOMAIN:-beispiel.duckdns.org}}"
 NGINX_CONF="/etc/nginx/sites-available/dashboard-proxy"
 NGINX_LINK="/etc/nginx/sites-enabled/dashboard-proxy"
 HTTPS_PORT=443
@@ -40,7 +41,7 @@ cat > "${NGINX_CONF}" <<'NGINX_EOF'
 server {
     listen 80;
     listen [::]:80;
-    server_name marco-satisfactory.duckdns.org;
+    server_name ${DOMAIN};
 
     # Logging
     access_log /var/log/nginx/dashboard_access.log;

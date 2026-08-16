@@ -16,7 +16,9 @@
 # ============================================================================
 set -euo pipefail
 
-STAGING=/home/marco/dbots_staging
+# Staging-Verzeichnis des Entwicklers. Ueber DBOTS_STAGING anpassbar,
+# damit im Repo kein fester Benutzername steht.
+STAGING="${DBOTS_STAGING:-/home/$(logname 2>/dev/null || echo entwickler)/dbots_staging}"
 DIR=/home/botuser/Discord_Bots
 LOG=/var/log/discordbots-deploy.log
 ALLOWED_TOPDIRS="bots cogs modules utils web"
