@@ -551,8 +551,15 @@ class TimeoutCog(commands.Cog):
     ) -> list[str]:
         """Server-Auswahl in Liste von Server-IDs aufloesen"""
         if not server_choice or server_choice.value == "alle":
-            # Alle verfügbaren Server
-            servers = ["sat"]
+            # Alle verfügbaren Server.
+            #
+            # Audit-Befund C-9 (2026-08-16): hier stand fest `["sat"]`, und
+            # "sat" loest immer auf die *erste* Instanz auf (`_sat_sid`). Ein
+            # Timeout auf "alle Server" traf damit SAT-1 und jeden Minecraft —
+            # den zweiten Satisfactory nie. Der Bann-Pfad selbst kann ihn
+            # laengst (siehe `_ban_on_servers`), nur bot ihn niemand an: der
+            # gebannte Spieler haette einfach dort weitergespielt.
+            servers = list(self._sat_kennungen())
             mc_servers = getattr(self.bot, "mc_servers", {})
             for sid in mc_servers:
                 servers.append(sid.lower())
@@ -583,6 +590,18 @@ class TimeoutCog(commands.Cog):
                 results.append(f"MC-{srv.upper()}: {result}")
 
         return results
+
+    def _sat_kennungen(self) -> list[str]:
+        """Timeout-Kennungen aller Satisfactory-Instanzen.
+
+        Die erste heisst historisch "sat" (so steht sie in Auswahllisten und
+        in der Datenbank), jede weitere "sat_<id>". `_sat_sid` liest genau
+        dieses Schema wieder ein.
+        """
+        servers = list(getattr(self.bot, "sat_servers", {}) or {})
+        if not servers:
+            return ["sat"]
+        return ["sat"] + [f"sat_{sid.lower()}" for sid in servers[1:]]
 
     def _sat_sid(self, kurz_id: str) -> str:
         """Kennung des Timeout-Systems ("sat", "sat_second") zur Instanz-ID."""

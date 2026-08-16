@@ -2018,17 +2018,30 @@ class SchedulerCog(commands.Cog):
         try:
             report_parts = []
 
-            # Server status
-            if self.sat_server:
-                running = await self.sat_server.is_running()
+            # Server status — je Instanz.
+            # Audit-Befund C-8 (2026-08-16): hier stand `self.sat_server`, also
+            # genau ein Server. Der Bericht ging taeglich raus und sah gesund
+            # aus; der zweite Satisfactory kam darin schlicht nicht vor. Der
+            # Minecraft-Zweig 1600 Zeilen weiter oben macht es seit jeher
+            # richtig (`_check_mc_daily_restart` je `mc_sid`) — der Tagesbericht
+            # war die letzte Stelle, die noch einen einzelnen Server kannte.
+            for sid in (self.sat_instanzen or []):
+                srv = self.sat_server_von(sid)
+                if not srv:
+                    continue
+                running = await srv.is_running()
                 server_dot = "🟢 Online" if running else "🔴 Offline"
-                report_parts.append(f"**Server:** {server_dot}")
+                report_parts.append(f"**{srv.display_name}:** {server_dot}")
 
-            # Health summary (last 24h)
-            if self.health_checker:
-                summary = self.health_checker.get_summary()
+            # Health summary (last 24h) — ebenfalls je Instanz.
+            for sid in (self.sat_instanzen or []):
+                checker = self.health_checker_von(sid)
+                if not checker:
+                    continue
+                summary = checker.get_summary()
+                name = self.sat_name_von(sid)
                 report_parts.append(
-                    f"**Crashes (24h):** {summary.get('crashes_last_hour', 0)} | "
+                    f"**Crashes {name} (24h):** {summary.get('crashes_last_hour', 0)} | "
                     f"**Gesamt:** {summary.get('crashes_total', 0)}"
                 )
 
