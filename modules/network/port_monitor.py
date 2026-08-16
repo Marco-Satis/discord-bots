@@ -65,6 +65,33 @@ def _port_zuordnung() -> dict[int, str]:
 PORT_TO_SERVER_ID: dict[int, str] = _port_zuordnung()
 
 
+def _eigene_adresse() -> str:
+    """Die Adresse, unter der diese Maschine nach aussen auftritt.
+
+    Wird gebraucht, weil die Spiel-Server NICHT auf 127.0.0.1 lauschen, sondern
+    auf der oeffentlichen Schnittstelle (`ss -tlnp` zeigt z.B. `<IP>:7777`). Ein
+    Verbindungsversuch auf localhost schlaegt dort immer fehl — eine
+    Ueberwachung, die dauerhaft "zu" meldet, ist schlimmer als keine: sie
+    erzeugt alle fuenf Minuten einen Fehlalarm, und nach zwei Wochen schaut
+    niemand mehr hin.
+
+    Ermittelt ueber einen UDP-Socket ohne Datenverkehr — das ist die uebliche
+    Art, die eigene Quelladresse zu erfahren, ohne eine IP fest einzutragen
+    (was in einem oeffentlichen Repo ohnehin nicht ginge).
+    """
+    import socket
+
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("192.0.2.1", 9))     # RFC5737-Beispieladresse, kein Paket
+            return s.getsockname()[0]
+        finally:
+            s.close()
+    except Exception:
+        return "127.0.0.1"
+
+
 def _standard_ports() -> list[Dict[str, Any]]:
     """Zu ueberwachende Ports: Dashboard plus die Spiel-Ports aller Server.
 
@@ -86,6 +113,7 @@ def _standard_ports() -> list[Dict[str, Any]]:
     ports: list[Dict[str, Any]] = [
         {"port": 8080, "label": "Web-Dashboard", "host": "127.0.0.1", "enabled": True},
     ]
+    eigene = _eigene_adresse()
     try:
         from modules.server_registry import alle as alle_server
 
@@ -113,13 +141,17 @@ def _standard_ports() -> list[Dict[str, Any]]:
                 zusatz = "Spiel"
                 erster_sat = False
             if port:
+                # RCON bindet auf localhost (so gewollt, siehe rcon.host),
+                # die Spiel-Ports auf der oeffentlichen Schnittstelle. Wer den
+                # falschen Host prueft, bekommt dauerhaft "zu" gemeldet.
+                if zusatz == "RCON":
+                    host = get_env(f"{srv.env_praefix}RCON_HOST", "127.0.0.1")
+                else:
+                    host = get_env(f"{srv.env_praefix}API_HOST", "") or eigene
                 ports.append({
                     "port": port,
                     "label": f"{srv.label} ({zusatz})",
-                    # Von aussen pruefen waere aussagekraeftiger, geht hier aber
-                    # nicht zuverlaessig — localhost belegt immerhin, dass der
-                    # Serverprozess lauscht.
-                    "host": "127.0.0.1",
+                    "host": host,
                     "enabled": True,
                 })
             else:
