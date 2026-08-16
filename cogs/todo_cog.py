@@ -44,6 +44,12 @@ logger = get_logger("cogs.todo")
 # bewusst nur dieses eine an.
 BOARD = "satisfactory"
 
+# Seit 2026-08-16 traegt die Spalte `board` die Server-Kennung (MAIN, SECOND, …)
+# statt eines festen Namens. Eintraege aus der Zeit davor stehen unter dem alten
+# Wert und gehoeren zur ersten Instanz — deshalb bleibt BOARD als Rueckfall
+# stehen und wird nicht weggeworfen.
+BOARD_ALT = BOARD
+
 # Harte Discord-Grenze: 40 Komponenten je Nachricht. Eine Eintragszeile kostet 3
 # (Section + Text + Button); ein Sicherheitsabstand bleibt fuer kuenftige Zusaetze.
 COMPONENT_LIMIT = 40
@@ -194,7 +200,12 @@ class TodoOverflowSelect(
 
 
 class TodoAddModal(discord.ui.Modal, title="Neuer Eintrag"):
-    """Eingabefeld hinter dem ``+ Eintrag``-Button."""
+    """Eingabefeld hinter dem ``+ Eintrag``-Button.
+
+    Die Zielinstanz steckt im Knopf, nicht im Formular: wer auf ``+ SAT-2``
+    drueckt, hat die Entscheidung schon getroffen. Ein zusaetzliches Auswahlfeld
+    waere eine Frage, deren Antwort bereits feststeht.
+    """
 
     text = discord.ui.TextInput(
         label="Was soll gebaut werden?",
@@ -202,6 +213,12 @@ class TodoAddModal(discord.ui.Modal, title="Neuer Eintrag"):
         max_length=MAX_TEXT_LEN,
         required=True,
     )
+
+    def __init__(self, sid: Optional[str] = None, zielname: str = "") -> None:
+        super().__init__()
+        self.sid = sid
+        if zielname:
+            self.title = f"Neuer Eintrag — {zielname}"[:45]
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         cog = interaction.client.get_cog("ToDo")
@@ -211,28 +228,37 @@ class TodoAddModal(discord.ui.Modal, title="Neuer Eintrag"):
             )
             return
 
-        neu_id = await cog.add_todo(str(self.text), interaction.user)
+        neu_id = await cog.add_todo(str(self.text), interaction.user, self.sid)
         await interaction.response.send_message(
             f"Eintrag `#{neu_id}` angelegt.", ephemeral=True
         )
         await cog.refresh_board()
 
 
-class TodoAddButton(discord.ui.DynamicItem[discord.ui.Button], template=r"todo:new"):
-    """``+ Eintrag`` — oeffnet das Eingabefeld, ohne Slash-Command."""
+class TodoAddButton(
+    discord.ui.DynamicItem[discord.ui.Button],
+    template=r"todo:new:(?P<sid>[A-Za-z0-9_\-]+)",
+):
+    """``+ Eintrag`` — oeffnet das Eingabefeld, ohne Slash-Command.
 
-    def __init__(self) -> None:
+    Je Instanz ein eigener Knopf. Die Kennung steht in der ``custom_id``, damit
+    der Knopf auch nach einem Bot-Neustart noch weiss, wohin der Eintrag gehoert
+    — persistente Views bekommen keinen Zustand aus dem Arbeitsspeicher.
+    """
+
+    def __init__(self, sid: str, beschriftung: str = "+ Eintrag") -> None:
+        self.sid = sid
         super().__init__(
             discord.ui.Button(
-                label="+ Eintrag",
+                label=beschriftung[:80],
                 style=discord.ButtonStyle.primary,
-                custom_id="todo:new",
+                custom_id=f"todo:new:{sid}",
             )
         )
 
     @classmethod
     async def from_custom_id(cls, interaction, item, match) -> "TodoAddButton":
-        return cls()
+        return cls(match["sid"])
 
     async def callback(self, interaction: discord.Interaction) -> None:
         if not is_spieler(interaction):
@@ -241,7 +267,13 @@ class TodoAddButton(discord.ui.DynamicItem[discord.ui.Button], template=r"todo:n
                 ephemeral=True,
             )
             return
-        await interaction.response.send_modal(TodoAddModal())
+        cog = interaction.client.get_cog("ToDo")
+        zielname = ""
+        if cog is not None:
+            boards = cog._boards()
+            if self.sid in boards:
+                zielname = cog._board_name(self.sid, boards.index(self.sid) + 1)
+        await interaction.response.send_modal(TodoAddModal(self.sid, zielname))
 
 
 class TodoClearButton(discord.ui.DynamicItem[discord.ui.Button], template=r"todo:clear"):
@@ -318,20 +350,68 @@ class ToDoCog(commands.Cog, name="ToDo"):
     # DB-Zugriff
     # ==================================================================
 
+    # ------------------------------------------------------------------
+    # Instanzen
+    # ------------------------------------------------------------------
+
+    @property
+    def sat_instanzen(self) -> Dict[str, Any]:
+        """Alle Satisfactory-Instanzen, Reihenfolge wie in SAT_SERVER_IDS.
+
+        Auch ueber `self.bot` abgesichert: das Board wird gebaut, bevor der Bot
+        vollstaendig bereit ist, und in Tests ohne Bot-Objekt. Fehlt die
+        Registry, faellt `_boards()` auf das alte Einzel-Board zurueck — das
+        Panel sieht dann aus wie vor dem Umbau statt gar nicht.
+        """
+        bot = getattr(self, "bot", None)
+        return getattr(bot, "sat_servers", {}) or {}
+
+    def _boards(self) -> List[str]:
+        """Board-Kennungen in Anzeigereihenfolge.
+
+        Gibt es keine Instanz (Registry leer oder Bot noch nicht bereit),
+        bleibt es beim alten Einzel-Board — dann sieht das Panel aus wie
+        frueher, statt leer zu sein.
+        """
+        return list(self.sat_instanzen) or [BOARD_ALT]
+
+    def _board_name(self, sid: str, index: int) -> str:
+        """Ueberschrift einer Liste: Anzeigename der Instanz, sonst SAT-<n>."""
+        srv = self.sat_instanzen.get(sid)
+        name = getattr(srv, "display_name", None) if srv else None
+        return name or (BOARD_ALT.upper() if sid == BOARD_ALT else f"SAT-{index}")
+
+    def _erstes_board(self) -> str:
+        return self._boards()[0]
+
+    # ------------------------------------------------------------------
+    # DB-Zugriff
+    # ------------------------------------------------------------------
+
     async def _fetch_todos(self) -> List[Dict[str, Any]]:
-        """Alle Eintraege des Boards — offene zuerst, dann nach ID."""
+        """Alle Eintraege aller Boards — offene zuerst, dann nach ID.
+
+        Eintraege unter der alten Kennung werden der ersten Instanz
+        zugeschlagen, damit nichts unsichtbar wird, was vor dem Umbau
+        angelegt wurde.
+        """
         conn = await get_read_db()
         cursor = await conn.execute(
-            "SELECT * FROM todos WHERE board = ? ORDER BY done ASC, id ASC",
-            (BOARD,),
+            "SELECT * FROM todos ORDER BY done ASC, id ASC"
         )
-        rows = await cursor.fetchall()
-        return [dict(r) for r in rows]
+        rows = [dict(r) for r in await cursor.fetchall()]
+
+        erstes = self._erstes_board()
+        bekannt = set(self._boards())
+        for r in rows:
+            if r.get("board") not in bekannt:
+                r["board"] = erstes
+        return rows
 
     async def _fetch_todo(self, todo_id: int) -> Optional[Dict[str, Any]]:
         conn = await get_read_db()
         cursor = await conn.execute(
-            "SELECT * FROM todos WHERE id = ? AND board = ?", (todo_id, BOARD)
+            "SELECT * FROM todos WHERE id = ?", (todo_id,)
         )
         row = await cursor.fetchone()
         return dict(row) if row else None
@@ -359,14 +439,21 @@ class ToDoCog(commands.Cog, name="ToDo"):
         await conn.commit()
         return True
 
-    async def add_todo(self, text: str, user: discord.abc.User) -> int:
-        """Eintrag anlegen, ID zurueckgeben. Aufrufer prueft Rechte und Laenge."""
+    async def add_todo(
+        self, text: str, user: discord.abc.User, sid: Optional[str] = None
+    ) -> int:
+        """Eintrag anlegen, ID zurueckgeben. Aufrufer prueft Rechte und Laenge.
+
+        Ohne Angabe landet der Eintrag bei der ersten Instanz — dieselbe Regel
+        wie bei den /sat-Befehlen, damit man nichts angeben MUSS.
+        """
+        board = sid if sid in self._boards() else self._erstes_board()
         conn = await get_db()
         cursor = await conn.execute(
             """INSERT INTO todos (board, text, created_by, created_by_name, created_at)
                VALUES (?, ?, ?, ?, ?)""",
             (
-                BOARD,
+                board,
                 text.strip(),
                 str(user.id),
                 user.display_name,
@@ -377,11 +464,13 @@ class ToDoCog(commands.Cog, name="ToDo"):
         return int(cursor.lastrowid)
 
     async def clear_done(self) -> int:
-        """Alle erledigten Eintraege loeschen, Anzahl zurueckgeben."""
+        """Alle erledigten Eintraege loeschen, Anzahl zurueckgeben.
+
+        Gilt bewusst ueber alle Listen: der Knopf sitzt unter dem gemeinsamen
+        Panel und raeumt sichtbar das ab, was im Panel als erledigt steht.
+        """
         conn = await get_db()
-        cursor = await conn.execute(
-            "DELETE FROM todos WHERE board = ? AND done = 1", (BOARD,)
-        )
+        cursor = await conn.execute("DELETE FROM todos WHERE done = 1")
         await conn.commit()
         return cursor.rowcount
 
@@ -444,20 +533,30 @@ class ToDoCog(commands.Cog, name="ToDo"):
         return f"{kennzahlen}\n{progress_bar(erledigt, gesamt, 10, 'outline')}"
 
     @staticmethod
-    def _section_budget(hat_offen: bool, hat_erledigt: bool, mit_ueberlauf: bool) -> int:
+    def _section_budget(
+        listen: int,
+        mit_offen: int,
+        mit_erledigt: int,
+        mit_ueberlauf: bool,
+    ) -> int:
         """Wie viele Eintragszeilen ins 40-Komponenten-Budget passen.
 
         Wird gerechnet statt geraten, damit ein zusaetzliches Element im Panel
-        nicht stillschweigend Eintraege verschluckt.
+        nicht stillschweigend Eintraege verschluckt. Mit zwei Listen kostet
+        jede zusaetzliche Ueberschrift Platz — genau deshalb steht die Rechnung
+        hier und nicht als Erfahrungswert im Code.
+
+        `listen`       — Anzahl angezeigter Server-Listen
+        `mit_offen`    — wie viele davon offene Eintraege haben
+        `mit_erledigt` — wie viele davon erledigte haben
         """
-        fest = 1 + 1 + 1 + 1          # Container, Ueberschrift, Kopf, Trenner
-        fest += 3                      # ActionRow + zwei Aktions-Buttons
-        if hat_offen:
-            fest += 1                  # Zwischenueberschrift OFFEN
-        if hat_erledigt:
-            fest += 2                  # Trenner + Zwischenueberschrift ERLEDIGT
+        fest = 1 + 1 + 1 + 1              # Container, Ueberschrift, Kopf, Trenner
+        fest += 1 + max(listen, 1) + 1    # ActionRow + je Liste ein Plus-Knopf + Aufraeumen
+        fest += listen * 2                # je Liste: Servername + Trenner davor
+        fest += mit_offen                 # Zwischenueberschrift OFFEN
+        fest += mit_erledigt * 2          # Trenner + Zwischenueberschrift ERLEDIGT
         if mit_ueberlauf:
-            fest += 3                  # Trenner + ActionRow + Auswahl-Menue
+            fest += 3                     # Trenner + ActionRow + Auswahl-Menue
         return max((COMPONENT_LIMIT - fest) // COMPONENTS_PER_ROW, 0)
 
     def _zeile(self, row: Dict[str, Any]) -> discord.ui.Section:
@@ -470,25 +569,55 @@ class ToDoCog(commands.Cog, name="ToDo"):
     async def build_board(self) -> discord.ui.LayoutView:
         """Board als Components-V2-Layout aus dem aktuellen DB-Stand bauen.
 
-        HUD-Stil: Kennzahlen-Kopf mit Balken, Gruppen ``OFFEN``/``ERLEDIGT`` mit
-        Zaehler, je Eintrag eine Zeile mit Checkbox, Aktionen unten.
+        Eine Nachricht, je Server eine Liste. Untereinander, nicht nebeneinander:
+        Components V2 kennt kein Spaltenlayout — `Container` stapelt seine
+        Kinder, und `Section` hat genau eine Beistellung rechts, naemlich die
+        Checkbox. Echte Spalten gaebe es nur im klassischen Embed ueber
+        `inline=True`, und das kann keine Knoepfe je Zeile. Die Checkbox war der
+        Grund fuer den Components-V2-Umbau, deshalb bleibt sie und die Listen
+        stehen untereinander.
+
+        HUD-Stil: Kennzahlen-Kopf mit Balken ueber alles, dann je Server ein
+        Abschnitt mit eigenem Zaehler und den Gruppen ``OFFEN``/``ERLEDIGT``.
         """
         rows = await self._fetch_todos()
-        offen = [r for r in rows if not r["done"]]
-        erledigt = [r for r in rows if r["done"]]
+        boards = self._boards()
+
+        # Eintraege den Listen zuordnen, Reihenfolge der Registry beibehalten.
+        # Eine Zeile ohne bekannte Kennung gehoert der ersten Liste — das
+        # betrifft Altbestand ebenso wie Aufrufer, die `board` nicht mitgeben.
+        erstes = boards[0]
+        je_board: Dict[str, List[Dict[str, Any]]] = {b: [] for b in boards}
+        for r in rows:
+            schluessel = r.get("board") or erstes
+            if schluessel not in je_board:
+                schluessel = erstes
+            je_board[schluessel].append(r)
+
+        offen_gesamt = [r for r in rows if not r["done"]]
+        erledigt_gesamt = [r for r in rows if r["done"]]
 
         # Budget zweistufig: erst ohne Ueberlauf rechnen, und nur wenn es dann
         # nicht reicht, mit Auswahl-Menue neu rechnen (das kostet selbst Platz).
-        budget = self._section_budget(bool(offen), bool(erledigt), False)
+        def _budget(mit_ueberlauf: bool) -> int:
+            mit_offen = sum(1 for b in boards if any(not r["done"] for r in je_board[b]))
+            mit_erl = sum(1 for b in boards if any(r["done"] for r in je_board[b]))
+            return self._section_budget(len(boards), mit_offen, mit_erl, mit_ueberlauf)
+
+        budget = _budget(False)
         mit_ueberlauf = len(rows) > budget
         if mit_ueberlauf:
-            budget = self._section_budget(bool(offen), bool(erledigt), True)
+            budget = _budget(True)
 
-        sichtbar_offen = offen[:budget]
-        sichtbar_erledigt = erledigt[: max(budget - len(sichtbar_offen), 0)]
-        rest = offen[len(sichtbar_offen):] + erledigt[len(sichtbar_erledigt):]
+        # Der Platz wird der Reihe nach vergeben: erst alle offenen Eintraege
+        # von oben nach unten, dann die erledigten. So verdraengt eine volle
+        # erste Liste nicht die offenen Punkte der zweiten.
+        reihenfolge = [r for b in boards for r in je_board[b] if not r["done"]]
+        reihenfolge += [r for b in boards for r in je_board[b] if r["done"]]
+        sichtbar = {r["id"] for r in reihenfolge[:budget]}
+        rest = reihenfolge[budget:]
 
-        kopf = self._kopf(len(offen), len(erledigt))
+        kopf = self._kopf(len(offen_gesamt), len(erledigt_gesamt))
         if len(rest) > MAX_SELECT_OPTIONS:
             # Nicht stillschweigend abschneiden: was das Menue nicht fasst, wird
             # benannt statt verschwiegen.
@@ -499,25 +628,50 @@ class ToDoCog(commands.Cog, name="ToDo"):
         container = discord.ui.Container(accent_colour=discord.Colour(ACCENT))
         container.add_item(discord.ui.TextDisplay(heading("TODO", 2)))
         container.add_item(discord.ui.TextDisplay(kopf))
-        container.add_item(discord.ui.Separator())
 
         if not rows:
+            container.add_item(discord.ui.Separator())
             container.add_item(
                 discord.ui.TextDisplay(subtext("Noch nichts eingetragen."))
             )
 
-        if offen:
-            container.add_item(discord.ui.TextDisplay(subtext(f"OFFEN · {len(offen)}")))
-            for r in sichtbar_offen:
-                container.add_item(self._zeile(r))
+        for i, board in enumerate(boards, start=1):
+            eintraege = je_board.get(board, [])
+            b_offen = [r for r in eintraege if not r["done"]]
+            b_erledigt = [r for r in eintraege if r["done"]]
 
-        if erledigt:
             container.add_item(discord.ui.Separator())
             container.add_item(
-                discord.ui.TextDisplay(subtext(f"ERLEDIGT · {len(erledigt)}"))
+                discord.ui.TextDisplay(
+                    f"{heading(self._board_name(board, i), 3)}  "
+                    f"-# {len(b_offen)} offen · {len(b_erledigt)} erledigt"
+                )
             )
-            for r in sichtbar_erledigt:
-                container.add_item(self._zeile(r))
+
+            # Eine Liste ohne Eintraege wird trotzdem gezeigt — sonst sieht es
+            # aus, als gaebe es den zweiten Server nicht.
+            if not eintraege:
+                container.add_item(
+                    discord.ui.TextDisplay(subtext("nichts eingetragen"))
+                )
+                continue
+
+            gezeigt_offen = [r for r in b_offen if r["id"] in sichtbar]
+            if gezeigt_offen:
+                container.add_item(
+                    discord.ui.TextDisplay(subtext(f"OFFEN · {len(b_offen)}"))
+                )
+                for r in gezeigt_offen:
+                    container.add_item(self._zeile(r))
+
+            gezeigt_erledigt = [r for r in b_erledigt if r["id"] in sichtbar]
+            if gezeigt_erledigt:
+                container.add_item(discord.ui.Separator())
+                container.add_item(
+                    discord.ui.TextDisplay(subtext(f"ERLEDIGT · {len(b_erledigt)}"))
+                )
+                for r in gezeigt_erledigt:
+                    container.add_item(self._zeile(r))
 
         if rest:
             container.add_item(discord.ui.Separator())
@@ -526,8 +680,16 @@ class ToDoCog(commands.Cog, name="ToDo"):
             container.add_item(auswahl)
 
         aktionen = discord.ui.ActionRow()
-        aktionen.add_item(TodoAddButton())
-        aktionen.add_item(TodoClearButton(len(erledigt)))
+        # Je Liste ein eigener Plus-Knopf. Bei nur einer Instanz bleibt es beim
+        # schlichten "+ Eintrag" — dann waere ein Servername nur Ballast.
+        if len(boards) == 1:
+            aktionen.add_item(TodoAddButton(boards[0]))
+        else:
+            for i, board in enumerate(boards, start=1):
+                aktionen.add_item(
+                    TodoAddButton(board, f"+ {self._board_name(board, i)}")
+                )
+        aktionen.add_item(TodoClearButton(len(erledigt_gesamt)))
         container.add_item(aktionen)
 
         view = discord.ui.LayoutView(timeout=None)
@@ -691,10 +853,30 @@ class ToDoCog(commands.Cog, name="ToDo"):
         await interaction.response.send_message("Board wird gepostet.", ephemeral=True)
         await self.refresh_board(repost=True)
 
+    async def _server_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> List[app_commands.Choice]:
+        """Auswahlliste der Satisfactory-Instanzen fuer den server-Parameter."""
+        treffer = []
+        for i, sid in enumerate(self._boards(), start=1):
+            name = self._board_name(sid, i)
+            if current.lower() in sid.lower() or current.lower() in name.lower():
+                treffer.append(app_commands.Choice(name=name, value=sid))
+        return treffer[:25]
+
     @todo.command(name="add", description="Neuen Eintrag anlegen")
-    @app_commands.describe(text="Was soll gebaut werden?")
+    @app_commands.describe(
+        text="Was soll gebaut werden?",
+        server="Fuer welchen Server (leer = erster)",
+    )
+    @app_commands.autocomplete(server=_server_autocomplete)
     @spieler_only()
-    async def todo_add(self, interaction: discord.Interaction, text: str) -> None:
+    async def todo_add(
+        self,
+        interaction: discord.Interaction,
+        text: str,
+        server: Optional[str] = None,
+    ) -> None:
         text = text.strip()
         if not text:
             await interaction.response.send_message(
@@ -708,9 +890,20 @@ class ToDoCog(commands.Cog, name="ToDo"):
             )
             return
 
-        new_id = await self.add_todo(text, interaction.user)
+        boards = self._boards()
+        if server and server not in boards:
+            await interaction.response.send_message(
+                f"Unbekannter Server: `{discord.utils.escape_markdown(server)}`. "
+                f"Verfuegbar: {', '.join(boards)}",
+                ephemeral=True,
+            )
+            return
+
+        ziel = server or self._erstes_board()
+        new_id = await self.add_todo(text, interaction.user, ziel)
+        name = self._board_name(ziel, boards.index(ziel) + 1)
         await interaction.response.send_message(
-            f"Eintrag `#{new_id}` angelegt.", ephemeral=True
+            f"Eintrag `#{new_id}` angelegt — {name}.", ephemeral=True
         )
         await self.refresh_board()
 

@@ -260,6 +260,7 @@ class TicketManager:
         user_id: int,
         subject: str,
         channel_id: int = 0,
+        art: str = "allgemein",
     ) -> dict[str, Any]:
         """
         Neues Ticket erstellen und in SQLite speichern.
@@ -272,6 +273,10 @@ class TicketManager:
             user_id: Discord-User-ID des Ticket-Erstellers
             subject: Betreff / Beschreibung des Tickets
             channel_id: Discord-Channel-ID (0 wenn noch nicht erstellt)
+            art: 'allgemein' (Spiel und Discord) oder 'bug' (Fehlermeldung).
+                 Steht in der Zeile selbst und nicht nur im Kanalnamen —
+                 Kanaele werden umbenannt und geloescht, die Zuordnung soll
+                 das ueberleben.
 
         Returns:
             Dict mit allen Ticket-Daten (inklusive ticket_id)
@@ -283,9 +288,9 @@ class TicketManager:
         try:
             db = await get_db()
             cursor = await db.execute(
-                "INSERT INTO tickets (channel_id, user_id, subject, status, created_at) "
-                "VALUES (?, ?, ?, 'open', ?)",
-                (str(channel_id), str(user_id), subject, now.isoformat()),
+                "INSERT INTO tickets (channel_id, user_id, subject, status, created_at, art) "
+                "VALUES (?, ?, ?, 'open', ?, ?)",
+                (str(channel_id), str(user_id), subject, now.isoformat(), art),
             )
             await db.commit()
             db_ticket_id = cursor.lastrowid
@@ -312,6 +317,7 @@ class TicketManager:
             "channel_id": channel_id,
             "user_id": user_id,
             "subject": subject,
+            "art": art,
             "created_at": now.isoformat(),
             "status": "open",
             "closed_at": None,

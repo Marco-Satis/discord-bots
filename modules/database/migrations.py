@@ -11,7 +11,7 @@ from utils.logger import get_logger
 logger = get_logger("database.migrations")
 
 # Aktuelle Schema-Version
-CURRENT_VERSION = 12
+CURRENT_VERSION = 13
 
 
 # Komplettes Schema (23 Tabellen + Indices + FTS5)
@@ -446,6 +446,13 @@ async def run_migrations(db: aiosqlite.Connection) -> None:
         await set_schema_version(db, 12)
         logger.info("Migration v11 → v12 abgeschlossen")
 
+    # Version 12 → 13: Tickets bekommen eine Art (allgemein / bug)
+    if current < 13:
+        logger.info("Migration v12 → v13: Ticket-Art")
+        await _apply_migration_v13(db)
+        await set_schema_version(db, 13)
+        logger.info("Migration v12 → v13 abgeschlossen")
+
     final = await get_schema_version(db)
     logger.info(f"Alle Migrationen abgeschlossen. Schema-Version: {final}")
 
@@ -477,6 +484,14 @@ async def _apply_schema_v1(db: aiosqlite.Connection) -> None:
     await _apply_migration_v10(db)
     await _apply_migration_v11(db)
     await _apply_migration_v12(db)
+    await _apply_migration_v13(db)
+
+    # Diese Liste ist die Stelle, an der eine neue Migration am leichtesten
+    # vergessen wird. Vergisst man sie, meldet eine frische Datenbank die volle
+    # Schema-Version, ohne die Aenderung zu haben — eine Luege, die erst beim
+    # ersten Zugriff auffliegt. Genau das passierte beim Einbau von v13
+    # (2026-08-16) und wurde nur bemerkt, weil der Test die Spalten nachsah
+    # statt der Versionsnummer zu glauben.
 
     # Tabellen zaehlen zur Verifikation
     cursor = await db.execute(
@@ -1012,3 +1027,41 @@ async def _apply_migration_v12(db: aiosqlite.Connection) -> None:
     )
     await db.commit()
     logger.info(f"Migration v12: {cursor.rowcount} Satisfactory-Messwerte auf server_id='MAIN'")
+
+async def _apply_migration_v13(db: aiosqlite.Connection) -> None:
+    """
+    Gibt Tickets eine Art: `allgemein` oder `bug`.
+
+    Bis hierher kannte das Ticket-System genau eine Sorte — ein Knopf, ein
+    Betreff, ein Kanal. Marco braucht zwei getrennte Wege: Fragen zu Spiel und
+    Discord auf der einen Seite, Fehlermeldungen auf der anderen. Die
+    Unterscheidung nur im Kanalnamen zu fuehren waere brüchig (Kanaele werden
+    umbenannt und geloescht), deshalb steht sie in der Zeile selbst.
+
+    Bestehende Tickets gelten als `allgemein`. Das ist keine Annahme, sondern
+    die einzige Lesart, die stimmen kann: als sie angelegt wurden, gab es nur
+    diese eine Sorte.
+
+    Fehlt die Tabelle, ist nichts nachzutragen. Ohne diese Pruefung braeche die
+    Migrationskette ab und liesse die Datenbank auf halber Version stehen —
+    derselbe Fehler wie bei v12 am 2026-08-15.
+    """
+    if not await _tabelle_vorhanden(db, "tickets"):
+        logger.info("Migration v13: tickets fehlt — nichts nachzutragen")
+        return
+
+    cursor = await db.execute("PRAGMA table_info(tickets)")
+    spalten = {r[1] for r in await cursor.fetchall()}
+    if "art" in spalten:
+        logger.info("Migration v13: Spalte 'art' ist bereits vorhanden")
+        return
+
+    await db.execute(
+        "ALTER TABLE tickets ADD COLUMN art TEXT NOT NULL DEFAULT 'allgemein'"
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tickets_art_status ON tickets(art, status)"
+    )
+    await db.commit()
+    logger.info("Migration v13: Spalte 'art' + Index angelegt, Altbestand = 'allgemein'")
+

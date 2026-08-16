@@ -47,58 +47,103 @@ MAX_OPEN_TICKETS_PER_USER = 3
 # Persistente Views — überleben Bot-Neustarts
 # ======================================================================
 
+# Die zwei Ticket-Arten. Getrennt, weil sie unterschiedlich beantwortet werden:
+# eine Frage braucht eine Antwort, ein Fehlerbericht braucht Schritte zum
+# Nachstellen. Ein gemeinsames Formular fuer beides fragt immer die Haelfte
+# zu viel oder zu wenig.
+TICKET_ARTEN: dict[str, dict[str, str]] = {
+    "allgemein": {
+        "label": "Frage / Anliegen",
+        "emoji": "\U0001f4ac",
+        "kanal": "hilfe",
+        "titel": "Frage oder Anliegen",
+        "feld": "Worum geht es?",
+        "platzhalter": "z.B. Wie komme ich auf den Satisfactory-Server?",
+        "detail_label": "Beschreibung",
+        "detail_platzhalter": "Erzaehl uns mehr — je genauer, desto schneller die Antwort.",
+    },
+    "bug": {
+        "label": "Fehler melden",
+        "emoji": "\U0001f41e",
+        "kanal": "bug",
+        "titel": "Fehler melden",
+        "feld": "Was funktioniert nicht?",
+        "platzhalter": "z.B. /sat status antwortet nicht",
+        "detail_label": "Was hast du gemacht?",
+        "detail_platzhalter": (
+            "Schritt fuer Schritt: was hast du getan, was ist passiert, was "
+            "haettest du erwartet? Wann war das ungefaehr?"
+        ),
+    },
+}
+STANDARD_ART = "allgemein"
+
+
+def _art_daten(art: str) -> dict[str, str]:
+    """Metadaten einer Ticket-Art — unbekannte Art faellt auf 'allgemein'."""
+    return TICKET_ARTEN.get(art, TICKET_ARTEN[STANDARD_ART])
+
+
 class TicketCreateView(discord.ui.View):
     """
-    Persistente View mit dem "Ticket erstellen" Button.
+    Persistente View mit den Ticket-Knoepfen — einer je Art.
 
-    Verwendet einen festen custom_id damit der Button auch nach
-    einem Bot-Neustart funktioniert. Die View wird in setup()
-    beim Bot registriert.
+    Feste custom_ids (`ticket_system:create:<art>`), damit die Knoepfe einen
+    Bot-Neustart ueberleben. Die View wird in cog_load je Art registriert.
+
+    Die Art steckt im Knopf und nicht in einem Auswahlfeld im Formular: wer auf
+    "Fehler melden" drueckt, hat die Frage schon beantwortet.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, art: str = STANDARD_ART) -> None:
         # timeout=None für persistente Views (kein Ablauf)
         super().__init__(timeout=None)
+        self.art = art if art in TICKET_ARTEN else STANDARD_ART
+        daten = _art_daten(self.art)
+        knopf = discord.ui.Button(
+            label=daten["label"],
+            style=(discord.ButtonStyle.danger if self.art == "bug"
+                   else discord.ButtonStyle.primary),
+            custom_id=f"ticket_system:create:{self.art}",
+            emoji=daten["emoji"],
+        )
+        knopf.callback = self._knopf_gedrueckt
+        self.add_item(knopf)
 
-    @discord.ui.button(
-        label="Ticket erstellen",
-        style=discord.ButtonStyle.primary,
-        custom_id="ticket_system:create_ticket",
-        emoji="\U0001f3ab",
-    )
-    async def create_ticket_button(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button,
-    ) -> None:
-        """Button-Handler: Neues Ticket erstellen."""
-        # Modal für Ticket-Betreff anzeigen
-        modal = TicketCreateModal()
-        await interaction.response.send_modal(modal)
+    async def _knopf_gedrueckt(self, interaction: discord.Interaction) -> None:
+        await interaction.response.send_modal(TicketCreateModal(self.art))
 
 
-class TicketCreateModal(discord.ui.Modal, title="Neues Support-Ticket"):
+class TicketCreateModal(discord.ui.Modal):
     """
-    Modal-Dialog für die Ticket-Erstellung.
+    Formular fuer die Ticket-Erstellung — Beschriftung je nach Art.
 
-    Fragt den Betreff / die Beschreibung des Problems ab.
+    Bei einem Fehlerbericht wird ausdruecklich nach dem Weg dorthin gefragt.
+    Ohne diese Frage kommen Meldungen wie "geht nicht", und dann beginnt die
+    Arbeit mit einer Rueckfrage statt mit der Ursache.
     """
 
-    subject = discord.ui.TextInput(
-        label="Betreff",
-        placeholder="Beschreibe dein Anliegen kurz...",
-        style=discord.TextStyle.short,
-        max_length=100,
-        required=True,
-    )
+    def __init__(self, art: str = STANDARD_ART) -> None:
+        self.art = art if art in TICKET_ARTEN else STANDARD_ART
+        daten = _art_daten(self.art)
+        super().__init__(title=daten["titel"])
 
-    description = discord.ui.TextInput(
-        label="Beschreibung",
-        placeholder="Erklaere dein Problem ausfuehrlicher...",
-        style=discord.TextStyle.paragraph,
-        max_length=1000,
-        required=False,
-    )
+        self.subject = discord.ui.TextInput(
+            label=daten["feld"],
+            placeholder=daten["platzhalter"],
+            style=discord.TextStyle.short,
+            max_length=100,
+            required=True,
+        )
+        self.description = discord.ui.TextInput(
+            label=daten["detail_label"],
+            placeholder=daten["detail_platzhalter"],
+            style=discord.TextStyle.paragraph,
+            max_length=1000,
+            required=(self.art == "bug"),
+        )
+        self.add_item(self.subject)
+        self.add_item(self.description)
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         """Modal abgeschickt — Ticket wird erstellt."""
@@ -114,6 +159,7 @@ class TicketCreateModal(discord.ui.Modal, title="Neues Support-Ticket"):
             interaction,
             subject=self.subject.value,
             description=self.description.value or None,
+            art=self.art,
         )
 
 
@@ -173,7 +219,10 @@ class TicketsCog(commands.Cog):
         """Persistente Views beim Laden registrieren und DB-Daten laden."""
         # Views muessen beim Bot registriert werden damit sie
         # nach einem Neustart wieder funktionieren
-        self.bot.add_view(TicketCreateView())
+        # Je Art eine View registrieren, sonst antwortet der Knopf der zweiten
+        # Art nach einem Neustart nicht mehr.
+        for _art in TICKET_ARTEN:
+            self.bot.add_view(TicketCreateView(_art))
         self.bot.add_view(TicketCloseView())
         # Tickets aus SQLite laden
         try:
@@ -233,6 +282,7 @@ class TicketsCog(commands.Cog):
         interaction: discord.Interaction,
         subject: str,
         description: str | None = None,
+        art: str = STANDARD_ART,
     ) -> None:
         """
         Ticket erstellen: Channel anlegen, Berechtigungen setzen, Willkommen senden.
@@ -268,6 +318,7 @@ class TicketsCog(commands.Cog):
         ticket = await self.ticket_mgr.create_ticket(
             user_id=user.id,
             subject=subject,
+            art=art,
         )
         ticket_id = ticket["ticket_id"]
 
@@ -312,7 +363,10 @@ class TicketsCog(commands.Cog):
                 )
 
         # Channel erstellen
-        channel_name = f"ticket-{ticket_id:04d}"
+        # Die Art steht im Kanalnamen: 'bug-0007' sagt dem Team schon in der
+        # Kanalliste, was es erwartet. Die verbindliche Zuordnung steht aber in
+        # der Datenbank, nicht hier — Kanaele werden umbenannt.
+        channel_name = f"{_art_daten(art)['kanal']}-{ticket_id:04d}"
         try:
             channel = await guild.create_text_channel(
                 name=channel_name,
@@ -593,15 +647,21 @@ class TicketsCog(commands.Cog):
     )
     @app_commands.describe(
         channel="Channel in dem das Support-Embed gepostet wird",
+        art="Welche Ticket-Art dieses Panel anbietet",
         kategorie="Kategorie für neue Ticket-Channels (optional)",
         log_channel="Channel für Transcript-Logs (optional)",
         support_rolle="Support-Rolle die Tickets sehen kann (optional)",
     )
+    @app_commands.choices(art=[
+        app_commands.Choice(name="Frage / Anliegen", value="allgemein"),
+        app_commands.Choice(name="Fehler melden", value="bug"),
+    ])
     @admin_only()
     async def ticket_setup(
         self,
         interaction: discord.Interaction,
         channel: discord.TextChannel,
+        art: str = STANDARD_ART,
         kategorie: Optional[discord.CategoryChannel] = None,
         log_channel: Optional[discord.TextChannel] = None,
         support_rolle: Optional[discord.Role] = None,
@@ -633,20 +693,33 @@ class TicketsCog(commands.Cog):
         if config_updates:
             self.ticket_mgr.set_config(**config_updates)
 
-        # Support-Embed erstellen
+        # Support-Embed erstellen — Text und Knopf richten sich nach der Art.
+        daten = _art_daten(art)
+        if art == "bug":
+            beschreibung = (
+                "Etwas funktioniert nicht wie erwartet?\n\n"
+                "Klick unten und beschreib, **was du gemacht hast, was passiert "
+                "ist und was du erwartet haettest**. Je genauer, desto eher "
+                "laesst sich der Fehler nachstellen — und was sich nicht "
+                "nachstellen laesst, laesst sich meist auch nicht beheben.\n\n"
+                "Du bekommst einen eigenen Kanal, in dem nur du und das Team lesen."
+            )
+        else:
+            beschreibung = (
+                "Du hast eine Frage zum Spiel-Server oder zum Discord?\n\n"
+                "Klick unten und schreib kurz, worum es geht. Du bekommst einen "
+                "eigenen Kanal, in dem nur du und das Team lesen — dort meldet "
+                "sich jemand, sobald er kann.\n\n"
+                "**Ein Ticket je Anliegen**, dann geht nichts unter."
+            )
         embed = info_embed(
-            title="Support-Tickets",
-            description=(
-                "Brauchst du Hilfe oder hast ein Anliegen?\n\n"
-                "Klicke auf den Button unten um ein Support-Ticket zu erstellen.\n"
-                "Ein Teammitglied wird sich so schnell wie möglich um dich kuemmern.\n\n"
-                "**Bitte erstelle für jedes Anliegen ein eigenes Ticket.**"
-            ),
+            title=f"{daten['emoji']} {daten['titel']}",
+            description=beschreibung,
         )
         embed.set_footer(text="Support-Ticket-System")
 
         # Persistente View erstellen
-        view = TicketCreateView()
+        view = TicketCreateView(art)
 
         try:
             await channel.send(embed=embed, view=view)

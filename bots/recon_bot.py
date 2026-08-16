@@ -2477,6 +2477,61 @@ async def before_status_embed():
 _voice_channel_cache: dict[str, int] = {}
 
 
+async def _voice_channels_sortieren(
+    category: discord.CategoryChannel,
+    sat_servers_jetzt: dict,
+    mc_servers_jetzt: dict,
+) -> None:
+    """Statuskanaele nach Spiel gruppieren: erst alle SAT, dann alle MC.
+
+    Anlass (2026-08-16): Der neu angelegte SAT-2-Kanal landete am Ende der
+    Kategorie, also hinter MC-BMC — Discord haengt neue Kanaele unten an. Die
+    Liste las sich dann SAT-1, MC-BMC, SAT-2. Das ist kein Fehler im Sinne von
+    "etwas funktioniert nicht", aber die Reihenfolge ist das Einzige, was diese
+    Kanaele zu erzaehlen haben, und in dieser Fassung erzaehlten sie es falsch.
+
+    Es wird nur eingegriffen, wenn die Reihenfolge tatsaechlich abweicht: ein
+    `edit` je Kanal alle fuenf Minuten waere sonst dauerhafter Verkehr gegen
+    Discords Grenzen, ohne dass sich etwas aendert.
+    """
+    gewuenscht: list[str] = [f"SAT-{i}" for i in range(1, len(sat_servers_jetzt) + 1)]
+    gewuenscht += [f"MC-{sid}".upper() for sid in mc_servers_jetzt]
+    if len(gewuenscht) < 2:
+        return
+
+    # Kanal zu Kennung zuordnen (Praefix bis zum senkrechten Strich).
+    nach_kennung: dict[str, discord.VoiceChannel] = {}
+    for vc in category.voice_channels:
+        kennung = vc.name.split("|")[0].strip().upper()
+        if kennung in gewuenscht:
+            nach_kennung.setdefault(kennung, vc)
+
+    reihe = [nach_kennung[k] for k in gewuenscht if k in nach_kennung]
+    if len(reihe) < 2:
+        return
+
+    # Stimmt die Reihenfolge schon, ist nichts zu tun.
+    ist = sorted(reihe, key=lambda c: c.position)
+    if [c.id for c in ist] == [c.id for c in reihe]:
+        return
+
+    # Auf den vorhandenen Plaetzen bleiben, nur die Belegung tauschen — so
+    # rutscht die Gruppe nicht an anderen Kanaelen der Kategorie vorbei.
+    plaetze = sorted(c.position for c in reihe)
+    for vc, platz in zip(reihe, plaetze):
+        if vc.position == platz:
+            continue
+        try:
+            await vc.edit(position=platz)
+            logger.info(f"Voice-Kanal sortiert: {vc.name} -> Platz {platz}")
+        except discord.Forbidden:
+            logger.warning(f"Keine Berechtigung zum Sortieren von {vc.name}")
+            return
+        except Exception as e:
+            logger.error(f"Sortieren von {vc.name} fehlgeschlagen: {e}")
+            return
+
+
 async def _voice_channels_aufraeumen(
     category: discord.CategoryChannel,
     sat_servers_jetzt: dict,
@@ -2702,6 +2757,10 @@ async def update_voice_stats():
         # --- Kanaele stillgelegter Server entfernen ---
         await _voice_channels_aufraeumen(category, sat_servers, bot.mc_servers
                                          if hasattr(bot, "mc_servers") else {})
+
+        # --- Reihenfolge herstellen ---
+        await _voice_channels_sortieren(category, sat_servers, bot.mc_servers
+                                        if hasattr(bot, "mc_servers") else {})
     except Exception as e:  # noqa: BLE001
         logger.error(f"Voice-Statistik fehlgeschlagen: {e}", exc_info=True)
 
