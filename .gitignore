@@ -48,3 +48,9 @@ graphify-out/
 =*
 *.exe
 web/tools/
+
+# Sudo-Regeln gehoeren nicht ins oeffentliche Repo (Rechteausweitungs-Landkarte).
+# Die echten Regeln liegen unter /etc/sudoers.d/ und im verschluesselten Config-Backup.
+*.sudoers
+config/sudoers-dashboard
+systemd/botuser-sudoers
