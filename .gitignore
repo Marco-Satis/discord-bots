@@ -11,6 +11,14 @@ build/
 
 # Environment & Secrets
 config/.env*
+
+# Die laufende Konfiguration bleibt lokal: sie traegt Discord-IDs (erlaubte
+# Nutzer und Rollen fuers Dashboard, bekannte IPs der Login-Pruefung). Solange
+# das Repo privat war, war das folgenlos; seit dem 16.08.2026 ist es
+# oeffentlich, und ein einziger unbedachter Commit wuerde die IDs
+# veroeffentlichen. Versioniert ist deshalb nur die Vorlage mit leeren Listen.
+config/config.json
+!config/config.example.json
 .env
 *.pem
 *.key

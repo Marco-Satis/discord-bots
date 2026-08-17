@@ -31,7 +31,7 @@
     "ram_warning": 85,
     "disk_warning": 90,
     "disk_critical": 95,
-    "tick_rate_warning": 20,
+    "tick_rate_warning": 50,
     "warning_cooldown": 300
   },
   "auto_restart": true,
@@ -73,9 +73,18 @@
   },
   "restart_timer": {
     "default_duration": 10,
-    "warning_intervals": [10, 5, 3, 1],
+    "warning_intervals": [
+      10,
+      5,
+      3,
+      1
+    ],
     "stop_duration": 5,
-    "stop_warning_intervals": [5, 3, 1]
+    "stop_warning_intervals": [
+      5,
+      3,
+      1
+    ]
   },
   "anti_spam": {
     "max_messages": 5,
@@ -107,5 +116,39 @@
     "crash_window_minutes": 10,
     "max_crashes_in_window": 3,
     "size_drop_threshold": 0.5
-  }
+  },
+  "service_watchdog": {
+    "services": [
+      {
+        "name": "recon-bot",
+        "label": "Recon-Bot (Monitoring)"
+      },
+      {
+        "name": "operator-bot",
+        "label": "Operator-Bot (Satisfactory)"
+      },
+      {
+        "name": "marshal-bot",
+        "label": "Marshal-Bot (Moderation)"
+      },
+      {
+        "name": "web-dashboard",
+        "label": "Web-Dashboard"
+      },
+      {
+        "name": "pipeline-bot",
+        "label": "Pipeline-Bot"
+      },
+      {
+        "name": "satisfactory",
+        "label": "Satisfactory Server"
+      },
+      {
+        "name": "satisfactory2",
+        "label": "Satisfactory Server 2"
+      }
+    ]
+  },
+  "web_allowed_user_ids": [],
+  "web_allowed_role_ids": []
 }

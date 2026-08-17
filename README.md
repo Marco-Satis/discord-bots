@@ -275,6 +275,9 @@ pip install -r requirements.txt      # requirements-lock.txt fuer exakte Staende
 cp config/.env.example config/.env
 nano config/.env    # Tokens, IDs, etc. eintragen
 
+cp config/config.example.json config/config.json   # optional
+nano config/config.json    # Funktionsschalter, Schwellen, Zeitplan
+
 # 3. Dienste einrichten
 sudo cp systemd/*.service /etc/systemd/system/
 sudo systemctl daemon-reload
@@ -290,7 +293,10 @@ python -m pytest tests/ -q
 Die Server-Grundeinrichtung (nginx, Zertifikate, Gameserver-Dienste) laeuft von Hand und ist
 nicht Teil dieses Repositories. Alle Geheimnisse liegen ausschliesslich in `config/.env` —
 per `.gitignore` ausgeschlossen; `config/.env.example` dokumentiert die erwarteten Variablen
-ohne Werte.
+ohne Werte. Ebenso bleibt `config/config.json` lokal — sie traegt Discord-IDs der zum
+Dashboard zugelassenen Nutzer und Rollen. Versioniert ist `config/config.example.json` mit
+leeren Listen; fehlt die Datei ganz, faellt der Loader auf Vorgaben zurueck
+(`utils/config.py`), das System startet also auch ohne sie.
 
 Ausfuehrliche Anleitung: siehe `docs/Projektdokumentation_v4.0.0.md`
 
