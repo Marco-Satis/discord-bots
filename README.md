@@ -330,8 +330,7 @@ erwarteten Variablen und in `systemd/` die Dienstdefinitionen.
 
 ## Lizenz
 
-Fuer dieses Repository ist keine Lizenz vergeben. Damit gilt das gesetzliche Urheberrecht:
-Der Code ist einsehbar, eine Nutzung, Aenderung oder Weiterverbreitung ist ohne ausdrueckliche
-Erlaubnis nicht gestattet. Bei Interesse an einer Nutzung bitte vorher anfragen.
+[MIT](LICENSE) — Nutzung, Aenderung und Weitergabe sind erlaubt, auch kommerziell, solange
+Copyright-Hinweis und Lizenztext erhalten bleiben. Ohne Gewaehrleistung und Haftung.
 
 **Autor:** Marco
