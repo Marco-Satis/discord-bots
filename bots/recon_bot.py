@@ -2868,16 +2868,30 @@ async def before_optimize_task():
     await asyncio.sleep(60)  # Wait a bit longer before first optimization
 
 
-@tasks.loop(hours=168)  # Weekly
+@tasks.loop(hours=6)
 async def weekly_snapshot_task():
-    """Create weekly savegame snapshot for delta comparison"""
-    if hasattr(bot, 'savegame_analyzer'):
-        try:
-            result = await bot.savegame_analyzer.create_weekly_snapshot()
-            if result:
-                logger.info(f"Weekly snapshot created: {result.get('iso_week', '?')}")
-        except Exception as e:
-            logger.error(f"Weekly snapshot error: {e}")
+    """Wochen-Schnappschuss des Speicherstands fuer den Wochenvergleich.
+
+    Befund C-14 (Audit 2026-08-17): stand vorher auf `hours=168`. Der Zaehler
+    beginnt bei jedem Prozessstart neu, und `recon-bot` startet bei jedem
+    Deploy — allein am 17.08. zweimal. Der erste Tick wurde damit nie
+    erreicht, der Wochenschnappschuss war nicht selten, sondern nie.
+
+    Jetzt alle sechs Stunden, mit der ISO-Woche als Schluessel statt des
+    Zaehlers: liegt fuer die laufende Woche schon einer, passiert nichts.
+    Ein Neustart kann den Schnappschuss dadurch nicht mehr verhindern, und
+    doppelte entstehen auch nicht.
+    """
+    if not hasattr(bot, 'savegame_analyzer'):
+        return
+    try:
+        if bot.savegame_analyzer.wochenschnappschuss_vorhanden():
+            return
+        result = await bot.savegame_analyzer.create_weekly_snapshot()
+        if result:
+            logger.info(f"Weekly snapshot created: {result.get('iso_week', '?')}")
+    except Exception as e:
+        logger.error(f"Weekly snapshot error: {e}")
 
 
 @weekly_snapshot_task.before_loop

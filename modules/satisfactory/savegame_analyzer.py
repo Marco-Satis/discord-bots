@@ -1003,6 +1003,22 @@ class SavegameAnalyzer:
         iso_calendar = dt.isocalendar()
         return f"{iso_calendar.year}-W{iso_calendar.week:02d}"
 
+    def wochenschnappschuss_vorhanden(self) -> bool:
+        """Liegt fuer die laufende ISO-Woche schon ein Schnappschuss?
+
+        Befund C-14 (Audit 2026-08-17): die aufrufende Schleife lief mit
+        `tasks.loop(hours=168)` und zaehlte ab Prozessstart. Bei jedem Deploy
+        begann die Woche von vorn — der erste Tick kam nie. Die Schleife
+        laeuft jetzt alle sechs Stunden und fragt hier nach, statt sich auf
+        ihren eigenen Zaehler zu verlassen.
+        """
+        try:
+            iso_week = self._get_iso_week(datetime.now())
+            return (self._get_snapshot_dir() / f"snapshot_{iso_week}.json").exists()
+        except Exception as e:  # noqa: BLE001 — Vorhandensein unklar = nicht vorhanden
+            logger.debug(f"Schnappschuss-Pruefung fehlgeschlagen: {e}")
+            return False
+
     async def create_weekly_snapshot(self) -> Dict[str, Any]:
         """Create a snapshot of current world stats for weekly comparison.
         Saved as JSON in data/weekly_snapshots/snapshot_YYYY-WXX.json

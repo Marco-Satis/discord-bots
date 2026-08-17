@@ -282,10 +282,15 @@ for _sid, _srv in bot.mc_servers.items():
 # Maintenance
 bot.maintenance = BotMaintenance()
 
-# Cogs to load at startup
-# Feature toggles from config.json control optional cogs
-features = bot.config.get("features", {})
-
+# Cogs to load at startup.
+#
+# Hier stand bis zum Audit 2026-08-17 die Zeile
+# `features = bot.config.get("features", {})` samt Kommentar
+# „Feature toggles from config.json control optional cogs". Beides war falsch:
+# die Variable wurde nie gelesen, und kein Schalter im `features`-Block
+# entspricht einem dieser Cogs. Der Kommentar behauptete eine Steuerung, die
+# es nicht gab. Wer Cogs schalten will, nimmt `utils.config.funktion_aktiv()`
+# (siehe C-10) — dann steht der Schalter dort, wo alle anderen stehen.
 INITIAL_COGS = [
     # Unified Satisfactory cog (all /sat commands with sub-groups)
     "cogs.satisfactory_cog",
