@@ -253,7 +253,12 @@ email_notifier = EmailNotifier(
     smtp_host=SMTP_HOST, smtp_port=SMTP_PORT,
     username=SMTP_USER, password=SMTP_PASS,
     from_addr=EMAIL_FROM, to_addr=EMAIL_TO,
-    enabled=EMAIL_ENABLED,
+    # Zwei Tore: die ENV sagt, ob ein Postausgang konfiguriert ist, der
+    # Funktionsschalter in config.json, ob er benutzt werden soll. Bis zum
+    # Audit-Befund C-10 las das Ankreuzfeld „E-Mail-Benachrichtigungen"
+    # niemand — es stand auf der Serverseite und bedeutete nichts.
+    enabled=EMAIL_ENABLED and config.get("features", {}).get(
+        "email_notifications", True),
 )
 
 # Backup services — je Instanz eigene Quelle und eigenes Ziel.
@@ -296,7 +301,9 @@ onedrive_backup = OneDriveBackup(
     remote_name=ONEDRIVE_REMOTE,
     remote_path=ONEDRIVE_PATH,
     max_cloud_backups=config.get("max_cloud_backups", 10),
-    enabled=ONEDRIVE_ENABLED,
+    # Wie beim Postausgang: ENV = konfiguriert, Funktionsschalter = gewollt.
+    enabled=ONEDRIVE_ENABLED and config.get("features", {}).get(
+        "onedrive_backup", True),
 )
 
 # Config backup (server-specific files to OneDrive)
@@ -502,7 +509,14 @@ mc_servers: dict[str, MinecraftServer] = {}
 # Wortfilter fuer den In-Game-Chat. Er gehoert in DIESEN Prozess, weil hier
 # die Chat-Bruecke laeuft — im operator-bot wurde er zwar angelegt und
 # geladen, aber nie gefragt (Audit-Befund C-5, 2026-08-16).
-word_filter: Optional[WordFilter] = WordFilter()
+# Der In-Game-Wortfilter teilt sich das Ankreuzfeld mit dem Discord-Filter
+# (`features.word_filter`). Das ist bewusst so: Marco schaltet „Wortfilter",
+# nicht „Wortfilter Discord" und „Wortfilter Spiel" getrennt. Faellt der
+# Schalter, bleibt der Filter None — `_mc_on_chat` prueft darauf und reicht
+# die Nachricht dann ungefiltert durch, statt abzustuerzen.
+word_filter: Optional[WordFilter] = (
+    WordFilter() if config.get("features", {}).get("word_filter", True) else None
+)
 bot.word_filter = word_filter
 
 mc_chat_bridges: dict[str, MinecraftChatBridge] = {}
@@ -3108,6 +3122,40 @@ async def on_ready():
     if mc_servers:
         core_tasks.extend([mc_chat_bridge_task, mc_health_check_task])
 
+    # --- Funktionsschalter aus config.json (Audit-Befund C-10) ---
+    #
+    # Bis 2026-08-17 war der features-Block im Dashboard reine Zierde: 16
+    # Ankreuzfelder, von denen genau eines (login_audit) etwas bewirkte. Zehn
+    # davon wurden auf der Serverseite sogar zurueckgespiegelt — wer
+    # „Auto-Backup" abschaltete, las danach „Deaktiviert" und bekam trotzdem
+    # Backups. Ein Schalter ohne Leser wirkt kaputt; einer, der sich selbst
+    # bestaetigt, wirkt heil. Das war die gefaehrlichere Sorte.
+    #
+    # Hier ist der eine Ort, an dem die schleifengebundenen Funktionen
+    # entstehen — deshalb sitzt das Tor hier und nicht verstreut in den
+    # Schleifenkoerpern. Wer eine Schleife gar nicht erst startet, spart auch
+    # ihre Arbeit; ein `return` im Rumpf haette sie alle 5 Minuten aufwachen
+    # und wieder einschlafen lassen.
+    _schalter = config.get("features", {})
+    _schleife_je_schalter = {
+        "player_tracking": player_log_task,
+        "status_embed": update_status_embed,
+        "voice_stats": update_voice_stats,
+        "login_audit": login_audit_task,
+        "health_auto_restart": health_auto_restart_task,
+        "ssl_monitor": ssl_check_task,
+        "chat_bridge": mc_chat_bridge_task,
+    }
+    for _schaltername, _schleife in _schleife_je_schalter.items():
+        if _schalter.get(_schaltername, True):
+            continue
+        if _schleife in core_tasks:
+            core_tasks.remove(_schleife)
+            logger.info(
+                "Funktion abgeschaltet (config.json features.%s): %s startet nicht",
+                _schaltername, _schleife.coro.__name__,
+            )
+
     # Fehler-Handler auf jede Schleife legen, BEVOR sie startet. Ohne das
     # beendet discord.py eine Schleife bei der ersten unerwarteten Ausnahme
     # endgueltig: der Dienst bleibt "active", die Aufgabe ist tot, und der
@@ -3233,11 +3281,20 @@ async def on_ready():
     if not status_writer._running:
         await status_writer.start()
 
-    # Phase 1: Neue Monitoring-Module starten (eigene asyncio Tasks)
-    service_watchdog.start()
-    disk_guard.start()
-    duckdns_monitor.start()
-    port_monitor.start()
+    # Phase 1: Neue Monitoring-Module starten (eigene asyncio Tasks).
+    # Die vier Ueberwacher haben je einen Schalter in config.json; bis zum
+    # Audit-Befund C-10 las ihn niemand. `package_checker` hat bewusst keinen —
+    # er prueft Sicherheitsaktualisierungen des Systems, und dafuer soll es
+    # kein Ankreuzfeld geben.
+    for _name, _modul in (("service_watchdog", service_watchdog),
+                          ("disk_guard", disk_guard),
+                          ("duckdns_monitor", duckdns_monitor),
+                          ("port_monitor", port_monitor)):
+        if _schalter.get(_name, True):
+            _modul.start()
+        else:
+            logger.info("Funktion abgeschaltet (config.json features.%s): "
+                        "Ueberwachung startet nicht", _name)
     package_checker.start()
 
     if _first_ready:

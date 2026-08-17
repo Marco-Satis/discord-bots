@@ -54,6 +54,22 @@ def get_config():
     return _default_config()
 
 
+def funktion_aktiv(name: str, vorgabe: bool = True) -> bool:
+    """Ist der Funktionsschalter `name` aus config.json eingeschaltet?
+
+    Audit-Befund C-10 (2026-08-17): der features-Block wurde vom Dashboard
+    geschrieben und von fast niemandem gelesen — 15 der 16 Ankreuzfelder
+    aenderten nichts, zehn davon spiegelten sich auf der Serverseite sogar
+    als „Deaktiviert" zurueck, waehrend die Funktion weiterlief.
+
+    Diese Funktion ist die eine Stelle, an der ein Schalter gelesen wird.
+    Vorgabe ist bewusst `True`: fehlt der Schluessel (aeltere config.json,
+    frischer Klon ohne Datei), bleibt alles an — ein fehlender Eintrag darf
+    keine Funktion abschalten.
+    """
+    return bool(get_config().get("features", {}).get(name, vorgabe))
+
+
 def _default_config():
     """Return default configuration if config.json missing"""
     return {

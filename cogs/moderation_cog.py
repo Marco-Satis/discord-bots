@@ -31,7 +31,7 @@ from modules.moderation.anti_spam import DiscordAntiSpam
 from modules.moderation.invite_filter import InviteFilter
 from modules.moderation.content_filter import ContentFilter
 from modules.guild_context import GuildConfig
-from utils.config import get_env
+from utils.config import get_env, funktion_aktiv
 from utils.logger import get_logger
 from utils.permissions import admin_only, is_admin
 from utils.embeds import COLOR_SUCCESS
@@ -144,8 +144,15 @@ class ModerationCog(commands.Cog):
         gid = message.guild.id
 
         # --- Wortfilter prüfen (gilt für alle User) ---
-        # Dashboard-Override; Default = bisheriges Verhalten (Modul-enabled).
-        if await self._rule_on(gid, "word_filter", self.word_filter.enabled):
+        # Drei Ebenen, von grob nach fein: der Funktionsschalter in
+        # config.json ist die Grundeinstellung, die Guild-Regel darf sie je
+        # Server überschreiben, das Modul selbst kann sich abschalten.
+        # Bis zum Audit-Befund C-10 fehlte die erste Ebene — das Ankreuzfeld
+        # „WordFilter" im Dashboard las niemand.
+        if await self._rule_on(
+            gid, "word_filter",
+            self.word_filter.enabled and funktion_aktiv("word_filter"),
+        ):
             is_filtered, matched_word = self.word_filter.check_message(
                 message.content
             )
@@ -183,7 +190,11 @@ class ModerationCog(commands.Cog):
                 return
 
         # --- Anti-Spam prüfen ---
-        if await self._rule_on(gid, "anti_spam", self.anti_spam.enabled):
+        # Gleiche Staffelung wie beim Wortfilter (siehe dort).
+        if await self._rule_on(
+            gid, "anti_spam",
+            self.anti_spam.enabled and funktion_aktiv("anti_spam"),
+        ):
             # Mention-Anzahl: User-Mentions + Role-Mentions
             mention_count = len(message.mentions) + len(message.role_mentions)
             is_spam, reason = self.anti_spam.check_message(
