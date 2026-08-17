@@ -2273,6 +2273,16 @@ async def health_check_task():
         metrics = await perf_monitor.collect(sat_server, tick_rate=tick_fuer_alarm)
         warnings = perf_monitor.check_thresholds(metrics)
         if warnings:
+            # Befund C-19 (Audit 2026-08-17): der Alarm ging bisher NUR nach
+            # Discord und per Mail. Lokal blieb keine Spur — im Journal stand
+            # allein „Email sent: Kritische Performance-Warnung", ohne die
+            # Kennzahl. Wer nachsehen wollte, welcher Schwellwert gerissen
+            # wurde, musste Marcos Postfach oeffnen. Zwei Tage Suche nach
+            # angeblich nicht vorhandenen Warnungen gingen genau darauf zurueck.
+            logger.warning(
+                "Leistungsalarm: %s | CPU %.1f%% RAM %.1f%% Disk %.1f%% Tick %.1f",
+                " · ".join(warnings), metrics.cpu_percent, metrics.ram_percent,
+                metrics.disk_percent, metrics.tick_rate)
             await notifier.notify_performance_warning(warnings)
             await email_notifier.send_performance_alert(warnings)
 
