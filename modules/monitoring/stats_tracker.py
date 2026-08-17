@@ -191,6 +191,24 @@ class StatsTracker:
         self._fire_and_forget_insert("player_count", value_int=count)
         self._mitzaehlen()
 
+    def record_tick_rate(self, tick_rate: float) -> None:
+        """Tick-Rate eines Spielservers festhalten.
+
+        Befund C-18 (Audit 2026-08-17): die Tick-Rate wurde alle zwei Minuten
+        gemessen, gegen eine Schwelle geprueft (50) und danach weggeworfen.
+        Bei Marcos Frage „schwankt die Tickrate, und liegt es an den
+        Claude-Sitzungen?" gab es deshalb nichts nachzusehen — nur den
+        Momentanwert in der Statusdatei. Ein Einbruch unter 50 haette gemeldet,
+        ein Absacken von 60 auf 52 nie eine Spur hinterlassen.
+
+        0.0 heisst „kein Messwert" (API stumm) und wird nicht aufgezeichnet,
+        sonst zoege ein Ausfall den Durchschnitt nach unten.
+        """
+        if tick_rate <= 0.0:
+            return
+        self._fire_and_forget_insert("tick_rate", value_real=round(tick_rate, 2))
+        self._mitzaehlen()
+
     def record_savegame_size(self, size_mb: float) -> None:
         """Record savegame/world file size"""
         self._fire_and_forget_insert("savegame_size", value_real=round(size_mb, 2))

@@ -2024,6 +2024,28 @@ async def _tick_alarm_pruefen(sid: str, name: str, tick_rate: float) -> None:
         logger.error(f"[{sid}] Tick-Meldung fehlgeschlagen: {e}")
 
 
+def _messreihe_schreiben(sid: str, status) -> None:
+    """Messwerte einer weiteren Instanz in die Zeitreihe schreiben.
+
+    Befund C-17 (Audit 2026-08-17): `server_stats_tracker` enthielt 147.879
+    Zeilen — **alle** mit `server_id='MAIN'`. SAT-2 lief seit dem 15.08. und
+    kam in keiner Auswertung vor: keine Laufzeit, keine Spielerzahl, keine
+    Tick-Rate. Der Health-Check dieser Instanz lief (Alarme funktionierten),
+    aber niemand schrieb mit. Dieselbe Fehlerklasse wie C-7/C-8, nur eine
+    Ebene tiefer: die Schleife ist je Instanz, das Gedaechtnis war es nicht.
+    """
+    tracker = sat_stats_trackers.get(sid)
+    if tracker is None:
+        return
+    try:
+        tracker.record_uptime_check(status.state == ServerState.ONLINE)
+        if status.state == ServerState.ONLINE:
+            tracker.record_player_count(status.players_online)
+            tracker.record_tick_rate(status.tick_rate)
+    except Exception as e:  # noqa: BLE001 — Messreihe darf den Check nie stoppen
+        logger.debug(f"[{sid}] Messreihe nicht geschrieben: {e}")
+
+
 async def _weitere_sat_pruefen() -> None:
     """
     Health-Check fuer alle Satisfactory-Instanzen ausser der ersten.
@@ -2062,6 +2084,7 @@ async def _weitere_sat_pruefen() -> None:
             _sat_offline_checks[sid] = 0
             _sat_downtime_notified[sid] = False
             await _tick_alarm_pruefen(sid, name, status.tick_rate)
+            _messreihe_schreiben(sid, status)
             continue
 
         if manual_stop_state.is_manually_stopped(kennung):
@@ -2151,6 +2174,10 @@ async def health_check_task():
         stats_tracker.record_uptime_check(status.state == ServerState.ONLINE)
         if status.state == ServerState.ONLINE:
             stats_tracker.record_player_count(status.players_online)
+            # C-18: Tick-Rate wurde bisher nur gegen die Schwelle geprueft und
+            # dann verworfen. Ohne Verlauf laesst sich „schwankt sie, und
+            # woran liegt es" nicht beantworten.
+            stats_tracker.record_tick_rate(status.tick_rate)
 
         # Record savegame size periodically (every ~10 min = every 5th check)
         if health_check_task.current_loop % 5 == 0:
