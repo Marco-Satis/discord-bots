@@ -330,7 +330,18 @@ erwarteten Variablen und in `systemd/` die Dienstdefinitionen.
 
 ## Lizenz
 
-[MIT](LICENSE) — Nutzung, Aenderung und Weitergabe sind erlaubt, auch kommerziell, solange
-Copyright-Hinweis und Lizenztext erhalten bleiben. Ohne Gewaehrleistung und Haftung.
+[Prosperity Public License 3.0.0](LICENSE.md) — **nicht-kommerzielle Nutzung ist frei**:
+ansehen, ausprobieren, aendern, weitergeben, Beitraege einreichen. Das gilt auch fuer
+Hobbyprojekte, Lehre, Forschung und gemeinnuetzige Organisationen.
+
+**Kommerzielle Nutzung ist auf einen dreissigtaegigen Test begrenzt** (ein Zeitraum pro
+Unternehmen, nicht pro Person). Wer die Software darueber hinaus geschaeftlich einsetzen
+moechte, fragt bitte vorher an.
+
+Ein Beitrag zurueck an dieses Projekt unter einer gaengigen Standardlizenz (MIT, Apache 2.0,
+BSD, Blue Oak) zaehlt ausdruecklich **nicht** als kommerzielle Nutzung — Pull Requests sind
+also unabhaengig vom Arbeitgeber willkommen.
+
+Ohne Gewaehrleistung und Haftung.
 
 **Autor:** Marco
