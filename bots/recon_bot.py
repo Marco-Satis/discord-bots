@@ -91,6 +91,7 @@ from modules.database.json_importer import import_all, check_import_needed
 from modules.security.ban_manager import BanManager
 from modules.database.maintenance import DatabaseMaintenance
 from modules.system.package_checker import PackageChecker
+from modules.command_logger import CommandLogger
 from utils.embeds import (
     COLOR_WARNING,
     error_embed,
@@ -188,6 +189,10 @@ for _sat_sid in SAT_SERVER_IDS:
 
 bot.sat_servers = sat_servers
 bot.sat_apis = sat_apis
+
+# Befund C-13: Protokolliert jeden Slash-Befehl dieses Bots ins command_log.
+# Gleicher Weg wie operator_bot.py:202.
+bot.command_logger = CommandLogger()
 
 # Erste Instanz als Modulname — Uebergang, siehe Kommentar oben.
 _SAT_ERSTER = next(iter(sat_servers), "MAIN")
@@ -3076,6 +3081,37 @@ async def on_guild_channel_delete(channel):
 async def on_guild_channel_update(before, after):
     if _is_primary_guild_channel(after):
         asyncio.create_task(_debounced_channel_snapshot())
+
+
+@bot.event
+async def on_app_command_completion(interaction, command):
+    """Jeden erfolgreichen Slash-Befehl protokollieren.
+
+    Befund C-13 (Audit 2026-08-17): recon-bot schrieb als einziger Bot nichts
+    ins `command_log` — weder ueber `CommandLogger` (so macht es operator-bot)
+    noch ueber `command_stats_cog` (so macht es marshal-bot). Seine 40 Befehle
+    (monitor/update/scheduler/shutdown/maintenance) waren in `/commandstats`
+    unsichtbar, und „wurde nie benutzt" war fuer sie weder belegbar noch
+    widerlegbar.
+
+    Bewusst der Logger-Weg statt des Cogs: `command_stats_cog` bringt drei
+    eigene Slash-Befehle mit, die marshal-bot bereits anbietet — der Cog haette
+    sie ein zweites Mal in derselben Gilde registriert.
+    """
+    try:
+        params = {}
+        if interaction.namespace:
+            for key, value in interaction.namespace.__dict__.items():
+                if isinstance(value, discord.Attachment):
+                    params[key] = value.filename
+                elif isinstance(value, discord.Member):
+                    params[key] = str(value)
+                else:
+                    params[key] = str(value)[:100]
+
+        await bot.command_logger.log_command(interaction, params=params, success=True)
+    except Exception as e:
+        logger.debug(f"Befehlsprotokollierung fehlgeschlagen: {e}")
 
 
 @bot.event
