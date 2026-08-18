@@ -252,7 +252,12 @@ class TicketsCog(commands.Cog):
         # `tickets`-Block der config.json; 0 schaltet den jeweiligen Teil ab.
         _cfg = get_config().get("tickets", {})
         self._auto_close_tage: int = int(_cfg.get("auto_close_after_days", 7))
-        self._verwaist_stunden: int = int(_cfg.get("orphan_channel_after_hours", 24))
+        # Zwei Stunden statt vierundzwanzig (Marco 18.08.): der Kanal eines
+        # geschlossenen Tickets wird beim Schliessen ohnehin sofort geloescht.
+        # Diese Frist ist nur das Netz fuer den Fall, dass genau das scheitert
+        # — und ein Netz, das einen ganzen Tag braucht, laesst die Kanalliste
+        # unnoetig lange zugestellt. Das Transkript liegt im Log-Kanal.
+        self._verwaist_stunden: int = int(_cfg.get("orphan_channel_after_hours", 2))
 
     async def cog_load(self) -> None:
         """Persistente Views beim Laden registrieren und DB-Daten laden."""
