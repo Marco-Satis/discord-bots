@@ -14,7 +14,7 @@ from pathlib import Path
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Optional, List, Dict, Any
 from zoneinfo import ZoneInfo
 
@@ -22,7 +22,7 @@ import aiofiles
 
 from utils.logger import get_logger
 from utils.loop_guard import guard
-from utils.config import get_config, get_env, DATA_DIR
+from utils.config import get_config, get_env, funktion_aktiv, DATA_DIR
 from utils.permissions import is_admin, admin_only
 from modules.notifications.discord_notifier import NotifyLevel
 from modules.database.db_manager import get_db, DBHelper
@@ -50,14 +50,27 @@ class SchedulerCog(commands.Cog):
         sched = self.config.get("scheduler", {})
         self._daily_restart_hour = sched.get("daily_restart_hour", 4)
         self._daily_restart_minute = sched.get("daily_restart_minute", 0)
-        self._daily_restart_enabled = sched.get("daily_restart_enabled", True)
+        # Befund C-10 (Audit 2026-08-17): drei Funktionen hatten ZWEI Schalter —
+        # einen im `scheduler`-Block, einen im `features`-Block des Dashboards.
+        # Der zweite las bis dahin niemand: ein abgehaktes Kaestchen bedeutete
+        # nichts. Marcos Entscheid (18.08.): `features` ist der Hauptschalter,
+        # `scheduler` die Feineinstellung — eine Funktion laeuft nur, wenn
+        # BEIDE sie erlauben. Damit schaltet das Dashboard wirklich ab, und die
+        # bestehende Feinsteuerung bleibt erhalten.
+        self._daily_restart_enabled = (
+            sched.get("daily_restart_enabled", True)
+            and funktion_aktiv("daily_restart"))
         self._auto_backup_interval_hours = sched.get("auto_backup_interval_hours", 6)
-        self._auto_backup_enabled = sched.get("auto_backup_enabled", True)
+        self._auto_backup_enabled = (
+            sched.get("auto_backup_enabled", True)
+            and funktion_aktiv("auto_backup"))
         self._backup_before_restart = sched.get("backup_before_restart", True)
         self._max_local_backups = sched.get("max_local_backups", 20)
         self._update_check_interval_hours = sched.get("update_check_interval_hours", 6)
         self._update_check_enabled = sched.get("update_check_enabled", True)
-        self._auto_update_enabled = sched.get("auto_update_enabled", False)
+        self._auto_update_enabled = (
+            sched.get("auto_update_enabled", False)
+            and funktion_aktiv("auto_update"))
         self._auto_update_hour = sched.get("auto_update_hour", 5)  # Install at 5 AM
         self._auto_update_require_empty = sched.get("auto_update_require_empty", True)
         self._weekly_report_day = sched.get("weekly_report_day", 0)  # 0=Monday
@@ -90,6 +103,13 @@ class SchedulerCog(commands.Cog):
         # wird nur dessen Neustart verschoben, nicht der des anderen.
         # `_last_daily_restart` bleibt als gemeinsamer Anzeigewert fuer /scheduler.
         self._last_daily_restart_je: dict[str, datetime] = {}
+        # Befund C-16 (Audit 2026-08-18): war beim Zeitfenster jemand online,
+        # wurde der Neustart mit „try again next minute" uebersprungen — das
+        # Fenster ist aber nur eine Minute breit und der Takt 60 s. Wer um
+        # 04:00 spielte, verhinderte den Neustart fuer den ganzen Tag, sichtbar
+        # allein an einer INFO-Zeile. Jetzt wird er vorgemerkt und nachgeholt,
+        # sobald der Server leer ist. Schluessel: Instanz -> Datum der Vormerkung.
+        self._restart_vorgemerkt: dict[str, date] = {}
         self._last_auto_update: Optional[datetime] = None
         self._last_daily_report: Optional[datetime] = None
         self._pending_update: bool = False
@@ -493,8 +513,10 @@ class SchedulerCog(commands.Cog):
             second=0, microsecond=0
         )
 
-        # Within 1-minute window of target time
+        # Ausserhalb des Zeitfensters: nur nachsehen, ob eine Vormerkung
+        # offen ist (C-16). Der eigentliche Lauf bleibt am Fenster.
         if abs((now - target).total_seconds()) > 60:
+            await self._vorgemerkte_neustarts_pruefen(now)
             return
 
         # Parallel, nicht nacheinander: der Neustart wartet einen
@@ -511,7 +533,40 @@ class SchedulerCog(commands.Cog):
             if isinstance(e, Exception):
                 logger.error(f"[{sid}] Daily-Restart fehlgeschlagen: {e}", exc_info=e)
 
-    async def _daily_restart_einer(self, sid: str, now: datetime) -> None:
+    async def _vorgemerkte_neustarts_pruefen(self, now: datetime) -> None:
+        """Nachholen, was wegen Spielern ausgefallen ist (Befund C-16).
+
+        Laeuft bei jedem Tick ausserhalb des Zeitfensters. Eine Vormerkung
+        gilt nur fuer den Kalendertag, an dem sie entstanden ist — sonst
+        startete ein Server womoeglich Tage spaeter unvermittelt neu.
+        """
+        if not self._restart_vorgemerkt:
+            return
+
+        for sid in list(self._restart_vorgemerkt):
+            tag = self._restart_vorgemerkt[sid]
+            if tag != now.date():
+                del self._restart_vorgemerkt[sid]
+                logger.info(
+                    f"[{sid}] Vormerkung verfallen (aus {tag}) — der Server war "
+                    f"den ganzen Tag belegt, der naechste regulaere Termin gilt")
+                continue
+
+            checker = self.health_checker_von(sid)
+            if checker is None or not checker.is_online:
+                continue
+            if checker.status.players_online > 0:
+                continue
+
+            logger.info(f"[{sid}] Server ist leer — vorgemerkter Neustart wird nachgeholt")
+            try:
+                await self._daily_restart_einer(sid, now, nachholen=True)
+            except Exception as e:  # noqa: BLE001 — eine Instanz darf die anderen nicht mitreissen
+                logger.error(f"[{sid}] Nachgeholter Neustart fehlgeschlagen: {e}",
+                             exc_info=e)
+
+    async def _daily_restart_einer(self, sid: str, now: datetime,
+                                   nachholen: bool = False) -> None:
         """Taeglichen Neustart einer Instanz pruefen und ggf. ausfuehren."""
         srv = self.sat_server_von(sid)
         if not srv:
@@ -552,17 +607,22 @@ class SchedulerCog(commands.Cog):
                 self._last_daily_restart_je[sid] = now
                 return
 
-        # Check if players are online - delay if so
+        # Spieler online -> nicht jetzt, aber vormerken (C-16). Frueher stand
+        # hier „will try again next minute" — die naechste Minute liegt bereits
+        # ausserhalb des Zeitfensters, der Neustart fiel damit ganz aus.
         if checker and checker.status.players_online > 0:
+            self._restart_vorgemerkt[sid] = now.date()
             logger.info(
-                f"[{sid}] Neustart verschoben: {checker.status.players_online} "
-                f"Spieler online"
+                f"[{sid}] Neustart vorgemerkt: {checker.status.players_online} "
+                f"Spieler online — wird nachgeholt, sobald der Server leer ist"
             )
-            return  # Will try again next minute
+            return
 
-        logger.info(f"[{sid}] Taeglicher Neustart startet...")
+        logger.info("[%s] Taeglicher Neustart startet%s", sid,
+                    " (nachgeholt)" if nachholen else "")
         self._last_daily_restart_je[sid] = now
         self._last_daily_restart = now
+        self._restart_vorgemerkt.pop(sid, None)
 
         try:
             # Backup before restart
