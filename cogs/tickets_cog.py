@@ -20,18 +20,18 @@ Interaktive Elemente:
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 import io
 
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 from modules.tickets import TicketManager
 from utils.logger import get_logger
-from utils.config import ADMIN_DATA_DIR
+from utils.config import ADMIN_DATA_DIR, get_config
 from utils.permissions import admin_only
 from utils.embeds import (
     error_embed,
@@ -222,6 +222,11 @@ class TicketsCog(commands.Cog):
             data_file=ADMIN_DATA_DIR / "tickets.json",
             config_file=ADMIN_DATA_DIR / "ticket_config.json",
         )
+        # Aufraeum-Regeln (Marco-Auftrag 18.08.). Beide Werte stehen im
+        # `tickets`-Block der config.json; 0 schaltet den jeweiligen Teil ab.
+        _cfg = get_config().get("tickets", {})
+        self._auto_close_tage: int = int(_cfg.get("auto_close_after_days", 7))
+        self._verwaist_stunden: int = int(_cfg.get("orphan_channel_after_hours", 24))
 
     async def cog_load(self) -> None:
         """Persistente Views beim Laden registrieren und DB-Daten laden."""
@@ -238,7 +243,137 @@ class TicketsCog(commands.Cog):
             logger.info("Ticket-Daten aus SQLite geladen")
         except Exception as e:
             logger.warning(f"SQLite-Load fehlgeschlagen: {e}")
-        logger.info("Ticket-Cog geladen, persistente Views registriert")
+        self._aufraeumen.start()
+        logger.info(
+            "Ticket-Cog geladen, persistente Views registriert — Aufraeumen: "
+            "offene Tickets nach %d Tagen ohne Aktivitaet, verwaiste Kanaele "
+            "nach %d Stunden",
+            self._auto_close_tage, self._verwaist_stunden)
+
+    async def cog_unload(self) -> None:
+        self._aufraeumen.cancel()
+
+    # ==================================================================
+    # Aufraeumen (Marco-Auftrag 18.08.)
+    # ==================================================================
+
+    @tasks.loop(hours=1)
+    async def _aufraeumen(self) -> None:
+        """Alte Tickets schliessen und liegengebliebene Kanaele entfernen.
+
+        Zwei Faelle, beide bisher unbehandelt:
+
+        1. **Offene Tickets, in denen nichts mehr passiert.** Sie blieben
+           unbegrenzt stehen — jeder erzeugt einen Kanal, und die Liste wuchs.
+        2. **Verwaiste Kanaele.** Beim Schliessen wird der Kanal geloescht;
+           scheitert der Schritt davor (bis 18.08. der Fall, siehe C-24),
+           bleibt der Kanal fuer immer stehen, obwohl das Ticket in der
+           Datenbank geschlossen ist.
+
+        Das Transkript ist in beiden Faellen vorher im Log-Kanal gesichert —
+        geloescht wird der Kanal, nicht der Vorgang.
+        """
+        try:
+            await self._alte_offene_schliessen()
+            await self._verwaiste_kanaele_entfernen()
+        except Exception as e:  # noqa: BLE001 — Aufraeumen darf den Bot nie stoppen
+            logger.error(f"Ticket-Aufraeumen fehlgeschlagen: {e}", exc_info=True)
+
+    @_aufraeumen.before_loop
+    async def _vor_aufraeumen(self) -> None:
+        await self.bot.wait_until_ready()
+        # Nicht direkt beim Start: erst sollen die Daten geladen sein.
+        await asyncio.sleep(120)
+
+    def _letzte_aktivitaet(self, ticket: dict) -> datetime:
+        """Zeitpunkt der letzten Nachricht, sonst der Erstellung."""
+        zeiten = [ticket.get("created_at") or ""]
+        zeiten += [e.get("timestamp", "") for e in ticket.get("transcript", [])]
+        neueste = max((z for z in zeiten if z), default="")
+        try:
+            return datetime.fromisoformat(neueste)
+        except ValueError:
+            return datetime.now()
+
+    async def _alte_offene_schliessen(self) -> None:
+        if self._auto_close_tage <= 0:
+            return
+        grenze = datetime.now() - timedelta(days=self._auto_close_tage)
+
+        for ticket in self.ticket_mgr.get_open_tickets():
+            if self._letzte_aktivitaet(ticket) > grenze:
+                continue
+
+            tid = ticket.get("ticket_id") or ticket.get("id")
+            kanal = self.bot.get_channel(int(ticket.get("channel_id") or 0))
+            logger.info(
+                "Ticket #%s wird automatisch geschlossen: seit %d Tagen keine "
+                "Aktivitaet", tid, self._auto_close_tage)
+
+            if kanal is not None:
+                try:
+                    await kanal.send(embed=info_embed(
+                        title="Ticket wird geschlossen",
+                        description=(
+                            f"Seit {self._auto_close_tage} Tagen ist hier nichts "
+                            "mehr passiert. Das Ticket wird jetzt automatisch "
+                            "geschlossen und der Kanal entfernt.\n\n"
+                            "Wenn das Anliegen offen ist, mach einfach ein neues "
+                            "Ticket auf — der Verlauf bleibt im Team-Protokoll."),
+                    ))
+                except (discord.Forbidden, discord.HTTPException):
+                    pass
+
+            geschlossen = await self.ticket_mgr.close_ticket(
+                int(tid), closed_by=self.bot.user.id,
+                reason=f"automatisch nach {self._auto_close_tage} Tagen ohne Aktivitaet")
+            if not geschlossen:
+                continue
+
+            gilde = kanal.guild if kanal is not None else None
+            if gilde is not None:
+                await self._send_transcript_log(
+                    gilde, geschlossen,
+                    self.ticket_mgr.format_transcript(int(tid)), gilde.me)
+
+            await self._kanal_entfernen(kanal, tid, "automatisch geschlossen")
+
+    async def _verwaiste_kanaele_entfernen(self) -> None:
+        """Kanaele geschlossener Tickets, die noch stehen (C-24-Folge)."""
+        if self._verwaist_stunden <= 0:
+            return
+        grenze = datetime.now() - timedelta(hours=self._verwaist_stunden)
+
+        for ticket in self.ticket_mgr.alle_tickets():
+            if ticket.get("status") == "open":
+                continue
+            kanal_id = int(ticket.get("channel_id") or 0)
+            if not kanal_id:
+                continue
+            kanal = self.bot.get_channel(kanal_id)
+            if kanal is None:
+                continue  # laengst weg, alles gut
+
+            zu = ticket.get("closed_at") or ""
+            try:
+                if zu and datetime.fromisoformat(zu) > grenze:
+                    continue
+            except ValueError:
+                pass
+
+            tid = ticket.get("ticket_id") or ticket.get("id")
+            logger.warning(
+                "Ticket #%s ist geschlossen, sein Kanal stand aber noch — "
+                "wird entfernt", tid)
+            await self._kanal_entfernen(kanal, tid, "verwaister Ticket-Kanal")
+
+    async def _kanal_entfernen(self, kanal, tid, grund: str) -> None:
+        if kanal is None:
+            return
+        try:
+            await kanal.delete(reason=f"Ticket #{tid}: {grund}")
+        except (discord.Forbidden, discord.HTTPException) as e:
+            logger.error(f"Ticket-Kanal #{tid} loeschen fehlgeschlagen: {e}")
 
     # ==================================================================
     # Event: Nachrichten in Ticket-Channels tracken

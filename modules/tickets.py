@@ -556,6 +556,14 @@ class TicketManager:
         )
         return tickets
 
+    def alle_tickets(self) -> list[dict[str, Any]]:
+        """Alle Tickets, offen wie geschlossen.
+
+        Gebraucht vom Aufraeumen (Marco-Auftrag 18.08.): geschlossene Tickets,
+        deren Kanal noch steht, sind ueber `get_open_tickets()` nicht zu finden.
+        """
+        return [dict(t) for t in self._data["tickets"].values()]
+
     def get_user_ticket_count(self, user_id: int) -> int:
         """
         Anzahl offener Tickets eines Users zurueckgeben.
