@@ -5,6 +5,7 @@ Monitors Satisfactory server health via systemd + API
 
 import asyncio
 from enum import Enum
+import os
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field
 from typing import Optional, Callable, Awaitable, Dict, List, Any
@@ -76,6 +77,19 @@ class HealthChecker:
         self._max_crash_history: int = 100
         self._api_fail_count: int = 0
 
+        # Befund C-21 (Audit 2026-08-18): `starting` hatte kein Ablaufdatum.
+        # SAT-2 stand am 18.08. zwei Stunden auf diesem Zustand — Prozess
+        # laeuft, API stumm — und weil die Ausfallmeldung an OFFLINE haengt,
+        # meldete niemand. Ein Server, der zwei Stunden startet, startet nicht.
+        # Nach `starting_grace` Sekunden gilt er deshalb als offline.
+        self._starting_seit: Optional[datetime] = None
+        self._starting_gemeldet: bool = False
+        try:
+            self.starting_grace: int = max(60, int(
+                os.environ.get("SAT_STARTING_GRACE_SECONDS", "600")))
+        except ValueError:
+            self.starting_grace = 600
+
         # Callbacks
         self.on_crash: Optional[Callable[[CrashEvent], Awaitable]] = None
         self.on_recovery: Optional[Callable[[], Awaitable]] = None
@@ -98,6 +112,26 @@ class HealthChecker:
     def crashes_last_hour(self) -> int:
         cutoff = datetime.now() - timedelta(hours=1)
         return sum(1 for c in self.crash_history if c.timestamp > cutoff)
+
+    def _starting_ueberfaellig(self) -> bool:
+        """Steht die Instanz laenger als erlaubt auf `starting`?
+
+        Befund C-21: der Zustand zwischen „Prozess laeuft" und „API antwortet"
+        war unbegrenzt gueltig und loeste nie einen Alarm aus.
+        """
+        if self._starting_seit is None:
+            self._starting_seit = datetime.now()
+            return False
+        dauer = (datetime.now() - self._starting_seit).total_seconds()
+        if dauer < self.starting_grace:
+            return False
+        if not self._starting_gemeldet:
+            self._starting_gemeldet = True
+            logger.warning(
+                "%s steht seit %.0f Minuten auf 'starting' (Prozess laeuft, "
+                "API stumm) — wird ab jetzt als offline behandelt",
+                getattr(self.server, "display_name", "Server"), dauer / 60)
+        return True
 
     async def check(self) -> HealthStatus:
         """Perform a full health check cycle"""
@@ -130,25 +164,34 @@ class HealthChecker:
                     self.status.session_name = state.active_session or ""
                     self.status.state = ServerState.ONLINE
                     self.status.consecutive_failures = 0
+                    self._starting_seit = None
+                    self._starting_gemeldet = False
                 else:
                     self._api_fail_count += 1
                     self.status.api_reachable = False
-                    # Process running but API says offline = starting up
-                    self.status.state = ServerState.STARTING
+                    # Prozess laeuft, API meldet offline = faehrt hoch —
+                    # aber nur so lange, wie das plausibel ist (C-21).
+                    self.status.state = (
+                        ServerState.OFFLINE if self._starting_ueberfaellig()
+                        else ServerState.STARTING)
             except Exception as e:
                 self._api_fail_count += 1
                 self.status.api_reachable = False
                 logger.debug(f"API check failed ({self._api_fail_count}): {e}")
 
                 if self._api_fail_count >= self.max_api_failures:
-                    # Process running but API consistently fails
-                    self.status.state = ServerState.STARTING
+                    # Prozess laeuft, API antwortet dauerhaft nicht (C-21)
+                    self.status.state = (
+                        ServerState.OFFLINE if self._starting_ueberfaellig()
+                        else ServerState.STARTING)
                 else:
                     # Might still be starting up
                     if prev_state == ServerState.ONLINE:
                         self.status.state = ServerState.ONLINE  # Brief hiccup
                     else:
-                        self.status.state = ServerState.STARTING
+                        self.status.state = (
+                            ServerState.OFFLINE if self._starting_ueberfaellig()
+                            else ServerState.STARTING)
         else:
             self.status.api_reachable = False
             self.status.players_online = 0
@@ -158,6 +201,8 @@ class HealthChecker:
             # Rechenleistung des toten Servers an.
             self.status.tick_rate = 0.0
             self._api_fail_count = 0
+            self._starting_seit = None
+            self._starting_gemeldet = False
 
             # Detect crash: was online/starting, now process dead
             if prev_state in (ServerState.ONLINE, ServerState.STARTING):

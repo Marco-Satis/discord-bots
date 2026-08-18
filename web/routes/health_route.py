@@ -97,6 +97,25 @@ def _is_status_stale(data: dict) -> bool:
         return True
 
 
+# Zustaende, die als Ausfall zaehlen. `disabled` steht bewusst NICHT drin.
+OFFLINE_ZUSTAENDE: frozenset[str] = frozenset({"offline", "error", "crashed"})
+
+
+def _absichtlich_gestoppt(server_id: str) -> bool:
+    """Wurde dieser Server von Hand stillgelegt?
+
+    Quelle ist `manual_stop_state` — dieselbe Datei, an der sich auch der
+    Auto-Neustart und der taegliche Neustart orientieren. Faellt sie aus,
+    gilt der Server als nicht stillgelegt: lieber eine Warnung zu viel.
+    """
+    try:
+        from modules.monitoring.manual_stop_state import is_manually_stopped
+        return bool(is_manually_stopped(server_id))
+    except Exception as e:  # noqa: BLE001
+        logger.debug("Manuell-gestoppt-Pruefung fehlgeschlagen: %s", e)
+        return False
+
+
 def _build_server_entry(config: dict, data: Optional[dict]) -> dict:
     """
     Erstellt einen Server-Eintrag fuer die Health-Response.
@@ -125,6 +144,15 @@ def _build_server_entry(config: dict, data: Optional[dict]) -> dict:
 
     # Status uebernehmen
     raw_status = data.get("status", "unknown")
+
+    # Ein absichtlich stillgelegter Server ist keine Stoerung (Marco-Entscheid
+    # 2026-08-18: BMC laeuft nicht, weil ihn niemand bespielt). Bis dahin zog
+    # er die Gesamtanzeige dauerhaft auf `degraded` — eine Warnlampe, die
+    # immer leuchtet, wird nicht mehr gelesen.
+    if raw_status in OFFLINE_ZUSTAENDE and _absichtlich_gestoppt(config["id"]):
+        raw_status = "disabled"
+        entry["manually_stopped"] = True
+
     entry["status"] = raw_status
     entry["players"] = data.get("players", 0)
     entry["max_players"] = data.get("max_players", 0)
@@ -149,19 +177,24 @@ def _determine_overall_status(servers: list[dict]) -> str:
     if not servers:
         return "ok"
 
-    statuses = [s.get("status", "unknown") for s in servers]
+    # Stillgelegte Server zaehlen nicht mit — weder als Stoerung noch als
+    # Beleg dafuer, dass alles laeuft.
+    aktive = [s for s in servers if s.get("status") != "disabled"]
+    if not aktive:
+        return "ok"
+
+    statuses = [s.get("status", "unknown") for s in aktive]
 
     # Alle offline oder error = error
-    offline_states = {"offline", "error", "crashed"}
-    if all(s in offline_states for s in statuses):
+    if all(s in OFFLINE_ZUSTAENDE for s in statuses):
         return "error"
 
     # Mindestens ein Server offline = degraded
-    if any(s in offline_states for s in statuses):
+    if any(s in OFFLINE_ZUSTAENDE for s in statuses):
         return "degraded"
 
     # Alle veraltet = degraded
-    if all(s.get("stale", True) for s in servers):
+    if all(s.get("stale", True) for s in aktive):
         return "degraded"
 
     return "ok"
