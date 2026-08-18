@@ -119,8 +119,8 @@ class TicketManager:
             # Alle Tickets laden
             cursor = await db.execute(
                 "SELECT id, channel_id, user_id, subject, status, "
-                "created_at, closed_at, closed_by FROM tickets "
-                "ORDER BY id ASC"
+                "created_at, closed_at, closed_by, gemerkt, gemerkt_grund "
+                "FROM tickets ORDER BY id ASC"
             )
             rows = await cursor.fetchall()
 
@@ -170,6 +170,10 @@ class TicketManager:
                     "created_at": created_at or datetime.now().isoformat(),
                     "closed_at": closed_at,
                     "closed_by": closed_by,
+                    # Lesezeichen (Migration v14): nimmt das Ticket von der
+                    # Aufraeum-Automatik aus, solange jemand daran arbeitet.
+                    "gemerkt": bool(row[8]),
+                    "gemerkt_grund": row[9] or "",
                     "transcript": [],
                 }
 
@@ -563,6 +567,53 @@ class TicketManager:
         deren Kanal noch steht, sind ueber `get_open_tickets()` nicht zu finden.
         """
         return [dict(t) for t in self._data["tickets"].values()]
+
+    async def merken(
+        self, ticket_id: int, an: bool, *, von: int | None = None,
+        grund: str = "",
+    ) -> dict[str, Any] | None:
+        """
+        Lesezeichen eines Tickets setzen oder entfernen.
+
+        Ein gemerktes Ticket bleibt von beiden Aufraeum-Automatiken unberuehrt:
+        es wird nicht nach sieben stillen Tagen geschlossen und sein Kanal wird
+        nicht als verwaist entfernt. Gedacht fuer Vorgaenge, die laenger dauern
+        (Warten auf ein Spiel-Update) oder die man behalten will.
+
+        Args:
+            ticket_id: Ticket-Nummer
+            an: True = merken, False = Lesezeichen entfernen
+            von: Discord-User-ID desjenigen, der es merkt
+            grund: kurze Notiz, warum
+
+        Returns:
+            Das aktualisierte Ticket oder None wenn es die Nummer nicht gibt
+        """
+        ticket = self._data["tickets"].get(str(ticket_id))
+        if ticket is None:
+            return None
+
+        ticket["gemerkt"] = bool(an)
+        ticket["gemerkt_grund"] = grund if an else ""
+
+        try:
+            db = await get_db()
+            await db.execute(
+                "UPDATE tickets SET gemerkt = ?, gemerkt_von = ?, "
+                "gemerkt_grund = ? WHERE id = ?",
+                (1 if an else 0, str(von) if von and an else None,
+                 grund if an else None, ticket_id),
+            )
+            await db.commit()
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"Lesezeichen fuer Ticket #{ticket_id} nicht gespeichert: {e}")
+            return None
+
+        logger.info(
+            f"Ticket #{ticket_id} {'gemerkt' if an else 'nicht mehr gemerkt'}"
+            + (f" ({grund})" if an and grund else "")
+        )
+        return dict(ticket)
 
     def get_user_ticket_count(self, user_id: int) -> int:
         """

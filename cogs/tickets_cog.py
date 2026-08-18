@@ -202,6 +202,32 @@ class TicketCloseView(discord.ui.View):
 
         await cog.handle_ticket_close(interaction, reason=None)
 
+    @discord.ui.button(
+        label="Merken",
+        style=discord.ButtonStyle.secondary,
+        custom_id="ticket_system:bookmark_ticket",
+        emoji="\U0001f516",
+    )
+    async def bookmark_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ) -> None:
+        """Button-Handler: Lesezeichen an oder aus.
+
+        Ein gemerktes Ticket wird weder nach sieben stillen Tagen geschlossen
+        noch sein Kanal als verwaist entfernt — fuer Anliegen, die laenger
+        dauern oder die man behalten will.
+        """
+        cog: TicketsCog | None = interaction.client.get_cog("TicketsCog")
+        if not cog:
+            await interaction.response.send_message(
+                "Ticket-System ist nicht verfügbar.", ephemeral=True
+            )
+            return
+
+        await cog.handle_ticket_bookmark(interaction)
+
 
 # ======================================================================
 # Ticket Cog
@@ -301,6 +327,8 @@ class TicketsCog(commands.Cog):
         grenze = datetime.now() - timedelta(days=self._auto_close_tage)
 
         for ticket in self.ticket_mgr.get_open_tickets():
+            if ticket.get("gemerkt"):
+                continue  # Lesezeichen: bleibt stehen, bis jemand es freigibt
             if self._letzte_aktivitaet(ticket) > grenze:
                 continue
 
@@ -347,6 +375,8 @@ class TicketsCog(commands.Cog):
         for ticket in self.ticket_mgr.alle_tickets():
             if ticket.get("status") == "open":
                 continue
+            if ticket.get("gemerkt"):
+                continue  # gemerkte Vorgaenge behalten ihren Kanal
             kanal_id = int(ticket.get("channel_id") or 0)
             if not kanal_id:
                 continue
@@ -606,6 +636,66 @@ class TicketsCog(commands.Cog):
     # ==================================================================
     # Ticket schliessen (von Button oder Command aufgerufen)
     # ==================================================================
+
+    async def handle_ticket_bookmark(
+        self,
+        interaction: discord.Interaction,
+    ) -> None:
+        """
+        Lesezeichen des Tickets umschalten.
+
+        Gemerkte Tickets nimmt `_aufraeumen` von beiden Automatiken aus. Das
+        Lesezeichen ist bewusst ein Schalter und keine Frist: wer es setzt,
+        entscheidet selbst, wann der Vorgang erledigt ist.
+        """
+        await interaction.response.defer(ephemeral=True)
+
+        ticket = self.ticket_mgr.get_ticket_by_channel(interaction.channel_id)
+        if not ticket:
+            await interaction.followup.send(
+                "Dieser Channel ist kein Ticket-Channel.", ephemeral=True
+            )
+            return
+
+        neu = not ticket.get("gemerkt")
+        aktualisiert = await self.ticket_mgr.merken(
+            int(ticket["ticket_id"]), neu, von=interaction.user.id
+        )
+        if aktualisiert is None:
+            await interaction.followup.send(
+                "Lesezeichen konnte nicht gespeichert werden — Details im Log.",
+                ephemeral=True,
+            )
+            return
+
+        if neu:
+            text = (
+                f"Ticket #{ticket['ticket_id']} ist gemerkt. Es wird nicht mehr "
+                f"automatisch geschlossen und der Kanal bleibt stehen, bis du "
+                f"das Lesezeichen wieder entfernst."
+            )
+        else:
+            text = (
+                f"Lesezeichen von Ticket #{ticket['ticket_id']} entfernt. Es "
+                f"wird wieder automatisch geschlossen, wenn "
+                f"{self._auto_close_tage} Tage lang nichts passiert."
+            )
+        await interaction.followup.send(text, ephemeral=True)
+
+        # Sichtbar im Kanal, damit es niemanden ueberrascht, wenn das Ticket
+        # stehen bleibt (oder eben doch verschwindet).
+        try:
+            await interaction.channel.send(embed=info_embed(
+                title="Ticket gemerkt" if neu else "Lesezeichen entfernt",
+                description=(
+                    f"{interaction.user.mention} hat dieses Ticket "
+                    + ("gemerkt — es bleibt offen, bis jemand es schliesst."
+                       if neu else
+                       "freigegeben — die Aufraeum-Automatik greift wieder.")
+                ),
+            ))
+        except (discord.Forbidden, discord.HTTPException):
+            pass
 
     async def handle_ticket_close(
         self,

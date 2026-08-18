@@ -453,6 +453,13 @@ async def run_migrations(db: aiosqlite.Connection) -> None:
         await set_schema_version(db, 13)
         logger.info("Migration v12 → v13 abgeschlossen")
 
+    # Version 13 → 14: Tickets bekommen ein Lesezeichen (gemerkt)
+    if current < 14:
+        logger.info("Migration v13 → v14: Ticket-Lesezeichen")
+        await _apply_migration_v14(db)
+        await set_schema_version(db, 14)
+        logger.info("Migration v13 → v14 abgeschlossen")
+
     final = await get_schema_version(db)
     logger.info(f"Alle Migrationen abgeschlossen. Schema-Version: {final}")
 
@@ -485,6 +492,7 @@ async def _apply_schema_v1(db: aiosqlite.Connection) -> None:
     await _apply_migration_v11(db)
     await _apply_migration_v12(db)
     await _apply_migration_v13(db)
+    await _apply_migration_v14(db)
 
     # Diese Liste ist die Stelle, an der eine neue Migration am leichtesten
     # vergessen wird. Vergisst man sie, meldet eine frische Datenbank die volle
@@ -1065,3 +1073,42 @@ async def _apply_migration_v13(db: aiosqlite.Connection) -> None:
     await db.commit()
     logger.info("Migration v13: Spalte 'art' + Index angelegt, Altbestand = 'allgemein'")
 
+
+
+async def _apply_migration_v14(db: aiosqlite.Connection) -> None:
+    """
+    v14: Spalte `gemerkt` in `tickets` — Lesezeichen fuer laufende Vorgaenge.
+
+    Seit dem 18.08. schliesst der Bot Tickets nach sieben Tagen ohne Aktivitaet
+    und raeumt liegengebliebene Kanaele ab. Das ist richtig fuer vergessene
+    Tickets und falsch fuer die, an denen wirklich noch gearbeitet wird: eine
+    Fehlermeldung, die auf ein Spiel-Update wartet, ist nach sieben stillen
+    Tagen nicht erledigt, sondern immer noch offen.
+
+    `gemerkt = 1` nimmt ein Ticket von beiden Automatiken aus. Bestehende
+    Tickets sind nicht gemerkt — wer eins behalten will, sagt es aktiv.
+
+    Fehlt die Tabelle, ist nichts nachzutragen (gleiche Vorsichtsmassnahme wie
+    in v13, sonst braeche die Migrationskette ab).
+    """
+    if not await _tabelle_vorhanden(db, "tickets"):
+        logger.info("Migration v14: tickets fehlt — nichts nachzutragen")
+        return
+
+    cursor = await db.execute("PRAGMA table_info(tickets)")
+    spalten = {r[1] for r in await cursor.fetchall()}
+    if "gemerkt" in spalten:
+        logger.info("Migration v14: Spalte 'gemerkt' ist bereits vorhanden")
+        return
+
+    await db.execute(
+        "ALTER TABLE tickets ADD COLUMN gemerkt INTEGER NOT NULL DEFAULT 0"
+    )
+    await db.execute(
+        "ALTER TABLE tickets ADD COLUMN gemerkt_von TEXT"
+    )
+    await db.execute(
+        "ALTER TABLE tickets ADD COLUMN gemerkt_grund TEXT"
+    )
+    await db.commit()
+    logger.info("Migration v14: Spalten 'gemerkt', 'gemerkt_von', 'gemerkt_grund' angelegt")
