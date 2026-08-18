@@ -74,6 +74,16 @@ class SatisfactoryServer:
         self.save_path = (self.home_path / ".config" / "Epic" /
                           "FactoryGame" / "Saved")
 
+        # Wartezeit zwischen Stopp und Start (Befund C-20, siehe restart()).
+        # 45 s ist der gemessene Wert, bei dem die Sockets der alten Instanz
+        # verschwunden waren; ueber die ENV anpassbar, falls eine Maschine
+        # laenger braucht.
+        try:
+            self.neustart_pause = max(0, int(_wert(
+                "RESTART_PAUSE", "SAT_RESTART_PAUSE", "45")))
+        except ValueError:
+            self.neustart_pause = 45
+
     @property
     def enabled(self) -> bool:
         """
@@ -366,9 +376,30 @@ class SatisfactoryServer:
             except Exception as e:
                 logger.warning(f"Pre-Restart-Save Fehler: {e} — Restart trotzdem")
 
-        code, _, stderr = await self._systemctl("restart", timeout=120)
+        # Befund C-20 (Audit 2026-08-18): NICHT `systemctl restart`.
+        #
+        # Der Server bindet seine HTTPS-API auf den Spielport. Startet der neue
+        # Prozess sofort nach dem alten, haengen dessen Sockets noch (die
+        # Ueberwachung haelt eine offene Verbindung, die als TIME_WAIT
+        # nachwirkt) — die Instanz weicht dann still auf `Port + 1` aus und ist
+        # unter der konfigurierten Adresse nicht mehr erreichbar. Belegt an
+        # SAT-2: nach jedem Auto-Neustart 7779, nach jedem manuellen Start 7778.
+        #
+        # Am 18.08. nachgemessen: nach `stop` waren die Sockets nach 45 s weg,
+        # der anschliessende Start band wieder auf 7778. Deshalb stop, warten,
+        # start — statt eines Neustarts in einem Zug.
+        code, _, stderr = await self._systemctl("stop", timeout=120)
         if code != 0:
-            return False, f"Restart fehlgeschlagen: {stderr}"
+            return False, f"Stopp vor dem Neustart fehlgeschlagen: {stderr}"
+
+        pause = self.neustart_pause
+        logger.info("%s gestoppt — %ss Pause, damit der Port frei wird",
+                    self.service_name, pause)
+        await asyncio.sleep(pause)
+
+        code, _, stderr = await self._systemctl("start", timeout=120)
+        if code != 0:
+            return False, f"Start nach dem Stopp fehlgeschlagen: {stderr}"
 
         await asyncio.sleep(5)
         if await self.is_running():
