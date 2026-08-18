@@ -90,6 +90,8 @@ class SatisfactoryAPI:
 
         self._session: Optional[aiohttp.ClientSession] = None
         self._session_lock = asyncio.Lock()
+        # Verhindert, dass die Portsuche sich selbst erneut anstoesst.
+        self._port_gesucht = False
 
     async def _get_session(self) -> aiohttp.ClientSession:
         async with self._session_lock:
@@ -145,7 +147,67 @@ class SatisfactoryAPI:
                         self._session = None
                 continue
 
+        # Befund C-20 (Audit 2026-08-18): Der Server bindet seine HTTPS-API
+        # NICHT zuverlaessig auf `-Port`. Nach einem systemd-Neustart haengt
+        # der alte Socket noch, und die Instanz weicht auf `Port + 1` aus.
+        # Belegt im Serverprotokoll von SAT-2:
+        #     15.08. manueller Start  -> "Server API listening on …:7778"
+        #     16.08. 04:15 Auto-Neustart -> …:7779
+        #     16.08. manueller Start  -> …:7778
+        #     18.08. 04:14 Auto-Neustart -> …:7779
+        # Ein fester Wert in der Konfiguration kann deshalb nie dauerhaft
+        # stimmen. Statt zu raten wird der Nachbarport geprobt und der
+        # gefundene uebernommen.
+        if not self._port_gesucht:
+            self._port_gesucht = True
+            try:
+                if await self._port_neu_suchen():
+                    return await self._request(function, data)
+            finally:
+                self._port_gesucht = False
+
         raise SatisfactoryAPIError(f"API request failed after 3 attempts: {last_error}")
+
+    async def _port_neu_suchen(self) -> bool:
+        """Nachbarports auf eine antwortende API absuchen.
+
+        Rueckgabe True, wenn ein anderer Port geantwortet hat; `self.port` und
+        `self.base_url` zeigen dann dorthin. Geprobt wird mit `HealthCheck` —
+        die Funktion braucht keine Anmeldung, ein Treffer ist also auch ohne
+        gueltiges Token eindeutig.
+        """
+        kandidaten = [self.port + 1, self.port + 2, self.port - 1]
+        for port in kandidaten:
+            if port <= 0 or port > 65535:
+                continue
+            url = f"https://{self.host}:{port}/api/v1"
+            try:
+                session = await self._get_session()
+                async with session.post(
+                    url,
+                    json={"function": "HealthCheck",
+                          "data": {"clientCustomData": ""}},
+                    headers={"Content-Type": "application/json"},
+                    ssl=self._ssl,
+                ) as resp:
+                    if resp.status != 200:
+                        continue
+                    inhalt = await resp.json()
+            except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
+                continue
+
+            if not isinstance(inhalt, dict) or "data" not in inhalt:
+                continue
+
+            logger.warning(
+                "Satisfactory-API antwortet auf Port %s statt %s — uebernommen. "
+                "Der Server weicht nach einem Neustart auf den Nachbarport aus.",
+                port, self.port)
+            self.port = port
+            self.base_url = url
+            return True
+
+        return False
 
     # ------------------------------------------------------------------
     # API Functions
