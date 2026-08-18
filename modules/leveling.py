@@ -66,10 +66,10 @@ def _default_config() -> dict[str, Any]:
     """Standard-Konfiguration fuer das Leveling-System zurueckgeben."""
     return {
         "xp_per_message_min": 15,
-        "xp_per_message_max": 25,
-        "xp_cooldown_seconds": 60,
-        "voice_xp_per_minute": 5,
-        "level_formula": "5 * level^2 + 50 * level + 100",
+        "xp_per_message_max": 15,
+        "xp_cooldown_seconds": 90,
+        "voice_xp_per_minute": 2,
+        "level_formula": "10 * level^2 (kumulativ)",
         "channel_multipliers": {},
         "role_rewards": {},
         "remove_lower_rewards": False,
@@ -334,20 +334,53 @@ class LevelingManager:
     # Level-Formel
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def xp_for_level(level: int) -> int:
-        """
-        Berechnet die benoetigten XP fuer ein bestimmtes Level.
+    #: Steilheit der Levelkurve. Bei 2 XP je Sprachminute braucht der aktivste
+    #: Nutzer damit rund 7 Wochen bis Level 20, 9 Monate bis Level 50 und
+    #: 3,5 Jahre bis Level 100 (gerechnet am eigenen Datenbestand, 18.08.2026 —
+    #: Herleitung in docs/recherche/REPORT_community_features_2026-08-18.md).
+    XP_FAKTOR: int = 10
 
-        Formel: 5 * level^2 + 50 * level + 100
+    @classmethod
+    def xp_for_level(cls, level: int) -> int:
+        """
+        Gesamt-XP, die ein Nutzer haben muss, um `level` erreicht zu haben.
+
+        Formel: 10 * level^2, **kumulativ** — der Rueckgabewert ist die
+        Gesamtsumme, nicht der Aufschlag fuer diese eine Stufe. Level 0 kostet
+        nichts, Level 1 zehn XP, Level 10 tausend.
+
+        Die alte Formel (`5*level^2 + 50*level + 100`) war eine
+        Pro-Stufe-Formel, wurde aber gegen die Gesamt-XP verglichen. Dadurch
+        stieg man mit Gesamt-XP auf, die nur fuer eine einzelne Stufe gereicht
+        haetten — das war der Grund fuer die viel zu schnellen Aufstiege.
 
         Args:
             level: Das Ziel-Level
 
         Returns:
-            Benoetigte XP um dieses Level zu erreichen
+            Benoetigte Gesamt-XP fuer dieses Level
         """
-        return 5 * level * level + 50 * level + 100
+        if level <= 0:
+            return 0
+        return cls.XP_FAKTOR * level * level
+
+    @classmethod
+    def level_for_xp(cls, xp: int) -> int:
+        """
+        Umkehrung von `xp_for_level`: welches Level gehoert zu diesen Gesamt-XP?
+
+        Rechnet direkt statt in einer Schleife hochzuzaehlen — bei einem Reset
+        oder einem manuell gesetzten Wert kann `xp` beliebig gross sein.
+        """
+        if xp <= 0:
+            return 0
+        level = int((xp / cls.XP_FAKTOR) ** 0.5)
+        # Gleitkomma-Rundung abfangen: nach oben und unten je eine Stufe pruefen
+        while cls.xp_for_level(level + 1) <= xp:
+            level += 1
+        while level > 0 and cls.xp_for_level(level) > xp:
+            level -= 1
+        return level
 
     # ------------------------------------------------------------------
     # User-Daten (guild-scoped)
@@ -524,17 +557,7 @@ class LevelingManager:
 
         user = self._ensure_user(guild_id, user_id)
         user["xp"] = amount
-
-        # Level komplett neu berechnen
-        level = 0
-        while user["xp"] >= self.xp_for_level(level):
-            level += 1
-        # Level ist jetzt eins zu hoch (erste Stufe die NICHT erreicht wird)
-        user["level"] = max(0, level - 1) if level > 0 else 0
-
-        # Nochmal pruefen: Wenn genug XP fuer naechstes Level
-        while user["xp"] >= self.xp_for_level(user["level"]):
-            user["level"] += 1
+        user["level"] = self.level_for_xp(amount)
 
         # Fire-and-forget: SQLite-Update
         self._fire_and_forget(self._db_upsert_user(guild_id, user_id, user))
@@ -545,6 +568,57 @@ class LevelingManager:
         )
 
     # ------------------------------------------------------------------
+    # Kompletter Reset
+    # ------------------------------------------------------------------
+
+    async def reset_guild(self, guild_id: int | str) -> list[str]:
+        """
+        Alle Levelstaende einer Guild auf 0 setzen — XP, Level, Nachrichten,
+        Sprachminuten.
+
+        Gibt die betroffenen User-IDs zurueck. Der Aufrufer ist dafuer
+        zustaendig, die vergebenen Belohnungsrollen abzuraeumen: dieses Modul
+        kennt Discord nicht und kann keine Rollen entfernen. Wer den Rueckgabe-
+        wert ignoriert, hinterlaesst Mitglieder auf Level 0 mit der Rolle von
+        Level 50 — genau der Fehler, den fertige Bots an dieser Stelle machen.
+
+        Anders als `set_xp` laeuft der Reset synchron gegen die Datenbank: nach
+        Rueckkehr ist er wirklich geschrieben, nicht nur eingeplant.
+
+        Args:
+            guild_id: Discord-Guild-ID
+
+        Returns:
+            Liste der zurueckgesetzten User-IDs (als String)
+        """
+        gid = str(guild_id)
+        betroffen = list(self._data.get(gid, {}).keys())
+
+        for daten in self._data.get(gid, {}).values():
+            daten["xp"] = 0
+            daten["level"] = 0
+            daten["total_messages"] = 0
+            daten["voice_minutes"] = 0
+            daten["last_xp_at"] = None
+
+        try:
+            conn = await get_db()
+            await conn.execute(
+                "UPDATE leveling SET xp = 0, level = 0, messages = 0, "
+                "voice_minutes = 0, last_xp_time = NULL WHERE guild_id = ?",
+                (gid,),
+            )
+            await conn.commit()
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"Leveling-Reset Guild {gid} fehlgeschlagen: {e}")
+            raise
+
+        logger.warning(
+            f"Leveling-Reset Guild {gid}: {len(betroffen)} Eintraege auf 0 gesetzt"
+        )
+        return betroffen
+
+    # ------------------------------------------------------------------
     # Level-Berechnung
     # ------------------------------------------------------------------
 
@@ -552,23 +626,21 @@ class LevelingManager:
         """
         Pruefen ob der User ein Level-Up verdient hat.
 
-        Erhoet das Level so lange, bis die XP nicht mehr ausreichen.
+        Vergleicht die Gesamt-XP gegen die kumulative Kurve. Ein Aufstieg um
+        mehrere Stufen auf einmal ist moeglich (z.B. nach einem manuell
+        gesetzten Wert) und zaehlt als ein Level-Up.
 
         Returns:
             True wenn mindestens ein Level-Up stattgefunden hat
         """
-        leveled_up = False
         current_level = user.get("level", 0)
-        xp = user.get("xp", 0)
+        neues_level = self.level_for_xp(user.get("xp", 0))
 
-        while xp >= self.xp_for_level(current_level):
-            current_level += 1
-            leveled_up = True
+        if neues_level > current_level:
+            user["level"] = neues_level
+            return True
 
-        if leveled_up:
-            user["level"] = current_level
-
-        return leveled_up
+        return False
 
     # ------------------------------------------------------------------
     # Rollen-Belohnungen (per-Guild)

@@ -312,7 +312,12 @@ class LevelingCog(commands.Cog):
         - Member ist im genannten Channel
         - Channel ist nicht der AFK-Channel
         - Member ist nicht self-deafened / server-deafened
-        - mindestens 2 menschliche Teilnehmer (kein Solo-Farming)
+        - mindestens 2 **nicht stummgeschaltete** Menschen im Kanal
+
+        Die Stumm-Bedingung ist der Unterschied zwischen „zwei Leute sind da"
+        und „zwei Leute reden". Wer stumm oder taub im Kanal sitzt, zaehlt
+        weder fuer sich selbst noch als Gespraechspartner fuer andere —
+        sonst reicht ein zweiter schlafender Client zum Farmen.
         """
         if member is None or channel is None:
             return False
@@ -321,10 +326,17 @@ class LevelingCog(commands.Cog):
         vs = member.voice
         if vs is None or vs.channel is None or vs.channel.id != channel.id:
             return False
-        if vs.self_deaf or vs.deaf:
+        if vs.self_deaf or vs.deaf or vs.self_mute or vs.mute:
             return False
-        humans = [m for m in channel.members if not m.bot]
-        return len(humans) >= 2
+        wach = [
+            m
+            for m in channel.members
+            if not m.bot
+            and m.voice is not None
+            and not (m.voice.self_mute or m.voice.mute)
+            and not (m.voice.self_deaf or m.voice.deaf)
+        ]
+        return len(wach) >= 2
 
     async def _leveling_enabled(self, guild_id: int) -> bool:
         """Ob das Leveling-Modul fuer die Guild aktiv ist (15s-TTL-Cache)."""
@@ -1027,6 +1039,87 @@ class LevelingCog(commands.Cog):
         logger.info(
             f"XP manuell gesetzt: {user.display_name} -> {amount} "
             f"von {interaction.user.display_name}"
+        )
+
+    # ==================================================================
+    # /xp reset — kompletter Neuanfang inkl. Belohnungsrollen
+    # ==================================================================
+
+    @xp_grp.command(
+        name="reset",
+        description="ALLE Levelstände auf 0 setzen und Belohnungsrollen abnehmen",
+    )
+    @app_commands.describe(
+        bestaetigen="Auf True setzen — ohne das passiert nichts",
+    )
+    @admin_only()
+    async def xp_reset(
+        self,
+        interaction: discord.Interaction,
+        bestaetigen: bool = False,
+    ) -> None:
+        """
+        Setzt XP, Level, Nachrichten und Sprachminuten aller Mitglieder auf 0
+        und nimmt dabei die vergebenen Belohnungsrollen wieder ab.
+
+        Die Rollen sind der Grund, warum das ein eigener Befehl ist und kein
+        Datenbank-Einzeiler: wer nur die XP loescht, hinterlaesst Mitglieder
+        auf Level 0, die weiter die Rolle von Level 50 tragen.
+        """
+        await interaction.response.defer(ephemeral=True)
+        guild = interaction.guild
+
+        if guild is None:
+            await interaction.followup.send(
+                "Nur auf einem Server nutzbar.", ephemeral=True
+            )
+            return
+
+        if not bestaetigen:
+            await interaction.followup.send(
+                "Nichts passiert. Der Reset löscht **alle** Levelstände "
+                "unwiderruflich — rufe ihn mit `bestaetigen: True` erneut auf.",
+                ephemeral=True,
+            )
+            return
+
+        # 1. Belohnungsrollen einsammeln und abnehmen, solange wir noch wissen,
+        #    wer welches Level hatte.
+        belohnungen = self.leveling.get_role_rewards(guild.id)
+        rollen = [r for r in (guild.get_role(rid) for rid in belohnungen.values()) if r]
+
+        entfernt = 0
+        fehlgeschlagen = 0
+        for rolle in rollen:
+            for member in list(rolle.members):
+                try:
+                    await member.remove_roles(rolle, reason="Leveling: Reset auf 0")
+                    entfernt += 1
+                except (discord.Forbidden, discord.HTTPException) as e:
+                    fehlgeschlagen += 1
+                    logger.warning(
+                        f"Reset: '{rolle.name}' nicht von {member.display_name} "
+                        f"entfernbar: {e}"
+                    )
+
+        # 2. Erst danach die Daten loeschen.
+        betroffen = await self.leveling.reset_guild(guild.id)
+
+        hinweis = (
+            f"\n{fehlgeschlagen} Rollen-Entnahmen scheiterten (Rangfolge prüfen)."
+            if fehlgeschlagen
+            else ""
+        )
+        await interaction.followup.send(
+            f"Leveling zurückgesetzt: **{len(betroffen)}** Einträge auf 0, "
+            f"**{entfernt}** Belohnungsrollen abgenommen "
+            f"({len(rollen)} Rollen geprüft).{hinweis}",
+            ephemeral=True,
+        )
+        logger.warning(
+            f"Leveling-Reset durch {interaction.user.display_name}: "
+            f"{len(betroffen)} Einträge, {entfernt} Rollen entfernt, "
+            f"{fehlgeschlagen} Fehler"
         )
 
     # ==================================================================
