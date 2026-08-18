@@ -22,6 +22,9 @@ from __future__ import annotations
 
 import asyncio
 import io
+import json
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 import discord
@@ -61,6 +64,12 @@ except Exception as _card_import_err:  # noqa: BLE001
 
 # Ablage fuer hochgeladene Level-Up-Karten-Hintergruende
 LEVELUP_BG_DIR = ADMIN_DATA_DIR / "levelup_backgrounds"
+
+# Reset-Auftraege aus dem Dashboard (gleiches Muster wie die Embed-Queue):
+# das Dashboard legt eine JSON-Datei ab, dieser Cog fuehrt sie aus und
+# hinterlegt das Ergebnis in RESET_STATUS_FILE.
+RESET_QUEUE_DIR = ADMIN_DATA_DIR / "leveling_queue"
+RESET_STATUS_FILE = ADMIN_DATA_DIR / "leveling_reset_status.json"
 
 # Leaderboard-Pagination
 LEADERBOARD_PER_PAGE = 10
@@ -233,11 +242,118 @@ class LevelingCog(commands.Cog):
             logger.warning(f"close_orphans fehlgeschlagen: {e}")
         guard(self.voice_sample_task, name="voice_sample_task")
         self.voice_sample_task.start()
-        logger.info("Leveling-Cog geladen, Voice-Session-Sampler gestartet")
+        RESET_QUEUE_DIR.mkdir(parents=True, exist_ok=True)
+        guard(self.reset_queue_task, name="leveling_reset_queue")
+        self.reset_queue_task.start()
+        logger.info(
+            "Leveling-Cog geladen, Voice-Session-Sampler + Reset-Queue gestartet"
+        )
 
     async def cog_unload(self) -> None:
-        """Sampler stoppen wenn Cog entladen wird."""
+        """Sampler und Reset-Queue stoppen wenn Cog entladen wird."""
         self.voice_sample_task.cancel()
+        self.reset_queue_task.cancel()
+
+    # ==================================================================
+    # Reset-Queue — angestossen vom Dashboard
+    # ==================================================================
+
+    @tasks.loop(seconds=10)
+    async def reset_queue_task(self) -> None:
+        """
+        Auftraege aus `data/admin/leveling_queue/` abarbeiten.
+
+        Der Reset gehoert ins Dashboard, ausfuehren kann ihn aber nur der Bot:
+        das Dashboard laeuft in einem eigenen Prozess ohne Discord-Verbindung
+        und koennte die Belohnungsrollen nicht abnehmen. Deshalb derselbe Weg
+        wie bei den Embeds — das Dashboard legt eine Datei ab, der Bot holt sie.
+        """
+        try:
+            if not RESET_QUEUE_DIR.exists():
+                return
+            for datei in sorted(RESET_QUEUE_DIR.glob("reset_*.json")):
+                await self._reset_auftrag_abarbeiten(datei)
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"Reset-Queue fehlgeschlagen: {e}", exc_info=True)
+
+    @reset_queue_task.before_loop
+    async def before_reset_queue(self) -> None:
+        await self.bot.wait_until_ready()
+
+    async def _reset_auftrag_abarbeiten(self, pfad: Path) -> None:
+        """Einen einzelnen Reset-Auftrag ausfuehren und quittieren."""
+        try:
+            daten = await asyncio.to_thread(
+                lambda: json.loads(pfad.read_text(encoding="utf-8"))
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"Reset-Auftrag {pfad.name} unlesbar: {e}")
+            await asyncio.to_thread(pfad.unlink, True)
+            return
+
+        # Auftrag zuerst entfernen: ein Reset, der auf halber Strecke abbricht,
+        # darf nicht in Endlosschleife erneut anlaufen.
+        await asyncio.to_thread(pfad.unlink, True)
+
+        guild = self.bot.get_guild(int(daten.get("guild_id", 0)))
+        if guild is None:
+            logger.error(f"Reset-Auftrag {pfad.name}: Guild unbekannt")
+            return
+
+        ausloeser = daten.get("angefordert_von", "Dashboard")
+        logger.warning(f"Leveling-Reset angefordert von {ausloeser} (Dashboard)")
+
+        # 1. Belohnungsrollen abnehmen, solange die Levelstaende noch da sind.
+        belohnungen = self.leveling.get_role_rewards(guild.id)
+        rollen = [r for r in (guild.get_role(rid) for rid in belohnungen.values()) if r]
+        entfernt = 0
+        fehlgeschlagen = 0
+        for rolle in rollen:
+            for member in list(rolle.members):
+                try:
+                    await member.remove_roles(rolle, reason="Leveling: Reset auf 0")
+                    entfernt += 1
+                except (discord.Forbidden, discord.HTTPException) as e:
+                    fehlgeschlagen += 1
+                    logger.warning(
+                        f"Reset: '{rolle.name}' nicht von {member.display_name} "
+                        f"entfernbar: {e}"
+                    )
+
+        # 2. Erst danach die Daten loeschen.
+        try:
+            betroffen = await self.leveling.reset_guild(guild.id)
+        except Exception as e:  # noqa: BLE001
+            await self._reset_quittieren(
+                {"status": "fehler", "meldung": str(e)[:200],
+                 "rollen_entfernt": entfernt}
+            )
+            raise
+
+        await self._reset_quittieren({
+            "status": "ok",
+            "eintraege": len(betroffen),
+            "rollen_entfernt": entfernt,
+            "rollen_geprueft": len(rollen),
+            "fehlgeschlagen": fehlgeschlagen,
+            "angefordert_von": ausloeser,
+        })
+        logger.warning(
+            f"Leveling-Reset ausgefuehrt: {len(betroffen)} Eintraege, "
+            f"{entfernt} Rollen entfernt, {fehlgeschlagen} Fehler"
+        )
+
+    async def _reset_quittieren(self, ergebnis: dict) -> None:
+        """Ergebnis fuer das Dashboard hinterlegen (best-effort)."""
+        ergebnis["zeitpunkt"] = datetime.now(timezone.utc).isoformat()
+        try:
+            await asyncio.to_thread(
+                RESET_STATUS_FILE.write_text,
+                json.dumps(ergebnis, indent=2, ensure_ascii=False),
+                "utf-8",
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"Reset-Quittung nicht schreibbar: {e}")
 
     # ==================================================================
     # Event: Nachrichten-XP
@@ -1039,87 +1155,6 @@ class LevelingCog(commands.Cog):
         logger.info(
             f"XP manuell gesetzt: {user.display_name} -> {amount} "
             f"von {interaction.user.display_name}"
-        )
-
-    # ==================================================================
-    # /xp reset — kompletter Neuanfang inkl. Belohnungsrollen
-    # ==================================================================
-
-    @xp_grp.command(
-        name="reset",
-        description="ALLE Levelstände auf 0 setzen und Belohnungsrollen abnehmen",
-    )
-    @app_commands.describe(
-        bestaetigen="Auf True setzen — ohne das passiert nichts",
-    )
-    @admin_only()
-    async def xp_reset(
-        self,
-        interaction: discord.Interaction,
-        bestaetigen: bool = False,
-    ) -> None:
-        """
-        Setzt XP, Level, Nachrichten und Sprachminuten aller Mitglieder auf 0
-        und nimmt dabei die vergebenen Belohnungsrollen wieder ab.
-
-        Die Rollen sind der Grund, warum das ein eigener Befehl ist und kein
-        Datenbank-Einzeiler: wer nur die XP loescht, hinterlaesst Mitglieder
-        auf Level 0, die weiter die Rolle von Level 50 tragen.
-        """
-        await interaction.response.defer(ephemeral=True)
-        guild = interaction.guild
-
-        if guild is None:
-            await interaction.followup.send(
-                "Nur auf einem Server nutzbar.", ephemeral=True
-            )
-            return
-
-        if not bestaetigen:
-            await interaction.followup.send(
-                "Nichts passiert. Der Reset löscht **alle** Levelstände "
-                "unwiderruflich — rufe ihn mit `bestaetigen: True` erneut auf.",
-                ephemeral=True,
-            )
-            return
-
-        # 1. Belohnungsrollen einsammeln und abnehmen, solange wir noch wissen,
-        #    wer welches Level hatte.
-        belohnungen = self.leveling.get_role_rewards(guild.id)
-        rollen = [r for r in (guild.get_role(rid) for rid in belohnungen.values()) if r]
-
-        entfernt = 0
-        fehlgeschlagen = 0
-        for rolle in rollen:
-            for member in list(rolle.members):
-                try:
-                    await member.remove_roles(rolle, reason="Leveling: Reset auf 0")
-                    entfernt += 1
-                except (discord.Forbidden, discord.HTTPException) as e:
-                    fehlgeschlagen += 1
-                    logger.warning(
-                        f"Reset: '{rolle.name}' nicht von {member.display_name} "
-                        f"entfernbar: {e}"
-                    )
-
-        # 2. Erst danach die Daten loeschen.
-        betroffen = await self.leveling.reset_guild(guild.id)
-
-        hinweis = (
-            f"\n{fehlgeschlagen} Rollen-Entnahmen scheiterten (Rangfolge prüfen)."
-            if fehlgeschlagen
-            else ""
-        )
-        await interaction.followup.send(
-            f"Leveling zurückgesetzt: **{len(betroffen)}** Einträge auf 0, "
-            f"**{entfernt}** Belohnungsrollen abgenommen "
-            f"({len(rollen)} Rollen geprüft).{hinweis}",
-            ephemeral=True,
-        )
-        logger.warning(
-            f"Leveling-Reset durch {interaction.user.display_name}: "
-            f"{len(betroffen)} Einträge, {entfernt} Rollen entfernt, "
-            f"{fehlgeschlagen} Fehler"
         )
 
     # ==================================================================

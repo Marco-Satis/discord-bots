@@ -8,6 +8,8 @@ Hinweis: Der Web-Prozess kann Discord-Anzeigenamen nicht ohne Bot/API
 aufloesen -> es wird die User-ID angezeigt (Namens-Anreicherung = spaeter,
 z.B. via Username-Spalte in leveling oder Discord-API-Cache).
 """
+import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Request
@@ -17,6 +19,7 @@ from web.templates_setup import erstelle_templates
 from modules.database.db_manager import get_read_db
 from modules.guild_context import GuildConfig, get_primary_guild_id
 from modules.member_cache import get_members
+from utils.config import ADMIN_DATA_DIR
 from utils.logger import get_logger
 from web.auth import require_auth, require_perm
 
@@ -126,6 +129,8 @@ async def leveling_page(request: Request, current_user: dict = Depends(require_a
         "guild_set": guild_id is not None,
         "total": len(entries),
         "cfg": cfg,
+        # Quittung des letzten Resets (leer, solange keiner lief)
+        "status": _reset_status(),
         "success": "",
         "error": "",
     })
@@ -195,6 +200,85 @@ async def leveling_config_save(
         "request": request,
         "guild_set": guild_id is not None,
         "cfg": cfg,
+        "success": success,
+        "error": error,
+    })
+
+
+# ----------------------------------------------------------------------
+# Kompletter Reset — Auftrag an den Bot
+# ----------------------------------------------------------------------
+
+RESET_QUEUE_DIR = ADMIN_DATA_DIR / "leveling_queue"
+RESET_STATUS_FILE = ADMIN_DATA_DIR / "leveling_reset_status.json"
+
+
+def _reset_status() -> dict:
+    """Quittung des letzten Resets lesen (leer, wenn noch keiner lief)."""
+    try:
+        if RESET_STATUS_FILE.exists():
+            return json.loads(RESET_STATUS_FILE.read_text(encoding="utf-8"))
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Reset-Quittung unlesbar: {e}")
+    return {}
+
+
+@router.post("/leveling/reset", response_class=HTMLResponse)
+async def leveling_reset(
+    request: Request, current_user: dict = Depends(require_perm("leveling", "edit"))
+):
+    """
+    Alle Levelstaende auf 0 setzen — als Auftrag an den Bot.
+
+    Der Web-Prozess hat keine Discord-Verbindung und koennte die
+    Belohnungsrollen nicht abnehmen. Deshalb wird hier nur ein Auftrag
+    abgelegt; `cogs/leveling_cog.py` holt ihn binnen zehn Sekunden ab,
+    nimmt erst die Rollen ab und loescht dann die Daten.
+
+    Sicherung gegen Verklicken: das Formular muss das Wort RESET enthalten.
+    """
+    guild_id = get_primary_guild_id()
+    success = ""
+    error = ""
+
+    if guild_id is None:
+        error = "Keine Haupt-Guild gesetzt (ENV GUILD_ID)."
+    else:
+        try:
+            form = await request.form()
+            if str(form.get("bestaetigung", "")).strip().upper() != "RESET":
+                raise ValueError(
+                    "Zur Bestaetigung RESET in das Feld schreiben."
+                )
+
+            RESET_QUEUE_DIR.mkdir(parents=True, exist_ok=True)
+            auftrag = {
+                "guild_id": str(guild_id),
+                "angefordert_von": current_user.get("username", "Dashboard"),
+                "angefordert_am": datetime.now(timezone.utc).isoformat(),
+            }
+            ziel = RESET_QUEUE_DIR / f"reset_{int(datetime.now().timestamp())}.json"
+            ziel.write_text(
+                json.dumps(auftrag, indent=2, ensure_ascii=False), encoding="utf-8"
+            )
+            logger.warning(
+                f"Leveling-Reset angefordert von "
+                f"{current_user.get('username', 'Unbekannt')} -> {ziel.name}"
+            )
+            success = (
+                "Reset beauftragt. Der Bot fuehrt ihn binnen zehn Sekunden aus "
+                "und nimmt dabei die Belohnungsrollen ab."
+            )
+        except ValueError as e:
+            error = str(e)
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"Reset-Auftrag fehlgeschlagen: {e}")
+            error = "Auftrag konnte nicht abgelegt werden. Details im Server-Log."
+
+    return templates.TemplateResponse(request, "partials/leveling_reset.html", {
+        "request": request,
+        "guild_set": guild_id is not None,
+        "status": _reset_status(),
         "success": success,
         "error": error,
     })

@@ -1,0 +1,55 @@
+{# Kompletter Leveling-Reset — HTMX-Partial.
+   Wird von leveling.html via {% include %} eingebunden UND von POST
+   /leveling/reset als Swap-Ziel (#lvl-reset) zurueckgegeben. CSRF-Header
+   kommt aus body[hx-headers] (base_v5.html).
+
+   Der Bot fuehrt den Reset aus, nicht das Dashboard: nur er kann die
+   Belohnungsrollen abnehmen. Hier wird ein Auftrag abgelegt. #}
+<div id="lvl-reset" class="config-section lvl-config-card">
+    <h2 class="lvl-config-title">Alles auf 0 setzen</h2>
+
+    {% if success %}<div class="lvl-banner lvl-banner-ok">{{ success }}</div>{% endif %}
+    {% if error %}<div class="lvl-banner lvl-banner-err">{{ error }}</div>{% endif %}
+
+    {% if not guild_set %}
+        <p>Keine Haupt-Guild gesetzt (ENV <code>GUILD_ID</code>) — Reset nicht verfuegbar.</p>
+    {% else %}
+    <p>
+        Setzt <strong>XP, Level, Nachrichten und Sprachminuten aller Mitglieder</strong>
+        auf 0 und nimmt dabei die vergebenen Belohnungsrollen wieder ab. Das laesst
+        sich nicht rueckgaengig machen.
+    </p>
+    <p>
+        <small>
+            Ausgefuehrt wird der Reset vom Bot, nicht vom Dashboard — nur er kann
+            Rollen entfernen. Nach dem Absenden dauert es bis zu zehn Sekunden.
+        </small>
+    </p>
+
+    <form hx-post="/leveling/reset" hx-target="#lvl-reset" hx-swap="outerHTML">
+        <div class="lvl-field">
+            <label for="bestaetigung">Zur Bestaetigung <code>RESET</code> eintippen</label>
+            <input type="text" id="bestaetigung" name="bestaetigung"
+                   autocomplete="off" placeholder="RESET">
+        </div>
+        <button type="submit" class="btn btn-danger">Alles auf 0 setzen</button>
+    </form>
+
+    {% if status %}
+    <p class="lvl-reset-status">
+        <small>
+            Letzter Reset: {{ status.zeitpunkt }} —
+            {% if status.status == "ok" %}
+                {{ status.eintraege }} Eintraege zurueckgesetzt,
+                {{ status.rollen_entfernt }} Belohnungsrollen abgenommen
+                ({{ status.rollen_geprueft }} Rollen geprueft){% if status.fehlgeschlagen %},
+                {{ status.fehlgeschlagen }} Entnahmen scheiterten — Rollen-Rangfolge pruefen{% endif %}.
+                Angefordert von {{ status.angefordert_von }}.
+            {% else %}
+                fehlgeschlagen: {{ status.meldung }}
+            {% endif %}
+        </small>
+    </p>
+    {% endif %}
+    {% endif %}
+</div>
