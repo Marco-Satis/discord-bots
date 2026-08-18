@@ -23,6 +23,8 @@ import asyncio
 from datetime import datetime
 from typing import Optional
 
+import io
+
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -70,9 +72,12 @@ TICKET_ARTEN: dict[str, dict[str, str]] = {
         "feld": "Was funktioniert nicht?",
         "platzhalter": "z.B. /sat status antwortet nicht",
         "detail_label": "Was hast du gemacht?",
+        # Befund C-23 (Audit 2026-08-18): dieser Text war 108 Zeichen lang.
+        # Discord erlaubt 100 und lehnt das ganze Formular ab — `/ticket` mit
+        # der Art „Fehler melden" liess sich dadurch NIE oeffnen (HTTP 400,
+        # error code 50035). Aufgefallen erst, als Marco es von Hand probierte.
         "detail_platzhalter": (
-            "Schritt fuer Schritt: was hast du getan, was ist passiert, was "
-            "haettest du erwartet? Wann war das ungefaehr?"
+            "Was hast du getan, was ist passiert, was haettest du erwartet?"
         ),
     },
 }
@@ -130,14 +135,17 @@ class TicketCreateModal(discord.ui.Modal):
 
         self.subject = discord.ui.TextInput(
             label=daten["feld"],
-            placeholder=daten["platzhalter"],
+            placeholder=daten["platzhalter"][:100],
             style=discord.TextStyle.short,
             max_length=100,
             required=True,
         )
         self.description = discord.ui.TextInput(
             label=daten["detail_label"],
-            placeholder=daten["detail_platzhalter"],
+            # Guertel zum Hosentraeger: Discord lehnt das GANZE Formular ab,
+            # wenn ein Platzhalter zu lang ist. Lieber ein gekuerzter Hinweis
+            # als ein Dialog, der sich nicht oeffnet (C-23).
+            placeholder=daten["detail_platzhalter"][:100],
             style=discord.TextStyle.paragraph,
             max_length=1000,
             required=(self.art == "bug"),
@@ -626,9 +634,17 @@ class TicketsCog(commands.Cog):
             inline=True,
         )
 
-        # Transcript als Datei anhaengen
+        # Transcript als Datei anhaengen.
+        #
+        # Befund C-24 (Audit 2026-08-18): hier stand `fp=transcript_text.
+        # encode("utf-8")`. `discord.File` behandelt `bytes` als PFADANGABE,
+        # nicht als Inhalt — beim Schliessen eines Tickets ohne Nachrichten
+        # versuchte es also die Datei „(Kein Transcript vorhanden)" zu oeffnen
+        # und warf `FileNotFoundError`. Der Knopf „Ticket schliessen" endete
+        # damit in einer Ausnahme, und der Nutzer sah nur „Interaktion
+        # fehlgeschlagen". Aufgefallen bei Marcos Live-Probe.
         transcript_file = discord.File(
-            fp=transcript_text.encode("utf-8"),
+            fp=io.BytesIO(transcript_text.encode("utf-8")),
             filename=f"ticket-{ticket_id}-transcript.txt",
         )
 

@@ -49,14 +49,28 @@ from utils.embeds import (
 logger = get_logger("cogs.custom_commands")
 
 # SQL für Tabellenerstellung
+#
+# Befund C-22 (Audit 2026-08-18, an Marcos Live-Probe aufgefallen): hier stand
+# eine ZWEITE, abweichende Definition derselben Tabelle — `name` als Primary
+# Key und eine Spalte `uses`. Die echte Tabelle kommt aber aus
+# `modules/database/migrations.py:268` und heisst dort `use_count`, mit
+# `id` als Schluessel. Weil `CREATE TABLE IF NOT EXISTS` bei vorhandener
+# Tabelle stillschweigend nichts tut, fiel die Abweichung nie auf — bis eine
+# Abfrage lief: jedes `!befehl` im Chat endete in
+# `sqlite3.OperationalError: no such column: uses`.
+#
+# Die Definition ist jetzt eine Kopie der Migration. Wer sie aendert, aendert
+# beide.
 CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS custom_commands (
-    name TEXT PRIMARY KEY,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE NOT NULL,
     response TEXT NOT NULL,
-    category TEXT DEFAULT '',
-    created_by TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    uses INTEGER DEFAULT 0
+    category TEXT,
+    created_by TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP,
+    use_count INTEGER DEFAULT 0
 )
 """
 
@@ -110,7 +124,7 @@ class CustomCommandsCog(commands.Cog):
         """
         db = await get_db()
         cursor = await db.execute(
-            "SELECT name, response, category, created_by, created_at, uses "
+            "SELECT name, response, category, created_by, created_at, use_count "
             "FROM custom_commands WHERE LOWER(name) = LOWER(?)",
             (name,),
         )
@@ -135,7 +149,7 @@ class CustomCommandsCog(commands.Cog):
         """
         db = await get_db()
         cursor = await db.execute(
-            "SELECT name, response, category, created_by, created_at, uses "
+            "SELECT name, response, category, created_by, created_at, use_count "
             "FROM custom_commands ORDER BY name ASC"
         )
         rows = await cursor.fetchall()
@@ -156,7 +170,7 @@ class CustomCommandsCog(commands.Cog):
         try:
             db = await get_db()
             await db.execute(
-                "UPDATE custom_commands SET uses = uses + 1 WHERE LOWER(name) = LOWER(?)",
+                "UPDATE custom_commands SET use_count = use_count + 1 WHERE LOWER(name) = LOWER(?)",
                 (name,),
             )
             await db.commit()
@@ -326,7 +340,7 @@ class CustomCommandsCog(commands.Cog):
         try:
             db = await get_db()
             await db.execute(
-                "INSERT INTO custom_commands (name, response, category, created_by, created_at, uses) "
+                "INSERT INTO custom_commands (name, response, category, created_by, created_at, use_count) "
                 "VALUES (?, ?, ?, ?, ?, ?)",
                 (
                     cmd_name,
