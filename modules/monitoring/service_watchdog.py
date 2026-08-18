@@ -64,10 +64,16 @@ class ServiceWatchdog:
         check_interval: int = 120,  # 2 Minuten
         max_restarts_per_hour: int = 3,
         services: Optional[List[Dict[str, str]]] = None,
+        confirm_delay: int = 20,
     ) -> None:
         self.bot: Any = bot
         self.check_interval: int = check_interval
         self.max_restarts_per_hour: int = max_restarts_per_hour
+        # Ein "nicht aktiv" wird nach dieser Wartezeit ein zweites Mal geprueft,
+        # bevor Alarm ausgeloest wird. Ein Deploy-Neustart dauert rund zehn
+        # Sekunden — ohne die Gegenprobe meldet der Waechter jeden Deploy als
+        # Ausfall (belegt am 18.08.2026, 14:51 Uhr).
+        self.confirm_delay: int = confirm_delay
 
         # Services aus Config oder Parameter laden
         cfg: Dict[str, Any] = get_config().get("service_watchdog", {})
@@ -218,6 +224,30 @@ class ServiceWatchdog:
                 # Service läuft, alles gut
                 continue
 
+            # systemd ist mitten im Zustandswechsel — das ist kein Ausfall.
+            if result["status"] in ("activating", "deactivating", "reloading"):
+                logger.info(
+                    f"Service '{name}' ({label}) im Uebergang "
+                    f"({result['status']}) — kein Alarm"
+                )
+                continue
+
+            # Gegenprobe: ein einzelnes "inactive" trifft auch jeden Neustart,
+            # der gerade laeuft. Erst wenn der Dienst nach confirm_delay immer
+            # noch weg ist, ist es ein Ausfall.
+            if self.confirm_delay > 0:
+                await asyncio.sleep(self.confirm_delay)
+                zweiter = await self._get_service_status(name)
+                self._last_status[name] = zweiter
+                if zweiter == "active":
+                    logger.info(
+                        f"Service '{name}' ({label}) war kurz weg "
+                        f"({result['status']}), laeuft nach {self.confirm_delay}s "
+                        f"wieder — vermutlich Neustart, kein Alarm"
+                    )
+                    continue
+                result["status"] = zweiter
+
             # Service ist nicht aktiv
             logger.warning(
                 f"Service '{name}' ({label}) ist nicht aktiv: {result['status']}"
@@ -295,8 +325,11 @@ class ServiceWatchdog:
         # schlaegt der Restart mit "sudo: a password is required" fehl.
         svc = service_name if service_name.endswith(".service") else f"{service_name}.service"
         try:
+            # -n: nie nach einem Passwort fragen. Ohne das haengt sudo an einem
+            # Terminal, das ein systemd-Dienst nicht hat, und die Fehlermeldung
+            # verschleiert die eigentliche Ursache (fehlende sudoers-Zeile).
             proc = await asyncio.create_subprocess_exec(
-                "sudo", "/usr/bin/systemctl", "restart", svc,
+                "sudo", "-n", "/usr/bin/systemctl", "restart", svc,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -314,6 +347,16 @@ class ServiceWatchdog:
                 return False, f"Service nach Restart im Status: {status}"
 
             error_text: str = stderr.decode("utf-8", errors="ignore").strip()
+            if "password is required" in error_text or "may not run" in error_text:
+                # Haeufigster Fall und aus der rohen sudo-Meldung nicht ablesbar:
+                # es fehlt die NOPASSWD-Zeile fuer genau diese Unit. Am 18.08.2026
+                # trugen die sudoers noch die alten Bot-Namen (monitor-/gameserver-/
+                # admin-bot), weshalb kein einziger Bot neu startbar war.
+                return False, (
+                    f"Keine sudo-Berechtigung fuer '{svc}'. "
+                    f"Es fehlt eine NOPASSWD-Zeile in /etc/sudoers.d/ "
+                    f"(pruefen mit: sudo -u botuser sudo -n -l | grep {svc})"
+                )
             return False, f"systemctl restart Fehler (Code {proc.returncode}): {error_text}"
 
         except asyncio.TimeoutError:
