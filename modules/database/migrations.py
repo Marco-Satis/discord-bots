@@ -11,7 +11,7 @@ from utils.logger import get_logger
 logger = get_logger("database.migrations")
 
 # Aktuelle Schema-Version
-CURRENT_VERSION = 13
+CURRENT_VERSION = 14
 
 
 # Komplettes Schema (23 Tabellen + Indices + FTS5)
