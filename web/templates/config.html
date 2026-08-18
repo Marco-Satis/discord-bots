@@ -82,17 +82,15 @@
           "anti_spam": ("AntiSpam (Discord)", "Spam-Erkennung in Discord-Channels"),
           "login_audit": ("Login-Audit", "Dashboard-Logins protokollieren"),
           "auto_cleanup": ("Auto-Bereinigung", "Alte Logs/Backups automatisch loeschen"),
-          "savegame_protection": ("Savegame-Schutz", "Backup vor riskanten Operationen"),
-          "graceful_degradation": ("Graceful Degradation", "Bei Teil-Ausfall reduzierter Betrieb statt Total-Stop"),
           "steam_changelog": ("Steam Changelog", "Satisfactory-Patch-Notes posten"),
           "modpack_update_check": ("Modpack-Update-Check", "BMC Modpack auf Updates pruefen (Modrinth/CurseForge)")
       } %}
       {% set feature_groups = [
           ("Monitoring & Tracking", ["player_tracking", "voice_stats", "login_audit"]),
-          ("Backups & Daten", ["auto_backup", "onedrive_backup", "savegame_protection", "auto_cleanup"]),
+          ("Backups & Daten", ["auto_backup", "onedrive_backup", "auto_cleanup"]),
           ("Updates", ["auto_update", "modpack_update_check", "steam_changelog"]),
           ("Discord", ["chat_bridge", "word_filter", "anti_spam", "status_embed"]),
-          ("Betrieb & Alerts", ["daily_restart", "email_notifications", "graceful_degradation"])
+          ("Betrieb & Alerts", ["daily_restart", "email_notifications"])
       ] %}
       <div class="set-grid">
         {% for gtitle, gkeys in feature_groups %}

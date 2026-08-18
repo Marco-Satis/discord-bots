@@ -92,9 +92,18 @@ class AutoCleanup:
             summary["settings_deleted"] = trimmed
 
             # 6. Weekly snapshots
-            trimmed = self._trim_directory(
-                self.weekly_snapshot_dir, "snapshot_*.json", self.snapshot_max
-            )
+            #
+            # Audit 2026-08-18: hier stand `data/weekly_snapshots` — ein
+            # Verzeichnis, das es nie gab. Der Analysator legt seine
+            # Schnappschuesse JE INSTANZ unter
+            # `data/analyzer_cache/<instanz>/weekly_snapshots` ab. Die
+            # Aufbewahrungsregel lief damit ins Leere und haette es auch
+            # weiter getan, ohne je einen Fehler zu melden.
+            trimmed = 0
+            for verzeichnis in self._snapshot_verzeichnisse():
+                trimmed += self._trim_directory(
+                    verzeichnis, "snapshot_*.json", self.snapshot_max
+                )
             summary["snapshots_deleted"] = trimmed
 
             logger.info(
@@ -105,6 +114,24 @@ class AutoCleanup:
             logger.error(f"Cleanup error: {e}", exc_info=True)
 
         return summary
+
+    def _snapshot_verzeichnisse(self) -> List[Path]:
+        """Alle Schnappschuss-Verzeichnisse — je Satisfactory-Instanz eines.
+
+        Der alte Einzelpfad bleibt in der Liste: existiert er auf einer
+        aelteren Installation noch, wird er weiter aufgeraeumt.
+        """
+        verzeichnisse: List[Path] = []
+        if self.weekly_snapshot_dir.is_dir():
+            verzeichnisse.append(self.weekly_snapshot_dir)
+
+        cache = PROJECT_ROOT / "data" / "analyzer_cache"
+        if cache.is_dir():
+            for instanz in sorted(cache.iterdir()):
+                kandidat = instanz / "weekly_snapshots"
+                if kandidat.is_dir():
+                    verzeichnisse.append(kandidat)
+        return verzeichnisse
 
     async def _compress_old_logs(self) -> int:
         """Compress .log files older than N days"""

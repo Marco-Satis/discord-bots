@@ -79,6 +79,15 @@ class SchedulerCog(commands.Cog):
         self._daily_report_hour = sched.get("daily_report_hour", 7)
         self._min_uptime_for_restart_hours = sched.get("min_uptime_for_restart_hours", 12)
         self._config_backup_hour = sched.get("config_backup_hour", 3)
+        # Befund C-11 (Audit 2026-08-17): `AutoCleanup` war gebaut, in
+        # `recon_bot.py:405` erzeugt und an den Bot gehaengt — aufgerufen hat
+        # es nie jemand. Die Aufbewahrungsregeln standen in der Konfiguration
+        # und bewirkten nichts; Logs, Absturz-Mitschnitte und alte Sicherungen
+        # wuchsen unbegrenzt. Laeuft jetzt taeglich zur eingestellten Stunde.
+        self._auto_cleanup_hour = sched.get("auto_cleanup_hour", 4)
+        self._auto_cleanup_enabled = (
+            sched.get("auto_cleanup_enabled", True)
+            and funktion_aktiv("auto_cleanup"))
         self._config_backup_enabled = sched.get("config_backup_enabled", True)
 
         # Minecraft Scheduler Config
@@ -97,6 +106,7 @@ class SchedulerCog(commands.Cog):
         # State
         self._last_auto_backup: Optional[datetime] = None
         self._last_config_backup: Optional[datetime] = None
+        self._last_auto_cleanup: Optional[datetime] = None
         self._last_update_check: Optional[datetime] = None
         self._last_daily_restart: Optional[datetime] = None
         # Je Satisfactory-Instanz eigener Stand: laeuft auf einem Server jemand,
@@ -358,6 +368,10 @@ class SchedulerCog(commands.Cog):
             # Config backup check
             if self._config_backup_enabled:
                 await self._check_config_backup(now)
+
+            # Aufraeumen nach Aufbewahrungsregeln (C-11)
+            if self._auto_cleanup_enabled:
+                await self._check_auto_cleanup(now)
 
             # Weekly report check
             await self._check_weekly_report(now)
@@ -704,6 +718,41 @@ class SchedulerCog(commands.Cog):
         servers = getattr(self.bot, "sat_servers", {}) or {}
         return (next(iter(servers), "MAIN")).lower()
 
+    async def _patchnotes_text(self) -> str:
+        """Kurzfassung der neuesten Steam-Patchnotes fuer die Update-Meldung.
+
+        Liefert bei jedem Fehler einen leeren String: eine Update-Meldung darf
+        nicht daran scheitern, dass Steam gerade nicht antwortet (Befund C-11).
+        """
+        if not funktion_aktiv("steam_changelog"):
+            return ""
+        changelog = getattr(self.bot, "steam_changelog", None)
+        if changelog is None:
+            return ""
+        try:
+            notizen = await changelog.get_latest_patchnotes(count=1)
+        except Exception as e:  # noqa: BLE001 — Zusatzinfo, kein Pflichtteil
+            logger.debug(f"Patchnotes nicht abrufbar: {e}")
+            return ""
+        if not notizen:
+            return ""
+
+        notiz = notizen[0]
+        titel = str(notiz.get("title", "")).strip()
+        inhalt = changelog.format_embed_description(notiz)
+        if len(inhalt) > 700:
+            inhalt = inhalt[:700].rsplit(" ", 1)[0] + " …"
+        url = notiz.get("url", "")
+
+        teile = ["\n\n**Was sich aendert**"]
+        if titel:
+            teile.append(f"*{titel}*")
+        if inhalt:
+            teile.append(inhalt)
+        if url:
+            teile.append(f"[Vollstaendige Patchnotes]({url})")
+        return "\n".join(teile)
+
     async def _check_update(self, now: datetime):
         """
         Update-Pruefung fuer jede Satisfactory-Installation.
@@ -750,6 +799,12 @@ class SchedulerCog(commands.Cog):
                 if self._auto_update_enabled:
                     zusatz += ("\n\nAuto-Update ist aktiv und wird beim nächsten "
                                "'Server leer'-Moment installiert.")
+                # Befund C-11 (Audit 2026-08-17): `SteamChangelog` war gebaut,
+                # in `recon_bot.py:418` erzeugt, an den Bot gehaengt — und rief
+                # nie jemand auf. Die Meldung „Update verfuegbar" nannte zwei
+                # Build-Nummern und liess offen, was sich aendert. Genau dafuer
+                # war die Klasse da.
+                zusatz += await self._patchnotes_text()
                 try:
                     await self.notifier.notify_update_available(
                         installiert, verfuegbar, extra_text=zusatz)
@@ -2157,6 +2212,44 @@ class SchedulerCog(commands.Cog):
     # ------------------------------------------------------------------
     # Config Backup
     # ------------------------------------------------------------------
+
+    async def _check_auto_cleanup(self, now: datetime):
+        """Taegliches Aufraeumen nach den Aufbewahrungsregeln (Befund C-11).
+
+        Loescht nichts, was die Konfiguration nicht ausdruecklich erlaubt:
+        `AutoCleanup` arbeitet mit Alters- und Anzahlgrenzen aus dem
+        `auto_cleanup`-Block. Ergebnis wird protokolliert — ein Aufraeumer,
+        der still arbeitet, ist von einem, der gar nicht laeuft, nicht zu
+        unterscheiden. Genau daran ist dieser hier ein halbes Jahr gescheitert.
+        """
+        cleanup = getattr(self.bot, "auto_cleanup", None)
+        if cleanup is None:
+            return
+
+        if now.hour != self._auto_cleanup_hour or now.minute > 1:
+            return
+        if self._last_auto_cleanup and self._last_auto_cleanup.date() == now.date():
+            return
+
+        self._last_auto_cleanup = now
+        try:
+            ergebnis = await cleanup.run_cleanup()
+        except Exception as e:  # noqa: BLE001 — Aufraeumen darf den Tick nie stoppen
+            logger.error(f"Auto-Cleanup fehlgeschlagen: {e}", exc_info=True)
+            return
+
+        geloescht = sum(v for k, v in ergebnis.items()
+                        if k != "space_freed_mb" and isinstance(v, int))
+        logger.info(
+            "Auto-Cleanup: %d Dateien aufgeraeumt, %.1f MB frei "
+            "(Logs komprimiert %s, Logs geloescht %s, Absturz-Mitschnitte %s, "
+            "Sicherungen %s, Einstellungen %s, Schnappschuesse %s)",
+            geloescht, ergebnis.get("space_freed_mb", 0.0),
+            ergebnis.get("logs_compressed", 0), ergebnis.get("logs_deleted", 0),
+            ergebnis.get("crash_replays_deleted", 0),
+            ergebnis.get("backups_deleted", 0),
+            ergebnis.get("settings_deleted", 0),
+            ergebnis.get("snapshots_deleted", 0))
 
     async def _check_config_backup(self, now: datetime):
         """Daily backup of server-specific config files to OneDrive"""

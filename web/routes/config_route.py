@@ -129,9 +129,16 @@ async def config_save(request: Request, current_user: dict = Depends(require_aut
             "player_tracking", "auto_backup", "onedrive_backup",
             "email_notifications", "auto_update", "daily_restart",
             "voice_stats", "status_embed", "chat_bridge", "word_filter",
-            "anti_spam", "login_audit", "auto_cleanup",
-            "savegame_protection", "graceful_degradation", "steam_changelog",
+            "anti_spam", "login_audit", "auto_cleanup", "steam_changelog",
         ]
+        # Audit 2026-08-18 (C-10, Marco-Entscheid): `savegame_protection` und
+        # `graceful_degradation` stehen hier bewusst NICHT mehr. Beide sind
+        # Sicherheitsnetze — der Speicherstand-Schutz greift bei Absturz-
+        # schleifen (`bots/recon_bot.py:848`), die Degradation haelt den Betrieb
+        # bei Teilausfaellen aufrecht. Ein Kaestchen im Web, das sie abschaltet,
+        # ist eine Fussangel: der Schaden faellt erst auf, wenn das Netz
+        # gebraucht wird. Sie liefen ohnehin immer — das Ankreuzfeld war
+        # wirkungslos und hat genau das Gegenteil suggeriert.
         for key in feature_keys:
             field_name = f"features.{key}"
             # Checkbox: vorhanden = True, nicht vorhanden = False
