@@ -190,6 +190,14 @@ for _sat_sid in SAT_SERVER_IDS:
 bot.sat_servers = sat_servers
 bot.sat_apis = sat_apis
 
+# Jede Instanz muss die Ports der ANDEREN kennen, sonst uebernimmt die
+# Ausweichsuche (C-20) die API der Nachbarinstanz. Genau das geschah am
+# 19./20.08.2026: beide Clients landeten auf demselben Port, einer schickte
+# seinen Token an den falschen Server und bekam dauerhaft HTTP 401.
+_alle_sat_ports = {_api.port for _api in sat_apis.values()}
+for _sid, _api in sat_apis.items():
+    _api.fremde_ports = _alle_sat_ports - {_api.port}
+
 # Befund C-13: Protokolliert jeden Slash-Befehl dieses Bots ins command_log.
 # Gleicher Weg wie operator_bot.py:202.
 bot.command_logger = CommandLogger()

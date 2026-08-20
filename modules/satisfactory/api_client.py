@@ -92,6 +92,19 @@ class SatisfactoryAPI:
         self._session_lock = asyncio.Lock()
         # Verhindert, dass die Portsuche sich selbst erneut anstoesst.
         self._port_gesucht = False
+        # Der konfigurierte Port bleibt die Heimatadresse: nach einer
+        # Ausweich-Uebernahme wird zuerst wieder hier gesucht.
+        self._port_konfiguriert = port
+        # Ports der ANDEREN Instanzen. Sie duerfen nie uebernommen werden.
+        #
+        # Ohne diese Sperre passierte am 19./20.08.2026 folgendes: SAT-2 wich
+        # auf 7779 aus, der Client von SAT-1 probte seinen Nachbarport, fand
+        # dort die API von SAT-2 und uebernahm sie. Ab da schickte SAT-1 seinen
+        # Token an den falschen Server, der ihn zurueckwies — im Protokoll als
+        # "Token has expired", was in die Irre fuehrt: der Token war gueltig,
+        # nur am falschen Server. Wer diese Menge nicht fuellt, baut den Fehler
+        # wieder ein.
+        self.fremde_ports: set[int] = set()
 
     async def _get_session(self) -> aiohttp.ClientSession:
         async with self._session_lock:
@@ -133,6 +146,21 @@ class SatisfactoryAPI:
                         return {}
                     else:
                         text = await resp.text()
+                        # 401 auf einem uebernommenen Port heisst fast immer:
+                        # wir reden mit der falschen Instanz. Der Server nennt
+                        # das "Token has expired" — der Token ist aber gueltig,
+                        # nur am falschen Server. Einmal nach Hause und erneut
+                        # versuchen, statt bis zum naechsten Neustart zu klagen.
+                        if (resp.status == 401
+                                and self.port != self._port_konfiguriert):
+                            logger.warning(
+                                "HTTP 401 auf Port %s — vermutlich fremde "
+                                "Instanz. Zurueck auf den konfigurierten Port %s.",
+                                self.port, self._port_konfiguriert)
+                            self.port = self._port_konfiguriert
+                            self.base_url = (
+                                f"https://{self.host}:{self.port}/api/v1")
+                            continue
                         raise SatisfactoryAPIError(
                             f"HTTP {resp.status}: {text[:200]}"
                         )
@@ -169,45 +197,104 @@ class SatisfactoryAPI:
         raise SatisfactoryAPIError(f"API request failed after 3 attempts: {last_error}")
 
     async def _port_neu_suchen(self) -> bool:
-        """Nachbarports auf eine antwortende API absuchen.
+        """Nachbarports auf die EIGENE antwortende API absuchen.
 
-        Rueckgabe True, wenn ein anderer Port geantwortet hat; `self.port` und
-        `self.base_url` zeigen dann dorthin. Geprobt wird mit `HealthCheck` —
-        die Funktion braucht keine Anmeldung, ein Treffer ist also auch ohne
-        gueltiges Token eindeutig.
+        Rueckgabe True, wenn ein Port uebernommen wurde; `self.port` und
+        `self.base_url` zeigen dann dorthin.
+
+        Zwei Regeln, ohne die die Suche schadet statt hilft:
+
+        1. **Fremde Ports sind tabu.** Auf einer Maschine mit zwei Instanzen
+           liegt der Nachbarport oft die andere Instanz — genau das passierte
+           am 19./20.08.2026.
+        2. **Antworten heisst nicht dazugehoeren.** `HealthCheck` braucht keine
+           Anmeldung und antwortet deshalb auch dem falschen Server bereitwillig.
+           Erst ein Aufruf MIT Token beweist, dass die API zu uns gehoert.
+
+        Zuerst wird der konfigurierte Port geprobt: nach einem Neustart bindet
+        der Server oft wieder dort, und dann gehoert der Client nach Hause.
         """
-        kandidaten = [self.port + 1, self.port + 2, self.port - 1]
+        kandidaten: list[int] = []
+        for port in (self._port_konfiguriert, self.port + 1, self.port + 2,
+                     self.port - 1):
+            if port <= 0 or port > 65535 or port == self.port:
+                continue
+            if port in self.fremde_ports:
+                logger.debug("Port %s gehoert einer anderen Instanz — uebersprungen", port)
+                continue
+            if port not in kandidaten:
+                kandidaten.append(port)
+
         for port in kandidaten:
-            if port <= 0 or port > 65535:
-                continue
             url = f"https://{self.host}:{port}/api/v1"
-            try:
-                session = await self._get_session()
-                async with session.post(
-                    url,
-                    json={"function": "HealthCheck",
-                          "data": {"clientCustomData": ""}},
-                    headers={"Content-Type": "application/json"},
-                    ssl=self._ssl,
-                ) as resp:
-                    if resp.status != 200:
-                        continue
-                    inhalt = await resp.json()
-            except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
+            if not await self._gehoert_uns(url):
                 continue
 
-            if not isinstance(inhalt, dict) or "data" not in inhalt:
-                continue
-
+            heim = port == self._port_konfiguriert
             logger.warning(
-                "Satisfactory-API antwortet auf Port %s statt %s — uebernommen. "
-                "Der Server weicht nach einem Neustart auf den Nachbarport aus.",
-                port, self.port)
+                "Satisfactory-API antwortet auf Port %s statt %s — uebernommen%s.",
+                port, self.port,
+                " (zurueck auf dem konfigurierten Port)" if heim else "")
             self.port = port
             self.base_url = url
             return True
 
         return False
+
+    async def _gehoert_uns(self, url: str) -> bool:
+        """Prueft, ob unter `url` UNSERE API antwortet.
+
+        Ohne Token bleibt nur `HealthCheck` — dann wird die Antwort als
+        Zugehoerigkeit gewertet, weil es keine bessere Auskunft gibt. Mit Token
+        entscheidet ein angemeldeter Aufruf: eine fremde Instanz weist unseren
+        Token zurueck (HTTP 401), die eigene nicht.
+        """
+        session = await self._get_session()
+        try:
+            async with session.post(
+                url,
+                json={"function": "HealthCheck",
+                      "data": {"clientCustomData": ""}},
+                headers={"Content-Type": "application/json"},
+                ssl=self._ssl,
+            ) as resp:
+                if resp.status != 200:
+                    return False
+                inhalt = await resp.json()
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
+            return False
+
+        if not isinstance(inhalt, dict) or "data" not in inhalt:
+            return False
+
+        if not self.token:
+            return True
+
+        try:
+            async with session.post(
+                url,
+                json={"function": "QueryServerState"},
+                headers={"Content-Type": "application/json",
+                         "Authorization": f"Bearer {self.token}"},
+                ssl=self._ssl,
+            ) as resp:
+                if resp.status != 200:
+                    logger.info(
+                        "Port %s antwortet, weist unseren Token aber zurueck "
+                        "(HTTP %s) — fremde Instanz, nicht uebernommen",
+                        url.rsplit(":", 1)[-1].split("/")[0], resp.status)
+                    return False
+                antwort = await resp.json()
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
+            return False
+
+        # Der Server antwortet auch auf abgelehnte Aufrufe mit HTTP 200 und
+        # legt den Fehler in den Rumpf — deshalb reicht der Statuscode nicht.
+        if isinstance(antwort, dict) and antwort.get("errorCode"):
+            logger.info("Port antwortet mit %s — fremde Instanz, nicht uebernommen",
+                        antwort.get("errorCode"))
+            return False
+        return True
 
     # ------------------------------------------------------------------
     # API Functions

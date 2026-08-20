@@ -99,6 +99,13 @@ for _sat_sid in SAT_SERVER_IDS:
     )
     logger.info(f"Satisfactory-Server aktiviert: {_sat_srv.display_name} ({_sat_sid})")
 
+# Jede Instanz muss die Ports der ANDEREN kennen — sonst uebernimmt die
+# Ausweichsuche die API der Nachbarinstanz (Vorfall 19./20.08.2026, gleiche
+# Stelle in recon_bot.py).
+_alle_sat_ports = {_api.port for _api in bot.sat_apis.values()}
+for _sid, _api in bot.sat_apis.items():
+    _api.fremde_ports = _alle_sat_ports - {_api.port}
+
 # Erste Instanz unter den gewohnten Namen — die uebrigen Cogs und Manager
 # unten haengen daran.
 _SAT_ERSTER = next(iter(bot.sat_servers), "MAIN")
