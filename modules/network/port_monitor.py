@@ -1,11 +1,24 @@
 """
-Port Monitor Module (F52) - Prueft die Erreichbarkeit konfigurierter TCP-Ports.
-Alle 5 Minuten wird ein TCP-Connect-Test auf die konfigurierten Ports durchgefuehrt.
-Ports werden nur geprueft wenn der zugehoerige Server/Service aktiv sein soll.
-Bei geschlossenem Port wird eine Warnung ausgeloest.
+Port Monitor Module (F52) — prueft alle 5 Minuten, ob die konfigurierten Ports
+erreichbar sind. Geprueft wird nur, wenn der zugehoerige Server laufen soll;
+bei geschlossenem Port gibt es eine Warnung.
+
+Zwei Pruefarten, je nach Dienst (Feld `protokoll` im Port-Eintrag):
+
+* `tcp` — Verbindungsversuch. Fuer Dashboard, Minecraft und RCON.
+* `udp_sat` — leichtgewichtige Satisfactory-Abfrage. Satisfactory nimmt
+  Spielverkehr ueber UDP entgegen; ein TCP-Versuch dorthin kann nie gelingen.
+
+Die frueher hier stehende Regel „nur TCP-Ports eintragen" wurde am 16.08.2026
+gebrochen, als die Spiel-Ports aus der Registry dazukamen. Ergebnis: der zweite
+Satisfactory-Server meldete alle zehn Minuten „nicht erreichbar", obwohl er
+lief, und der erste galt nur deshalb als erreichbar, weil auf demselben
+Zahlenwert zufaellig die HTTPS-API lauscht.
 """
 
 import asyncio
+import socket
+import struct
 import time
 from datetime import datetime, timedelta
 from typing import Optional, Callable, Awaitable, Dict, List, Any
@@ -21,10 +34,8 @@ COLOR_ERROR: int = 0xE74C3C
 COLOR_SUCCESS: int = 0x2ECC71
 COLOR_INFO: int = 0x5865F2
 
-# Standard-Port-Konfiguration
-# Hinweis: Nur TCP-Ports hier eintragen!
-# SAT Port 7777 ist UDP-only (kein TCP) → wird vom Health-Checker per
-# UDP-Probe geprueft, nicht hier im TCP-Port-Monitor.
+# Standard-Port-Konfiguration (Rueckfall, wenn die Registry nichts liefert).
+# Wer hier einen Satisfactory-Spielport eintraegt, setzt "protokoll": "udp_sat".
 DEFAULT_PORTS: list[Dict[str, Any]] = [
     {"port": 8080, "label": "Web-Dashboard", "host": "127.0.0.1", "enabled": True},
 ]
@@ -38,6 +49,47 @@ DEFAULT_CONNECT_TIMEOUT: float = 5.0
 # Gebaut aus der ENV (modules.server_registry) statt aufgezaehlt — bis
 # 2026-08-14 standen hier zwei Vanilla-Ports, die nach der Stilllegung auf einen
 # Server gezeigt haetten, den es nicht mehr gibt.
+
+
+def _sat_udp_erreichbar(host: str, port: int,
+                        timeout: float) -> tuple[bool, Optional[str]]:
+    """Fragt den Satisfactory-Spielport per leichtgewichtiger UDP-Abfrage.
+
+    Aufbau laut Wiki (Lightweight Query API): Magic `0xF6D5` als kleines
+    Endian, Nachrichtentyp 0 (`PollServerState`), Protokollversion 1, acht
+    Byte Cookie, Abschlussbyte `0x1`. Der Server schickt Nachrichtentyp 1 und
+    **dasselbe Cookie** zurueck — daran erkennt man, dass die Antwort zu dieser
+    Anfrage gehoert und nicht zu einem alten Paket im Puffer.
+
+    Am 21.08.2026 gegen beide laufenden Instanzen geprobt: 7777 und 7778
+    antworten, ein unbenutzter Port laeuft in die Zeitueberschreitung.
+
+    Returns:
+        (True, None) bei gueltiger Antwort, sonst (False, Grund)
+    """
+    cookie = 0x5361744D6F6E0001  # beliebig, dient nur der Zuordnung
+    paket = struct.pack("<HBBQB", 0xF6D5, 0, 1, cookie, 0x1)
+
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.settimeout(timeout)
+    try:
+        s.sendto(paket, (host, port))
+        daten, _ = s.recvfrom(2048)
+    except socket.timeout:
+        # Bei UDP gibt es kein "abgelehnt": ein stiller Port und ein
+        # geschlossener sehen gleich aus.
+        return False, f"keine Antwort nach {timeout:.0f}s"
+    except OSError as e:
+        return False, f"Netzwerkfehler: {e}"
+    finally:
+        s.close()
+
+    if len(daten) < 12:
+        return False, f"Antwort zu kurz ({len(daten)} Byte)"
+    magic, typ, _version, zurueck = struct.unpack("<HBBQ", daten[:12])
+    if magic != 0xF6D5 or typ != 1 or zurueck != cookie:
+        return False, "fremde oder unvollstaendige Antwort"
+    return True, None
 
 
 def _port_zuordnung() -> dict[int, str]:
@@ -153,6 +205,12 @@ def _standard_ports() -> list[Dict[str, Any]]:
                     "label": f"{srv.label} ({zusatz})",
                     "host": host,
                     "enabled": True,
+                    # Satisfactory nimmt Spielverkehr per UDP entgegen; ein
+                    # TCP-Test dorthin kann nie gelingen. Minecraft und RCON
+                    # sprechen TCP und bleiben beim Verbindungstest.
+                    "protokoll": ("udp_sat"
+                                  if srv.spiel != "minecraft" and zusatz == "Spiel"
+                                  else "tcp"),
                 })
             else:
                 logger.warning(
@@ -323,7 +381,15 @@ class PortMonitor:
         self, port_cfg: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
-        Prueft einen einzelnen Port per TCP-Connect-Test.
+        Prueft einen einzelnen Port — per TCP-Connect oder, bei Satisfactory,
+        per UDP-Abfrage.
+
+        Satisfactory nimmt seinen Spielverkehr ueber **UDP** entgegen. Ein
+        TCP-Verbindungsversuch dorthin kann gar nicht gelingen und meldete
+        seit dem 16.08.2026 dauerhaft „Verbindung abgelehnt" fuer den zweiten
+        Server. Beim ersten Server schlug die Pruefung nur deshalb nicht fehl,
+        weil auf demselben Zahlenwert zufaellig die HTTPS-API lauscht — sie
+        bestaetigte also nie das, was sie zu pruefen vorgab.
 
         Returns:
             Dict mit Port-Status und Antwortzeit.
@@ -331,6 +397,7 @@ class PortMonitor:
         port: int = port_cfg["port"]
         label: str = port_cfg.get("label", f"Port {port}")
         host: str = port_cfg.get("host", "127.0.0.1")
+        protokoll: str = port_cfg.get("protokoll", "tcp")
 
         result: Dict[str, Any] = {
             "port": port,
@@ -338,11 +405,25 @@ class PortMonitor:
             "open": False,
             "response_ms": -1.0,
             "host": host,
+            "protokoll": protokoll,
             "checked_at": datetime.now().isoformat(),
             "error": None,
         }
 
         start_time: float = time.monotonic()
+
+        if protokoll == "udp_sat":
+            antwortet, fehler = await asyncio.to_thread(
+                _sat_udp_erreichbar, host, port, self.connect_timeout
+            )
+            result["response_ms"] = round((time.monotonic() - start_time) * 1000, 2)
+            result["open"] = antwortet
+            result["error"] = None if antwortet else fehler
+            logger.debug(
+                f"Port {port} ({label}) auf {host}/UDP: "
+                f"{'antwortet' if antwortet else fehler}"
+            )
+            return result
 
         try:
             # TCP-Connect-Test
