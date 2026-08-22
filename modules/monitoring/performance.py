@@ -51,8 +51,86 @@ class PerformanceThresholds:
     # Zeit, in der ein 30er-Soll angenommen wurde, und haette selbst einen
     # auf ein Drittel eingebrochenen Server nicht gemeldet.
     tick_rate_warning: float = 50.0
+    # Ein einzelner Einbruch ist kein Problem, sondern Betrieb: ein Autosave,
+    # ein einfahrender Zug, ein grosser Blueprint. Gemeldet wird erst, wenn es
+    # ANHAELT.
+    #
+    # Die Zahlen stammen aus den eigenen Messwerten (14 Tage, Messabstand
+    # 2 Minuten, ausgewertet am 22.08.2026): 27 Einbrueche unter 50, davon
+    # 19 einzelne Messwerte, sieben ueber 4-6 Minuten, einer ueber 14 Minuten.
+    # Mit "8 von 10" waeren 26 der 27 Meldungen entfallen — geblieben waere die
+    # 14-Minuten-Episode plus das halbstuendige Auf und Ab vom 20.08., das bei
+    # strenger Zaehlung ("N Minuten ununterbrochen") durchgefallen waere, weil
+    # jeder Erholungswert den Zaehler zurueckgesetzt haette.
+    tick_fenster_messungen: int = 10   # 10 * 2 min = 20 Minuten Rueckschau
+    tick_fenster_treffer: int = 8      # so viele davon muessen zu niedrig sein
     # Cooldown: don't spam warnings
     warning_cooldown: int = 300  # seconds
+
+
+class TickVerlauf:
+    """Merkt sich je Instanz, wie die letzten Tick-Messungen ausfielen.
+
+    Beantwortet genau eine Frage: liegt die Tick-Rate **dauerhaft** zu
+    niedrig? Dauerhaft heisst hier nicht "ununterbrochen", sondern
+    "ueberwiegend im Rueckblick" — sonst genuegt ein einziger guter Messwert,
+    um eine halbe Stunde Ruckeln unsichtbar zu machen.
+
+    Messwerte von 0.0 werden **nicht** aufgenommen: sie bedeuten "keine
+    Auskunft" (Server offline, API stumm) und nicht "alles gut". Wer sie
+    mitzaehlte, wuerde einen Ausfall als Erholung verbuchen.
+    """
+
+    def __init__(self, schwelle: float, messungen: int, treffer: int) -> None:
+        self.schwelle = schwelle
+        self.messungen = max(1, messungen)
+        self.treffer = max(1, min(treffer, self.messungen))
+        self._fenster: Dict[str, deque] = {}
+
+    def eintragen(self, kennung: str, wert: float) -> bool:
+        """Messwert aufnehmen. True, wenn das Fenster einen Alarm rechtfertigt.
+
+        Zwei Bedingungen, es genuegt eine:
+
+        1. **Anzahl** — mindestens `treffer` der letzten `messungen` liegen
+           unter der Schwelle. Faengt tiefe Einbrueche.
+        2. **Durchschnitt** — das volle Fenster liegt im Mittel unter der
+           Schwelle. Faengt das Pendeln um die Schwelle herum, das Bedingung 1
+           durchrutschen laesst.
+
+        Bedingung 2 kam am 22.08.2026 dazu, nachdem die echten Messwerte vom
+        20.08. (15:23-15:53) gezeigt hatten, dass eine halbe Stunde bei rund 49
+        statt 60 nur sechs von zehn Messungen unter der Schwelle hat — vier
+        kurze Erholungen ueber 50 genuegten, um sie unsichtbar zu machen.
+        """
+        if wert <= 0:
+            return False
+        fenster = self._fenster.setdefault(kennung, deque(maxlen=self.messungen))
+        fenster.append(wert)
+
+        if self.niedrig_im_fenster(kennung) >= self.treffer:
+            return True
+        # Der Durchschnitt zaehlt erst bei vollem Fenster: sonst meldet der
+        # erste schlechte Messwert nach einem Neustart sofort.
+        if len(fenster) >= self.messungen:
+            return sum(fenster) / len(fenster) < self.schwelle
+        return False
+
+    def niedrig_im_fenster(self, kennung: str) -> int:
+        """Wie viele der gemerkten Messungen lagen unter der Schwelle?"""
+        return sum(1 for w in self._fenster.get(kennung, ()) if w < self.schwelle)
+
+    def durchschnitt(self, kennung: str) -> float:
+        """Mittelwert der gemerkten Messungen (0.0 wenn keine da sind)."""
+        fenster = self._fenster.get(kennung, ())
+        return sum(fenster) / len(fenster) if fenster else 0.0
+
+    def bekannte_messungen(self, kennung: str) -> int:
+        return len(self._fenster.get(kennung, ()))
+
+    def zuruecksetzen(self, kennung: str) -> None:
+        """Nach einer Meldung leeren, damit nicht sofort erneut gemeldet wird."""
+        self._fenster.pop(kennung, None)
 
 
 class PerformanceMonitor:
@@ -70,6 +148,13 @@ class PerformanceMonitor:
         self.thresholds: PerformanceThresholds = thresholds or PerformanceThresholds()
         self.history: deque = deque(maxlen=history_size)
         self._last_warning_time: Dict[str, datetime] = {}
+        # Gemeinsamer Verlauf fuer alle Instanzen — recon_bot traegt die
+        # weiteren Server unter ihrer eigenen Kennung ein.
+        self.tick_verlauf = TickVerlauf(
+            self.thresholds.tick_rate_warning,
+            self.thresholds.tick_fenster_messungen,
+            self.thresholds.tick_fenster_treffer,
+        )
 
     async def collect(self, server: Optional[Any] = None,
                       tick_rate: Optional[float] = None) -> SystemMetrics:
@@ -143,15 +228,26 @@ class PerformanceMonitor:
         #
         # 0.0 = kein Messwert (Server offline / API stumm). Das ist Sache der
         # Downtime-Meldung, hier bewusst kein Alarm.
-        if 0.0 < metrics.tick_rate < self.thresholds.tick_rate_warning:
+        #
+        # Gemeldet wird erst, wenn der Einbruch ANHAELT (siehe TickVerlauf):
+        # ein einzelner Aussetzer ist Betrieb, kein Vorfall.
+        if self.tick_verlauf.eintragen("MAIN", metrics.tick_rate):
             last = self._last_warning_time.get("tick")
             if not last or (now - last) > cooldown:
+                niedrig = self.tick_verlauf.niedrig_im_fenster("MAIN")
+                gesamt = self.tick_verlauf.bekannte_messungen("MAIN")
+                schnitt = self.tick_verlauf.durchschnitt("MAIN")
                 warnings.append(
                     f"Tick-Rate: {metrics.tick_rate:.1f} von {SAT_TICK_SOLL:.0f} "
                     f"(Limit: {self.thresholds.tick_rate_warning:.0f}) — "
-                    f"der Server rechnet langsamer als er soll"
+                    f"{niedrig} der letzten {gesamt} Messungen zu niedrig, "
+                    f"Schnitt {schnitt:.1f}; der Server rechnet dauerhaft "
+                    f"langsamer als er soll"
                 )
                 self._last_warning_time["tick"] = now
+                # Fenster leeren: sonst meldet die naechste Messung sofort
+                # wieder, sobald der Cooldown ablaeuft.
+                self.tick_verlauf.zuruecksetzen("MAIN")
 
         return warnings
 

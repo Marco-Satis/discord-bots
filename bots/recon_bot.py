@@ -2003,8 +2003,12 @@ async def _tick_alarm_pruefen(sid: str, name: str, tick_rate: float) -> None:
     eigener Cooldown je Instanz.
     """
     schwelle = perf_monitor.thresholds.tick_rate_warning
+    verlauf = perf_monitor.tick_verlauf
+
     # 0.0 = kein Messwert (API stumm) — dafuer gibt es die Ausfall-Meldung.
-    if not (0.0 < tick_rate < schwelle):
+    # Gemeldet wird erst, wenn der Einbruch ANHAELT: ein einzelner Aussetzer
+    # ist Betrieb (Autosave, einfahrender Zug), kein Vorfall.
+    if not verlauf.eintragen(sid, tick_rate):
         return
 
     letzte = _sat_tick_warn_at.get(sid)
@@ -2013,7 +2017,15 @@ async def _tick_alarm_pruefen(sid: str, name: str, tick_rate: float) -> None:
         return
     _sat_tick_warn_at[sid] = datetime.now()
 
-    logger.warning(f"[{sid}] Tick-Rate {tick_rate:.1f} unter {schwelle:.0f}")
+    niedrig = verlauf.niedrig_im_fenster(sid)
+    gesamt = verlauf.bekannte_messungen(sid)
+    schnitt = verlauf.durchschnitt(sid)
+    verlauf.zuruecksetzen(sid)
+
+    logger.warning(
+        f"[{sid}] Tick-Rate dauerhaft niedrig: {niedrig} der letzten {gesamt} "
+        f"Messungen unter {schwelle:.0f}, Schnitt {schnitt:.1f} "
+        f"(zuletzt {tick_rate:.1f})")
     if not ADMIN_LOG_CHANNEL_ID:
         return
     kanal = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
@@ -2021,10 +2033,12 @@ async def _tick_alarm_pruefen(sid: str, name: str, tick_rate: float) -> None:
         return
     try:
         await kanal.send(embed=warning_embed(
-            title=f"🐌 {name} rechnet langsam",
+            title=f"🐌 {name} rechnet dauerhaft langsam",
             description=(
                 f"Tick-Rate {tick_rate:.1f} von {SAT_TICK_SOLL:.0f} "
                 f"(Warnschwelle {schwelle:.0f}).\n"
+                f"{niedrig} der letzten {gesamt} Messungen lagen zu niedrig "
+                f"(Schnitt {schnitt:.1f}) — kein einzelner Aussetzer mehr.\n"
                 f"Die Fabrik laeuft dadurch spuerbar langsamer."
             ),
         ))
