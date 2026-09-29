@@ -371,7 +371,9 @@ def _dpkg_broken_hint(error: str) -> str:
     """Zusatz-Hinweis wenn der apt-Fehler auf einen kaputten dpkg-Zustand deutet."""
     markers = ("--fix-broken", "fix-broken", "BrokenCount", "Unmet dependencies",
                "unerfüllte Abhängigkeiten", "dpkg was interrupted",
-               "dpkg --configure -a")
+               "dpkg --configure -a",
+               # Abbruch beim Entpacken hinterlaesst "iHR"-Pakete (2026-09-29)
+               "dpkg returned an error code")
     if not any(m.lower() in error.lower() for m in markers):
         return ""
     return (
@@ -632,12 +634,29 @@ async def check_package_updates(current_user: dict = Depends(require_perm("syste
     return HTMLResponse(result_html)
 
 
+# Nur ein apt-Lauf gleichzeitig aus dem Dashboard. Am 2026-09-29 startete ein
+# zweiter Klick 10 s nach dem ersten ein weiteres apt-get, das an der dpkg-Sperre
+# scheiterte ("Could not get lock /var/lib/dpkg/lock-frontend").
+_apt_run_lock = asyncio.Lock()
+
+
 async def _run_apt_upgrade(wrapper: str, label: str) -> HTMLResponse:
     """Fuehrt ein Root-Wrapper-Upgrade-Script aus + rendert Ergebnis.
 
     Shared von /packages/upgrade (apt upgrade) + /packages/full-upgrade (dist-upgrade).
     Beide Wrapper sind root-owned, fixe Command, keine User-Args → injection-sicher.
     """
+    if _apt_run_lock.locked():
+        return HTMLResponse(
+            '<div class="alert alert-warning">Es laeuft bereits ein Update bzw. eine '
+            'Reparatur. Bitte warten, bis sie fertig ist.</div>'
+        )
+    async with _apt_run_lock:
+        return await _run_apt_upgrade_locked(wrapper, label)
+
+
+async def _run_apt_upgrade_locked(wrapper: str, label: str) -> HTMLResponse:
+    """Eigentlicher Lauf von _run_apt_upgrade, wird nur unter _apt_run_lock aufgerufen."""
     # Vor-Snapshot fuer Diff (dist-upgrade-Snapshot deckt beide Faelle ab)
     pre_up, _e1 = await _get_upgradable_packages()
     pre_held, _e2 = await _get_heldback_packages()
@@ -690,9 +709,15 @@ async def _run_apt_upgrade(wrapper: str, label: str) -> HTMLResponse:
             f'max-height:240px;overflow:auto">{html.escape(cleaned[:1500])}</pre>'
             if cleaned else ""
         )
+        if "Could not get lock" in error_msg:
+            return HTMLResponse(
+                f'<div class="alert alert-warning">{label} nicht gestartet: der Paketmanager '
+                'ist gerade belegt (z.B. automatische Sicherheitsupdates). In ein paar '
+                f'Minuten erneut versuchen.</div>{pre}'
+            )
         return HTMLResponse(
             f'<div class="alert alert-danger">{label} fehlgeschlagen '
-            f'(Exit-Code {proc.returncode}).</div>{pre}'
+            f'(Exit-Code {proc.returncode}).</div>{pre}{_dpkg_broken_hint(error_msg)}'
         )
 
     except asyncio.TimeoutError:
