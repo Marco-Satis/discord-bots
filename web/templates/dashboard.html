@@ -187,6 +187,7 @@
     <div style="display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap">
         <button class="btn btn-sm" hx-post="/api/system/packages/check" hx-target="#package-list-area" hx-swap="innerHTML">Auf Updates prüfen</button>
         <button class="btn btn-sm btn-primary magnetic" hx-post="/api/system/packages/upgrade" hx-target="#package-update-result" hx-confirm="System-Updates installieren? (kann ~5-10 min dauern)" hx-swap="innerHTML">Updates installieren</button>
+        <button class="btn btn-sm btn-warning" hx-post="/api/system/packages/fix-broken" hx-target="#package-update-result" hx-swap="innerHTML" title="Hilft, wenn ein Update abgebrochen ist und Pakete halb installiert zurueckgeblieben sind." hx-confirm="Paketmanager reparieren? Laeuft dpkg --configure -a, apt --fix-broken install, Reinstall der defekten Pakete und danach ein full-upgrade. Kann mehrere Minuten dauern und Pakete entfernen.">Paketmanager reparieren</button>
     </div>
     <div id="package-list-area" hx-get="/api/system/packages/list" hx-trigger="load, packageListChanged from:body" hx-swap="innerHTML"></div>
 </section>

@@ -139,6 +139,14 @@
                 hx-confirm="Alle verfügbaren Pakete aktualisieren? Der Vorgang kann einige Minuten dauern.">
             Alle Updates installieren
         </button>
+        <button class="btn btn-sm btn-warning"
+                hx-post="/api/system/packages/fix-broken"
+                hx-target="#package-update-result"
+                hx-swap="innerHTML"
+                title="Hilft, wenn ein Update abgebrochen ist und Pakete halb installiert zurueckgeblieben sind."
+                hx-confirm="Paketmanager reparieren? Laeuft dpkg --configure -a, apt --fix-broken install, Reinstall der defekten Pakete und danach ein full-upgrade. Kann mehrere Minuten dauern und Pakete entfernen.">
+            Paketmanager reparieren
+        </button>
     </div>
     <div id="package-list-area"
          hx-get="/api/system/packages/list"
