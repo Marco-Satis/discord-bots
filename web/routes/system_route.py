@@ -21,7 +21,7 @@ from modules.server_registry import alle as alle_server
 from utils.logger import get_logger
 from web.auth import require_auth, require_auth_api, require_perm
 from modules.database.db_manager import get_db
-from modules.system.apt_phased import held_by_phasing
+from modules.system.apt_phased import APT_NO_CHROOT, held_by_phasing
 
 logger = get_logger("web.routes.system")
 
@@ -344,7 +344,9 @@ async def _apt_sim(mode: str) -> tuple[str, str]:
     """
     try:
         proc = await asyncio.create_subprocess_exec(
-            "apt-get", "-s", mode,
+            # APT_NO_CHROOT: sonst haelt apt die Dashboard-Sandbox fuer einen
+            # Chroot und zeigt gestaffelte Updates als installierbar (2026-09-30)
+            "apt-get", *APT_NO_CHROOT, "-s", mode,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env={"LANG": "C", "LC_ALL": "C", "PATH": "/usr/sbin:/usr/bin:/sbin:/bin"},

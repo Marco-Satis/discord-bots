@@ -20,6 +20,15 @@ from utils.logger import get_logger
 logger = get_logger("apt_phased")
 
 _ENV = {"LANG": "C", "LC_ALL": "C", "PATH": "/usr/sbin:/usr/bin:/sbin:/bin"}
+
+# apt ignoriert die Staffelung, wenn es sich fuer einen Chroot haelt (fragt
+# /usr/bin/ischroot). Die systemd-Sandbox der Bots und des Dashboards (eigener
+# Mount-Namespace) sieht fuer ischroot genau so aus — dort zeigte apt-get -s
+# dnsmasq-base als installierbar, waehrend der echte Lauf (systemd-run, Root-
+# Namespace) es zurueckhielt. Diese Option erzwingt "kein Chroot", damit die
+# Simulation rechnet wie der echte Lauf. Geprueft 2026-09-30 mit /bin/true vs.
+# /bin/false: nur mit /bin/false erscheint dnsmasq-base unter "kept back".
+APT_NO_CHROOT = ("-o", "Dir::Bin::ischroot=/bin/false")
 _PHASED_RE = re.compile(r"\(phased (\d+)%\)")
 _KEPT_BACK_HEADER = "The following packages have been kept back:"
 
@@ -89,7 +98,7 @@ async def held_by_phasing() -> Dict[str, int]:
     Returns: {paketname: freigabe_prozent}. Leer, wenn nichts zurueckgehalten
     wird oder die Abfrage scheitert.
     """
-    kept = parse_kept_back(await _run("apt-get", "-s", "dist-upgrade"))
+    kept = parse_kept_back(await _run("apt-get", *APT_NO_CHROOT, "-s", "dist-upgrade"))
     if not kept:
         return {}
-    return parse_phased_policy(await _run("apt-cache", "policy", *kept))
+    return parse_phased_policy(await _run("apt-cache", *APT_NO_CHROOT, "policy", *kept))
