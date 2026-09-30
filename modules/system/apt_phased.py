@@ -30,10 +30,13 @@ async def _run(*args: str) -> str:
         proc = await asyncio.create_subprocess_exec(
             *args,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
             env=_ENV,
         )
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30.0)
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30.0)
+        if proc.returncode != 0:
+            err = stderr.decode("utf-8", errors="replace").strip()
+            logger.warning(f"{' '.join(args[:3])} Exit-Code {proc.returncode}: {err[:300]}")
         return stdout.decode("utf-8", errors="replace")
     except (asyncio.TimeoutError, OSError) as e:
         logger.debug(f"{args[0]} fehlgeschlagen: {e}")
