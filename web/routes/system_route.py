@@ -21,6 +21,7 @@ from modules.server_registry import alle as alle_server
 from utils.logger import get_logger
 from web.auth import require_auth, require_auth_api, require_perm
 from modules.database.db_manager import get_db
+from modules.system.apt_phased import held_by_phasing
 
 logger = get_logger("web.routes.system")
 
@@ -485,6 +486,36 @@ async def _heldback_html() -> str:
     """
 
 
+async def _phased_html() -> str:
+    """Hinweis auf Pakete, die Ubuntu gestaffelt ausliefert und noch zurueckhaelt.
+
+    Diese Pakete zeigt `apt list --upgradable` (und Webmin) als Update, aber
+    kein Knopf kann sie installieren — apt wartet, bis dieser Rechner in der
+    Staffel dran ist. Ohne Hinweis sah das aus wie ein haengendes Update
+    (dnsmasq-base 2.91, 2026-09-30).
+    """
+    phased = await held_by_phasing()
+    if not phased:
+        return ""
+    items = "".join(
+        f"<li><code>{html.escape(name)}</code> &mdash; Freigabe {pct}&nbsp;%</li>"
+        for name, pct in sorted(phased.items())
+    )
+    return (
+        '<details style="margin-top:14px">'
+        '<summary style="cursor:pointer;color:var(--t2);font-size:13px;font-weight:600">'
+        f'{len(phased)} Update{"s" if len(phased) != 1 else ""} von Ubuntu zurueckgehalten'
+        ' (gestaffelte Auslieferung)</summary>'
+        '<p style="color:var(--text-muted);font-size:11px;margin:8px 0">'
+        'Ubuntu verteilt diese Updates schrittweise und gibt sie diesem Server noch '
+        'nicht frei. Kein Handlungsbedarf: sobald die Freigabe kommt, installiert sie '
+        'das naechste Update automatisch. Bei 0&nbsp;% hat Ubuntu die Auslieferung '
+        'angehalten, meist wegen gemeldeter Probleme.</p>'
+        f'<ul style="margin:0 0 0 16px;font-size:12px">{items}</ul>'
+        '</details>'
+    )
+
+
 def _check_reboot_required() -> dict:
     """Prueft ob ein System-Reboot nach Updates noetig ist.
 
@@ -541,12 +572,13 @@ async def get_package_list(current_user: dict = Depends(require_perm("system", "
         return HTMLResponse(f'{reboot_banner}{_apt_error_html(apt_error)}')
 
     heldback = await _heldback_html()
+    phased = await _phased_html()
 
     if not packages:
         return HTMLResponse(
             f'{reboot_banner}'
             '<p style="color: var(--success); font-weight: 600;">Alle Pakete sind aktuell.</p>'
-            f'{heldback}'
+            f'{heldback}{phased}'
         )
 
     rows = ""
@@ -568,7 +600,7 @@ async def get_package_list(current_user: dict = Depends(require_perm("system", "
             <tbody>{rows}</tbody>
         </table>
     </div>
-    {heldback}
+    {heldback}{phased}
     """
     return HTMLResponse(result_html)
 
@@ -600,13 +632,14 @@ async def check_package_updates(current_user: dict = Depends(require_perm("syste
         )
 
     heldback = await _heldback_html()
+    phased = await _phased_html()
 
     if not packages:
         return HTMLResponse(
             f'{reboot_banner}'
             '<div class="alert alert-success" style="margin-bottom: 0.75rem;">Paketlisten aktualisiert.</div>'
             '<p style="color: var(--success); font-weight: 600;">Alle Pakete sind aktuell.</p>'
-            f'{heldback}'
+            f'{heldback}{phased}'
         )
 
     rows = ""
@@ -629,7 +662,7 @@ async def check_package_updates(current_user: dict = Depends(require_perm("syste
             <tbody>{rows}</tbody>
         </table>
     </div>
-    {heldback}
+    {heldback}{phased}
     """
     return HTMLResponse(result_html)
 

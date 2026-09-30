@@ -13,6 +13,7 @@ from typing import Optional, Callable, Awaitable, Dict, List, Any
 
 from utils.logger import get_logger
 from utils.config import get_config, MONITOR_DATA_DIR
+from modules.system.apt_phased import held_by_phasing
 
 logger = get_logger("package_checker")
 
@@ -140,6 +141,9 @@ class PackageChecker:
                 "apt", "list", "--upgradable",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                # Parser erwartet "[upgradable from:" — unter deutscher Locale
+                # steht dort "[aktualisierbar von:" und es kaeme still 0 heraus.
+                env={"LANG": "C", "LC_ALL": "C", "PATH": "/usr/sbin:/usr/bin:/sbin:/bin"},
             )
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30.0)
             output = stdout.decode("utf-8", errors="replace")
@@ -192,6 +196,18 @@ class PackageChecker:
                 packages.append(pkg_info)
                 if is_security:
                     security_count += 1
+
+            # Gestaffelte Ubuntu-Updates herausnehmen (2026-09-30): apt haelt sie
+            # zurueck, bis dieser Rechner freigegeben ist — kein Knopf kann sie
+            # installieren, also zaehlen und melden wir sie nicht als offen.
+            phased = await held_by_phasing()
+            if phased:
+                held = [p for p in packages if p["name"] in phased]
+                for p in held:
+                    p["phased_percent"] = phased[p["name"]]
+                packages = [p for p in packages if p["name"] not in phased]
+                security_count = sum(1 for p in packages if p["security"])
+                result["phased"] = held
 
             result["packages"] = packages
             result["total_updates"] = len(packages)
