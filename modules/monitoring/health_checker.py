@@ -9,6 +9,8 @@ Restart per systemctl durch. Cooldown: max 1 Restart pro 30 Min pro Server.
 
 import asyncio
 import socket
+
+import aiohttp
 import struct
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -147,9 +149,8 @@ class HealthAutoRestart:
 
         probes: List[ServerProbe] = []
 
-        # --- Satisfactory ---
-        sat_probe = await self._check_satisfactory()
-        if sat_probe is not None:
+        # --- Satisfactory (jede Instanz) ---
+        for sat_probe in await self._check_all_satisfactory():
             probes.append(sat_probe)
             await self._process_probe(sat_probe)
 
@@ -165,39 +166,78 @@ class HealthAutoRestart:
     # Satisfactory Health-Probe (UDP/TCP Query auf Port 15777)
     # ------------------------------------------------------------------
 
-    async def _check_satisfactory(self) -> Optional[ServerProbe]:
-        """Prüft den Satisfactory Server per Lightweight-Query auf Port 15777."""
-        # Satisfactory Server-Objekt aus dem Bot holen (falls vorhanden)
-        sat_server: Any = getattr(self.bot, "sat_server", None)
-        if sat_server is None:
-            # Kein Satisfactory-Server konfiguriert
-            return None
+    async def _check_all_satisfactory(self) -> List[ServerProbe]:
+        """Prüft jede konfigurierte Satisfactory-Instanz (bot.sat_servers).
 
+        Bis 2026-10-14 wurde nur die erste Instanz geprueft — SAT-2 hatte
+        keinen Healthcheck und kein Auto-Restart.
+        """
+        sat_servers: Dict[str, Any] = getattr(self.bot, "sat_servers", None) or {}
+        if not sat_servers:
+            einzel: Any = getattr(self.bot, "sat_server", None)
+            if einzel is None:
+                return []
+            sat_servers = {getattr(einzel, "server_id", "MAIN"): einzel}
+
+        probes: List[ServerProbe] = []
+        for sid, srv in sat_servers.items():
+            probes.append(await self._check_satisfactory(sid, srv))
+        return probes
+
+    async def _check_satisfactory(self, sid: str, sat_server: Any) -> ServerProbe:
+        """Prüft eine Satisfactory-Instanz über ihre HTTPS-API auf dem Spielport.
+
+        Geprueft wird der KONFIGURIERTE Port (`api_port`), nicht der, den der
+        API-Client gerade benutzt. Weicht die Server-API nach einem Neustart auf
+        einen Nachbarport aus, findet der API-Client sie dort (C-20) — der
+        Server-Manager im Spiel aber nicht ("failed to connect API"). Am
+        14.10.2026 lief SAT-2 so stundenlang "gesund", waehrend Spieler nicht
+        verbinden konnten. Genau diesen Zustand muss der Healthcheck sehen.
+        """
         service_name: str = getattr(sat_server, "service_name", "satisfactory.service")
-        display_name: str = "Satisfactory"
-        server_id: str = "main"
+        display_name: str = getattr(sat_server, "display_name", "Satisfactory")
         # SERVER_IP verwenden, nicht API_HOST — SAT bindet sich per -multihome
         # an die externe IP, nicht an localhost
         host: str = get_env("SERVER_IP", "127.0.0.1")
-        port: int = SAT_QUERY_PORT
+        port: int = int(getattr(sat_server, "api_port", SAT_QUERY_PORT))
 
-        # Leichtgewichtiger UDP/TCP Check
         reachable: bool = False
         error_msg: Optional[str] = None
         try:
-            reachable = await self._probe_sat_query(host, port)
+            reachable = await self._probe_sat_api(host, port)
+            if not reachable:
+                error_msg = f"Server-API auf Port {port} antwortet nicht"
         except Exception as exc:
             error_msg = str(exc)
-            logger.debug(f"SAT Query-Probe fehlgeschlagen: {exc}")
+            logger.debug(f"SAT API-Probe fehlgeschlagen ({display_name}): {exc}")
 
         return ServerProbe(
-            server_id=server_id,
+            server_id=sid.lower(),
             server_type="sat",
             display_name=display_name,
             service_name=service_name,
             reachable=reachable,
             error=error_msg,
         )
+
+    async def _probe_sat_api(self, host: str, port: int) -> bool:
+        """HealthCheck der Server-API (ohne Anmeldung) auf genau diesem Port.
+
+        Selbstsigniertes Zertifikat -> ssl=False, wie im API-Client.
+        """
+        url = f"https://{host}:{port}/api/v1"
+        payload = {"function": "HealthCheck", "data": {"clientCustomData": ""}}
+        timeout = aiohttp.ClientTimeout(total=self._check_timeout)
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(url, json=payload, ssl=False) as resp:
+                    if resp.status != 200:
+                        return False
+                    inhalt = await resp.json(content_type=None)
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as exc:
+            logger.debug(f"SAT API-Probe {host}:{port}: {exc}")
+            return False
+        return isinstance(inhalt, dict) and "data" in inhalt
 
     async def _probe_sat_query(self, host: str, port: int) -> bool:
         """
@@ -478,9 +518,20 @@ class HealthAutoRestart:
         error_msg: str = ""
 
         try:
-            returncode, stdout, stderr = await self._systemctl_restart(
-                state.service_name
-            )
+            sat_srv = self._sat_server_for(state) if state.server_type == "sat" else None
+            if sat_srv is not None:
+                # Satisfactory NIE per `systemctl restart`: der neue Prozess
+                # startet in die noch belegten Sockets und die API weicht auf
+                # einen Nachbarport aus (C-20). restart() speichert vorher,
+                # stoppt und wartet, bis der API-Port frei ist.
+                apis: Dict[str, Any] = getattr(self.bot, "sat_apis", None) or {}
+                ok, meldung = await sat_srv.restart(
+                    api=apis.get(getattr(sat_srv, "server_id", "")))
+                returncode, stdout, stderr = (0 if ok else 1), meldung, ("" if ok else meldung)
+            else:
+                returncode, stdout, stderr = await self._systemctl_restart(
+                    state.service_name
+                )
             if returncode == 0:
                 success = True
                 state.last_restart = now
@@ -508,6 +559,13 @@ class HealthAutoRestart:
             await self._notify_restart_success(state)
         else:
             await self._notify_restart_failed(state, error_msg)
+
+    def _sat_server_for(self, state: ServerState) -> Optional[Any]:
+        """SatisfactoryServer-Objekt zur Kennung (`main`, `second`) oder None."""
+        for sid, srv in (getattr(self.bot, "sat_servers", None) or {}).items():
+            if sid.lower() == state.server_id:
+                return srv
+        return None
 
     async def _systemctl_restart(
         self, service_name: str, timeout: int = 60

@@ -74,15 +74,24 @@ class SatisfactoryServer:
         self.save_path = (self.home_path / ".config" / "Epic" /
                           "FactoryGame" / "Saved")
 
-        # Wartezeit zwischen Stopp und Start (Befund C-20, siehe restart()).
-        # 45 s ist der gemessene Wert, bei dem die Sockets der alten Instanz
-        # verschwunden waren; ueber die ENV anpassbar, falls eine Maschine
-        # laenger braucht.
+        # Port der HTTPS-API = Spielport. Gleiche Herkunft wie in recon_bot.py
+        # (SAT_<ID>_API_PORT, beim ersten Server API_PORT). Der Neustart wartet,
+        # bis dieser Port frei ist, und der Healthcheck prueft genau ihn — dort
+        # verbindet sich der Server-Manager im Spiel.
+        try:
+            self.api_port = int(_wert("API_PORT", "API_PORT",
+                                      "7777" if erster else "7778"))
+        except ValueError:
+            self.api_port = 7777 if erster else 7778
+
+        # Hoechstwartezeit zwischen Stopp und Start (Befund C-20, siehe
+        # restart()). Gewartet wird nur, bis der API-Port frei ist; dieser Wert
+        # deckelt das. TIME_WAIT haelt unter Linux fest 60 s, deshalb 90.
         try:
             self.neustart_pause = max(0, int(_wert(
-                "RESTART_PAUSE", "SAT_RESTART_PAUSE", "45")))
+                "RESTART_PAUSE", "SAT_RESTART_PAUSE", "90")))
         except ValueError:
-            self.neustart_pause = 45
+            self.neustart_pause = 90
 
     @property
     def enabled(self) -> bool:
@@ -354,6 +363,46 @@ class SatisfactoryServer:
 
         return False, "Stop-Befehl gesendet, Server reagiert nicht."
 
+    @staticmethod
+    async def _tcp_sockets_auf_port(port: int) -> Optional[int]:
+        """Anzahl TCP-Sockets (jeder Zustand, auch TIME-WAIT) mit lokalem `port`.
+
+        None, wenn `ss` nicht verfuegbar ist oder scheitert — dann weiss der
+        Aufrufer nichts und faellt auf die Hoechstwartezeit zurueck.
+        """
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "ss", "-Htan", f"sport = :{port}",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            out, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
+        except (OSError, asyncio.TimeoutError) as e:
+            logger.warning(f"ss fuer Port {port} fehlgeschlagen: {e}")
+            return None
+        if proc.returncode != 0:
+            return None
+        return sum(1 for zeile in out.decode().splitlines() if zeile.strip())
+
+    async def _warte_bis_port_frei(self, port: int, hoechstens: float) -> float:
+        """Wartet, bis kein TCP-Socket mehr auf `port` liegt (max. `hoechstens` s).
+
+        Rueckgabe: tatsaechlich gewartete Sekunden. Ohne `ss`-Auskunft wird die
+        volle Hoechstzeit gewartet — lieber zu lange als auf einen Ausweichport.
+        """
+        start = asyncio.get_running_loop().time()
+        while True:
+            vergangen = asyncio.get_running_loop().time() - start
+            anzahl = await self._tcp_sockets_auf_port(port)
+            if anzahl == 0:
+                return vergangen
+            if vergangen >= hoechstens:
+                logger.warning(
+                    "Port %s nach %.0fs noch belegt (%s Sockets) — starte trotzdem",
+                    port, vergangen, anzahl if anzahl is not None else "?")
+                return vergangen
+            await asyncio.sleep(2)
+
     async def restart(self, api: Optional[Any] = None,
                       save_wait: float = 4.0) -> Tuple[bool, str]:
         """Restart server via systemd.
@@ -385,17 +434,18 @@ class SatisfactoryServer:
         # unter der konfigurierten Adresse nicht mehr erreichbar. Belegt an
         # SAT-2: nach jedem Auto-Neustart 7779, nach jedem manuellen Start 7778.
         #
-        # Am 18.08. nachgemessen: nach `stop` waren die Sockets nach 45 s weg,
-        # der anschliessende Start band wieder auf 7778. Deshalb stop, warten,
-        # start — statt eines Neustarts in einem Zug.
+        # Am 18.08. nachgemessen: nach `stop` waren die Sockets nach 45 s weg.
+        # Das reichte nicht immer: TIME_WAIT haelt unter Linux fest 60 s. Am
+        # 14.10.2026 starteten beide Instanzen nach 45 s in noch belegte Ports
+        # (SAT-1 auf 7780, SAT-2 auf 7779). Deshalb wird jetzt gewartet, bis
+        # der Port nachweislich frei ist, statt eine feste Zeit.
         code, _, stderr = await self._systemctl("stop", timeout=120)
         if code != 0:
             return False, f"Stopp vor dem Neustart fehlgeschlagen: {stderr}"
 
-        pause = self.neustart_pause
-        logger.info("%s gestoppt — %ss Pause, damit der Port frei wird",
-                    self.service_name, pause)
-        await asyncio.sleep(pause)
+        gewartet = await self._warte_bis_port_frei(self.api_port, self.neustart_pause)
+        logger.info("%s gestoppt — Port %s nach %.0fs frei, starte",
+                    self.service_name, self.api_port, gewartet)
 
         code, _, stderr = await self._systemctl("start", timeout=120)
         if code != 0:
