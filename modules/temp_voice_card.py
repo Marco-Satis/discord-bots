@@ -84,16 +84,17 @@ _AV_PALETTE = [
 ]
 
 # ── Layout (Kartenpixel; Anzeige = halbe Werte) ─────────────────────────────────
-# Mindestgroesse Text in der Anzeige: 12 px (Etiketten), Namen 17 px, Kanal 42 px.
+# Marco 20.10. nach dem ersten Live-Blick: Titel kleiner, Kleinschrift groesser.
+# Anzeige bei 600 px: Etiketten 15–16 px, Namen 20 px, Zeiten 17 px, Kanal 35 px.
 _PAD_L      = 56
 _PAD_R      = 48
 _HUB_Y      = 52    # Hub-Label oben (Text-Oberkante)
 _MARKER_W   = 44
-_CHIP_TOP   = 34
-_CHIP_H     = 72
+_CHIP_TOP   = 32
+_CHIP_H     = 78
 _CHIP_GAP   = 16
-_KANAL_Y    = 108   # unter den Chips: der Kanalname bekommt die volle Breite
-_SQUAD_Y    = 228
+_KANAL_Y    = 122   # unter den Chips: der Kanalname bekommt die volle Breite
+_SQUAD_Y    = 222
 _TREN_Y     = 270   # liegt auf den Seitenstrichen des Hintergrunds
 _GRID_L     = 48
 _GRID_R     = CARD_W - 48
@@ -102,23 +103,23 @@ _COLS       = 6
 
 # Reihen: Oberkante Raster, Avatar-Durchmesser, Abstand zweier Reihen
 _REIHE_1 = {"top": 298, "av": 104, "row_h": 0}
-_REIHE_2 = {"top": 288, "av": 80,  "row_h": 204}
+_REIHE_2 = {"top": 288, "av": 76,  "row_h": 204}
 
 # Schriftgroessen
-_FS_HUB     = 28
-_FS_CHIP    = 28
-_FS_KANAL   = 84
-_FS_SQUAD   = 26
-_FS_NAME    = 34
-_FS_ZEIT    = 28
-_FS_BADGE   = 20
-_FS_PLUS    = 46
-_FS_BEREIT  = 24
-_FS_OV      = 36
+_FS_HUB     = 32
+_FS_CHIP    = 30
+_FS_KANAL   = 70
+_FS_SQUAD   = 32
+_FS_NAME    = 40
+_FS_ZEIT    = 34
+_FS_BADGE   = 24
+_FS_PLUS    = 50
+_FS_BEREIT  = 28
+_FS_OV      = 40
 
 # Laufweiten (letter-spacing wie im Konzept, auf diese Groesse umgerechnet)
-_TR_HUB       = 3.4
-_TR_KANAL     = -2.8
+_TR_HUB       = 2.8
+_TR_KANAL     = -2.2
 _TR_STATUS    = 2.8
 _TR_ZEIT      = 1.6
 _TR_BEL       = 1.4
@@ -560,7 +561,7 @@ def render_temp_voice_card(
             fo.kreis(cx, cy, av_r + 5, outline=C_CYAN, width=5)
             fo.kreis(cx, cy, av_r + 13, outline=C_VIOLET, width=5)
             bw = _text_w("OWNER", f_badge, track=_TR_OWNER) + 28
-            fo.rrect([cx - bw / 2, cy + av_r - 16, cx + bw / 2, cy + av_r + 16], 8,
+            fo.rrect([cx - bw / 2, cy + av_r - 18, cx + bw / 2, cy + av_r + 18], 8,
                      fill=C_OWN_BG, outline=C_OWN_TXT, width=2)
         else:
             fo.kreis(cx, cy, av_r + 3, outline=C_AV_RING, width=3)
@@ -602,7 +603,7 @@ def render_temp_voice_card(
     for idx, slot in enumerate(slots):
         cx, cy = _pos(idx)
         name_y = cy + av_r + name_abstand
-        zeit_y = name_y + _FS_NAME + (6 if zwei_reihen else 10)
+        zeit_y = name_y + _FS_NAME + (4 if zwei_reihen else 8)
         if slot is None:
             if idx == 11 and overflow_n > 0:
                 d.text((cx, cy), f"+{overflow_n}", font=f_ov, fill=C_FREI_NAME, anchor="mm")

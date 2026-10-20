@@ -146,14 +146,14 @@ def _kurzname(name: str) -> str:
 
 
 def _hub_label(channel: discord.VoiceChannel, manager: "TempVoiceManager") -> str:
-    """Label fuer die Karte: Hub "〣│➕・Gaming" auf "Ostfront HQ" -> "GAMING · OSTFRONT HQ"."""
+    """Label des Erstell-Kanals fuer die Karte: "〣│➕・Gaming" -> "GAMING".
+
+    Ohne Servernamen: neben den groesseren Chips war fuer beides kein Platz.
+    """
     hub_id = manager.get_hub_id(channel.id)
     hub = channel.guild.get_channel(hub_id) if hub_id else None
     label = _kurzname(hub.name).upper()[:20] if hub else ""
-    label = label or "TEMP-VOICE"
-    server = (channel.guild.name or "").upper()
-    # Kuerzen bei Platzmangel uebernimmt der Renderer
-    return f"{label} · {server}" if server else label
+    return label or "TEMP-VOICE"
 
 
 async def _avatar_bytes(member: discord.Member) -> bytes | None:
