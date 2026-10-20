@@ -26,6 +26,10 @@ MAX_HISTORY_PER_USER = 10
 # Mindestanzahl identischer Nachrichten fuer Duplikat-Erkennung
 DUPLICATE_THRESHOLD = 3
 
+# Zeitfenster in Sekunden: Nur Wiederholungen innerhalb dieses Fensters gelten als Spam
+# (S2, docs/UMBAU_PLAN_2026-10-19.md). Vorher zaehlten auch Nachrichten ueber Tage hinweg.
+DUPLICATE_WINDOW_SECONDS = 60
+
 
 class DiscordAntiSpam:
     """
@@ -59,7 +63,7 @@ class DiscordAntiSpam:
         # Tracking-Daten pro User
         self._timestamps: dict[int, list[float]] = defaultdict(list)
         self._cooldowns: dict[int, float] = {}  # user_id -> cooldown_until
-        self._last_messages: dict[int, list[str]] = defaultdict(list)
+        self._last_messages: dict[int, list[tuple[float, str]]] = defaultdict(list)
 
         self.enabled: bool = True
 
@@ -134,16 +138,18 @@ class DiscordAntiSpam:
         # --- Duplikat-Erkennung ---
         if content:
             content_lower = content.strip().lower()
-            self._last_messages[user_id].append(content_lower)
+            self._last_messages[user_id].append((now, content_lower))
             # Nur die letzten N Nachrichten behalten
             self._last_messages[user_id] = (
                 self._last_messages[user_id][-MAX_HISTORY_PER_USER:]
             )
 
+            # Die letzten N Nachrichten muessen gleich sein UND alle im Zeitfenster liegen
             recent = self._last_messages[user_id][-DUPLICATE_THRESHOLD:]
             if (
                 len(recent) >= DUPLICATE_THRESHOLD
-                and all(m == content_lower for m in recent)
+                and all(m == content_lower for _, m in recent)
+                and now - recent[0][0] <= DUPLICATE_WINDOW_SECONDS
             ):
                 self._cooldowns[user_id] = now + self.cooldown_seconds
                 logger.warning(

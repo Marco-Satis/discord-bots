@@ -48,6 +48,32 @@ MODULE_FILE_MAP = {
     "embeds":         ("admin",          "embeds_config.json"),
 }
 
+# S2 (docs/UMBAU_PLAN_2026-10-19.md): Speichern gesperrt, bis der Tab echt wirkt.
+# Leveling und Temp-Voice schreiben ueber Bridges falsche bzw. gefaehrliche Werte in
+# den Bot; die uebrigen Tabs schreiben Dateien, die kein Bot liest.
+_KEINE_WIRKUNG = (
+    "Nicht gespeichert: Diese Einstellungen liest der Bot noch nicht. "
+    "Der Tab wird mit dem Dashboard-Umbau angebunden."
+)
+SAVE_LOCKS = {
+    "leveling": (
+        "Nicht gespeichert: Dieser Tab ist bis zum Leveling-Umbau gesperrt, weil er "
+        "falsche Werte in den Bot schreiben würde. Den Meldekanal stellst du auf der "
+        "Seite „Leveling“ ein."
+    ),
+    "temp_voice": (
+        "Nicht gespeichert: Temp-Voice ist bis zum Umbau gesperrt. Ein gespeicherter "
+        "Hub würde Temp-Voice mit offenen Rechten einschalten."
+    ),
+    "wordfilter": _KEINE_WIRKUNG,
+    "antispam": _KEINE_WIRKUNG,
+    "warn": _KEINE_WIRKUNG,
+    "reaction_roles": _KEINE_WIRKUNG,
+    "tickets": _KEINE_WIRKUNG,
+    "audit": _KEINE_WIRKUNG,
+    "giveaways": _KEINE_WIRKUNG,
+}
+
 # Standard-Konfigurationen fuer jedes Modul (Fallback wenn Datei fehlt)
 DEFAULT_CONFIGS = {
     "temp_voice": {
@@ -573,6 +599,19 @@ async def marshal_bot_save(request: Request, module_name: str, current_user: dic
     template_name = TAB_TEMPLATES[module_name]
     success_msg = ""
     error_msg = ""
+
+    sperre = SAVE_LOCKS.get(module_name)
+    if sperre:
+        logger.info(
+            f"Marshal Modul '{module_name}' nicht gespeichert (gesperrt), "
+            f"Versuch von {user.get('username', 'Unbekannt')}"
+        )
+        return templates.TemplateResponse(request, template_name, {
+            "request": request,
+            "config": await _load_tab_config(module_name),
+            "success": "",
+            "error": sperre,
+        })
 
     try:
         form = await request.form()

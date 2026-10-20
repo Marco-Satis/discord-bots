@@ -51,6 +51,14 @@ logger = get_logger("cogs.temp_voice")
 # Verzoegerung in Sekunden bevor ein leerer Temp-Channel gelöscht wird
 EMPTY_CHANNEL_DELETE_DELAY = 3
 
+# S2 (docs/UMBAU_PLAN_2026-10-19.md): Einrichten bis zum Temp-Voice-Umbau (Phase 6)
+# gesperrt. /tempvoice setup und hubadd schalten Temp-Voice sonst am Dashboard vorbei
+# ein, und Temp-Kanaele lassen heute @everyone herein. Leerer String hebt die Sperre auf.
+SETUP_GESPERRT = (
+    "Temp-Voice ist bis zum Umbau gesperrt: Neue Temp-Kanäle wären heute für alle "
+    "offen. Das Einrichten kommt mit dem Temp-Voice-Umbau zurück."
+)
+
 
 class TempVoiceCog(commands.Cog):
     """Temporaere Voice-Channels mit Join-to-Create und interaktiver Steuerung"""
@@ -510,6 +518,9 @@ class TempVoiceCog(commands.Cog):
         kategorie: Optional[discord.CategoryChannel] = None,
     ) -> None:
         """Join-to-Create Voice-Channel und optionale Kategorie konfigurieren."""
+        if SETUP_GESPERRT:
+            await interaction.response.send_message(SETUP_GESPERRT, ephemeral=True)
+            return
         await interaction.response.defer(ephemeral=True)
 
         if not interaction.guild:
@@ -584,6 +595,9 @@ class TempVoiceCog(commands.Cog):
         spiel: Optional[str] = None,
     ) -> None:
         """Multi-Hub: einen Hub mit eigener Kategorie/Naming/Limit anlegen."""
+        if SETUP_GESPERRT:
+            await interaction.response.send_message(SETUP_GESPERRT, ephemeral=True)
+            return
         await interaction.response.defer(ephemeral=True)
         if not interaction.guild:
             await interaction.followup.send(

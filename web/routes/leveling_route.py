@@ -212,6 +212,14 @@ async def leveling_config_save(
 RESET_QUEUE_DIR = ADMIN_DATA_DIR / "leveling_queue"
 RESET_STATUS_FILE = ADMIN_DATA_DIR / "leveling_reset_status.json"
 
+# S2 (docs/UMBAU_PLAN_2026-10-19.md): Reset bis zum Leveling-Umbau (Phase 5) gesperrt.
+# Der Job nullt den Speicher vor der DB, laesst laufende Voice-Sitzungen stehen und
+# loescht auch dann, wenn er Rollen nicht abnehmen kann. Ein Backup gibt es nicht.
+RESET_GESPERRT = (
+    "Der Reset ist bis zum Leveling-Umbau gesperrt: Der Ablauf ist noch fehlerhaft "
+    "und legt kein Backup an."
+)
+
 
 def _reset_status() -> dict:
     """Quittung des letzten Resets lesen (leer, wenn noch keiner lief)."""
@@ -243,6 +251,8 @@ async def leveling_reset(
 
     if guild_id is None:
         error = "Keine Haupt-Guild gesetzt (ENV GUILD_ID)."
+    elif RESET_GESPERRT:
+        error = RESET_GESPERRT
     else:
         try:
             form = await request.form()
