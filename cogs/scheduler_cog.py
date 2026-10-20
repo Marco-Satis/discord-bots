@@ -138,6 +138,10 @@ class SchedulerCog(commands.Cog):
         self._auto_update_giveup_je: dict[str, Optional[str]] = {}
         self._auto_update_fail_count: int = 0          # Anzeige /scheduler
         self._auto_update_giveup_build: Optional[str] = None
+        # Spielermeldungen „Update verfuegbar“: je Schluessel die zuletzt
+        # gemeldete Version, damit der Spielkanal jede Version nur einmal sieht
+        # (der Admin-Log meldet weiterhin bei jedem Check).
+        self._spieler_gemeldet: dict[str, str] = {}
 
         # Minecraft State (pro Server)
         self._mc_last_restart: dict[str, Optional[datetime]] = {}
@@ -247,6 +251,51 @@ class SchedulerCog(commands.Cog):
     def sat_name_von(self, sid: str) -> str:
         srv = (getattr(self.bot, "sat_servers", {}) or {}).get(sid)
         return srv.display_name if srv else "Satisfactory"
+
+    # ------------------------------------------------------------------
+    # Spielermeldungen (Marco 20.10.2026): Server-Interna bleiben im Admin-Log,
+    # was Spieler betrifft (Update verfuegbar/startet/fehlgeschlagen) kommt
+    # zusaetzlich in den Kanal des Spiels.
+    # ------------------------------------------------------------------
+
+    def _spieler_kanal_sat(self) -> int:
+        """Spielerkanal fuer Satisfactory (#factorysatis)."""
+        return get_env("PUBLIC_STATUS_CHANNEL_ID", 0, cast=int) or 0
+
+    async def _sat_update_verfuegbar_melden(self, sid: str, name: str, build: str) -> None:
+        """„Update verfuegbar“ fuer Spieler, je Build einmal (beide Check-Wege)."""
+        wann = ("Es wird installiert, sobald der Server leer ist."
+                if self._auto_update_enabled else "Das Team spielt es zeitnah ein.")
+        await self._spieler_melden(
+            self._spieler_kanal_sat(), f"{name}: Update verfügbar",
+            f"Ein neues Server-Update (Build {build}) ist erschienen. {wann}",
+            einmal_je=(f"sat:{sid}", build),
+        )
+
+    def _spieler_kanal_mc(self, server_id: str) -> int:
+        """Spielerkanal eines MC-Servers (sein Spielchat, 0 = keiner)."""
+        srv = (self.mc_servers or {}).get(server_id)
+        return int(getattr(srv, "game_chat_channel_id", 0) or 0)
+
+    async def _spieler_melden(
+        self, kanal_id: int, titel: str, text: str,
+        level: NotifyLevel = NotifyLevel.INFO, einmal_je: Optional[tuple] = None,
+    ) -> None:
+        """Spielermeldung senden; Fehler blockieren nie den Update-Ablauf.
+
+        einmal_je=(schluessel, version): dieselbe Version nur einmal melden.
+        """
+        if not self.notifier or not kanal_id:
+            return
+        if einmal_je:
+            schluessel, version = einmal_je
+            if self._spieler_gemeldet.get(schluessel) == str(version):
+                return
+            self._spieler_gemeldet[schluessel] = str(version)
+        try:
+            await self.notifier.send_spieler(kanal_id, titel, text, level)
+        except Exception as e:  # noqa: BLE001 — Meldung ist Zusatz, nie Abbruchgrund
+            logger.warning(f"Spielermeldung '{titel}' fehlgeschlagen: {e}")
 
     def sat_kennung_von(self, sid: str) -> str:
         """Kennung fuer manual_stop_state — erste Instanz heisst 'satisfactory'."""
@@ -810,6 +859,7 @@ class SchedulerCog(commands.Cog):
                         installiert, verfuegbar, extra_text=zusatz)
                 except Exception as e:
                     logger.warning(f"[{sid}] Update-Meldung fehlgeschlagen: {e}")
+            await self._sat_update_verfuegbar_melden(sid, name, verfuegbar)
 
             if self.email_notifier:
                 try:
@@ -920,6 +970,13 @@ class SchedulerCog(commands.Cog):
                     "Server wird für Update gestoppt...",
                     level=NotifyLevel.WARNING if running else NotifyLevel.INFO,
                 )
+            await self._spieler_melden(
+                self._spieler_kanal_sat(), f"{name}: Update wird installiert",
+                ("Der Server stoppt in 2 Minuten für das Update und ist danach in "
+                 "wenigen Minuten wieder da." if running else
+                 "Das Update wird jetzt installiert, der Server ist gerade offline."),
+                NotifyLevel.WARNING,
+            )
 
             # 1. Backup vor Update erstellen
             was_running = running
@@ -961,6 +1018,12 @@ class SchedulerCog(commands.Cog):
                             level=NotifyLevel.ERROR,
                             ping_role=True,
                         )
+                    await self._spieler_melden(
+                        self._spieler_kanal_sat(), f"{name}: Update verschoben",
+                        "Das Update konnte nicht starten. Der Server läuft normal weiter, "
+                        "das Team ist informiert.",
+                        NotifyLevel.WARNING,
+                    )
                     return
                 await asyncio.sleep(10)
 
@@ -1054,6 +1117,14 @@ class SchedulerCog(commands.Cog):
                         update_msg,
                         level=NotifyLevel.ERROR,
                         ping_role=True,
+                    )
+                if not (was_running and pre_update_backup_path):
+                    # Mit Backup meldet _perform_rollback den Ausgang selbst.
+                    await self._spieler_melden(
+                        self._spieler_kanal_sat(), f"{name}: Update fehlgeschlagen",
+                        "Das Update hat nicht geklappt. Das Team ist informiert und "
+                        "prüft den Server.",
+                        NotifyLevel.ERROR,
                     )
 
         except Exception as e:
@@ -1150,6 +1221,20 @@ class SchedulerCog(commands.Cog):
             # Server neu starten
             start_ok, start_msg = await srv.start()
 
+            if restore_ok and start_ok:
+                await self._spieler_melden(
+                    self._spieler_kanal_sat(), f"{name}: Update fehlgeschlagen",
+                    "Das Update hat nicht geklappt. Der Server läuft wieder mit der "
+                    "bisherigen Version.",
+                    NotifyLevel.WARNING,
+                )
+            else:
+                await self._spieler_melden(
+                    self._spieler_kanal_sat(), f"{name}: Server nach Update offline",
+                    "Nach einem fehlgeschlagenen Update ist der Server noch offline. "
+                    "Das Team ist informiert.",
+                    NotifyLevel.ERROR,
+                )
             if self.notifier:
                 if restore_ok and start_ok:
                     await self.notifier.notify_update_rollback(
@@ -1168,6 +1253,12 @@ class SchedulerCog(commands.Cog):
 
         except Exception as e:
             logger.error(f"Rollback-Fehler: {e}", exc_info=True)
+            await self._spieler_melden(
+                self._spieler_kanal_sat(), f"{name}: Server nach Update offline",
+                "Nach einem fehlgeschlagenen Update ist der Server noch offline. "
+                "Das Team ist informiert.",
+                NotifyLevel.ERROR,
+            )
             if self.notifier:
                 await self.notifier.send_admin(
                     "KRITISCH: Rollback fehlgeschlagen",
@@ -1418,6 +1509,13 @@ class SchedulerCog(commands.Cog):
                         f"Update manuell auf dem Server installieren.",
                         NotifyLevel.WARNING,
                     )
+                neu = info.get("latest_build", "?")
+                await self._spieler_melden(
+                    self._spieler_kanal_mc(server_id), f"{label}: Update verfügbar",
+                    f"Ein neues Server-Update (Build {neu}) ist erschienen. "
+                    f"Das Team spielt es zeitnah ein.",
+                    einmal_je=(f"mc_paper:{server_id}", neu),
+                )
 
                 if self.email_notifier:
                     await self.email_notifier.send_update_available(
@@ -1534,6 +1632,14 @@ class SchedulerCog(commands.Cog):
                         f"({self._mc_modpack_daily_restart_hour:02d}:00) ausgefuehrt.",
                         NotifyLevel.INFO,
                     )
+                srv = self.mc_servers.get(server_id)
+                label = srv.display_name if srv else f"MC {server_id}"
+                await self._spieler_melden(
+                    self._spieler_kanal_mc(server_id), f"{label}: Modpack-Update geplant",
+                    f"Version {new_version} wird beim nächsten Neustart um "
+                    f"{self._mc_modpack_daily_restart_hour:02d}:00 Uhr installiert.",
+                    einmal_je=(f"mc_modpack:{server_id}", new_version),
+                )
 
         except Exception as e:
             logger.error(f"[{server_id}] Modpack-Auto-Check Fehler: {e}", exc_info=True)
@@ -1930,6 +2036,7 @@ class SchedulerCog(commands.Cog):
                         NotifyLevel.INFO,
                     )
                 logger.info(f"[{sid}] 00:00-Check — Update-Flag gesetzt")
+            await self._sat_update_verfuegbar_melden(sid, name, new_build)
 
         except Exception as e:
             logger.error(f"[{sid}] Auto-Update-Check Fehler: {e}", exc_info=True)

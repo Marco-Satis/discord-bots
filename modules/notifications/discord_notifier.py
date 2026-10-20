@@ -122,6 +122,17 @@ class DiscordNotifier:
             await self.send(self._admin_channel_id, title, description,
                             level, ping_role, fields=fields)
 
+    async def send_spieler(self, channel_id: Optional[int], title: str, description: str,
+                           level: NotifyLevel = NotifyLevel.INFO) -> None:
+        """Kurzmeldung fuer Spieler in den Kanal des Spiels (Marco 20.10.2026).
+
+        Ergaenzt die Admin-Meldung, ersetzt sie nicht: Interna (Pfade, Fehlertexte)
+        bleiben im Admin-Log, hier steht nur, was Spieler wissen muessen.
+        Kein Rollen-Ping. Ohne Kanal-ID passiert nichts.
+        """
+        if channel_id:
+            await self.send(channel_id, title, description, level)
+
     # ------------------------------------------------------------------
     # Server events
     # ------------------------------------------------------------------
