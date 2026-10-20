@@ -234,15 +234,21 @@ class ServerBackupManager:
             })
 
         # -- Welcome-Screen-Einstellungen (sofern vorhanden) --
+        # discord.py 2.x: welcome_screen ist eine Coroutine-Methode (API-Abruf), kein Attribut.
+        # Ohne Community/Welcome-Screen antwortet Discord mit 404 -> dann einfach leer lassen.
         welcome_settings: dict[str, Any] = {}
-        if guild.welcome_screen:
-            ws = guild.welcome_screen
+        try:
+            ws = await guild.welcome_screen()
+        except discord.HTTPException as e:
+            logger.info(f"[{guild.id}] Kein Welcome-Screen im Backup: {e}")
+            ws = None
+        if ws is not None:
             welcome_settings["description"] = ws.description
             welcome_settings["channels"] = []
             for wc in ws.welcome_channels:
                 welcome_settings["channels"].append({
                     "channel_id": wc.channel.id,
-                    "channel_name": wc.channel.name,
+                    "channel_name": getattr(wc.channel, "name", None),
                     "description": wc.description,
                     "emoji": str(wc.emoji) if wc.emoji else None,
                 })
