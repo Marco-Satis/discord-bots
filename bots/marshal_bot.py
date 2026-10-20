@@ -28,6 +28,7 @@ from utils.logger import get_logger
 from utils.selftest import execute_selftest
 from utils.shutdown import setup_signal_handlers, register_cleanup
 from utils.loop_guard import guard
+from utils.bot_status import set_bot_status
 from modules.database.db_manager import init_db, close_db
 from modules.guild_context import get_primary_guild_id
 
@@ -155,6 +156,7 @@ async def on_ready():
         return
     logger.info(f"Marshal online: {bot.user} (ID: {bot.user.id})")
     logger.info(f"Guilds: {[g.name for g in bot.guilds]}")
+    await set_bot_status(bot, "🛡️")
 
     # Bot-Status-Writer starten (Ping fuer Dashboard)
     if not admin_status_writer_task.is_running():

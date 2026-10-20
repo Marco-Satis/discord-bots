@@ -41,6 +41,7 @@ from utils.config import load_env, get_env, get_config, DATA_DIR
 from utils.logger import get_logger
 from utils.shutdown import setup_signal_handlers
 from utils.loop_guard import guard
+from utils.bot_status import set_bot_status
 
 # Umgebung laden
 load_env()
@@ -136,6 +137,7 @@ async def on_ready():
         return
     logger.info(f"Pipeline Bot online: {bot.user} (ID: {bot.user.id})")
     logger.info(f"Guilds: {[g.name for g in bot.guilds]}")
+    await set_bot_status(bot, "🎵")
     if not pipeline_status_writer_task.is_running():
         # Ohne Fehler-Handler beendet die erste unerwartete Ausnahme diese Schleife
         # endgueltig — das Dashboard zeigte den Bot dann dauerhaft als veraltet.

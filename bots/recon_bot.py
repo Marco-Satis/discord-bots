@@ -39,6 +39,7 @@ from utils.privacy import hash_player
 from modules.word_filter import WordFilter
 from utils.formatting import format_uptime, format_bytes, status_emoji
 from utils.async_tasks import track_task
+from utils.bot_status import set_bot_status
 
 from modules.satisfactory.server import SatisfactoryServer
 from modules.satisfactory.api_client import SatisfactoryAPI, SAT_TICK_SOLL, tick_zustand
@@ -3208,13 +3209,8 @@ async def on_ready():
         notify_role=NOTIFY_ROLE_ID,
     )
 
-    # Set presence (safe to re-run on reconnect)
-    await bot.change_presence(
-        activity=discord.Activity(
-            type=discord.ActivityType.watching,
-            name="Server Health",
-        )
-    )
+    # Status-Zeile im Profil (safe to re-run on reconnect)
+    await set_bot_status(bot, "📡")
 
     # Start background tasks (is_running guard prevents duplicates)
     core_tasks = [

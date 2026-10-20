@@ -30,6 +30,7 @@ from utils.logger import get_logger
 from utils.selftest import execute_selftest
 from utils.shutdown import setup_signal_handlers, register_cleanup
 from utils.loop_guard import guard
+from utils.bot_status import set_bot_status
 from modules.database.db_manager import init_db, close_db
 from modules.satisfactory.server import SatisfactoryServer
 from modules.satisfactory.api_client import SatisfactoryAPI
@@ -383,12 +384,7 @@ async def on_ready():
     logger.info(f"Guilds: {[g.name for g in bot.guilds]}")
 
     # Idempotent operations only (safe to re-run on reconnect)
-    await bot.change_presence(
-        activity=discord.Activity(
-            type=discord.ActivityType.watching,
-            name="Satisfactory Server"
-        )
-    )
+    await set_bot_status(bot, "⚙️")
 
     # Initialize command logger with admin channel
     admin_channel_id = get_env("ADMIN_LOG_CHANNEL_ID", cast=int)
