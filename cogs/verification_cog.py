@@ -6,8 +6,9 @@ Verification + Raid-Schutz Cog (Phase G Security).
   - Raid-Detection: Join-Spike (zu viele Joins im Zeitfenster) -> Alert in
     einen konfigurierten Channel.
   - Raid-Reaktion (20.10.2026, Marco): bei einem Join-Spike sperrt der Bot
-    selbst fuer `raid_lock_minutes` (Standard 10): Verifizieren pausiert und
-    die Discord-Verifizierungsstufe geht auf „Hoch“; danach automatisch zurueck.
+    selbst fuer `raid_lock_minutes` (Standard 10): Einladungen und DMs pausiert
+    (Discord-Sicherheitsaktion), Verifizieren pausiert, die Discord-
+    Verifizierungsstufe geht auf „Hoch“; danach automatisch zurueck.
     Bewusst KEIN Auto-Kick neuer Konten: gekaufte Boost-Konten sind neu und
     treten gesammelt bei, ein Kick wuerde die Boosts kosten.
 
@@ -219,6 +220,16 @@ class VerificationCog(commands.Cog):
                 )
             except (discord.Forbidden, discord.HTTPException) as e:
                 logger.warning(f"Verifizierungsstufe nicht hochsetzbar Guild {guild.id}: {e}")
+        # Discords eigene Sicherheitsaktion: Einladungen + DMs pausieren. Laeuft
+        # bei Discord selbst ab, auch wenn der Bot zwischendurch ausfaellt.
+        try:
+            ende = datetime.fromtimestamp(bis, tz=timezone.utc)
+            await guild.edit(
+                invites_disabled_until=ende, dms_disabled_until=ende,
+                reason=f"Raid-Schutz: Einladungen/DMs {minuten} min pausiert",
+            )
+        except (discord.Forbidden, discord.HTTPException, TypeError) as e:
+            logger.warning(f"Einladungen/DMs nicht pausierbar Guild {guild.id}: {e}")
         logger.warning(f"Raid-Sperre aktiv Guild {guild.id} fuer {minuten} min")
         return bis
 
@@ -227,6 +238,16 @@ class VerificationCog(commands.Cog):
         bis = await GuildConfig.get(guild.id, "security.raid_lock_until")
         if bis is None:
             return False
+        if sperre_aktiv(bis, time.time()):
+            # Vorzeitig aufgehoben: Discords Pause ebenfalls beenden (laeuft
+            # sonst bis zum alten Sperrende weiter).
+            try:
+                await guild.edit(
+                    invites_disabled_until=None, dms_disabled_until=None,
+                    reason=f"Raid-Schutz: Sperre beendet ({grund})",
+                )
+            except (discord.Forbidden, discord.HTTPException, TypeError) as e:
+                logger.warning(f"Einladungs-/DM-Pause nicht aufhebbar Guild {guild.id}: {e}")
         prev = await GuildConfig.get(guild.id, "security.raid_lock_prev_level")
         if prev is not None:
             try:
@@ -339,9 +360,10 @@ class VerificationCog(commands.Cog):
         count = self.raid.join_count(guild.id)
         if gesperrt_bis:
             reaktion = (
-                f"**Automatisch gesperrt bis <t:{int(gesperrt_bis)}:t>:** Verifizieren ist "
-                "pausiert, die Discord-Verifizierungsstufe steht auf „Hoch“. Danach hebt "
-                "Marshal die Sperre selbst auf. Früher aufheben: `/sicherheit entsperren`."
+                f"**Automatisch gesperrt bis <t:{int(gesperrt_bis)}:t>:** Einladungen und "
+                "DMs sind pausiert, Verifizieren ebenfalls, die Discord-Verifizierungsstufe "
+                "steht auf „Hoch“. Danach hebt Marshal die Sperre selbst auf. Früher "
+                "aufheben: `/sicherheit entsperren`."
             )
         else:
             reaktion = "Automatische Sperre ist aus. Prüfe die neuen Mitglieder."
