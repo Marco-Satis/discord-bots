@@ -460,6 +460,9 @@ class TempVoiceManager:
             category=category,
             overwrites=overwrites,
             user_limit=default_limit,
+            # Hoechste Audioqualitaet, die das Boost-Level erlaubt (Level 3: 384 kbps);
+            # ohne Angabe legt Discord den Kanal mit 64 kbps an.
+            bitrate=int(guild.bitrate_limit),
             reason=f"Temp-Voice-Channel fuer {member.display_name}",
         )
 
