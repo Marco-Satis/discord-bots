@@ -4,7 +4,7 @@
    /leveling/config als Swap-Ziel (#lvl-config) zurueckgegeben. CSRF-Header
    kommt aus body[hx-headers] (base_v5.html). #}
 <div id="lvl-config" class="config-section lvl-config-card">
-    <h2 class="lvl-config-title">Level-Up-Benachrichtigung</h2>
+    <h2 class="lvl-config-title">Level-Einstellungen</h2>
 
     {% if success %}<div class="lvl-banner lvl-banner-ok">{{ success }}</div>{% endif %}
     {% if error %}<div class="lvl-banner lvl-banner-err">{{ error }}</div>{% endif %}
@@ -57,6 +57,25 @@
                         {% else %}
                             Noch kein Hintergrund gesetzt.
                         {% endif %}
+                    </small>
+                </div>
+            </div>
+            <!-- Gruppe: Rangrollen (Belohnungsrollen) -->
+            <div class="set-group">
+                <div class="set-group-title">Rangrollen</div>
+                <div class="lvl-field lvl-field-check">
+                    <div class="toggle-item">
+                        <label class="toggle">
+                        <input type="checkbox" name="remove_lower"
+                               {% if cfg.remove_lower %}checked{% endif %}>
+                        <span class="slider"></span>
+                        </label>
+                        <span class="toggle-label">Nur höchste Rangrolle behalten</span>
+                    </div>
+                    <small>
+                        An: Beim Aufstieg nimmt Marshal die niedrigeren Rangrollen ab.
+                        Aus: Mitglieder sammeln alle erreichten Rangrollen.
+                        Gilt ab dem nächsten Aufstieg des Mitglieds.
                     </small>
                 </div>
             </div>

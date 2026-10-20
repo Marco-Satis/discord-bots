@@ -38,11 +38,12 @@ async def _load_levelup_config(guild_id: int) -> dict:
     Level-Up-Benachrichtigungs- + Leaderboard-Config der Guild aus `guild_config`.
 
     Liefert announce_channel (str|"" fuer Template), levelup_ping (bool),
-    leaderboard_card (bool) + leaderboard_bg (str|"" — Anzeige, Upload via Slash).
+    leaderboard_card (bool) + leaderboard_bg (str|"" — Anzeige, Upload via Slash)
+    und remove_lower (bool — nur hoechste Belohnungsrolle behalten).
     """
     default = {
         "announce_channel": "", "levelup_ping": True,
-        "leaderboard_card": False, "leaderboard_bg": "",
+        "leaderboard_card": False, "leaderboard_bg": "", "remove_lower": False,
     }
     try:
         announce = await GuildConfig.get(guild_id, "leveling.announce_channel", None)
@@ -51,6 +52,9 @@ async def _load_levelup_config(guild_id: int) -> dict:
             guild_id, "leveling.leaderboard_card_enabled", False
         )
         lb_bg = await GuildConfig.get(guild_id, "leveling.leaderboard_bg", None)
+        remove_lower = await GuildConfig.get(
+            guild_id, "leveling.remove_lower_rewards", False
+        )
     except Exception as e:
         logger.error(f"Level-Up-Config laden fehlgeschlagen: {e}")
         return default
@@ -59,6 +63,7 @@ async def _load_levelup_config(guild_id: int) -> dict:
         "levelup_ping": bool(ping),
         "leaderboard_card": bool(lb_card),
         "leaderboard_bg": str(lb_bg) if lb_bg else "",
+        "remove_lower": bool(remove_lower),
     }
 
 
@@ -141,10 +146,12 @@ async def leveling_config_save(
     request: Request, current_user: dict = Depends(require_perm("leveling", "edit"))
 ):
     """
-    Level-Up-Benachrichtigung speichern: Announce-Channel + Member-Ping.
+    Level-Up-Benachrichtigung speichern: Announce-Channel, Member-Ping,
+    Leaderboard-Karte und ob nur die hoechste Belohnungsrolle bleibt.
 
     Schreibt nach `guild_config` (Keys `leveling.announce_channel` /
-    `leveling.levelup_ping`). Der Bot liest sie ueber den 15s-TTL-Cache —
+    `leveling.levelup_ping` / `leveling.leaderboard_card_enabled` /
+    `leveling.remove_lower_rewards`). Der Bot liest sie ueber den 15s-TTL-Cache —
     Aenderung greift spaetestens nach TTL ohne Bot-Neustart.
     """
     guild_id = get_primary_guild_id()
@@ -160,6 +167,7 @@ async def leveling_config_save(
             raw_channel = str(form.get("announce_channel", "")).strip()
             ping = "levelup_ping" in form
             lb_card = "leaderboard_card" in form
+            remove_lower = "remove_lower" in form
 
             # Channel-ID validieren: leer = entfernen, sonst nur Ziffern (Snowflake)
             channel_val: int | None = None
@@ -180,12 +188,17 @@ async def leveling_config_save(
                 guild_id, "leveling.leaderboard_card_enabled", lb_card,
                 updated_by="dashboard",
             )
+            await GuildConfig.set(
+                guild_id, "leveling.remove_lower_rewards", remove_lower,
+                updated_by="dashboard",
+            )
             logger.info(
                 f"Level-Up-Config gespeichert von "
                 f"{current_user.get('username', 'Unbekannt')}: "
-                f"channel={channel_val} ping={ping} lb_card={lb_card}"
+                f"channel={channel_val} ping={ping} lb_card={lb_card} "
+                f"remove_lower={remove_lower}"
             )
-            success = "Level-Up-Benachrichtigung gespeichert."
+            success = "Level-Einstellungen gespeichert."
         except ValueError as e:
             error = f"Ungueltige Eingabe: {e}"
         except Exception as e:
