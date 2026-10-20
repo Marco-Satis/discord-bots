@@ -944,15 +944,21 @@ class UpdateManager:
             await self._active_timer.send_success_banner(new_version)
 
     async def _notify_failure(self, version: str, error: str) -> None:
-        """Sendet Fehlschlag-Benachrichtigungen (Channel + Owner-DM)."""
+        """Sendet Fehlschlag-Benachrichtigungen (Channel + Owner-DM).
+
+        self.channel ist der oeffentliche Spielchat. Der rohe Fehlertext
+        (Pfade, Exceptions) geht deshalb nur in die Owner-DM.
+        """
         # Discord Channel
         if self.channel:
             try:
                 embed = error_embed(
                     title=f"❌ Update fehlgeschlagen: {self.server_id}",
-                    description=f"Update auf **{version}** ist fehlgeschlagen.",
+                    description=(
+                        f"Update auf **{version}** ist fehlgeschlagen. "
+                        f"Die Fehlerdetails gehen an das Team."
+                    ),
                 )
-                embed.add_field(name="Fehler", value=error[:1000], inline=False)
                 await self.channel.send(embed=embed)
             except Exception as e:
                 logger.debug(f"Fehler-Nachricht fehlgeschlagen: {e}")
