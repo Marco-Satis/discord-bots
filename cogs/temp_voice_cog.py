@@ -53,10 +53,12 @@ EMPTY_CHANNEL_DELETE_DELAY = 3
 
 # S2 (docs/UMBAU_PLAN_2026-10-19.md): Einrichten bis zum Temp-Voice-Umbau (Phase 6)
 # gesperrt. /tempvoice setup und hubadd schalten Temp-Voice sonst am Dashboard vorbei
-# ein, und Temp-Kanaele lassen heute @everyone herein. Leerer String hebt die Sperre auf.
+# ein. Seit 20.10. erben Temp-Kanaele die Rechte ihrer Kategorie; die Erstell-Kanaele
+# Laberecke und Gaming sind in temp_voice_config.json eingetragen. Leerer String hebt
+# die Sperre auf.
 SETUP_GESPERRT = (
-    "Temp-Voice ist bis zum Umbau gesperrt: Neue Temp-Kanäle wären heute für alle "
-    "offen. Das Einrichten kommt mit dem Temp-Voice-Umbau zurück."
+    "Das Einrichten ist bis zum Temp-Voice-Umbau gesperrt. Laberecke und Gaming "
+    "erstellen schon Temp-Kanäle; Änderungen kommen später ins Dashboard."
 )
 
 

@@ -171,6 +171,39 @@ def _normalize_hub(raw: Any) -> dict[str, Any] | None:
     }
 
 
+def _basis_overwrites(
+    guild: discord.Guild,
+    category: discord.CategoryChannel | None,
+    hub_channel: discord.abc.GuildChannel | None,
+) -> dict[Any, discord.PermissionOverwrite]:
+    """
+    Rechte-Vorlage fuer Temp-Channels: die der Kategorie, sonst die des Erstell-Kanals.
+
+    Wer die Vorlage nicht sehen darf, sieht auch den Temp-Channel nicht. So bleiben
+    Ungepruefte (ohne Member-Rolle) draussen. Ohne beides: @everyone gesperrt.
+    """
+    for quelle in (category, hub_channel):
+        if quelle is not None:
+            return {
+                ziel: discord.PermissionOverwrite.from_pair(*ow.pair())
+                for ziel, ow in quelle.overwrites.items()
+            }
+    return {guild.default_role: discord.PermissionOverwrite(view_channel=False, connect=False)}
+
+
+def _rollen_aussperren(
+    overwrites: dict[Any, discord.PermissionOverwrite], guild: discord.Guild
+) -> None:
+    """Privat: jede Rolle (inkl. @everyone) verliert Sehen + Beitreten. Einzelfreigaben bleiben."""
+    ziele = [z for z in overwrites if isinstance(z, discord.Role)]
+    if guild.default_role not in ziele:
+        ziele.append(guild.default_role)
+    for ziel in ziele:
+        ow = overwrites.get(ziel) or discord.PermissionOverwrite()
+        ow.update(view_channel=False, connect=False)
+        overwrites[ziel] = ow
+
+
 class TempVoiceManager:
     """
     Verwaltet temporaere Voice-Channels mit Persistenz.
@@ -361,14 +394,17 @@ class TempVoiceManager:
             discord.HTTPException: Discord-API-Fehler
         """
         hub = self.get_hub(hub_id) if hub_id is not None else None
+        hub_channel = guild.get_channel(hub_id) if hub_id is not None else None
 
-        # Kategorie ermitteln (Hub > Legacy)
+        # Kategorie ermitteln (Hub > Legacy > Kategorie des Erstell-Kanals)
         category = None
         cat_id = hub["category_id"] if hub else self._config.get("category_id")
         if cat_id:
             category = guild.get_channel(cat_id)
             if category and not isinstance(category, discord.CategoryChannel):
                 category = None
+        if category is None and hub_channel is not None:
+            category = getattr(hub_channel, "category", None)
 
         # Standard-Userlimit + Private (Hub > Legacy)
         default_limit = hub["default_limit"] if hub else self._config.get("default_limit", 0)
@@ -380,33 +416,34 @@ class TempVoiceManager:
         count = (self._hub_channel_count(hub_id) + 1) if hub_id is not None else 1
         channel_name = _render_channel_name(naming, member.display_name, count, game)
 
-        # Berechtigungen: Owner bekommt Manage-Rechte. Bei default_private ist der
-        # Channel fuer @everyone gesperrt + unsichtbar (Owner/Bot ausgenommen).
-        overwrites = {
-            guild.default_role: discord.PermissionOverwrite(
-                connect=not default_private,
-                speak=True,
-                view_channel=not default_private,
-            ),
-            member: discord.PermissionOverwrite(
-                connect=True,
-                speak=True,
-                view_channel=True,
-                manage_channels=True,
-                mute_members=True,
-                deafen_members=True,
-                move_members=True,
-                manage_permissions=True,
-            ),
-            guild.me: discord.PermissionOverwrite(
-                connect=True,
-                speak=True,
-                view_channel=True,
-                manage_channels=True,
-                move_members=True,
-                manage_permissions=True,
-            ),
-        }
+        # Berechtigungen: Vorlage aus Kategorie/Erstell-Kanal (sonst saehen Ungepruefte
+        # den Channel), Owner bekommt Manage-Rechte. Bei default_private sind alle
+        # Rollen ausgesperrt (Owner/Bot ausgenommen).
+        overwrites = _basis_overwrites(guild, category, hub_channel)
+        if default_private:
+            _rollen_aussperren(overwrites, guild)
+        overwrites[member] = discord.PermissionOverwrite(
+            connect=True,
+            speak=True,
+            view_channel=True,
+            manage_channels=True,
+            mute_members=True,
+            deafen_members=True,
+            move_members=True,
+            manage_permissions=True,
+        )
+        # Bot: Panel im Voice-Chat braucht Senden/Embeds/Verlauf
+        overwrites[guild.me] = discord.PermissionOverwrite(
+            connect=True,
+            speak=True,
+            view_channel=True,
+            manage_channels=True,
+            move_members=True,
+            manage_permissions=True,
+            send_messages=True,
+            embed_links=True,
+            read_message_history=True,
+        )
 
         # Channel erstellen
         channel = await guild.create_voice_channel(
@@ -785,13 +822,18 @@ class TempVoiceManager:
     # ------------------------------------------------------------------
 
     async def set_private(self, channel: discord.VoiceChannel) -> None:
-        """Channel privat schalten: @everyone connect=False + unsichtbar."""
+        """Channel privat schalten: alle Rollen zu + unsichtbar, Einzelfreigaben bleiben."""
         guild = channel.guild
+        rollen = {
+            z: discord.PermissionOverwrite.from_pair(*ow.pair())
+            for z, ow in channel.overwrites.items() if isinstance(z, discord.Role)
+        }
+        _rollen_aussperren(rollen, guild)
         try:
-            await channel.set_permissions(
-                guild.default_role, connect=False, view_channel=False,
-                reason="Temp-Voice: privat",
-            )
+            for ziel, ow in rollen.items():
+                await channel.set_permissions(
+                    ziel, overwrite=ow, reason="Temp-Voice: privat",
+                )
         except discord.HTTPException as e:
             logger.error(f"set_private fehlgeschlagen ({channel.id}): {e}")
             return
@@ -800,13 +842,19 @@ class TempVoiceManager:
         self.log_event(channel.id, owner, "private")
 
     async def set_public(self, channel: discord.VoiceChannel) -> None:
-        """Channel oeffentlich schalten: @everyone connect=True + sichtbar."""
+        """Channel oeffentlich schalten: Rollen-Rechte wieder wie Kategorie/Erstell-Kanal."""
         guild = channel.guild
+        hub_id = (self._ch(channel.id) or {}).get("hub_id")
+        hub_channel = guild.get_channel(hub_id) if hub_id else None
+        basis = _basis_overwrites(guild, channel.category, hub_channel)
+        rollen = {z for z in channel.overwrites if isinstance(z, discord.Role)}
+        rollen |= {z for z in basis if isinstance(z, discord.Role)}
         try:
-            await channel.set_permissions(
-                guild.default_role, connect=True, view_channel=True,
-                reason="Temp-Voice: oeffentlich",
-            )
+            for ziel in rollen:
+                # None entfernt Overwrites, die nur "privat" gesetzt hatte
+                await channel.set_permissions(
+                    ziel, overwrite=basis.get(ziel), reason="Temp-Voice: oeffentlich",
+                )
         except discord.HTTPException as e:
             logger.error(f"set_public fehlgeschlagen ({channel.id}): {e}")
             return

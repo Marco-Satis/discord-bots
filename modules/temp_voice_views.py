@@ -669,7 +669,7 @@ class TempVoiceControlView(discord.ui.LayoutView):
 
         await manager.set_private(channel)
         await interaction.response.send_message(
-            "Channel ist jetzt **privat** — geschlossen und unsichtbar für @everyone.",
+            "Channel ist jetzt **privat** — geschlossen und unsichtbar für alle anderen.",
             ephemeral=True,
         )
         logger.info(f"Temp-Voice privat: {channel.id} von {member.display_name}")
@@ -688,7 +688,7 @@ class TempVoiceControlView(discord.ui.LayoutView):
 
         await manager.set_public(channel)
         await interaction.response.send_message(
-            "Channel ist jetzt **öffentlich** — offen und sichtbar für alle.",
+            "Channel ist jetzt **öffentlich** — offen und sichtbar für alle Mitglieder.",
             ephemeral=True,
         )
         logger.info(f"Temp-Voice öffentlich: {channel.id} von {member.display_name}")
