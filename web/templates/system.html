@@ -171,14 +171,10 @@
 <section class="config-section">
     <h2 class="section-title">Webmin Server-Administration</h2>
     <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 1rem;">
-        Webmin läuft als eigener Service mit selbstsigniertem Zertifikat.
-        Browser blockieren solche Zertifikate in eingebetteten Frames — bitte Webmin direkt öffnen.
+        Webmin ist nur im Tailnet erreichbar. Tailscale muss auf dem Gerät aktiv sein, sonst lädt die Seite nicht.
     </p>
     <a href="{{ webmin_url }}" target="_blank" class="btn btn-primary" style="display: inline-flex; gap: 0.5rem; align-items: center;">
         <span>&#9881;</span> Webmin öffnen ({{ webmin_url }})
     </a>
-    <p style="color: var(--text-muted); font-size: 0.8rem; margin-top: 0.75rem;">
-        Beim ersten Zugriff muss das selbstsignierte Zertifikat im Browser akzeptiert werden.
-    </p>
 </section>
 {% endblock %}
