@@ -56,6 +56,8 @@ _panel_locks: "dict[int, asyncio.Lock]" = {}
 # entsteht ein Bild statt fuenf.
 _refresh_geplant: set[int] = set()
 REFRESH_SAMMELZEIT = 1.5
+# Juengere Temp-Channels bekommen ihr Panel noch vom Erstell-Ablauf
+SELBSTHEILUNG_AB_S = 60
 
 # Akzentfarbe des Panels: Neon-Violett aus Design C3 (Server-Vorgabe 2026-10-20)
 PANEL_AKZENT = 0xB84DFF
@@ -297,17 +299,61 @@ def forget_channel(channel_id: int) -> None:
     _letzter_rename.pop(channel_id, None)
 
 
-async def refresh_panel(
+async def send_panel(
     channel: discord.VoiceChannel, manager: "TempVoiceManager"
+) -> discord.Message | None:
+    """
+    Panel in den Text-Chat des Temp-Channels senden und die Message merken.
+
+    Scheitert der Versand mit Karte (etwa ohne „Dateien anhaengen“), geht das
+    Panel ohne Karte raus: Ein Panel ohne Bild ist besser als gar keins.
+    """
+    datei = await panel_datei(channel, manager)
+    for karte in ([datei, None] if datei is not None else [None]):
+        anhang = {"file": karte} if karte is not None else {}
+        try:
+            msg = await channel.send(
+                view=TempVoiceControlView(channel, manager, mit_karte=karte is not None),
+                **anhang,
+            )
+        except discord.HTTPException as e:
+            logger.warning(
+                f"Panel senden {'mit' if karte else 'ohne'} Karte fehlgeschlagen ({channel.id}): {e}"
+            )
+            continue
+        manager.set_panel_message(channel.id, msg.id)
+        return msg
+    return None
+
+
+async def _panel_nachsenden(channel: discord.VoiceChannel, manager: "TempVoiceManager") -> None:
+    """Fehlendes Panel ersetzen; die Sperre verhindert zwei Panels nebeneinander."""
+    sperre = _panel_locks.setdefault(channel.id, asyncio.Lock())
+    async with sperre:
+        logger.info(f"Panel fehlt in Temp-Channel {channel.id}, sende neu")
+        await send_panel(channel, manager)
+
+
+async def refresh_panel(
+    channel: discord.VoiceChannel, manager: "TempVoiceManager", *, heilen: bool = False
 ) -> None:
     """
     Das gespeicherte Kanal-Panel mit aktuellem Stand neu rendern (Edit samt Bild).
 
     Mehrere Anlaesse kurz hintereinander ergeben einen Edit: Der erste plant ihn
     nach REFRESH_SAMMELZEIT ein, alle weiteren bis dahin steigen aus.
+
+    Wurde das Panel geloescht, kommt ein neues. heilen=True (5-Minuten-Takt)
+    sendet auch dann eins, wenn nie eins gemerkt wurde — aber erst nach
+    SELBSTHEILUNG_AB_S, vorher sendet es noch der Erstell-Ablauf.
     """
     pmid = manager.get_panel_message(channel.id)
-    if not pmid or channel.id in _refresh_geplant:
+    if not pmid:
+        erstellt = manager.get_created_at(channel.id)
+        if heilen and (erstellt is None or _sekunden_seit(erstellt) >= SELBSTHEILUNG_AB_S):
+            await _panel_nachsenden(channel, manager)
+        return
+    if channel.id in _refresh_geplant:
         return
     _refresh_geplant.add(channel.id)
     try:
@@ -322,10 +368,15 @@ async def refresh_panel(
             # zweite Aufrufer eine aeltere Momentaufnahme hinterher.
             datei = await panel_datei(channel, manager)
             msg = channel.get_partial_message(pmid)
-            await msg.edit(
-                view=TempVoiceControlView(channel, manager, mit_karte=datei is not None),
-                attachments=[datei] if datei is not None else [],
-            )
+            try:
+                await msg.edit(
+                    view=TempVoiceControlView(channel, manager, mit_karte=datei is not None),
+                    attachments=[datei] if datei is not None else [],
+                )
+            except discord.NotFound:
+                # Panel wurde geloescht: neues senden (wir halten die Sperre schon)
+                logger.info(f"Panel in Temp-Channel {channel.id} geloescht, sende neu")
+                await send_panel(channel, manager)
     except discord.HTTPException as e:
         # Deckt auch den Fall „altes Embed-Panel, laesst sich nicht auf V2
         # umstellen" ab. Kein Drama: der naechste Temp-Channel bekommt das neue

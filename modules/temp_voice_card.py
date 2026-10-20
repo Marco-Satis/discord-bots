@@ -2,7 +2,8 @@
 Temp-Voice-Kopfkarte — Pillow-Renderer (Prismatische Neon-Lobby, Final-Palette).
 
 Erzeugt ein PNG-Banner fuer das Temp-Voice-Panel mit Kanalinfo, Status-Chips
-und Squad-Reihe (bis zu 12 Mitglieder in zwei Reihen).
+und Squad-Reihe (bis zu 12 Mitglieder in zwei Reihen). v2 (2026-10-20): auf
+Discords Anzeigegroesse 600×350 ausgelegt, Schrift fuer halbe Groesse bemessen.
 
 Reine synchrone Funktion — im Cog via ``asyncio.to_thread`` aufrufen.
 """
@@ -30,10 +31,15 @@ _IBM_S  = _STATIC / "fonts" / "ibmplexmono" / "IBMPlexMono-SemiBold.ttf"
 _DV     = Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
 _DV_B   = Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf")
 
-# ── Karten-Abmessungen (2×-Aufloesung) ─────────────────────────────────────────
-CARD_W  = 928
-CARD_H1 = 500   # 1 Zeile (1–6 Slots)
-CARD_H2 = 660   # 2 Zeilen (7–12 Slots)
+# ── Karten-Abmessungen ──────────────────────────────────────────────────────────
+# Discord zeigt ein Media-Gallery-Bild hoechstens 600×350 CSS-px gross und
+# verkleinert nur (Client-Konstanten, Recherche 2026-10-20). Die Karte ist genau
+# doppelt so gross: auf Bildschirmen mit Skalierung 2 pixelgenau, sonst glatt
+# halbiert statt um einen krummen Faktor verkleinert (das machte v1 unscharf).
+CARD_W  = 1200
+CARD_H1 = 560   # 1 Reihe (1–6 Plaetze)  -> Anzeige 600×280
+CARD_H2 = 700   # 2 Reihen (7–12 Plaetze) -> Anzeige 600×350
+SS      = 3     # Supersampling fuer Formen: Pillow glaettet Kreise und Konturen nicht
 
 # ── Farbpalette ─────────────────────────────────────────────────────────────────
 C_TEXT      = (244, 241, 255)  # #f4f1ff
@@ -44,7 +50,6 @@ C_MAGENTA   = (255, 63,  164)  # #ff3fa4
 C_LIVE      = (255, 101, 181)  # #ff65b5
 
 C_HUB_LBL   = (222, 216, 243)  # #ded8f3
-C_KONTEXT   = (187, 180, 208)  # #bbb4d0
 C_CHIP_BG   = (23,  21,  38)   # #171526
 C_CHIP_BDR  = (110, 102, 135)  # #6e6687
 C_CHIP_BDR2 = (89,  108, 121)  # #596c79
@@ -57,13 +62,13 @@ C_TREN      = (73,  67,  89)   # #494359
 
 C_AV_RING   = (143, 136, 160)  # #8f88a0
 C_AV_FREI_BG  = (23,  21,  34)   # #171522
-C_AV_FREI_BDR = (119, 112, 135)  # #777087
-C_AV_FREI_TXT = (170, 163, 185)  # #aaa3b9
-C_SLOT_META = (189, 182, 205)  # #bdb6cd
+C_AV_FREI_BDR = (130, 123, 148)  # heller als im Konzept, sonst bei halber Groesse weg
+C_AV_FREI_TXT = (178, 171, 194)
+C_SLOT_META = (208, 202, 224)  # Verweildauer: heller als im Konzept (Lesbarkeit)
 C_OWN_BG    = (18,  48,  57)   # #123039
 C_OWN_TXT   = (201, 255, 255)  # #c9ffff
 C_FREI_NAME = (199, 193, 210)  # #c7c1d2
-C_FREI_META = (143, 136, 157)  # #8f889d
+C_FREI_META = (163, 156, 180)
 C_SEG_INA   = (84,  79,  101)  # #544f65
 
 # Avatar-Initialen-Farbpalette (deterministisch per Name-Hash)
@@ -78,37 +83,49 @@ _AV_PALETTE = [
     (70,  80,  160),  # Indigo
 ]
 
-# Layout-Konstanten (2×)
-_PAD_L        = 44    # links
-_PAD_R        = 36    # rechts (Abstand Kartenrand zu Chips)
-_HUB_Y        = 38    # hub-label top
-_KANAL_Y      = 84    # kanalname top
-_KONTEXT_Y    = 156   # kanal-kontext top
-_CHIP_TOP     = 40    # statusgruppe top
-_CHIP_H       = 64    # chip hoehe
-_CHIP_GAP     = 14    # abstand zwischen chips
-_SQUAD_Y      = 210   # squad-kopf top
-_TREN_Y       = 238   # trennlinie top
-_GRID_TOP     = 264   # squad-grid top
-_GRID_L       = 40    # grid links
-_GRID_R       = 888   # grid rechts
-_GRID_W       = _GRID_R - _GRID_L   # 848
-_COL_GAP      = 14    # abstand zwischen spalten
-_AV_D         = 76    # avatar-durchmesser
-_AV_R         = 38    # avatar-radius
-_ROW_H        = 196   # zeilenhoehe im squad-grid
+# ── Layout (Kartenpixel; Anzeige = halbe Werte) ─────────────────────────────────
+# Mindestgroesse Text in der Anzeige: 12 px (Etiketten), Namen 17 px, Kanal 42 px.
+_PAD_L      = 56
+_PAD_R      = 48
+_HUB_Y      = 52    # Hub-Label oben (Text-Oberkante)
+_MARKER_W   = 44
+_CHIP_TOP   = 34
+_CHIP_H     = 72
+_CHIP_GAP   = 16
+_KANAL_Y    = 108   # unter den Chips: der Kanalname bekommt die volle Breite
+_SQUAD_Y    = 228
+_TREN_Y     = 270   # liegt auf den Seitenstrichen des Hintergrunds
+_GRID_L     = 48
+_GRID_R     = CARD_W - 48
+_COL_GAP    = 16
+_COLS       = 6
 
-# Laufweiten (letter-spacing aus konzept_1.html, dort 1×, hier 2×)
-_TR_HUB       = 2.9
-_TR_KANAL     = -2.5
-_TR_KONTEXT   = 1.6
-_TR_STATUS    = 2.2
-_TR_ZEIT      = 1.2
-_TR_BEL       = 1.0
-_TR_SQUAD     = 2.5
-_TR_SQUAD_ST  = 1.5
-_TR_OWNER     = 1.1
-_TR_BEREIT    = 0.9
+# Reihen: Oberkante Raster, Avatar-Durchmesser, Abstand zweier Reihen
+_REIHE_1 = {"top": 298, "av": 104, "row_h": 0}
+_REIHE_2 = {"top": 288, "av": 80,  "row_h": 204}
+
+# Schriftgroessen
+_FS_HUB     = 28
+_FS_CHIP    = 28
+_FS_KANAL   = 84
+_FS_SQUAD   = 26
+_FS_NAME    = 34
+_FS_ZEIT    = 28
+_FS_BADGE   = 20
+_FS_PLUS    = 46
+_FS_BEREIT  = 24
+_FS_OV      = 36
+
+# Laufweiten (letter-spacing wie im Konzept, auf diese Groesse umgerechnet)
+_TR_HUB       = 3.4
+_TR_KANAL     = -2.8
+_TR_STATUS    = 2.8
+_TR_ZEIT      = 1.6
+_TR_BEL       = 1.4
+_TR_SQUAD     = 3.2
+_TR_SQUAD_ST  = 2.0
+_TR_OWNER     = 1.8
+_TR_BEREIT    = 1.6
 
 
 # ── Datenmodell ─────────────────────────────────────────────────────────────────
@@ -322,285 +339,97 @@ def _make_av_circle(
     return canvas.resize((size, size), Image.LANCZOS)
 
 
-def _draw_dashed_circle(
-    d: ImageDraw.ImageDraw,
-    cx: int,
-    cy: int,
-    r: int,
-    color: tuple,
-    width: int = 2,
-    dash_px: int = 12,
-    gap_px: int = 8,
-) -> None:
-    """Gestrichelten Kreis auf dem Draw-Objekt zeichnen."""
-    circ = 2 * math.pi * r
-    if circ <= 0:
-        return
-    total = dash_px + gap_px
-    n = max(1, int(circ / total))
-    for i in range(n):
-        t0 = (i * total) / circ
-        t1 = min((i * total + dash_px) / circ, 1.0)
-        a0 = t0 * 360 - 90
-        a1 = t1 * 360 - 90
-        if a1 > a0:
-            d.arc(
-                [cx - r, cy - r, cx + r, cy + r],
-                start=a0,
-                end=a1,
-                fill=color,
-                width=width,
-            )
+def _ohne_emoji(text: str) -> str:
+    """Bunte Emoji (ab U+1F000) samt Joiner/Variantenwahl entfernen: keine Schrift der
+    Karte kann sie zeichnen, sie kaemen als leere Kaestchen. Discord zeigt sie ja im Namen."""
+    rein = "".join(ch for ch in text
+                   if ord(ch) < 0x1F000 and ch not in "\u200d\ufe0f\u20e3")
+    return " ".join(rein.split())
 
 
-# ── Chip-Rendering ───────────────────────────────────────────────────────────────
-def _chip_status_w(
-    privat: bool,
-    laufzeit_s: int,
-    ibm_s20: ImageFont.FreeTypeFont,
-) -> int:
-    """Breite des Status-Chips berechnen."""
-    pub_txt = "PRIVATE" if privat else "PUBLIC"
-    time_txt = f"LIVE {_fmt_laufzeit(laufzeit_s)}"
-    # Inhalt: 18 + LED14 + 14 + pub_w + 16 + div2 + 16 + time_w + 18
-    w = (
-        18
-        + 14  # LED
-        + 14  # LED margin
-        + _text_w(pub_txt, ibm_s20, track=_TR_STATUS)
-        + 16  # nach PUBLIC
-        + 2   # Trennlinie
-        + 16  # vor LIVE
-        + _text_w(time_txt, ibm_s20, track=_TR_ZEIT)
-        + 18  # rechtes Padding
-    )
-    return max(184, w)
+def _mitte_y(font: ImageFont.FreeTypeFont, cy: float, probe: str = "LIVE0") -> int:
+    """Text-Oberkante, damit Grossbuchstaben/Ziffern vertikal mittig auf cy sitzen."""
+    top, bottom = font.getbbox(probe)[1], font.getbbox(probe)[3]
+    return round(cy - (top + bottom) / 2)
 
 
-def _chip_bel_w(
-    n: int,
-    limit: int,
-    ibm_s20: ImageFont.FreeTypeFont,
-) -> int:
-    """Breite des Belegungschips berechnen."""
-    bel_txt = f"{n} / ∞" if limit <= 0 else f"{n} / {limit}"
-    w = 16 + 20 + 16 + _text_w(bel_txt, ibm_s20, _dv(20), _TR_BEL) + 16
-    return max(134, w)
+# ── Formen-Ebene (Supersampling) ─────────────────────────────────────────────────
+class _Formen:
+    """
+    Formen auf einer SS-fach groesseren, transparenten Ebene zeichnen und geglaettet
+    auf die Karte legen. Koordinaten in Kartenpixeln.
+    """
+
+    def __init__(self, w: int, h: int) -> None:
+        self.img = Image.new("RGBA", (w * SS, h * SS), (0, 0, 0, 0))
+        self.d = ImageDraw.Draw(self.img)
+
+    @staticmethod
+    def _b(box) -> list[int]:
+        return [round(v * SS) for v in box]
+
+    def rect(self, box, fill) -> None:
+        self.d.rectangle(self._b(box), fill=fill)
+
+    def rrect(self, box, r: float, fill=None, outline=None, width: float = 0) -> None:
+        self.d.rounded_rectangle(self._b(box), radius=round(r * SS), fill=fill,
+                                 outline=outline, width=round(width * SS))
+
+    def kreis(self, cx: float, cy: float, r: float, fill=None, outline=None, width: float = 0) -> None:
+        self.d.ellipse(self._b([cx - r, cy - r, cx + r, cy + r]), fill=fill,
+                       outline=outline, width=round(width * SS))
+
+    def strichkreis(self, cx: float, cy: float, r: float, color, width: float = 3,
+                    dash: float = 14, gap: float = 9) -> None:
+        """Gestrichelter Kreis (freier Platz)."""
+        umfang = 2 * math.pi * r
+        n = max(1, int(umfang / (dash + gap)))
+        schritt = 360 / n
+        anteil = dash / (dash + gap)
+        for i in range(n):
+            a0 = i * schritt - 90
+            self.d.arc(self._b([cx - r, cy - r, cx + r, cy + r]), start=a0,
+                       end=a0 + schritt * anteil, fill=color, width=round(width * SS))
+
+    def auf(self, card: Image.Image) -> None:
+        """Verkleinert (mit vormultipliziertem Alpha, sonst dunkle Saeume) auflegen."""
+        klein = self.img.convert("RGBa").resize(card.size, Image.LANCZOS).convert("RGBA")
+        card.alpha_composite(klein)
 
 
-def _draw_status_chip(
-    d: ImageDraw.ImageDraw,
-    x: int,
-    privat: bool,
-    laufzeit_s: int,
-    chip_w: int,
-    ibm_s20: ImageFont.FreeTypeFont,
-) -> None:
-    """Status-Chip (PUBLIC/PRIVATE · LIVE …) zeichnen."""
-    y0, y1 = _CHIP_TOP, _CHIP_TOP + _CHIP_H
-    cy = (y0 + y1) // 2
-
-    # Hintergrund
-    d.rounded_rectangle([x, y0, x + chip_w, y1], radius=10, fill=C_CHIP_BG)
-    d.rounded_rectangle([x, y0, x + chip_w, y1], radius=10,
-                         outline=C_CHIP_BDR, width=2)
-
-    # LED
-    led_cx = x + 18 + 7
-    led_cy = cy
-    d.ellipse(
-        [led_cx - 7, led_cy - 7, led_cx + 7, led_cy + 7],
-        fill=(C_MAGENTA if privat else C_CYAN),
-    )
-    d.ellipse(
-        [led_cx - 9, led_cy - 9, led_cx + 9, led_cy + 9],
-        outline=C_LED_BDR,
-        width=3,
-    )
-
-    # Statustext
-    txt_x = x + 18 + 14 + 14
-    pub_txt = "PRIVATE" if privat else "PUBLIC"
-    pub_w = _draw_text_safe(d, txt_x, cy - 10, pub_txt, ibm_s20, ibm_s20, C_TEXT, _TR_STATUS)
-
-    # Trennlinie
-    div_x = txt_x + pub_w + 16
-    d.rectangle([div_x, cy - 14, div_x + 2, cy + 14], fill=C_DIV_LINE)
-
-    # LIVE-Zeit
-    time_txt = f"LIVE {_fmt_laufzeit(laufzeit_s)}"
-    _draw_text_safe(d, div_x + 2 + 16, cy - 10, time_txt, ibm_s20, ibm_s20, C_LIVE, _TR_ZEIT)
+# ── Chips ───────────────────────────────────────────────────────────────────────
+def _status_teile(privat: bool, laufzeit_s: int) -> tuple[str, str]:
+    return ("PRIVATE" if privat else "PUBLIC"), f"LIVE {_fmt_laufzeit(laufzeit_s)}"
 
 
-def _draw_bel_chip(
-    d: ImageDraw.ImageDraw,
-    x: int,
-    n: int,
-    limit: int,
-    chip_w: int,
-    ibm_s20: ImageFont.FreeTypeFont,
-) -> None:
-    """Belegungschip (Balken + n / limit) zeichnen."""
-    y0, y1 = _CHIP_TOP, _CHIP_TOP + _CHIP_H
-    cy = (y0 + y1) // 2
+def _bel_text(n: int, limit: int) -> str:
+    return f"{n} / ∞" if limit <= 0 else f"{n} / {limit}"
 
-    d.rounded_rectangle([x, y0, x + chip_w, y1], radius=10, fill=C_CHIP_BG)
-    d.rounded_rectangle([x, y0, x + chip_w, y1], radius=10,
-                         outline=C_CHIP_BDR2, width=2)
 
-    # Signalbalken (3 Stufen)
+def _chip_status_w(privat: bool, laufzeit_s: int, f: ImageFont.FreeTypeFont) -> int:
+    """Breite des Status-Chips: Rand 22 · LED 18 · 14 · Status · 18 | 18 · LIVE · Rand 22."""
+    pub, zeit = _status_teile(privat, laufzeit_s)
+    return (22 + 18 + 14 + _text_w(pub, f, track=_TR_STATUS) + 18 + 2 + 18
+            + _text_w(zeit, f, track=_TR_ZEIT) + 22)
+
+
+def _chip_bel_w(n: int, limit: int, f: ImageFont.FreeTypeFont, fb: ImageFont.FreeTypeFont) -> int:
+    """Breite des Belegungs-Chips: Rand 20 · Balken 28 · 16 · Text · Rand 20."""
+    return 20 + 28 + 16 + _text_w(_bel_text(n, limit), f, fb, _TR_BEL) + 20
+
+
+def _balken(n: int, limit: int) -> int:
+    """Gefuellte Signalbalken (0–3)."""
     if limit > 0:
-        ratio = n / limit
+        anteil = n / limit
     else:
-        # Bei unbegrenzt: 1 Balken ab 1, 2 ab 4, 3 ab 8
-        ratio = 0.0 if n == 0 else (0.34 if n < 4 else (0.67 if n < 8 else 1.0))
-    filled = 1 if ratio > 0 else 0
-    if ratio >= 0.34:
-        filled = 1
-    if ratio >= 0.67:
-        filled = 2
-    if ratio >= 1.0:
-        filled = 3
-
-    bar_bottom = cy + 13
-    bar_heights = [10, 18, 26]
-    bar_x = x + 16
-    for idx, bh in enumerate(bar_heights):
-        col = C_CYAN if idx < filled else C_SEG_INA
-        by_top = bar_bottom - bh
-        d.rectangle([bar_x, by_top, bar_x + 4, bar_bottom], fill=col)
-        bar_x += 8  # 4px bar + 4px gap
-
-    # Belegungstext rechtsbuendig
-    bel_txt = f"{n} / ∞" if limit <= 0 else f"{n} / {limit}"
-    dv20 = _dv(20)
-    bel_w = _text_w(bel_txt, ibm_s20, dv20, _TR_BEL)
-    _draw_text_safe(d, x + chip_w - 16 - bel_w, cy - 10, bel_txt, ibm_s20, dv20, C_WHITE, _TR_BEL)
-
-
-# ── Squad-Slot ───────────────────────────────────────────────────────────────────
-def _draw_slot(
-    img: Image.Image,
-    d: ImageDraw.ImageDraw,
-    cx: int,
-    row_top_y: int,
-    slot: KartenSlot | None,
-    col_w: int,
-    sg20: ImageFont.FreeTypeFont,
-    ibm19: ImageFont.FreeTypeFont,
-    ibm17: ImageFont.FreeTypeFont,
-    dv20: ImageFont.FreeTypeFont,
-    dv19: ImageFont.FreeTypeFont,
-    overflow_n: int = 0,
-) -> None:
-    """
-    Einzelnen Squad-Slot zeichnen.
-
-    slot=None → freier Platz.
-    overflow_n > 0 → Overflow-Kachel "+N weitere" (slot muss None sein).
-    """
-    av_top = row_top_y
-    av_cy = av_top + _AV_R
-
-    if slot is None and overflow_n <= 0:
-        # Freier Platz: gestrichelter Kreis, "+", "frei"/"BEREIT"
-        _draw_dashed_circle(d, cx, av_cy, _AV_R, C_AV_FREI_BDR, width=2)
-        d.ellipse(
-            [cx - _AV_R + 2, av_cy - _AV_R + 2, cx + _AV_R - 2, av_cy + _AV_R - 2],
-            fill=C_AV_FREI_BG,
-        )
-        # "+" mittig, 30 px wie .avatar-frei im Konzept
-        d.text((cx, av_cy), "+", font=_sg(30, 500), fill=C_AV_FREI_TXT, anchor="mm")
-        # "frei"
-        name_y = av_top + _AV_D + 14
-        fn_w = _text_w("frei", sg20, dv20)
-        _draw_text_safe(d, cx - fn_w // 2, name_y, "frei", sg20, dv20, C_FREI_NAME)
-        meta_y = name_y + 22 + 6
-        bw = _text_w("BEREIT", ibm19, dv19, _TR_BEREIT)
-        _draw_text_safe(d, cx - bw // 2, meta_y, "BEREIT", ibm19, dv19, C_FREI_META, _TR_BEREIT)
-        return
-
-    if slot is None and overflow_n > 0:
-        # Overflow-Kachel: dunkler Kreis + "+N weitere"
-        d.ellipse(
-            [cx - _AV_R, av_cy - _AV_R, cx + _AV_R, av_cy + _AV_R],
-            fill=C_AV_FREI_BG,
-        )
-        d.ellipse(
-            [cx - _AV_R, av_cy - _AV_R, cx + _AV_R, av_cy + _AV_R],
-            outline=C_AV_FREI_BDR,
-            width=2,
-        )
-        ov_txt = f"+{overflow_n}"
-        ov_w = round(ibm17.getlength(ov_txt))
-        d.text((cx - ov_w // 2, av_cy - 10), ov_txt, font=ibm17, fill=C_AV_FREI_TXT)
-        name_y = av_top + _AV_D + 14
-        wt = _text_w("weitere", sg20, dv20)
-        _draw_text_safe(d, cx - wt // 2, name_y, "weitere", sg20, dv20, C_FREI_NAME)
-        return
-
-    # Belegter Platz
-    bg_col = _av_bg_color(slot.name)
-    init_ch = slot.name[:1] if slot.name else "?"
-    av_img = _make_av_circle(slot.avatar, _AV_D, bg_col, init_ch)
-    av_x = cx - _AV_R
-    av_y = av_cy - _AV_R
-    img.paste(av_img, (av_x, av_y), av_img)
-
-    # Ring(e) auf dem Karten-Image zeichnen
-    if slot.owner:
-        # Innen: Cyan, Außen: Violett
-        d.ellipse(
-            [av_x - 3, av_y - 3, av_x + _AV_D + 3, av_y + _AV_D + 3],
-            outline=C_CYAN,
-            width=4,
-        )
-        d.ellipse(
-            [av_x - 10, av_y - 10, av_x + _AV_D + 10, av_y + _AV_D + 10],
-            outline=C_VIOLET,
-            width=4,
-        )
-    else:
-        d.ellipse(
-            [av_x - 2, av_y - 2, av_x + _AV_D + 2, av_y + _AV_D + 2],
-            outline=C_AV_RING,
-            width=2,
-        )
-
-    # Name (gekuerzt auf Spaltenbreite)
-    name_y = av_top + _AV_D + 14
-    raw_name = _truncate(slot.name, col_w - 4, sg20, dv20)
-    name_w = _text_w(raw_name, sg20, dv20)
-    _draw_text_safe(d, cx - name_w // 2, name_y, raw_name, sg20, dv20, C_TEXT)
-
-    # Verweildauer
-    meta_y = name_y + 22 + 6
-    meta_txt = _fmt_dur(slot.sekunden)
-    meta_w = _text_w(meta_txt, ibm19, dv19)
-    _draw_text_safe(d, cx - meta_w // 2, meta_y, meta_txt, ibm19, dv19, C_SLOT_META)
-
-    # Owner-Badge
-    if slot.owner:
-        badge_y = meta_y + 21 + 10
-        badge_w = 100
-        badge_h = 30
-        badge_x = cx - badge_w // 2
-        d.rounded_rectangle(
-            [badge_x, badge_y, badge_x + badge_w, badge_y + badge_h],
-            radius=6,
-            fill=C_OWN_BG,
-        )
-        d.rounded_rectangle(
-            [badge_x, badge_y, badge_x + badge_w, badge_y + badge_h],
-            radius=6,
-            outline=C_OWN_TXT,
-            width=2,
-        )
-        badge_txt = "OWNER"
-        ibm_badge = _ibm(19, semibold=True)
-        btw = _text_w(badge_txt, ibm_badge, track=_TR_OWNER)
-        _draw_text_safe(d, cx - btw // 2, badge_y + (badge_h - 19) // 2, badge_txt,
-                        ibm_badge, ibm_badge, C_OWN_TXT, _TR_OWNER)
+        # unbegrenzt: 1 Balken ab 1, 2 ab 4, 3 ab 8
+        anteil = 0.0 if n == 0 else (0.34 if n < 4 else (0.67 if n < 8 else 1.0))
+    if anteil >= 1.0:
+        return 3
+    if anteil >= 0.67:
+        return 2
+    return 1 if anteil > 0 else 0
 
 
 # ── Hauptfunktion ────────────────────────────────────────────────────────────────
@@ -617,101 +446,49 @@ def render_temp_voice_card(
     Temp-Voice-Kopfkarte rendern und als PNG-Bytes zurueckgeben.
 
     Args:
-        hub:         Hub-Bezeichnung (z.B. "GAMING"), wird uppercase verwendet.
+        hub:         Hub-Bezeichnung (z.B. "GAMING · OSTFRONT HQ"), wird uppercase verwendet.
         kanalname:   Name des temporaeren Kanals.
         privat:      True fuer PRIVATE-Kanal.
-        laufzeit_s:  Kanalaltein Sekunden (fuer LIVE-Chip).
+        laufzeit_s:  Kanalalter in Sekunden (fuer den LIVE-Chip).
         mitglieder:  Liste der aktuellen Kanalnutzer.
         limit:       Maximale Mitgliederzahl (0 = unbegrenzt).
 
     Returns:
-        PNG-Bytes, 928 px breit, unter 1,5 MB.
+        PNG-Bytes, 1200 px breit (560 bzw. 700 hoch), unter 1,5 MB.
     """
+    hub = _ohne_emoji(hub)
+    kanalname = _ohne_emoji(kanalname) or "Temp-Voice"
+    mitglieder = [KartenSlot(_ohne_emoji(m.name) or "?", m.sekunden, m.owner, m.avatar)
+                  for m in mitglieder]
     n = len(mitglieder)
-
-    # Hintergrund-Bild und Karten-Hoehe bestimmen
-    use_two_rows = (limit > 6) or (limit == 0 and n > 6)
-    if limit > 0:
-        use_two_rows = limit > 6
-    card_h = CARD_H2 if use_two_rows else CARD_H1
-    bg_path = _BG2 if use_two_rows else _BG1
+    zwei_reihen = limit > 6 if limit > 0 else n > 6
+    card_h = CARD_H2 if zwei_reihen else CARD_H1
+    reihe = _REIHE_2 if zwei_reihen else _REIHE_1
 
     try:
-        card = Image.open(bg_path).convert("RGB")
+        card = Image.open(_BG2 if zwei_reihen else _BG1).convert("RGBA")
         if card.size != (CARD_W, card_h):
             card = card.resize((CARD_W, card_h), Image.LANCZOS)
-        card = card.convert("RGBA")
     except Exception as e:
         logger.warning(f"Hintergrund laden fehlgeschlagen: {e}")
         card = Image.new("RGBA", (CARD_W, card_h), (9, 10, 20, 255))
 
-    d = ImageDraw.Draw(card)
+    f_hub    = _ibm(_FS_HUB, semibold=True)
+    f_chip   = _ibm(_FS_CHIP, semibold=True)
+    f_kanal  = _sg(_FS_KANAL, 700)
+    f_squad  = _ibm(_FS_SQUAD, semibold=True)
+    f_squad2 = _ibm(_FS_SQUAD)
+    f_name   = _sg(_FS_NAME, 600)
+    f_zeit   = _ibm(_FS_ZEIT)
+    f_badge  = _ibm(_FS_BADGE, semibold=True)
+    f_plus   = _sg(_FS_PLUS, 500)
+    f_bereit = _ibm(_FS_BEREIT)
+    f_ov     = _sg(_FS_OV, 700)
+    dv_gross = _dv(_FS_KANAL)
+    dv_name  = _dv(_FS_NAME)
+    dv_klein = _dv(_FS_CHIP)
 
-    # Fonts laden (Mindest-Schriftgroesse 19 px)
-    ibm_s20 = _ibm(20, semibold=True)
-    ibm_m19 = _ibm(19, semibold=False)
-    ibm_s19 = _ibm(19, semibold=True)
-    sg_700_56 = _sg(56, 700)
-    sg_600_20 = _sg(20, 600)
-    dv_20 = _dv(20)
-    dv_19 = _dv(19)
-
-    # ── Chip-Breiten berechnen (vor Hub-Label, um Kollision zu pruefen) ──────────
-    w_status = _chip_status_w(privat, laufzeit_s, ibm_s20)
-    w_bel    = _chip_bel_w(n, limit, ibm_s20)
-    chips_right = CARD_W - _PAD_R          # 892
-    bel_x    = chips_right - w_bel
-    stat_x   = bel_x - _CHIP_GAP - w_status
-    chips_left = stat_x                    # Linksbegrenzung fuer Kanalname
-
-    # ── Hub-Label (Marker + Text) ─────────────────────────────────────────────────
-    marker_x1 = _PAD_L
-    marker_x2 = marker_x1 + 34
-    marker_y  = _HUB_Y + 8
-    d.rectangle([marker_x1, marker_y, marker_x2, marker_y + 4], fill=C_CYAN)
-
-    hub_text  = hub.upper()
-    hub_max_w = chips_left - marker_x2 - 16 - 20
-    hub_text  = _truncate(hub_text, hub_max_w, ibm_s20, dv_20, _TR_HUB)
-    _draw_text_safe(d, marker_x2 + 16, _HUB_Y, hub_text, ibm_s20, dv_20, C_HUB_LBL, _TR_HUB)
-
-    # ── Kanalname ────────────────────────────────────────────────────────────────
-    kanal_max_w = chips_left - _PAD_L - 20
-    kanal_trunc = _truncate(kanalname, kanal_max_w, sg_700_56, dv_20, _TR_KANAL)
-    _draw_text_safe(d, _PAD_L - 2, _KANAL_Y, kanal_trunc, sg_700_56, dv_20, C_WHITE, _TR_KANAL)
-
-    # ── Kontext-Zeile ────────────────────────────────────────────────────────────
-    voll = limit > 0 and n >= limit
-    kontext_txt = "TEMP-VOICE · SQUAD VOLL" if voll else "TEMP-VOICE · SQUAD-BEREIT"
-    _draw_text_safe(d, _PAD_L + 2, _KONTEXT_Y, kontext_txt, ibm_m19, dv_19, C_KONTEXT, _TR_KONTEXT)
-
-    # ── Status-Chips ─────────────────────────────────────────────────────────────
-    _draw_status_chip(d, stat_x, privat, laufzeit_s, w_status, ibm_s20)
-    _draw_bel_chip(d, bel_x, n, limit, w_bel, ibm_s20)
-
-    # ── SQUAD-Kopf und Status ─────────────────────────────────────────────────────
-    _draw_text_safe(d, _PAD_L, _SQUAD_Y, "SQUAD", ibm_s19, dv_19, C_SQUAD_HDR, _TR_SQUAD)
-
-    if limit > 0:
-        frei = limit - n
-        if frei <= 0:
-            squad_st = "VOLL"
-        elif frei == 1:
-            squad_st = "1 PLATZ FREI"
-        else:
-            squad_st = f"{frei} PLÄTZE FREI"
-    else:
-        squad_st = "OFFEN"
-
-    st_w = _text_w(squad_st, ibm_m19, dv_19, _TR_SQUAD_ST)
-    _draw_text_safe(d, CARD_W - _PAD_R - 6 - st_w, _SQUAD_Y, squad_st,
-                    ibm_m19, dv_19, C_SQUAD_ST, _TR_SQUAD_ST)
-
-    # ── Trennlinie ───────────────────────────────────────────────────────────────
-    d.rectangle([_PAD_L, _TREN_Y, CARD_W - _PAD_R + 6, _TREN_Y + 2], fill=C_TREN)
-
-    # ── Slot-Liste aufbauen ──────────────────────────────────────────────────────
-    # Slot-Objekte (None = freier Platz, overflow_n > 0 = "+N weitere"-Kachel)
+    # ── Slots bestimmen (None = freier Platz) ───────────────────────────────────
     overflow_n = 0
     if limit <= 0 or limit > 12:
         if n > 12:
@@ -720,40 +497,129 @@ def render_temp_voice_card(
         else:
             slots = list(mitglieder)
     else:
-        clamp = max(1, min(12, limit))
-        slots = list(mitglieder[:clamp])
-        while len(slots) < clamp:
-            slots.append(None)
+        slots = list(mitglieder[:limit])
+        slots += [None] * (limit - len(slots))
 
-    # ── Spaltenbreite ─────────────────────────────────────────────────────────────
-    col_w = (_GRID_W - 5 * _COL_GAP) / 6   # ≈ 129.67
+    col_w = (_GRID_R - _GRID_L - (_COLS - 1) * _COL_GAP) / _COLS
+    av_d = reihe["av"]
+    av_r = av_d / 2
 
-    def _col_cx(col: int) -> int:
-        return round(_GRID_L + col * (col_w + _COL_GAP) + col_w / 2)
+    def _pos(idx: int) -> tuple[float, float]:
+        """Mittelpunkt des Avatars von Slot idx."""
+        col, row = idx % _COLS, idx // _COLS
+        cx = _GRID_L + col * (col_w + _COL_GAP) + col_w / 2
+        return cx, reihe["top"] + row * reihe["row_h"] + av_r
 
-    # ── Slots zeichnen ────────────────────────────────────────────────────────────
+    # ── Avatare (bereits geglaettet) ─────────────────────────────────────────────
     for idx, slot in enumerate(slots):
-        col  = idx % 6
-        row  = idx // 6
-        cx   = _col_cx(col)
-        row_top = _GRID_TOP + row * _ROW_H
-        ov   = overflow_n if (slot is None and idx == 11 and overflow_n > 0) else 0
-        _draw_slot(
-            card, d, cx, row_top, slot,
-            round(col_w),
-            sg_600_20, ibm_m19, ibm_s19, dv_20, dv_19,
-            overflow_n=ov,
-        )
+        if slot is None:
+            continue
+        cx, cy = _pos(idx)
+        bild = _make_av_circle(slot.avatar, av_d, _av_bg_color(slot.name), slot.name[:1] or "?")
+        card.alpha_composite(bild, (round(cx - av_r), round(cy - av_r)))
 
-    # ── PNG ausgeben ─────────────────────────────────────────────────────────────
+    # ── Chips: Breiten rechtsbuendig ─────────────────────────────────────────────
+    w_status = _chip_status_w(privat, laufzeit_s, f_chip)
+    w_bel = _chip_bel_w(n, limit, f_chip, dv_klein)
+    bel_x = CARD_W - _PAD_R - w_bel
+    stat_x = bel_x - _CHIP_GAP - w_status
+    chip_cy = _CHIP_TOP + _CHIP_H / 2
+
+    # ── Formen ───────────────────────────────────────────────────────────────────
+    fo = _Formen(CARD_W, card_h)
+    hub_cy = _HUB_Y + _FS_HUB * 0.42
+    fo.rrect([_PAD_L, hub_cy - 3, _PAD_L + _MARKER_W, hub_cy + 3], 3, fill=C_CYAN)
+
+    for x, w, rand in ((stat_x, w_status, C_CHIP_BDR), (bel_x, w_bel, C_CHIP_BDR2)):
+        fo.rrect([x, _CHIP_TOP, x + w, _CHIP_TOP + _CHIP_H], 14, fill=C_CHIP_BG,
+                 outline=rand, width=2)
+    led_cx = stat_x + 22 + 9
+    fo.kreis(led_cx, chip_cy, 8, fill=C_MAGENTA if privat else C_CYAN)
+    fo.kreis(led_cx, chip_cy, 11, outline=C_LED_BDR, width=3)
+    pub, zeit = _status_teile(privat, laufzeit_s)
+    div_x = stat_x + 22 + 18 + 14 + _text_w(pub, f_chip, track=_TR_STATUS) + 18
+    fo.rect([div_x, chip_cy - 18, div_x + 2, chip_cy + 18], fill=C_DIV_LINE)
+    gefuellt = _balken(n, limit)
+    bx = bel_x + 20
+    for i, hoehe in enumerate((12, 22, 32)):
+        fo.rrect([bx, chip_cy + 16 - hoehe, bx + 6, chip_cy + 16], 1.5,
+                 fill=C_CYAN if i < gefuellt else C_SEG_INA)
+        bx += 11
+
+    fo.rect([_PAD_L, _TREN_Y, CARD_W - _PAD_R, _TREN_Y + 2], fill=C_TREN)
+
+    for idx, slot in enumerate(slots):
+        cx, cy = _pos(idx)
+        if slot is None:
+            if idx == 11 and overflow_n > 0:
+                fo.kreis(cx, cy, av_r, fill=C_AV_FREI_BG, outline=C_AV_FREI_BDR, width=3)
+            else:
+                fo.kreis(cx, cy, av_r - 2, fill=C_AV_FREI_BG)
+                fo.strichkreis(cx, cy, av_r, C_AV_FREI_BDR, width=3)
+        elif slot.owner:
+            fo.kreis(cx, cy, av_r + 5, outline=C_CYAN, width=5)
+            fo.kreis(cx, cy, av_r + 13, outline=C_VIOLET, width=5)
+            bw = _text_w("OWNER", f_badge, track=_TR_OWNER) + 28
+            fo.rrect([cx - bw / 2, cy + av_r - 16, cx + bw / 2, cy + av_r + 16], 8,
+                     fill=C_OWN_BG, outline=C_OWN_TXT, width=2)
+        else:
+            fo.kreis(cx, cy, av_r + 3, outline=C_AV_RING, width=3)
+    fo.auf(card)
+
+    # ── Text ─────────────────────────────────────────────────────────────────────
+    d = ImageDraw.Draw(card)
+
+    def _mittig(text: str, cx: float, y: float, font, fb, fill, track: float = 0.0) -> None:
+        w = _text_w(text, font, fb, track)
+        _draw_text_safe(d, round(cx - w / 2), round(y), text, font, fb, fill, track)
+
+    hub_x = _PAD_L + _MARKER_W + 18
+    hub_text = _truncate(hub.upper(), stat_x - hub_x - 24, f_hub, dv_klein, _TR_HUB)
+    _draw_text_safe(d, hub_x, _mitte_y(f_hub, hub_cy), hub_text, f_hub, dv_klein,
+                    C_HUB_LBL, _TR_HUB)
+
+    chip_ty = _mitte_y(f_chip, chip_cy)
+    _draw_text_safe(d, stat_x + 22 + 18 + 14, chip_ty, pub, f_chip, f_chip, C_TEXT, _TR_STATUS)
+    _draw_text_safe(d, div_x + 2 + 18, chip_ty, zeit, f_chip, f_chip, C_LIVE, _TR_ZEIT)
+    bel = _bel_text(n, limit)
+    _draw_text_safe(d, bel_x + w_bel - 20 - _text_w(bel, f_chip, dv_klein, _TR_BEL), chip_ty,
+                    bel, f_chip, dv_klein, C_WHITE, _TR_BEL)
+
+    kanal = _truncate(kanalname, CARD_W - _PAD_L - _PAD_R, f_kanal, dv_gross, _TR_KANAL)
+    _draw_text_safe(d, _PAD_L - 3, _KANAL_Y, kanal, f_kanal, dv_gross, C_WHITE, _TR_KANAL)
+
+    _draw_text_safe(d, _PAD_L, _SQUAD_Y, "SQUAD", f_squad, dv_klein, C_SQUAD_HDR, _TR_SQUAD)
+    if limit > 0:
+        frei = limit - n
+        squad_st = "VOLL" if frei <= 0 else ("1 PLATZ FREI" if frei == 1 else f"{frei} PLÄTZE FREI")
+    else:
+        squad_st = "OFFEN"
+    st_w = _text_w(squad_st, f_squad2, dv_klein, _TR_SQUAD_ST)
+    _draw_text_safe(d, CARD_W - _PAD_R - st_w, _SQUAD_Y, squad_st, f_squad2, dv_klein,
+                    C_SQUAD_ST, _TR_SQUAD_ST)
+
+    name_abstand = 20 if zwei_reihen else 26
+    for idx, slot in enumerate(slots):
+        cx, cy = _pos(idx)
+        name_y = cy + av_r + name_abstand
+        zeit_y = name_y + _FS_NAME + (6 if zwei_reihen else 10)
+        if slot is None:
+            if idx == 11 and overflow_n > 0:
+                d.text((cx, cy), f"+{overflow_n}", font=f_ov, fill=C_FREI_NAME, anchor="mm")
+                _mittig("weitere", cx, name_y, f_name, dv_name, C_FREI_NAME)
+            else:
+                d.text((cx, cy), "+", font=f_plus, fill=C_AV_FREI_TXT, anchor="mm")
+                _mittig("frei", cx, name_y, f_name, dv_name, C_FREI_NAME)
+                _mittig("BEREIT", cx, zeit_y, f_bereit, f_bereit, C_FREI_META, _TR_BEREIT)
+            continue
+        if slot.owner:
+            _mittig("OWNER", cx, _mitte_y(f_badge, cy + av_r), f_badge, f_badge,
+                    C_OWN_TXT, _TR_OWNER)
+        name = _truncate(slot.name, col_w - 6, f_name, dv_name)
+        _mittig(name, cx, name_y, f_name, dv_name, C_TEXT)
+        _mittig(_fmt_dur(slot.sekunden), cx, zeit_y, f_zeit, f_zeit, C_SLOT_META)
+
     out = io.BytesIO()
-    card.convert("RGB").save(out, "PNG", optimize=True)
-    out.seek(0)
-    data = out.getvalue()
-    if len(data) > 1_500_000:
-        logger.warning(f"Karte zu gross: {len(data)} Bytes — comprime erneut")
-        out2 = io.BytesIO()
-        card.convert("RGB").save(out2, "PNG", optimize=True, compress_level=9)
-        out2.seek(0)
-        data = out2.getvalue()
-    return data
+    # optimize=True spart nur 4 %, kostet aber 1,2 s je Karte (gemessen 2026-10-20)
+    card.convert("RGB").save(out, "PNG", compress_level=6)
+    return out.getvalue()

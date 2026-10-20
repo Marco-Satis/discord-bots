@@ -35,8 +35,8 @@ from modules.temp_voice import TempVoiceManager, owner_overwrite
 from modules.temp_voice_views import (
     TempVoiceControlView,
     forget_channel,
-    panel_datei,
     refresh_panel,
+    send_panel,
 )
 from utils.logger import get_logger
 from utils.config import ADMIN_DATA_DIR
@@ -346,17 +346,10 @@ class TempVoiceCog(commands.Cog):
             channel: Der temporaere Voice-Channel
             owner: Der Channel-Owner
         """
-        datei = await panel_datei(channel, self.manager)
-        anhang = {"file": datei} if datei is not None else {}
-        try:
-            msg = await channel.send(
-                view=TempVoiceControlView(channel, self.manager, mit_karte=datei is not None),
-                **anhang,
-            )
-            # Panel-Message merken -> Karte kann bei Join/Leave aktualisiert werden
-            self.manager.set_panel_message(channel.id, msg.id)
-        except (discord.Forbidden, discord.HTTPException) as e:
-            logger.warning(f"Control-Panel senden fehlgeschlagen: {e}")
+        # send_panel merkt die Message (Karte wird bei Join/Leave aktualisiert)
+        # und faellt ohne Karte zurueck; fehlt es trotzdem, holt der Takt es nach.
+        if await send_panel(channel, self.manager) is None:
+            logger.error(f"Control-Panel fuer {channel.id} nicht gesendet, Takt versucht es erneut")
 
     # ==================================================================
     # Takt: Laufzeit und Verweildauer auf der Karte frisch halten
@@ -373,7 +366,7 @@ class TempVoiceCog(commands.Cog):
             if isinstance(channel, discord.VoiceChannel) and any(
                 not m.bot for m in channel.members
             ):
-                await refresh_panel(channel, self.manager)
+                await refresh_panel(channel, self.manager, heilen=True)
 
     @_panel_takt.before_loop
     async def _vor_panel_takt(self) -> None:
