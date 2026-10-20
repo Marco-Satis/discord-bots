@@ -93,6 +93,7 @@ INITIAL_COGS: list[str] = [
     "cogs.notify_cog",         # F40: Spieler-Benachrichtigungen
     "cogs.welcome_cog",        # F41: Willkommens-System
     "cogs.command_stats_cog",  # F59: Command-Nutzungsstatistik
+    "cogs.supporter_cog",      # HQ-Supporter nur fuer echte Booster (20.10.)
     # 2026-06-13: Pipeline-Approval ausgekoppelt -> eigener 24/7-Bot (bots/pipeline_bot.py).
     # NICHT mehr hier laden (Button-Interactions routen jetzt ueber die Pipeline-Bot-App).
     # "cogs.pipeline_approval_cog",  # -> bots/pipeline_bot.py
