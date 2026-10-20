@@ -171,6 +171,34 @@ def _normalize_hub(raw: Any) -> dict[str, Any] | None:
     }
 
 
+def owner_overwrite() -> discord.PermissionOverwrite:
+    """
+    Rechte des Kanal-Owners: sehen, verbinden, sprechen.
+
+    Verwaltet wird ueber das Panel (Marshal fuehrt aus). Rechte wie
+    manage_permissions, mute_members oder deafen_members darf ein Bot ohne
+    Administrator nicht in Overwrites vergeben (Discord: nur Rechte, die der
+    Bot selbst hat) — mit ihnen scheitert die Erstellung, sobald Marshal kein
+    Administrator mehr ist (docs/RECHTE_SOLL_2026-10-20.md).
+    """
+    return discord.PermissionOverwrite(view_channel=True, connect=True, speak=True)
+
+
+def bot_overwrite() -> discord.PermissionOverwrite:
+    """Rechte von Marshal im Temp-Channel: steuern und das Panel samt Bild posten."""
+    return discord.PermissionOverwrite(
+        view_channel=True,
+        connect=True,
+        speak=True,
+        manage_channels=True,
+        move_members=True,
+        send_messages=True,
+        embed_links=True,
+        attach_files=True,
+        read_message_history=True,
+    )
+
+
 def _basis_overwrites(
     guild: discord.Guild,
     category: discord.CategoryChannel | None,
@@ -417,33 +445,14 @@ class TempVoiceManager:
         channel_name = _render_channel_name(naming, member.display_name, count, game)
 
         # Berechtigungen: Vorlage aus Kategorie/Erstell-Kanal (sonst saehen Ungepruefte
-        # den Channel), Owner bekommt Manage-Rechte. Bei default_private sind alle
-        # Rollen ausgesperrt (Owner/Bot ausgenommen).
+        # den Channel). Bei default_private sind alle Rollen ausgesperrt (Owner/Bot
+        # ausgenommen). Owner und Bot ohne Rechte, die nur ein Administrator vergeben
+        # darf — siehe owner_overwrite().
         overwrites = _basis_overwrites(guild, category, hub_channel)
         if default_private:
             _rollen_aussperren(overwrites, guild)
-        overwrites[member] = discord.PermissionOverwrite(
-            connect=True,
-            speak=True,
-            view_channel=True,
-            manage_channels=True,
-            mute_members=True,
-            deafen_members=True,
-            move_members=True,
-            manage_permissions=True,
-        )
-        # Bot: Panel im Voice-Chat braucht Senden/Embeds/Verlauf
-        overwrites[guild.me] = discord.PermissionOverwrite(
-            connect=True,
-            speak=True,
-            view_channel=True,
-            manage_channels=True,
-            move_members=True,
-            manage_permissions=True,
-            send_messages=True,
-            embed_links=True,
-            read_message_history=True,
-        )
+        overwrites[member] = owner_overwrite()
+        overwrites[guild.me] = bot_overwrite()
 
         # Channel erstellen
         channel = await guild.create_voice_channel(
@@ -885,6 +894,31 @@ class TempVoiceManager:
         self.add_ban(channel.id, member.id)
         self.log_event(channel.id, member.id, "ban")
 
+    async def kick_user(
+        self, channel: discord.VoiceChannel, member: discord.Member
+    ) -> bool:
+        """User aus dem Channel trennen (darf wieder rein). True wenn getrennt."""
+        if not (member.voice and member.voice.channel
+                and member.voice.channel.id == channel.id):
+            return False
+        try:
+            await member.move_to(None, reason="Temp-Voice: Kick")
+        except discord.HTTPException as e:
+            logger.error(f"Kick fehlgeschlagen ({member.id}): {e}")
+            return False
+        self.log_event(channel.id, member.id, "kick")
+        return True
+
+    def get_created_at(self, channel_id: int) -> str | None:
+        """ISO-Zeitpunkt der Erstellung (fuer die LIVE-Laufzeit im Panel)."""
+        data = self._ch(channel_id)
+        return data.get("created_at") if data else None
+
+    def get_hub_id(self, channel_id: int) -> int | None:
+        """Erstell-Kanal, aus dem der Temp-Channel entstand (fuer das Hub-Label)."""
+        data = self._ch(channel_id)
+        return data.get("hub_id") if data else None
+
     async def unban_user(
         self, channel: discord.VoiceChannel, member: discord.Member
     ) -> bool:
@@ -904,14 +938,12 @@ class TempVoiceManager:
     async def claim(
         self, channel: discord.VoiceChannel, member: discord.Member
     ) -> bool:
-        """Channel uebernehmen (Owner weg): Ownership + Manage-Rechte an member."""
+        """Channel uebernehmen (Owner weg): Ownership + Owner-Rechte an member."""
         if not self.transfer_ownership(channel.id, member.id):
             return False
         try:
             await channel.set_permissions(
-                member, connect=True, manage_channels=True,
-                move_members=True, manage_permissions=True,
-                reason="Temp-Voice: Claim",
+                member, overwrite=owner_overwrite(), reason="Temp-Voice: Claim",
             )
         except discord.HTTPException as e:
             logger.error(f"Claim-Perms fehlgeschlagen ({member.id}): {e}")

@@ -1,30 +1,42 @@
 """
-Temp Voice Views — Phase 12a (F17)
+Temp Voice Views — Phase 12a (F17), Panel-Umbau 2026-10-20 (Design C3)
 Persistente Views und Modals für die Steuerung temporärer Voice-Channels.
 
-Enthält die interaktiven UI-Elemente, die dem Channel-Owner
-zur Verfügung stehen:
-  - Umbenennen (Modal mit Texteingabe)
-  - Limit setzen (Modal mit Zahleneingabe)
-  - Sperren/Entsperren (Toggle fuer @everyone connect)
-  - Ownership übertragen (User-Select-Menu)
+Das Kanal-Panel steht im Text-Chat des Temp-Channels: oben die Kopfkarte
+(Bild aus ``modules.temp_voice_card``: Kanalname, Status, LIVE-Laufzeit, Squad),
+darunter je Aktion eine Zeile mit Titel, Erklärung und Knopf.
+  - KANAL: RENAME, LIMIT, PRIVATE/PUBLIC
+  - CREW:  TRANSFER, KICK, BAN/UNBAN
+  - unten: Logs, Activision-IDs
 
-Alle Views verwenden feste custom_ids und sind persistent —
+Alle Knöpfe verwenden feste custom_ids und sind persistent —
 sie funktionieren auch nach einem Bot-Neustart.
 """
 
 from __future__ import annotations
 
 import asyncio
+import io
+import json
+import math
+import time
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 import discord
 
+from modules.temp_voice import owner_overwrite
+from utils.config import ADMIN_DATA_DIR
 from utils.logger import get_logger
 from utils.embeds import info_embed
-from utils.panels import action_row, hud_container
-from utils.ui_kit import subtext, truncate
+from utils.panels import action_row, hud_container, panel_row
+from utils.ui_kit import subtext
+
+try:
+    from modules.temp_voice_card import KartenSlot, render_temp_voice_card
+    KARTE_VERFUEGBAR = True
+except ImportError:  # Pillow fehlt -> Panel ohne Kopfkarte, nur Text
+    KARTE_VERFUEGBAR = False
 
 if TYPE_CHECKING:
     from modules.temp_voice import TempVoiceManager
@@ -39,6 +51,50 @@ MAX_MITGLIEDER_IM_PANEL = 25
 # an: ohne Sperre koennen sich zwei Edits ueberholen und die aeltere Momentaufnahme
 # gewinnt.
 _panel_locks: "dict[int, asyncio.Lock]" = {}
+
+# Kanaele mit eingeplantem Refresh: Treten fuenf Leute fast gleichzeitig bei,
+# entsteht ein Bild statt fuenf.
+_refresh_geplant: set[int] = set()
+REFRESH_SAMMELZEIT = 1.5
+
+# Akzentfarbe des Panels: Neon-Violett aus Design C3 (Server-Vorgabe 2026-10-20)
+PANEL_AKZENT = 0xB84DFF
+KARTEN_DATEI = "panel.png"
+
+# Discord erlaubt nur wenige Namenswechsel je Kanal (2 in 10 min); danach haengt
+# channel.edit bis zum Ablauf. Eigene Sperre davor, damit der Klick sofort
+# eine Antwort bekommt.
+RENAME_COOLDOWN_S = 300
+_letzter_rename: dict[int, float] = {}
+
+# Avatare fuer die Kopfkarte: je URL (enthaelt Hash + Groesse) einmal laden.
+_avatar_cache: dict[str, bytes] = {}
+_AVATAR_CACHE_MAX = 300
+
+# Icons der Knoepfe: eigene App-Emojis aus der Datei (z. B. "<:tv_rename:123>"),
+# sonst Unicode als Rueckfall.
+_EMOJI_DATEI = ADMIN_DATA_DIR / "temp_voice_emojis.json"
+_EMOJI_RUECKFALL = {
+    "rename": "✏️", "limit": "\U0001f465", "private": "\U0001f512",
+    "public": "\U0001f513", "transfer": "\U0001f91d", "kick": "\U0001f462",
+    "ban": "\U0001f6ab", "unban": "\U0001f464", "claim": "\U0001f451",
+    "logs": "\U0001f4ca", "accounts": "\U0001f3ae",
+}
+_emoji_cache: dict[str, str] | None = None
+
+
+def _emoji(name: str) -> discord.PartialEmoji | str:
+    """Icon eines Knopfs: eigenes App-Emoji, wenn eingetragen, sonst Unicode."""
+    global _emoji_cache
+    if _emoji_cache is None:
+        try:
+            _emoji_cache = json.loads(_EMOJI_DATEI.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            _emoji_cache = {}
+    eigen = _emoji_cache.get(name)
+    if isinstance(eigen, str) and eigen.startswith("<"):
+        return discord.PartialEmoji.from_str(eigen)
+    return _EMOJI_RUECKFALL.get(name, "•")
 
 
 # ======================================================================
@@ -68,86 +124,208 @@ def _darf_steuern(manager, channel, member) -> bool:
             or member.guild_permissions.manage_channels)
 
 
+def _sekunden_seit(iso_ts: str | None) -> int:
+    """Sekunden seit einem ISO-Zeitstempel (0 bei fehlendem/kaputtem Wert)."""
+    if not iso_ts:
+        return 0
+    try:
+        start = datetime.fromisoformat(iso_ts)
+    except ValueError:
+        return 0
+    return max(0, int((datetime.now(timezone.utc) - start).total_seconds()))
+
+
+def _kurzname(name: str) -> str:
+    """Kanalname ohne Server-Praefix: "〣│🎮・Kim" -> "Kim"."""
+    for trenner in ("・", "│"):
+        if trenner in name:
+            name = name.rsplit(trenner, 1)[1]
+    return name.strip() or name
+
+
+def _hub_label(channel: discord.VoiceChannel, manager: "TempVoiceManager") -> str:
+    """Label fuer die Karte: Hub "〣│➕・Gaming" auf "Ostfront HQ" -> "GAMING · OSTFRONT HQ"."""
+    hub_id = manager.get_hub_id(channel.id)
+    hub = channel.guild.get_channel(hub_id) if hub_id else None
+    label = _kurzname(hub.name).upper()[:20] if hub else ""
+    label = label or "TEMP-VOICE"
+    server = (channel.guild.name or "").upper()
+    # Kuerzen bei Platzmangel uebernimmt der Renderer
+    return f"{label} · {server}" if server else label
+
+
+async def _avatar_bytes(member: discord.Member) -> bytes | None:
+    """Avatar als PNG (128 px), gecacht je URL. None, wenn Discord ihn nicht liefert."""
+    asset = member.display_avatar.replace(size=128, format="png")
+    if asset.url in _avatar_cache:
+        return _avatar_cache[asset.url]
+    try:
+        daten = await asset.read()
+    except (discord.HTTPException, discord.NotFound) as e:
+        logger.debug(f"Avatar laden fehlgeschlagen ({member.id}): {e}")
+        return None
+    if len(_avatar_cache) >= _AVATAR_CACHE_MAX:
+        _avatar_cache.pop(next(iter(_avatar_cache)))
+    _avatar_cache[asset.url] = daten
+    return daten
+
+
+async def panel_datei(
+    channel: discord.VoiceChannel, manager: "TempVoiceManager"
+) -> discord.File | None:
+    """
+    Kopfkarte des Panels als PNG rendern (Pillow, im Thread).
+
+    None, wenn das nicht geht — das Panel kommt dann mit Text-Kopf statt Bild.
+    """
+    if not KARTE_VERFUEGBAR:
+        return None
+    owner_id = manager.get_owner(channel.id)
+    joined = manager.get_joined_at(channel.id)
+    mitglieder = [m for m in channel.members if not m.bot]
+    # Owner vorne, danach in Beitrittsreihenfolge
+    mitglieder.sort(key=lambda m: (m.id != owner_id, joined.get(str(m.id), "")))
+    sichtbar = mitglieder[:12]  # mehr zeigt die Karte nicht (11 + "+N")
+    avatare = await asyncio.gather(*(_avatar_bytes(m) for m in sichtbar))
+    slots = [
+        KartenSlot(name=m.display_name, sekunden=_sekunden_seit(joined.get(str(m.id))),
+                   owner=m.id == owner_id, avatar=a)
+        for m, a in zip(sichtbar, avatare)
+    ]
+    # Der Rest zaehlt nur fuer "+N weitere" — ohne Avatar-Download
+    slots += [KartenSlot(name=m.display_name, sekunden=0) for m in mitglieder[12:]]
+    try:
+        png = await asyncio.to_thread(
+            render_temp_voice_card,
+            hub=_hub_label(channel, manager),
+            kanalname=_kurzname(channel.name),
+            privat=manager.is_private(channel.id),
+            laufzeit_s=_sekunden_seit(manager.get_created_at(channel.id)),
+            mitglieder=slots,
+            limit=channel.user_limit or 0,
+        )
+    except Exception as e:  # noqa: BLE001 — die Karte ist Zierde, das Panel muss kommen
+        logger.warning(f"Panel-Karte rendern fehlgeschlagen ({channel.id}): {e}")
+        return None
+    return discord.File(io.BytesIO(png), filename=KARTEN_DATEI)
+
+
+def _textkopf(channel: discord.VoiceChannel, manager: "TempVoiceManager") -> str:
+    """Kopf ohne Bild (Rueckfall): Kanalname, Status und Mitgliederliste."""
+    owner_id = manager.get_owner(channel.id)
+    joined = manager.get_joined_at(channel.id)
+    mitglieder = [m for m in channel.members if not m.bot]
+    limit_text = str(channel.user_limit) if channel.user_limit else "∞"
+    status = "PRIVATE" if manager.is_private(channel.id) else "PUBLIC"
+    # escape_markdown: Anzeige- und Kanalnamen sind frei waehlbar, im TextDisplay
+    # wird Markdown gerendert. Deckel gegen das 4000-Zeichen-Limit.
+    sichtbar = mitglieder[:MAX_MITGLIEDER_IM_PANEL]
+    zeilen = [
+        f"## {discord.utils.escape_markdown(_kurzname(channel.name))}",
+        subtext(f"{status} · LIVE {_format_duration(manager.get_created_at(channel.id))} "
+                f"· {len(mitglieder)}/{limit_text}"),
+    ]
+    zeilen += [
+        f"{'👑' if m.id == owner_id else '›'} "
+        f"**{discord.utils.escape_markdown(m.display_name)}** "
+        f"{subtext(_format_duration(joined.get(str(m.id))))}"
+        for m in sichtbar
+    ]
+    if len(mitglieder) > len(sichtbar):
+        zeilen.append(subtext(f"… und {len(mitglieder) - len(sichtbar)} weitere"))
+    return "\n".join(zeilen)
+
+
 def build_channel_container(
     channel: discord.VoiceChannel,
     manager: "TempVoiceManager",
-    aktionen: "list[discord.ui.ActionRow] | None" = None,
+    knoepfe: "dict[str, discord.ui.Button]",
+    *,
+    mit_karte: bool = False,
 ) -> discord.ui.Container:
     """
-    Kanal-Panel im HUD-Stil: Kopf mit Belegung, Mitgliederliste, Status, Buttons.
+    Kanal-Panel (Design C3): Kopfkarte, dann je Aktion eine Zeile mit Knopf rechts.
 
     Args:
         channel: der temporäre Voice-Channel.
-        manager: Zustandsquelle (Owner, privat, Bans, Beitrittszeiten).
-        aktionen: Button-Zeilen, die unter die Liste gehören.
+        manager: Zustandsquelle (Owner, privat, Beitrittszeiten).
+        knoepfe: Knöpfe nach Aktion (rename, limit, private, public, transfer,
+            kick, ban, logs, accounts).
+        mit_karte: True, wenn die Nachricht ``panel.png`` als Anhang trägt.
     """
     owner_id = manager.get_owner(channel.id)
-    private = manager.is_private(channel.id)
-    banned = manager.get_banned(channel.id)
-    joined = manager.get_joined_at(channel.id)
-
-    mitglieder = [m for m in channel.members if not m.bot]
-    limit_text = str(channel.user_limit) if channel.user_limit else "∞"
-
-    kennzahlen = [(f"{len(mitglieder)}/{limit_text}", "Mitglieder")]
-    if banned:
-        kennzahlen.append((str(len(banned)), "gebannt"))
-
-    if mitglieder:
-        # escape_markdown: Anzeigename und Kanalname sind frei waehlbar. Im
-        # Embed-Titel war das folgenlos, im Components-V2-TextDisplay wird
-        # Markdown gerendert — ohne Escaping koennte ein Name eigene
-        # Ueberschriften oder Subtext-Zeilen ins Panel schreiben.
-        #
-        # Deckel: eine Components-V2-Nachricht fasst 4000 Zeichen. Ein voller
-        # Kanal (99 Leute) kaeme darueber, der Edit schluege fehl und das Panel
-        # bliebe stehen. Lieber sichtbar kuerzen.
-        sichtbar = mitglieder[:MAX_MITGLIEDER_IM_PANEL]
-        zeilen = [
-            f"{'👑' if m.id == owner_id else '›'} "
-            f"**{discord.utils.escape_markdown(m.display_name)}** "
-            f"{subtext(_format_duration(joined.get(str(m.id))))}"
-            for m in sichtbar
-        ]
-        if len(mitglieder) > len(sichtbar):
-            zeilen.append(subtext(f"… und {len(mitglieder) - len(sichtbar)} weitere"))
+    owner = channel.guild.get_member(owner_id) if owner_id else None
+    if mit_karte:
+        kopf: discord.ui.Item = discord.ui.MediaGallery(
+            discord.MediaGalleryItem(f"attachment://{KARTEN_DATEI}")
+        )
     else:
-        zeilen = ["-# Noch niemand hier."]
-    zeilen.append(subtext(
-        f"{'🔒 privat' if private else '🔓 öffentlich'} · Limit {limit_text} "
-        f"· {len(banned)} gebannt"
-    ))
-
-    return hud_container(
-        discord.utils.escape_markdown(truncate(channel.name, 60)).upper(),
-        state="warn" if private else "ok",
-        meta=kennzahlen,
-        bar=(len(mitglieder), channel.user_limit) if channel.user_limit else None,
-        rows=[discord.ui.TextDisplay("\n".join(zeilen))],
-        actions=aktionen,
-        footer_note="Steuerung über die Buttons — nur der Owner",
+        kopf = discord.ui.TextDisplay(_textkopf(channel, manager))
+    sichtbarkeit = (
+        panel_row("**PUBLIC**\n-# Wieder für alle Mitglieder sichtbar machen",
+                  knoepfe["public"])
+        if manager.is_private(channel.id) else
+        panel_row("**PRIVATE**\n-# Nur noch wer drin ist, sieht den Kanal",
+                  knoepfe["private"])
+    )
+    owner_name = discord.utils.escape_markdown(owner.display_name) if owner else "?"
+    return discord.ui.Container(
+        kopf,
+        discord.ui.TextDisplay("-# **KANAL**"),
+        panel_row("**RENAME**\n-# Gib deinem Kanal einen eigenen Namen", knoepfe["rename"]),
+        panel_row("**LIMIT**\n-# Wie viele Leute maximal rein dürfen", knoepfe["limit"]),
+        sichtbarkeit,
+        discord.ui.Separator(),
+        discord.ui.TextDisplay("-# **CREW**"),
+        panel_row("**TRANSFER**\n-# Die Owner-Rolle an jemanden im Kanal geben",
+                  knoepfe["transfer"]),
+        panel_row("**KICK**\n-# User rauswerfen, er kann wieder joinen", knoepfe["kick"]),
+        panel_row("**BAN / UNBAN**\n-# User für diesen Kanal bannen oder entbannen",
+                  knoepfe["ban"]),
+        discord.ui.Separator(),
+        action_row(knoepfe["logs"], knoepfe["accounts"]),
+        discord.ui.TextDisplay(
+            f"-# Owner: **{owner_name}** · Geht der Owner, übernimmt automatisch der Nächste."
+        ),
+        accent_colour=discord.Colour(PANEL_AKZENT),
     )
 
 
 def forget_channel(channel_id: int) -> None:
-    """Panel-Sperre eines geloeschten Kanals freigeben."""
+    """Panel-Sperre und Rename-Sperre eines geloeschten Kanals freigeben."""
     _panel_locks.pop(channel_id, None)
+    _letzter_rename.pop(channel_id, None)
 
 
 async def refresh_panel(
     channel: discord.VoiceChannel, manager: "TempVoiceManager"
 ) -> None:
-    """Das gespeicherte Kanal-Panel mit aktuellem Stand neu rendern (Edit)."""
+    """
+    Das gespeicherte Kanal-Panel mit aktuellem Stand neu rendern (Edit samt Bild).
+
+    Mehrere Anlaesse kurz hintereinander ergeben einen Edit: Der erste plant ihn
+    nach REFRESH_SAMMELZEIT ein, alle weiteren bis dahin steigen aus.
+    """
     pmid = manager.get_panel_message(channel.id)
-    if not pmid:
+    if not pmid or channel.id in _refresh_geplant:
         return
+    _refresh_geplant.add(channel.id)
+    try:
+        await asyncio.sleep(REFRESH_SAMMELZEIT)
+    finally:
+        # Vor dem Rendern freigeben: Was ab jetzt passiert, plant einen neuen Edit.
+        _refresh_geplant.discard(channel.id)
     sperre = _panel_locks.setdefault(channel.id, asyncio.Lock())
     try:
         async with sperre:
-            msg = channel.get_partial_message(pmid)
             # Innerhalb der Sperre bauen, nicht davor: sonst schickte der
             # zweite Aufrufer eine aeltere Momentaufnahme hinterher.
-            await msg.edit(view=TempVoiceControlView(channel, manager))
+            datei = await panel_datei(channel, manager)
+            msg = channel.get_partial_message(pmid)
+            await msg.edit(
+                view=TempVoiceControlView(channel, manager, mit_karte=datei is not None),
+                attachments=[datei] if datei is not None else [],
+            )
     except discord.HTTPException as e:
         # Deckt auch den Fall „altes Embed-Panel, laesst sich nicht auf V2
         # umstellen" ab. Kein Drama: der naechste Temp-Channel bekommt das neue
@@ -237,28 +415,31 @@ class RenameModal(discord.ui.Modal, title="Channel umbenennen"):
             )
             return
 
-        # Channel umbenennen
+        # Erst bestaetigen, dann umbenennen: channel.edit kann am Discord-Limit
+        # warten, und die Interaktion verfaellt nach 3 s ohne Antwort.
+        await interaction.response.defer(ephemeral=True)
         new_name = self.new_name.value.strip()
         try:
             await channel.edit(name=new_name)
-            manager.update_channel_name(channel.id, new_name)
-            await interaction.response.send_message(
-                f"Channel umbenannt zu "
-                f"**{discord.utils.escape_markdown(new_name)}**.",
-                ephemeral=True,
-            )
-            logger.info(
-                f"Temp-Voice umbenannt: {channel.id} -> '{new_name}' "
-                f"von {member.display_name}"
-            )
-            # Der Panel-Titel IST der Kanalname — ohne diesen Aufruf stuende
-            # dort bis zum naechsten Join/Leave der alte.
-            await refresh_panel(channel, manager)
         except (discord.Forbidden, discord.HTTPException) as e:
             logger.error(f"Channel umbenennen fehlgeschlagen: {e}")
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "Channel konnte nicht umbenannt werden.", ephemeral=True
             )
+            return
+        _letzter_rename[channel.id] = time.monotonic()
+        manager.update_channel_name(channel.id, new_name)
+        await interaction.followup.send(
+            f"Channel umbenannt zu **{discord.utils.escape_markdown(new_name)}**.",
+            ephemeral=True,
+        )
+        logger.info(
+            f"Temp-Voice umbenannt: {channel.id} -> '{new_name}' "
+            f"von {member.display_name}"
+        )
+        # Der Kartentitel IST der Kanalname — ohne diesen Aufruf stuende
+        # dort bis zum naechsten Join/Leave der alte.
+        await refresh_panel(channel, manager)
 
 
 class LimitModal(discord.ui.Modal, title="Userlimit setzen"):
@@ -415,28 +596,12 @@ class OwnerTransferSelect(discord.ui.UserSelect):
             )
             return
 
-        # Berechtigungen aktualisieren: alter Owner verliert Manage-Rechte,
-        # neuer Owner bekommt sie — BEVOR Ownership übertragen wird (Rollback-Sicherheit)
+        # Berechtigungen: beide behalten Sehen/Verbinden/Sprechen (auch wenn der
+        # Kanal privat ist) — die Steuerung haengt an der Ownership im Manager,
+        # nicht an Kanalrechten. BEVOR Ownership übertragen wird (Rollback-Sicherheit).
         try:
-            await channel.set_permissions(
-                member,
-                overwrite=discord.PermissionOverwrite(
-                    connect=True,
-                    speak=True,
-                ),
-            )
-            await channel.set_permissions(
-                target_member,
-                overwrite=discord.PermissionOverwrite(
-                    connect=True,
-                    speak=True,
-                    manage_channels=True,
-                    mute_members=True,
-                    deafen_members=True,
-                    move_members=True,
-                    manage_permissions=True,
-                ),
-            )
+            await channel.set_permissions(member, overwrite=owner_overwrite())
+            await channel.set_permissions(target_member, overwrite=owner_overwrite())
         except (discord.Forbidden, discord.HTTPException) as e:
             logger.warning(f"Berechtigungen beim Transfer aktualisieren fehlgeschlagen: {e}")
             await interaction.response.send_message(
@@ -449,13 +614,16 @@ class OwnerTransferSelect(discord.ui.UserSelect):
         manager.transfer_ownership(channel.id, selected_user.id)
 
         await interaction.response.send_message(
-            f"Ownership an **{target_member.display_name}** übertragen.",
+            f"Ownership an **{discord.utils.escape_markdown(target_member.display_name)}** "
+            f"übertragen.",
             ephemeral=True,
         )
         logger.info(
             f"Temp-Voice Ownership transferiert: {channel.id} "
             f"von {member.display_name} an {target_member.display_name}"
         )
+        # Krone auf der Karte und Owner-Zeile im Panel wandern mit
+        await refresh_panel(channel, manager)
 
 
 class OwnerTransferView(discord.ui.View):
@@ -484,8 +652,9 @@ class AktionsButton(discord.ui.Button):
     die Auflösung nach oben wäre eine Annahme über interne Struktur.
     """
 
-    def __init__(self, handler, *, label: str, custom_id: str, emoji: str,
-                 style: discord.ButtonStyle) -> None:
+    def __init__(self, handler, *, custom_id: str, emoji: "discord.PartialEmoji | str",
+                 style: discord.ButtonStyle = discord.ButtonStyle.secondary,
+                 label: str | None = None) -> None:
         super().__init__(label=label, custom_id=custom_id, emoji=emoji, style=style)
         self._handler = handler
 
@@ -512,45 +681,59 @@ class TempVoiceControlView(discord.ui.LayoutView):
         self,
         channel: discord.VoiceChannel | None = None,
         manager: "TempVoiceManager | None" = None,
+        *,
+        mit_karte: bool = False,
     ) -> None:
         # timeout=None fuer persistente Views (kein Ablauf)
         super().__init__(timeout=None)
-        aktionen = self._aktionszeilen()
-        self.add_item(
-            build_channel_container(channel, manager, aktionen)
-            if channel is not None and manager is not None
-            else build_interface_container(aktionen)
-        )
+        if channel is not None and manager is not None:
+            self.add_item(
+                build_channel_container(channel, manager, self._knoepfe(), mit_karte=mit_karte)
+            )
+        else:
+            # Registrierung beim Start + statisches Interface-Panel: alle
+            # custom_ids, auch die, die nur noch in alten Panels stehen
+            # (unban, claim) — sonst sterben deren Knoepfe nach dem Deploy.
+            self.add_item(build_interface_container(self._aktionszeilen()))
+
+    def _knoepfe(self) -> "dict[str, discord.ui.Button]":
+        """Knöpfe des Kanal-Panels: Zeilen nur mit Icon, unten mit Beschriftung."""
+        def knopf(name: str, handler, label: str | None = None) -> AktionsButton:
+            return AktionsButton(handler, custom_id=f"temp_voice:{name}",
+                                 emoji=_emoji(name), label=label)
+
+        return {
+            "rename": knopf("rename", self.rename_button),
+            "limit": knopf("limit", self.limit_button),
+            "private": knopf("private", self.private_button),
+            "public": knopf("public", self.public_button),
+            "transfer": knopf("transfer", self.transfer_button),
+            "kick": knopf("kick", self.kick_button),
+            "ban": knopf("ban", self.ban_button),
+            "logs": knopf("logs", self.logs_button, "Logs"),
+            "accounts": knopf("accounts", self.accounts_button, "Activision-IDs"),
+        }
 
     def _aktionszeilen(self) -> list[discord.ui.ActionRow]:
-        """Die drei Button-Zeilen; jede Zeile fasst zusammengehörige Aktionen."""
+        """Alle Knöpfe in Zeilen zu höchstens fünf (Registrierung/Interface-Panel)."""
         aufteilung = (
-            (("Umbenennen", "temp_voice:rename", "✏️",
-              discord.ButtonStyle.primary, self.rename_button),
-             ("Limit setzen", "temp_voice:limit", "\U0001f465",
-              discord.ButtonStyle.primary, self.limit_button),
-             ("Privat", "temp_voice:private", "\U0001f512",
-              discord.ButtonStyle.secondary, self.private_button),
-             ("Öffentlich", "temp_voice:public", "\U0001f513",
-              discord.ButtonStyle.secondary, self.public_button)),
-            (("Owner übertragen", "temp_voice:transfer", "\U0001f91d",
-              discord.ButtonStyle.danger, self.transfer_button),
-             ("Bannen", "temp_voice:ban", "\U0001f6ab",
-              discord.ButtonStyle.danger, self.ban_button),
-             ("Entbannen", "temp_voice:unban", "\U0001f464",
-              discord.ButtonStyle.secondary, self.unban_button),
-             ("Übernehmen", "temp_voice:claim", "\U0001f451",
-              discord.ButtonStyle.success, self.claim_button)),
-            (("Logs", "temp_voice:logs", "\U0001f4ca",
-              discord.ButtonStyle.secondary, self.logs_button),
-             ("Accounts", "temp_voice:accounts", "\U0001f3ae",
-              discord.ButtonStyle.secondary, self.accounts_button)),
+            (("Rename", "rename", self.rename_button),
+             ("Limit", "limit", self.limit_button),
+             ("Private", "private", self.private_button),
+             ("Public", "public", self.public_button),
+             ("Transfer", "transfer", self.transfer_button)),
+            (("Kick", "kick", self.kick_button),
+             ("Ban", "ban", self.ban_button),
+             ("Unban", "unban", self.unban_button),
+             ("Claim", "claim", self.claim_button),
+             ("Logs", "logs", self.logs_button)),
+            (("Activision-IDs", "accounts", self.accounts_button),),
         )
         return [
             action_row(*(
-                AktionsButton(handler, label=label, custom_id=cid,
-                              emoji=emoji, style=style)
-                for label, cid, emoji, style, handler in zeile
+                AktionsButton(handler, label=label, custom_id=f"temp_voice:{name}",
+                              emoji=_emoji(name))
+                for label, name, handler in zeile
             ))
             for zeile in aufteilung
         ]
@@ -638,6 +821,16 @@ class TempVoiceControlView(discord.ui.LayoutView):
         # Vorprüfung: Ist der User Owner?
         result = await self._check_owner(interaction)
         if result is None:
+            return
+        _member, channel, _manager = result
+
+        rest = RENAME_COOLDOWN_S - (time.monotonic() - _letzter_rename.get(channel.id, -1e9))
+        if rest > 0:
+            await interaction.response.send_message(
+                f"RENAME geht wieder in {math.ceil(rest / 60)} min — "
+                "Discord erlaubt nur wenige Namenswechsel pro Kanal.",
+                ephemeral=True,
+            )
             return
 
         modal = RenameModal()
@@ -728,13 +921,40 @@ class TempVoiceControlView(discord.ui.LayoutView):
     # Button: Bannen (User trennen + connect-deny)
     # ------------------------------------------------------------------
 
-    async def ban_button(self, interaction: discord.Interaction) -> None:
-        """Button-Handler: User-Select zum Bannen anzeigen."""
+    async def kick_button(self, interaction: discord.Interaction) -> None:
+        """Button-Handler: Auswahl der Leute im Kanal zum Kicken anzeigen."""
         result = await self._check_owner(interaction)
         if result is None:
             return
+        member, channel, manager = result
+
+        kandidaten = _crew_ziele(channel, manager, member)
+        if not kandidaten:
+            await interaction.response.send_message(
+                "Hier ist niemand, den du kicken kannst.", ephemeral=True
+            )
+            return
         await interaction.response.send_message(
-            "Wähle den zu bannenden User:", view=BanUserView(), ephemeral=True,
+            "Wen willst du kicken? Er kann danach wieder joinen.",
+            view=KickView(kandidaten), ephemeral=True,
+        )
+
+    # ------------------------------------------------------------------
+    # Button: Ban / Unban (ein Dialog fuer beides)
+    # ------------------------------------------------------------------
+
+    async def ban_button(self, interaction: discord.Interaction) -> None:
+        """Button-Handler: Ban-Auswahl, darunter die Unban-Liste, falls jemand gebannt ist."""
+        result = await self._check_owner(interaction)
+        if result is None:
+            return
+        _member, channel, manager = result
+        banned = manager.get_banned(channel.id)
+        text = "**Ban:** User auswählen."
+        if banned:
+            text += "\n**Unban:** unten aus der Liste wählen."
+        await interaction.response.send_message(
+            text, view=BanUserView(channel, banned), ephemeral=True,
         )
 
     # ------------------------------------------------------------------
@@ -816,7 +1036,7 @@ class TempVoiceControlView(discord.ui.LayoutView):
 
         emoji_map = {
             "join": "➡️", "leave": "⬅️", "ban": "\U0001f6ab",
-            "unban": "\U0001f464", "claim": "\U0001f451",
+            "unban": "\U0001f464", "claim": "\U0001f451", "kick": "\U0001f462",
             "private": "\U0001f512", "public": "\U0001f513",
         }
         lines = []
@@ -837,37 +1057,34 @@ class TempVoiceControlView(discord.ui.LayoutView):
         )
 
     async def accounts_button(self, interaction: discord.Interaction) -> None:
-        """Zeigt dem Klickenden seine verlinkten Spiel-Accounts (ephemeral)."""
-        from modules.linked_accounts import (
-            LinkedAccountsManager, platform_display,
-        )
+        """
+        Activision-IDs aller Leute im Kanal (Vorbild voicepanel) — nur für den
+        Klickenden sichtbar und nur, wenn er selbst in diesem Temp-Channel ist.
+        """
+        from modules.linked_accounts import LinkedAccountsManager
 
-        if interaction.guild is None:
-            await interaction.response.send_message(
-                "Nur auf einem Server nutzbar.", ephemeral=True
-            )
+        result = await self._check_in_temp(interaction)
+        if result is None:
             return
+        _member, channel, _manager = result
+        await interaction.response.defer(ephemeral=True, thinking=True)
 
-        links = await LinkedAccountsManager.get_links(
-            interaction.guild.id, interaction.user.id
-        )
-        if not links:
-            await interaction.response.send_message(
-                "Du hast keine verlinkten Accounts. Nutze `/link <plattform> <id>`.",
-                ephemeral=True,
-            )
-            return
-
+        leute = [m for m in channel.members if not m.bot][:MAX_MITGLIEDER_IM_PANEL]
+        links = await asyncio.gather(*(
+            LinkedAccountsManager.get_link(channel.guild.id, m.id, "activision")
+            for m in leute
+        ))
+        zeilen = [
+            f"**{discord.utils.escape_markdown(m.display_name)}** · "
+            + (f"`{discord.utils.escape_markdown(str(link))}`" if link else "-# nicht verlinkt")
+            for m, link in zip(leute, links)
+        ]
         embed = info_embed(
-            title="\U0001f3ae Deine verlinkten Accounts",
+            title="\U0001f3ae Activision-IDs im Kanal",
+            description="\n".join(zeilen) or "Niemand im Kanal.",
         )
-        for platform, account_id in links.items():
-            embed.add_field(
-                name=platform_display(platform),
-                value=discord.utils.escape_markdown(str(account_id)),
-                inline=True,
-            )
-        await interaction.response.send_message(
+        embed.set_footer(text="Eigene ID verlinken: /link activision <ID>")
+        await interaction.followup.send(
             embed=embed, ephemeral=True,
             allowed_mentions=discord.AllowedMentions.none(),
         )
@@ -901,12 +1118,76 @@ def _resolve_owner_action(
     return member, channel, manager
 
 
+def _geschuetzt(member: discord.Member) -> bool:
+    """Bots und Team (darf Kanäle verwalten) lassen sich nicht kicken oder bannen."""
+    return member.bot or member.guild_permissions.manage_channels
+
+
+def _crew_ziele(
+    channel: discord.VoiceChannel, manager: "TempVoiceManager", wer: discord.Member
+) -> list[discord.Member]:
+    """Leute im Kanal, die der Owner kicken darf (nicht er selbst, kein Team, keine Bots)."""
+    owner_id = manager.get_owner(channel.id)
+    return [
+        m for m in channel.members
+        if m.id not in (wer.id, owner_id) and not _geschuetzt(m)
+    ][:25]  # Discord-Limit 25 Optionen
+
+
+class KickSelect(discord.ui.Select):
+    """Auswahl der Leute im Kanal zum Kicken (nur trennen, kein Ban)."""
+
+    def __init__(self, kandidaten: list[discord.Member]) -> None:
+        super().__init__(
+            placeholder="User auswählen...",
+            min_values=1, max_values=1,
+            options=[discord.SelectOption(label=m.display_name[:100], value=str(m.id))
+                     for m in kandidaten],
+        )
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        ctx = _resolve_owner_action(interaction)
+        if ctx is None:
+            await interaction.response.send_message(
+                "Nur der Owner kann kicken (oder du bist in keinem Temp-Channel).",
+                ephemeral=True,
+            )
+            return
+        _member, channel, manager = ctx
+
+        target = channel.guild.get_member(int(self.values[0]))
+        if target is None or _geschuetzt(target):
+            await interaction.response.send_message(
+                "Diesen User kannst du nicht kicken.", ephemeral=True
+            )
+            return
+        if not await manager.kick_user(channel, target):
+            await interaction.response.send_message(
+                "Der User ist nicht mehr im Kanal.", ephemeral=True
+            )
+            return
+        await interaction.response.send_message(
+            f"**{discord.utils.escape_markdown(target.display_name)}** wurde gekickt.",
+            ephemeral=True,
+        )
+        logger.info(f"Temp-Voice Kick: {channel.id} -> {target.id}")
+        # Das Leave-Event zieht das Panel nach.
+
+
+class KickView(discord.ui.View):
+    """Temporäre View mit der Kick-Auswahl (60s Timeout)."""
+
+    def __init__(self, kandidaten: list[discord.Member]) -> None:
+        super().__init__(timeout=60)
+        self.add_item(KickSelect(kandidaten))
+
+
 class BanUserSelect(discord.ui.UserSelect):
     """User-Select zum Bannen eines Users aus dem Temp-Channel."""
 
     def __init__(self) -> None:
         super().__init__(
-            placeholder="Zu bannenden User auswählen...",
+            placeholder="Ban: User auswählen...",
             min_values=1, max_values=1,
         )
 
@@ -937,10 +1218,16 @@ class BanUserSelect(discord.ui.UserSelect):
                 "User nicht auf dem Server gefunden.", ephemeral=True
             )
             return
+        if _geschuetzt(target_member):
+            await interaction.response.send_message(
+                "Bots und Team-Mitglieder lassen sich nicht bannen.", ephemeral=True
+            )
+            return
 
         await manager.ban_user(channel, target_member)
         await interaction.response.send_message(
-            f"**{target_member.display_name}** wurde gebannt und getrennt.",
+            f"**{discord.utils.escape_markdown(target_member.display_name)}** "
+            f"wurde gebannt und getrennt.",
             ephemeral=True,
         )
         logger.info(f"Temp-Voice Ban: {channel.id} -> {target_member.id}")
@@ -948,11 +1235,17 @@ class BanUserSelect(discord.ui.UserSelect):
 
 
 class BanUserView(discord.ui.View):
-    """Temporäre View mit dem Ban-User-Select (60s Timeout)."""
+    """Temporäre View: Ban-Auswahl, darunter die Unban-Liste, wenn jemand gebannt ist (60s)."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        channel: discord.VoiceChannel | None = None,
+        banned_ids: list[int] | None = None,
+    ) -> None:
         super().__init__(timeout=60)
         self.add_item(BanUserSelect())
+        if channel is not None and banned_ids:
+            self.add_item(UnbanSelect(channel, banned_ids))
 
 
 class UnbanSelect(discord.ui.Select):
@@ -967,7 +1260,7 @@ class UnbanSelect(discord.ui.Select):
             label = (m.display_name if m else f"User {uid}")[:100]
             options.append(discord.SelectOption(label=label, value=str(uid)))
         super().__init__(
-            placeholder="Zu entbannenden User auswählen...",
+            placeholder="Unban: User auswählen...",
             min_values=1, max_values=1, options=options,
         )
 

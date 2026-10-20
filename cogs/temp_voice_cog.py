@@ -29,12 +29,13 @@ from typing import Optional
 
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 
-from modules.temp_voice import TempVoiceManager
+from modules.temp_voice import TempVoiceManager, owner_overwrite
 from modules.temp_voice_views import (
     TempVoiceControlView,
     forget_channel,
+    panel_datei,
     refresh_panel,
 )
 from utils.logger import get_logger
@@ -50,6 +51,9 @@ logger = get_logger("cogs.temp_voice")
 
 # Verzoegerung in Sekunden bevor ein leerer Temp-Channel gelöscht wird
 EMPTY_CHANNEL_DELETE_DELAY = 3
+
+# Kopfkarte alle n Minuten neu zeichnen, solange jemand im Kanal ist
+PANEL_TAKT_MINUTEN = 5
 
 # S2 (docs/UMBAU_PLAN_2026-10-19.md): Einrichten bis zum Temp-Voice-Umbau (Phase 6)
 # gesperrt. /tempvoice setup und hubadd schalten Temp-Voice sonst am Dashboard vorbei
@@ -94,6 +98,11 @@ class TempVoiceCog(commands.Cog):
         # cog_load nicht blockiert + GC den Task nicht einsammelt; track_task
         # loggt unbehandelte Exceptions selbst).
         track_task(self._startup_cleanup(), name="tempvoice-startup-cleanup")
+        self._panel_takt.start()
+
+    async def cog_unload(self) -> None:
+        """Takt beim Entladen stoppen (Reload ohne Doppel-Loop)."""
+        self._panel_takt.cancel()
 
     # ==================================================================
     # Startup-Cleanup: Verwaiste leere Channels entfernen
@@ -337,12 +346,38 @@ class TempVoiceCog(commands.Cog):
             channel: Der temporaere Voice-Channel
             owner: Der Channel-Owner
         """
+        datei = await panel_datei(channel, self.manager)
+        anhang = {"file": datei} if datei is not None else {}
         try:
-            msg = await channel.send(view=TempVoiceControlView(channel, self.manager))
-            # Panel-Message merken -> Slot-Liste kann bei Join/Leave aktualisiert werden
+            msg = await channel.send(
+                view=TempVoiceControlView(channel, self.manager, mit_karte=datei is not None),
+                **anhang,
+            )
+            # Panel-Message merken -> Karte kann bei Join/Leave aktualisiert werden
             self.manager.set_panel_message(channel.id, msg.id)
         except (discord.Forbidden, discord.HTTPException) as e:
             logger.warning(f"Control-Panel senden fehlgeschlagen: {e}")
+
+    # ==================================================================
+    # Takt: Laufzeit und Verweildauer auf der Karte frisch halten
+    # ==================================================================
+
+    @tasks.loop(minutes=PANEL_TAKT_MINUTEN)
+    async def _panel_takt(self) -> None:
+        """Panels belegter Temp-Channels neu zeichnen (LIVE-Zeit und Dauer laufen sonst nicht)."""
+        for cid in list(self.manager.get_all_channels()):
+            try:
+                channel = self.bot.get_channel(int(cid))
+            except (TypeError, ValueError):
+                continue
+            if isinstance(channel, discord.VoiceChannel) and any(
+                not m.bot for m in channel.members
+            ):
+                await refresh_panel(channel, self.manager)
+
+    @_panel_takt.before_loop
+    async def _vor_panel_takt(self) -> None:
+        await self.bot.wait_until_ready()
 
     async def _handle_channel_leave(
         self,
@@ -391,19 +426,8 @@ class TempVoiceCog(commands.Cog):
                     member,
                     overwrite=None,  # Individuelle Ueberschreibung entfernen
                 )
-                # Neuer Owner: Volle Kontrolle
-                await channel.set_permissions(
-                    new_owner,
-                    overwrite=discord.PermissionOverwrite(
-                        connect=True,
-                        speak=True,
-                        manage_channels=True,
-                        mute_members=True,
-                        deafen_members=True,
-                        move_members=True,
-                        manage_permissions=True,
-                    ),
-                )
+                # Neuer Owner: Owner-Rechte (gesteuert wird ueber das Panel)
+                await channel.set_permissions(new_owner, overwrite=owner_overwrite())
             except (discord.Forbidden, discord.HTTPException) as e:
                 logger.warning(
                     f"Berechtigungen beim Owner-Transfer aktualisieren fehlgeschlagen: {e}"
