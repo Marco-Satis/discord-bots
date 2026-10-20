@@ -310,7 +310,9 @@ def baue_karten(q: dict) -> list[dict]:
     letztes_text = (f" Letzte Sicherung: {datetime.fromtimestamp(letztes).strftime('%d.%m. %H:%M')}."
                     if letztes else " Noch keine Sicherung vorhanden.")
     if auto.get("enabled"):
-        status, info = "aktiv", f"Automatisch alle {auto.get('interval_days', 7)} Tage." + letztes_text
+        tage = int(auto.get("interval_days", 7) or 7)
+        takt = "jeden Tag" if tage == 1 else f"alle {tage} Tage"
+        status, info = "aktiv", f"Automatisch {takt}." + letztes_text
     else:
         status, info = "aus", "Nur manuell per /backup." + letztes_text
     karten.append(_karte(
