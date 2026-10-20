@@ -580,21 +580,20 @@ class LimitModal(discord.ui.Modal, title="Userlimit setzen"):
 # Owner-Transfer Select — User-Auswahl
 # ======================================================================
 
-class OwnerTransferSelect(discord.ui.UserSelect):
+class OwnerTransferSelect(discord.ui.Select):
     """
-    User-Select-Menu zum Übertragen der Channel-Ownership.
+    Zeigt ausschliesslich Menschen aus dem Voice-Channel dieses Dialogs.
 
-    Zeigt eine Benutzerauswahl an. Der ausgewählte User muss
-    sich im selben Voice-Channel befinden.
+    Beim Bestaetigen werden Kanal und Anwesenheit erneut geprueft.
     """
 
-    def __init__(self) -> None:
-        # Kein fester custom_id — jede Instanz bekommt eine einzigartige ID
-        # damit mehrere gleichzeitige Transfer-Dialoge sich nicht gegenseitig stören
+    def __init__(self, channel: discord.VoiceChannel, kandidaten: list[discord.Member]) -> None:
+        self.channel_id = channel.id
         super().__init__(
-            placeholder="Neuen Owner auswählen...",
-            min_values=1,
-            max_values=1,
+            placeholder="Transfer: Mitglied aus diesem Talk...",
+            min_values=1, max_values=1,
+            options=[discord.SelectOption(label=m.display_name[:100], value=str(m.id))
+                     for m in kandidaten[:25]],
         )
 
     async def callback(self, interaction: discord.Interaction) -> None:
@@ -630,17 +629,27 @@ class OwnerTransferSelect(discord.ui.UserSelect):
             )
             return
 
+        if channel.id != self.channel_id:
+            await interaction.response.send_message(
+                "Der Dialog gehoert zu einem anderen Talk. Bitte neu oeffnen.", ephemeral=True
+            )
+            return
+
         # Ausgewählten User prüfen
-        selected_user = self.values[0]
-        if selected_user.id == member.id:
+        selected_id = int(self.values[0])
+        if str(selected_id) not in {option.value for option in self.options}:
+            await interaction.response.send_message("Bitte die Auswahl neu oeffnen.", ephemeral=True)
+            return
+        if selected_id == member.id:
             await interaction.response.send_message(
                 "Du bist bereits der Owner.", ephemeral=True
             )
             return
 
         # Prüfen ob der ausgewählte User im Channel ist
-        target_member = channel.guild.get_member(selected_user.id)
-        if not target_member or not target_member.voice or target_member.voice.channel != channel:
+        target_member = channel.guild.get_member(selected_id)
+        if (not target_member or target_member.bot or not target_member.voice
+                or not target_member.voice.channel or target_member.voice.channel.id != channel.id):
             await interaction.response.send_message(
                 "Der ausgewählte User muss sich im selben Voice-Channel befinden.",
                 ephemeral=True,
@@ -662,7 +671,7 @@ class OwnerTransferSelect(discord.ui.UserSelect):
             return
 
         # Ownership übertragen (erst nach erfolgreichen Permissions)
-        manager.transfer_ownership(channel.id, selected_user.id)
+        manager.transfer_ownership(channel.id, selected_id)
 
         await interaction.response.send_message(
             f"Ownership an **{discord.utils.escape_markdown(target_member.display_name)}** "
@@ -685,9 +694,9 @@ class OwnerTransferView(discord.ui.View):
     enthält ein User-Select-Menu.
     """
 
-    def __init__(self) -> None:
-        super().__init__(timeout=60)  # 60 Sekunden Timeout
-        self.add_item(OwnerTransferSelect())
+    def __init__(self, channel: discord.VoiceChannel, kandidaten: list[discord.Member]) -> None:
+        super().__init__(timeout=60)
+        self.add_item(OwnerTransferSelect(channel, kandidaten))
 
 
 # ======================================================================
@@ -961,7 +970,7 @@ class TempVoiceControlView(discord.ui.LayoutView):
             return
 
         # User-Select-View senden
-        view = OwnerTransferView()
+        view = OwnerTransferView(channel, other_members)
         await interaction.response.send_message(
             "Wähle den neuen Owner aus:",
             view=view,
@@ -987,7 +996,7 @@ class TempVoiceControlView(discord.ui.LayoutView):
             return
         await interaction.response.send_message(
             "Wen willst du kicken? Er kann danach wieder joinen.",
-            view=KickView(kandidaten), ephemeral=True,
+            view=KickView(channel, kandidaten), ephemeral=True,
         )
 
     # ------------------------------------------------------------------
@@ -999,13 +1008,20 @@ class TempVoiceControlView(discord.ui.LayoutView):
         result = await self._check_owner(interaction)
         if result is None:
             return
-        _member, channel, manager = result
+        member, channel, manager = result
+        kandidaten = _crew_ziele(channel, manager, member)
         banned = manager.get_banned(channel.id)
-        text = "**Ban:** User auswählen."
+        if not kandidaten and not banned:
+            await interaction.response.send_message(
+                "Niemand zum Bannen im Talk und keine Eintraege auf seiner Bannliste.",
+                ephemeral=True,
+            )
+            return
+        text = "**Ban:** Mitglied aus diesem Talk auswaehlen."
         if banned:
-            text += "\n**Unban:** unten aus der Liste wählen."
+            text += "\n**Unban:** aus der Bannliste dieses Talks waehlen."
         await interaction.response.send_message(
-            text, view=BanUserView(channel, banned), ephemeral=True,
+            text, view=BanUserView(channel, kandidaten, banned), ephemeral=True,
         )
 
     # ------------------------------------------------------------------
@@ -1188,9 +1204,10 @@ def _crew_ziele(
 class KickSelect(discord.ui.Select):
     """Auswahl der Leute im Kanal zum Kicken (nur trennen, kein Ban)."""
 
-    def __init__(self, kandidaten: list[discord.Member]) -> None:
+    def __init__(self, channel: discord.VoiceChannel, kandidaten: list[discord.Member]) -> None:
+        self.channel_id = channel.id
         super().__init__(
-            placeholder="User auswählen...",
+            placeholder="Kick: Mitglied aus diesem Talk...",
             min_values=1, max_values=1,
             options=[discord.SelectOption(label=m.display_name[:100], value=str(m.id))
                      for m in kandidaten],
@@ -1204,10 +1221,14 @@ class KickSelect(discord.ui.Select):
                 ephemeral=True,
             )
             return
-        _member, channel, manager = ctx
-
+        member, channel, manager = ctx
+        if channel.id != self.channel_id:
+            await interaction.response.send_message(
+                "Der Dialog gehoert zu einem anderen Talk. Bitte neu oeffnen.", ephemeral=True
+            )
+            return
         target = channel.guild.get_member(int(self.values[0]))
-        if target is None or _geschuetzt(target):
+        if target is None or target.id not in {m.id for m in _crew_ziele(channel, manager, member)}:
             await interaction.response.send_message(
                 "Diesen User kannst du nicht kicken.", ephemeral=True
             )
@@ -1228,18 +1249,21 @@ class KickSelect(discord.ui.Select):
 class KickView(discord.ui.View):
     """Temporäre View mit der Kick-Auswahl (60s Timeout)."""
 
-    def __init__(self, kandidaten: list[discord.Member]) -> None:
+    def __init__(self, channel: discord.VoiceChannel, kandidaten: list[discord.Member]) -> None:
         super().__init__(timeout=60)
-        self.add_item(KickSelect(kandidaten))
+        self.add_item(KickSelect(channel, kandidaten))
 
 
-class BanUserSelect(discord.ui.UserSelect):
+class BanUserSelect(discord.ui.Select):
     """User-Select zum Bannen eines Users aus dem Temp-Channel."""
 
-    def __init__(self) -> None:
+    def __init__(self, channel: discord.VoiceChannel, kandidaten: list[discord.Member]) -> None:
+        self.channel_id = channel.id
         super().__init__(
-            placeholder="Ban: User auswählen...",
+            placeholder="Ban: Mitglied aus diesem Talk...",
             min_values=1, max_values=1,
+            options=[discord.SelectOption(label=m.display_name[:100], value=str(m.id))
+                     for m in kandidaten[:25]],
         )
 
     async def callback(self, interaction: discord.Interaction) -> None:
@@ -1251,22 +1275,31 @@ class BanUserSelect(discord.ui.UserSelect):
             )
             return
         member, channel, manager = ctx
-
-        target = self.values[0]
-        if target.id == member.id:
+        if channel.id != self.channel_id:
+            await interaction.response.send_message(
+                "Der Dialog gehoert zu einem anderen Talk. Bitte neu oeffnen.", ephemeral=True
+            )
+            return
+        target_id = int(self.values[0])
+        if str(target_id) not in {option.value for option in self.options}:
+            await interaction.response.send_message("Bitte die Auswahl neu oeffnen.", ephemeral=True)
+            return
+        if target_id == member.id:
             await interaction.response.send_message(
                 "Du kannst dich nicht selbst bannen.", ephemeral=True
             )
             return
-        if target.id == manager.get_owner(channel.id):
+        if target_id == manager.get_owner(channel.id):
             await interaction.response.send_message(
                 "Der Owner kann nicht gebannt werden.", ephemeral=True
             )
             return
-        target_member = channel.guild.get_member(target.id)
-        if target_member is None:
+        target_member = channel.guild.get_member(target_id)
+        if (target_member is None or not target_member.voice
+                or not target_member.voice.channel or target_member.voice.channel.id != channel.id
+                or target_id not in {m.id for m in channel.members}):
             await interaction.response.send_message(
-                "User nicht auf dem Server gefunden.", ephemeral=True
+                "Dieses Mitglied ist nicht mehr in diesem Talk.", ephemeral=True
             )
             return
         if _geschuetzt(target_member):
@@ -1290,12 +1323,14 @@ class BanUserView(discord.ui.View):
 
     def __init__(
         self,
-        channel: discord.VoiceChannel | None = None,
+        channel: discord.VoiceChannel,
+        kandidaten: list[discord.Member],
         banned_ids: list[int] | None = None,
     ) -> None:
         super().__init__(timeout=60)
-        self.add_item(BanUserSelect())
-        if channel is not None and banned_ids:
+        if kandidaten:
+            self.add_item(BanUserSelect(channel, kandidaten))
+        if banned_ids:
             self.add_item(UnbanSelect(channel, banned_ids))
 
 
@@ -1305,6 +1340,7 @@ class UnbanSelect(discord.ui.Select):
     def __init__(
         self, channel: discord.VoiceChannel, banned_ids: list[int]
     ) -> None:
+        self.channel_id = channel.id
         options = []
         for uid in banned_ids[:25]:  # Discord-Limit 25 Optionen
             m = channel.guild.get_member(uid)
@@ -1324,8 +1360,17 @@ class UnbanSelect(discord.ui.Select):
             )
             return
         member, channel, manager = ctx
-
+        if channel.id != self.channel_id:
+            await interaction.response.send_message(
+                "Der Dialog gehoert zu einem anderen Talk. Bitte neu oeffnen.", ephemeral=True
+            )
+            return
         uid = int(self.values[0])
+        if str(uid) not in {option.value for option in self.options} or uid not in manager.get_banned(channel.id):
+            await interaction.response.send_message(
+                "Dieses Mitglied steht nicht mehr auf der Bannliste dieses Talks.", ephemeral=True
+            )
+            return
         target_member = channel.guild.get_member(uid)
         if target_member is None:
             # User nicht mehr auf dem Server — nur aus der Liste entfernen

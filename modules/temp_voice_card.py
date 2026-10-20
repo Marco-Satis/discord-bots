@@ -85,7 +85,7 @@ _AV_PALETTE = [
 
 # ── Layout (Kartenpixel; Anzeige = halbe Werte) ─────────────────────────────────
 # Marco 20.10. nach dem ersten Live-Blick: Titel kleiner, Kleinschrift groesser.
-# Anzeige bei 600 px: Etiketten 15–16 px, Namen 20 px, Zeiten 17 px, Kanal 35 px.
+# Anzeige bei 600 px: Etiketten 15–16 px, Namen 22 px, Zeiten 17 px, Kanal 42 px.
 _PAD_L      = 56
 _PAD_R      = 48
 _HUB_Y      = 52    # Hub-Label oben (Text-Oberkante)
@@ -108,9 +108,9 @@ _REIHE_2 = {"top": 288, "av": 76,  "row_h": 204}
 # Schriftgroessen
 _FS_HUB     = 32
 _FS_CHIP    = 30
-_FS_KANAL   = 70
+_FS_KANAL   = 84
 _FS_SQUAD   = 26   # Marco 20.10.: bei 32 zu wuchtig
-_FS_NAME    = 40
+_FS_NAME    = 44
 _FS_ZEIT    = 34
 _FS_BADGE   = 24
 _FS_PLUS    = 50
