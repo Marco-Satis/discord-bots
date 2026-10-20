@@ -86,6 +86,9 @@ class CountingCog(commands.Cog):
         try:
             if message.channel.id != await self._kanal_id(message.guild.id):
                 return
+            # Schalter aus der Modulübersicht im Dashboard (guild_modules)
+            if not await GuildConfig.is_module_enabled(message.guild.id, "counting"):
+                return
             gid = message.guild.id
             async with self._lock(gid):
                 aktuell, letzter, rekord = await self._stand(gid)
@@ -118,6 +121,8 @@ class CountingCog(commands.Cog):
             return
         try:
             if message.channel.id != await self._kanal_id(message.guild.id):
+                return
+            if not await GuildConfig.is_module_enabled(message.guild.id, "counting"):
                 return
             letzte = await GuildConfig.get(message.guild.id, "counting.last_message_id")
             if not letzte or str(message.id) != str(letzte):

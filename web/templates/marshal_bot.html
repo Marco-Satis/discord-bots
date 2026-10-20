@@ -26,8 +26,8 @@
         </div>
     </div>
     <div class="stat-card">
-        <div class="stat-label">Module geladen</div>
-        <div class="stat-value" style="margin-top: 0.5rem; font-size: 1.5rem;">11</div>
+        <div class="stat-label">Module aktiv</div>
+        <div class="stat-value" style="margin-top: 0.5rem; font-size: 1.5rem;">{{ summe.aktiv }} von {{ summe.gesamt }}</div>
     </div>
     <div class="stat-card">
         <div class="stat-label">Server</div>
@@ -37,7 +37,12 @@
 
 <!-- Tab Navigation -->
 <div class="tab-nav">
-    <button class="tab-btn active"
+    <button class="tab-btn active" data-tab="uebersicht"
+            hx-get="/marshal-bot/tab/uebersicht"
+            hx-target="#tab-content"
+            hx-swap="innerHTML"
+            onclick="switchTab(this)">Übersicht</button>
+    <button class="tab-btn" data-tab="temp_voice"
             hx-get="/marshal-bot/tab/temp_voice"
             hx-target="#tab-content"
             hx-swap="innerHTML"
@@ -82,7 +87,7 @@
             hx-target="#tab-content"
             hx-swap="innerHTML"
             onclick="switchTab(this)">Giveaways</button>
-    <button class="tab-btn"
+    <button class="tab-btn" data-tab="embeds"
             hx-get="/marshal-bot/tab/embeds"
             hx-target="#tab-content"
             hx-swap="innerHTML"
@@ -91,7 +96,7 @@
 
 <!-- Tab Content (geladen via HTMX) -->
 <div id="tab-content" class="tab-content active">
-    {% include "partials/admin_tab_temp_voice.html" %}
+    {% include "partials/marshal_module_uebersicht.html" %}
 </div>
 
 <script>
@@ -102,6 +107,14 @@
         });
         btn.classList.add('active');
     }
+
+    // „Einstellen →" auf einer Modulkarte öffnet den passenden Tab
+    document.addEventListener('click', function (e) {
+        var ziel = e.target.closest ? e.target.closest('[data-tab-ziel]') : null;
+        if (!ziel) return;
+        var tab = document.querySelector('.tab-btn[data-tab="' + ziel.getAttribute('data-tab-ziel') + '"]');
+        if (tab) tab.click();
+    });
 
 
     // [TEMP-VOICE-HUB-MANAGER]

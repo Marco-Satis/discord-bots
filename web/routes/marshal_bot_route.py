@@ -15,10 +15,20 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 from web.templates_setup import erstelle_templates
 
+from modules.dashboard_audit import log_from_user
+from modules.guild_context import GuildConfig, get_primary_guild_id
 from utils.config import PROJECT_ROOT, DATA_DIR, get_config, save_config
 from utils.logger import get_logger
 from web.auth import require_auth, require_perm
 from web.guild_config_bridge import read_leveling_config, write_leveling_config
+from web.module_uebersicht import (
+    NUR_BEFEHLE,
+    SCHALTBAR,
+    baue_karten,
+    gruppiert,
+    lade_quellen,
+    zusammenfassung,
+)
 from web.temp_voice_bridge import (
     hubs_to_text,
     parse_hubs_text,
@@ -522,13 +532,28 @@ async def _load_tab_config(tab_name: str) -> dict:
     return config
 
 
+async def _uebersicht_kontext(meldung: str = "", fehler: str = "") -> dict:
+    """Kontext fuer die Modulübersicht (Tab „Übersicht")."""
+    try:
+        karten = baue_karten(await lade_quellen())
+    except Exception as e:  # noqa: BLE001 — Seite bleibt bedienbar
+        logger.error(f"Modulübersicht laden fehlgeschlagen: {e}", exc_info=True)
+        karten, fehler = [], "Die Übersicht konnte nicht geladen werden. Details im Server-Log."
+    return {
+        "gruppen": gruppiert(karten),
+        "summe": zusammenfassung(karten),
+        "nur_befehle": NUR_BEFEHLE,
+        "meldung": meldung,
+        "fehler": fehler,
+    }
+
+
 # --- Routen ---
 
 @router.get("/marshal-bot", response_class=HTMLResponse)
 async def marshal_bot_page(request: Request, current_user: dict = Depends(require_auth)):
     """
-    Hauptseite des Marshal Setup mit 10 Tabs.
-    Laedt standardmaessig den ersten Tab (Temp Voice).
+    Hauptseite des Marshal Setup. Startet mit der Modulübersicht.
     """
     user = current_user
     # Standard-Tab + Marshal-Status parallel via to_thread (kein Event-Loop-Block)
@@ -543,20 +568,21 @@ async def marshal_bot_page(request: Request, current_user: dict = Depends(requir
             pass
         return "offline"
 
-    config, marshal_bot_status = await asyncio.gather(
-        _load_tab_config("temp_voice"),
+    uebersicht, marshal_bot_status = await asyncio.gather(
+        _uebersicht_kontext(),
         asyncio.to_thread(_read_admin_status),
     )
 
     return templates.TemplateResponse(request, "marshal_bot.html", {
         "request": request,
         "user": user,
-        "active_tab": "temp_voice",
-        "config": config,
+        "active_tab": "uebersicht",
+        "config": {},
         "marshal_bot_status": marshal_bot_status,
         "guild_name": "",
         "success": "",
         "error": "",
+        **uebersicht,
     })
 
 
@@ -566,6 +592,11 @@ async def marshal_bot_tab(request: Request, tab_name: str, current_user: dict = 
     HTMX-Partial: Laedt den Inhalt eines einzelnen Tabs.
     Wird per HTMX-Request in den Tab-Content-Bereich geladen.
     """
+    if tab_name == "uebersicht":
+        return templates.TemplateResponse(
+            request, "partials/marshal_module_uebersicht.html",
+            {"request": request, **await _uebersicht_kontext()},
+        )
     if tab_name not in TAB_TEMPLATES:
         return HTMLResponse(
             content='<div class="alert alert-danger">Unbekannter Tab.</div>',
@@ -661,4 +692,41 @@ async def marshal_bot_save(request: Request, module_name: str, current_user: dic
         "config": config,
         "success": success_msg,
         "error": error_msg,
+    })
+
+
+@router.post("/marshal-bot/module/{modul}", response_class=HTMLResponse)
+async def marshal_modul_schalten(
+    request: Request, modul: str,
+    current_user: dict = Depends(require_perm("marshal_bot", "edit")),
+):
+    """Schalter einer Modulkarte. Nur Module mit Leser im Bot (SCHALTBAR)."""
+    vorlage = "partials/marshal_module_uebersicht.html"
+    if modul not in SCHALTBAR:
+        return templates.TemplateResponse(request, vorlage, {
+            "request": request,
+            **await _uebersicht_kontext(fehler="Dieses Modul hat keinen Schalter."),
+        }, status_code=400)
+    gid = get_primary_guild_id()
+    if gid is None:
+        return templates.TemplateResponse(request, vorlage, {
+            "request": request,
+            **await _uebersicht_kontext(fehler="GUILD_ID fehlt, nichts gespeichert."),
+        })
+
+    an = (await request.form()).get("an") == "1"
+    try:
+        await GuildConfig.set_module(gid, modul, an)
+    except Exception as e:  # noqa: BLE001 — Fehler sichtbar machen statt 500
+        logger.error(f"Modul {modul} schalten fehlgeschlagen: {e}")
+        return templates.TemplateResponse(request, vorlage, {
+            "request": request,
+            **await _uebersicht_kontext(fehler="Nicht gespeichert. Details im Server-Log."),
+        })
+    await log_from_user(current_user, "marshal_bot", "edit", {"modul": modul, "an": an},
+                        ip=request.client.host if request.client else None)
+    logger.info(f"Modul {modul} {'an' if an else 'aus'} von {current_user.get('username', '?')}")
+    return templates.TemplateResponse(request, vorlage, {
+        "request": request,
+        **await _uebersicht_kontext(meldung=f"Gespeichert: {modul} ist jetzt {'an' if an else 'aus'}."),
     })

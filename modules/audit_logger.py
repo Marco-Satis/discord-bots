@@ -39,6 +39,7 @@ from typing import Any, Optional
 import discord
 
 from modules.database.db_manager import get_db
+from modules.guild_context import GuildConfig
 from utils.logger import get_logger
 from utils.config import ADMIN_DATA_DIR
 
@@ -211,6 +212,10 @@ class AuditLogger:
         """
         channel = await self._get_channel(bot, config_key)
         if not channel:
+            return False
+        # Schalter aus der Modulübersicht im Dashboard (guild_modules, 15 s Cache).
+        # Gesperrt wird nur das Posten; der Eintrag in audit_log entsteht weiter.
+        if not await GuildConfig.is_module_enabled(channel.guild.id, "audit"):
             return False
 
         try:

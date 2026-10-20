@@ -1,0 +1,86 @@
+{# Modulübersicht Marshal — Daten aus web/module_uebersicht.py #}
+<div id="modul-uebersicht">
+<style>
+.mu-kopf { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:2px 0 14px; color:var(--t2); font-size:14px; }
+.mu-kopf strong { color:var(--t1); }
+.mu-gruppe { font-size:11px; text-transform:uppercase; letter-spacing:.12em; color:var(--acc-2); font-weight:700; margin:18px 0 8px; font-family:ui-monospace, monospace; }
+.mu-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(300px, 1fr)); gap:12px; }
+.mu-karte { border:1px solid var(--line); border-radius:var(--radius, 14px); padding:14px 15px 12px; background:rgba(120,180,240,.03); display:flex; flex-direction:column; gap:8px; min-width:0; }
+.mu-karte.st-pruefen { border-color:var(--warn); }
+.mu-oben { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; }
+.mu-name { font-weight:700; color:var(--t1); font-size:15px; }
+.mu-text { color:var(--t3); font-size:13px; line-height:1.4; }
+.mu-info { color:var(--t2); font-size:13px; line-height:1.45; }
+.mu-kanaele { display:flex; flex-wrap:wrap; gap:6px; }
+.mu-kanal { font-size:12px; padding:2px 8px; border-radius:var(--radius-pill, 999px); border:1px solid var(--line); color:var(--t2); overflow-wrap:anywhere; }
+.mu-kanal.fehlt { border-color:var(--bad); color:var(--bad); }
+.mu-unten { display:flex; justify-content:space-between; align-items:center; gap:10px; margin-top:auto; padding-top:4px; flex-wrap:wrap; }
+.mu-hinweis { color:var(--t3); font-size:12px; }
+.mu-einstellen { font-size:13px; color:var(--acc-2); text-decoration:none; background:none; border:0; padding:0; cursor:pointer; font:inherit; }
+.mu-einstellen:hover { text-decoration:underline; }
+.mu-befehl { font-family:ui-monospace, monospace; font-size:12px; color:var(--t2); }
+.mu-schalter { display:flex; align-items:center; gap:8px; }
+.mu-nur { margin-top:16px; color:var(--t3); font-size:13px; }
+</style>
+
+<div class="mu-kopf">
+    <span><strong>{{ summe.gesamt }}</strong> Module</span>
+    <span class="badge badge-success">{{ summe.aktiv }} aktiv</span>
+    {% if summe.aus %}<span class="badge">{{ summe.aus }} aus</span>{% endif %}
+    {% if summe.offen %}<span class="badge badge-info">{{ summe.offen }} nicht eingerichtet</span>{% endif %}
+    {% if summe.pruefen %}<span class="badge badge-warning">{{ summe.pruefen }} prüfen: {{ summe.pruefen_namen|join(', ') }}</span>{% endif %}
+</div>
+{% if fehler %}<div class="alert alert-danger">{{ fehler }}</div>{% endif %}
+{% if meldung %}<div class="alert alert-success">{{ meldung }}</div>{% endif %}
+
+{% for gruppe, karten in gruppen %}
+<div class="mu-gruppe">{{ gruppe }}</div>
+<div class="mu-grid">
+    {% for k in karten %}
+    <div class="mu-karte st-{{ k.status }}">
+        <div class="mu-oben">
+            <div>
+                <div class="mu-name">{{ k.name }}</div>
+                <div class="mu-text">{{ k.text }}</div>
+            </div>
+            <span class="badge {% if k.status == 'aktiv' %}badge-success{% elif k.status == 'pruefen' %}badge-warning{% elif k.status == 'offen' %}badge-info{% endif %}">{{ k.status_text }}</span>
+        </div>
+        <div class="mu-info">{{ k.info }}</div>
+        {% if k.kanaele %}
+        <div class="mu-kanaele">
+            {% for c in k.kanaele %}
+            <span class="mu-kanal {% if c.fehlt %}fehlt{% endif %}" title="ID {{ c.id }}">{{ c.label }}: {% if c.fehlt %}gelöschter Kanal{% elif c.name %}#{{ c.name }}{% else %}ID {{ c.id }}{% endif %}</span>
+            {% endfor %}
+        </div>
+        {% endif %}
+        <div class="mu-unten">
+            {% if k.schalter is not none %}
+            <div class="mu-schalter">
+                <label class="toggle">
+                    <input type="checkbox" name="an" value="1" {% if k.schalter %}checked{% endif %}
+                           aria-label="{{ k.name }} ein- oder ausschalten"
+                           hx-post="/marshal-bot/module/{{ k.key }}" hx-trigger="change"
+                           hx-target="#modul-uebersicht" hx-swap="outerHTML">
+                    <span class="slider"></span>
+                </label>
+                <span class="mu-hinweis">{{ 'An' if k.schalter else 'Aus' }}</span>
+            </div>
+            {% else %}
+            <span class="mu-hinweis">{{ k.ohne_schalter }}</span>
+            {% endif %}
+            {% if k.link and k.link.startswith('#') %}
+            <button type="button" class="mu-einstellen" data-tab-ziel="{{ k.link[1:] }}">Einstellen →</button>
+            {% elif k.link %}
+            <a class="mu-einstellen" href="{{ k.link }}">Einstellen →</a>
+            {% elif k.einstellen %}
+            <span class="mu-befehl" title="Befehl in Discord">{{ k.einstellen }}</span>
+            {% endif %}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endfor %}
+
+<div class="mu-nur">Nur Befehle, nichts läuft von selbst: {{ nur_befehle|join(', ') }}.
+Schalter wirken nach spätestens 15 Sekunden.</div>
+</div>
