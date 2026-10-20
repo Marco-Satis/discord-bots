@@ -5,22 +5,30 @@ Verification + Raid-Schutz Cog (Phase G Security).
     Verified-Rolle an neue Member (gegen Raid-Bots / Scanner).
   - Raid-Detection: Join-Spike (zu viele Joins im Zeitfenster) -> Alert in
     einen konfigurierten Channel.
+  - Raid-Reaktion (20.10.2026, Marco): bei einem Join-Spike sperrt der Bot
+    selbst fuer `raid_lock_minutes` (Standard 10): Verifizieren pausiert und
+    die Discord-Verifizierungsstufe geht auf „Hoch“; danach automatisch zurueck.
+    Bewusst KEIN Auto-Kick neuer Konten: gekaufte Boost-Konten sind neu und
+    treten gesammelt bei, ein Kick wuerde die Boosts kosten.
 
 Config je Guild in `guild_config` (Prefix `security.`):
   verification_enabled, verification_role_id,
-  raid_threshold, raid_window_seconds, raid_alert_channel_id
+  raid_threshold, raid_window_seconds, raid_alert_channel_id,
+  raid_lock_minutes (0 = nur Alarm), raid_lock_until, raid_lock_prev_level
 
 Commands (Admin): /sicherheit verifizierung|verifizierung_aus|raidschutz|
-raidschutz_aus|status
+raidschutz_aus|entsperren|status
 """
 from __future__ import annotations
 
 import time
+from collections import deque
+from datetime import datetime, timezone
 from typing import Optional
 
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 from modules.guild_context import GuildConfig
 from modules.raid_detector import RaidDetector
@@ -33,6 +41,24 @@ from utils.embeds import (
 )
 
 logger = get_logger("cogs.verification")
+
+# Standard-Sperrdauer nach einem Join-Spike (Minuten); 0 = nur Alarm
+RAID_LOCK_MINUTES_DEFAULT = 10
+# Konten juenger als das gelten in der Raid-Meldung als „neu“
+NEUES_KONTO_TAGE = 7
+
+
+def sperre_aktiv(bis: Optional[float], jetzt: float) -> bool:
+    """Ist eine Raid-Sperre bis `bis` (Unix-Zeit) zum Zeitpunkt `jetzt` aktiv?"""
+    try:
+        return bis is not None and float(bis) > jetzt
+    except (TypeError, ValueError):
+        return False
+
+
+def rest_minuten(bis: float, jetzt: float) -> int:
+    """Verbleibende Sperrzeit, aufgerundet auf ganze Minuten (mindestens 1)."""
+    return max(1, int((float(bis) - jetzt + 59) // 60))
 
 
 class VerificationView(discord.ui.View):
@@ -98,6 +124,17 @@ class VerificationView(discord.ui.View):
             )
             return
 
+        # Raid-Sperre: waehrend einer Join-Welle wird niemand verifiziert.
+        bis = await GuildConfig.get(interaction.guild.id, "security.raid_lock_until")
+        jetzt = time.time()
+        if sperre_aktiv(bis, jetzt):
+            await interaction.response.send_message(
+                "Der Server ist wegen sehr vieler Beitritte kurz gesperrt. "
+                f"Bitte versuch es in {rest_minuten(bis, jetzt)} Minute(n) noch einmal.",
+                ephemeral=True,
+            )
+            return
+
         try:
             await interaction.user.add_roles(role, reason="Verifizierung")
             await interaction.response.send_message(
@@ -122,11 +159,113 @@ class VerificationCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
         self.raid = RaidDetector()
+        # Letzte Beitritte je Guild (Zeit, Member) fuer die Raid-Meldung
+        self._letzte_joins: dict[int, deque] = {}
 
     async def cog_load(self) -> None:
         """Persistente Verify-View registrieren (ueberlebt Bot-Restart)."""
         self.bot.add_view(VerificationView())
+        self.sperren_pruefen.start()
         logger.info("Verification-Cog geladen, persistente View registriert")
+
+    async def cog_unload(self) -> None:
+        self.sperren_pruefen.cancel()
+
+    # ==================================================================
+    # Raid-Sperre (automatische Reaktion)
+    # ==================================================================
+
+    @tasks.loop(seconds=60)
+    async def sperren_pruefen(self) -> None:
+        """Abgelaufene Raid-Sperren aufheben, auch nach einem Bot-Neustart."""
+        jetzt = time.time()
+        for guild in self.bot.guilds:
+            try:
+                bis = await GuildConfig.get(guild.id, "security.raid_lock_until")
+                if bis is not None and not sperre_aktiv(bis, jetzt):
+                    await self._sperre_aufheben(guild, "Sperrzeit abgelaufen")
+            except Exception as e:  # noqa: BLE001 — Loop darf nie sterben
+                logger.error(f"Raid-Sperre pruefen Guild {guild.id}: {e}", exc_info=True)
+
+    @sperren_pruefen.before_loop
+    async def _vor_sperren_pruefen(self) -> None:
+        await self.bot.wait_until_ready()
+
+    async def _sperre_setzen(self, guild: discord.Guild, jetzt: float) -> Optional[float]:
+        """Sperre aktivieren (idempotent). Gibt das Sperrende zurueck, None = keine Sperre."""
+        try:
+            minuten = int(await GuildConfig.get(
+                guild.id, "security.raid_lock_minutes", RAID_LOCK_MINUTES_DEFAULT
+            ) or 0)
+        except (TypeError, ValueError):
+            minuten = RAID_LOCK_MINUTES_DEFAULT
+        if minuten <= 0:
+            return None
+        bis_alt = await GuildConfig.get(guild.id, "security.raid_lock_until")
+        if sperre_aktiv(bis_alt, jetzt):
+            return float(bis_alt)
+
+        bis = jetzt + minuten * 60
+        await GuildConfig.set(guild.id, "security.raid_lock_until", bis, updated_by="raid")
+        if guild.verification_level < discord.VerificationLevel.high:
+            await GuildConfig.set(
+                guild.id, "security.raid_lock_prev_level",
+                guild.verification_level.value, updated_by="raid",
+            )
+            try:
+                await guild.edit(
+                    verification_level=discord.VerificationLevel.high,
+                    reason=f"Raid-Schutz: Join-Welle, Sperre {minuten} min",
+                )
+            except (discord.Forbidden, discord.HTTPException) as e:
+                logger.warning(f"Verifizierungsstufe nicht hochsetzbar Guild {guild.id}: {e}")
+        logger.warning(f"Raid-Sperre aktiv Guild {guild.id} fuer {minuten} min")
+        return bis
+
+    async def _sperre_aufheben(self, guild: discord.Guild, grund: str) -> bool:
+        """Sperre beenden, Verifizierungsstufe zuruecksetzen, Team informieren."""
+        bis = await GuildConfig.get(guild.id, "security.raid_lock_until")
+        if bis is None:
+            return False
+        prev = await GuildConfig.get(guild.id, "security.raid_lock_prev_level")
+        if prev is not None:
+            try:
+                await guild.edit(
+                    verification_level=discord.VerificationLevel(int(prev)),
+                    reason=f"Raid-Schutz: Sperre beendet ({grund})",
+                )
+            except (discord.Forbidden, discord.HTTPException, ValueError, TypeError) as e:
+                logger.warning(f"Verifizierungsstufe nicht zuruecksetzbar Guild {guild.id}: {e}")
+        await GuildConfig.delete(guild.id, "security.raid_lock_until")
+        await GuildConfig.delete(guild.id, "security.raid_lock_prev_level")
+        logger.info(f"Raid-Sperre aufgehoben Guild {guild.id}: {grund}")
+
+        channel = await self._alert_channel(guild)
+        if channel is not None:
+            try:
+                await channel.send(
+                    embed=success_embed(
+                        title="Raid-Sperre aufgehoben",
+                        description=f"{grund}. Verifizieren geht wieder, die Verifizierungsstufe ist zurückgesetzt.",
+                    ),
+                    allowed_mentions=discord.AllowedMentions.none(),
+                )
+            except (discord.Forbidden, discord.HTTPException) as e:
+                logger.warning(f"Entsperr-Meldung nicht sendbar: {e}")
+        return True
+
+    async def _alert_channel(self, guild: discord.Guild) -> Optional[discord.TextChannel]:
+        """Alert-Kanal (Dashboard/Command), sonst Systemkanal."""
+        channel_id = await GuildConfig.get(guild.id, "security.raid_alert_channel_id")
+        channel = None
+        if channel_id:
+            try:
+                channel = guild.get_channel(int(channel_id))
+            except (TypeError, ValueError):
+                channel = None
+        if channel is None:
+            channel = guild.system_channel
+        return channel if isinstance(channel, discord.TextChannel) else None
 
     # ==================================================================
     # Raid-Detection
@@ -152,30 +291,44 @@ class VerificationCog(commands.Cog):
             return
 
         now = time.time()
+        joins = self._letzte_joins.setdefault(guild.id, deque(maxlen=50))
+        joins.append((now, member))
         is_raid = self.raid.record_join(
             guild.id, now, threshold=threshold, window_seconds=window
         )
         if is_raid:
-            await self._maybe_raid_alert(guild, threshold, window, now)
+            try:
+                bis = await self._sperre_setzen(guild, now)
+            except Exception as e:  # noqa: BLE001 — Alarm geht trotzdem raus
+                logger.error(f"Raid-Sperre setzen Guild {guild.id}: {e}", exc_info=True)
+                bis = None
+            await self._maybe_raid_alert(guild, threshold, window, now, bis)
+
+    def _joiner_text(self, guild_id: int, seit: float) -> str:
+        """Beigetretene seit `seit`, mit Kontoalter; neue Konten markiert (nur Team-Kanal)."""
+        zeilen = []
+        jetzt = datetime.now(timezone.utc)
+        for ts, member in self._letzte_joins.get(guild_id, ()):
+            if ts < seit:
+                continue
+            tage = (jetzt - member.created_at).days
+            marke = " ⚠️ neu" if tage < NEUES_KONTO_TAGE else ""
+            zeilen.append(f"{member.mention} · Konto {tage} Tag(e){marke}")
+        if len(zeilen) > 15:
+            zeilen = zeilen[:15] + [f"… und {len(zeilen) - 15} weitere"]
+        return "\n".join(zeilen) or "–"
 
     async def _maybe_raid_alert(
-        self, guild: discord.Guild, threshold: int, window: float, now: float
+        self, guild: discord.Guild, threshold: int, window: float, now: float,
+        gesperrt_bis: Optional[float] = None,
     ) -> None:
         """Alert senden — Channel ZUERST aufloesen, dann Alarm-Cooldown buchen.
 
         So wird das Alarm-Fenster nicht still verbraucht wenn gar kein
         Alert-Channel existiert (Review-Finding #2).
         """
-        channel_id = await GuildConfig.get(guild.id, "security.raid_alert_channel_id")
-        channel = None
-        if channel_id:
-            try:
-                channel = guild.get_channel(int(channel_id))
-            except (TypeError, ValueError):
-                channel = None
+        channel = await self._alert_channel(guild)
         if channel is None:
-            channel = guild.system_channel
-        if channel is None or not isinstance(channel, discord.TextChannel):
             logger.warning(f"Raid-Verdacht Guild {guild.id}: kein Alert-Channel")
             return
 
@@ -184,13 +337,24 @@ class VerificationCog(commands.Cog):
             return
 
         count = self.raid.join_count(guild.id)
+        if gesperrt_bis:
+            reaktion = (
+                f"**Automatisch gesperrt bis <t:{int(gesperrt_bis)}:t>:** Verifizieren ist "
+                "pausiert, die Discord-Verifizierungsstufe steht auf „Hoch“. Danach hebt "
+                "Marshal die Sperre selbst auf. Früher aufheben: `/sicherheit entsperren`."
+            )
+        else:
+            reaktion = "Automatische Sperre ist aus. Prüfe die neuen Mitglieder."
         embed = error_embed(
             title="⚠️ Raid-Verdacht",
             description=(
                 f"**{count}** Joins in ~{int(window)}s "
-                f"(Schwelle: {threshold}).\n"
-                "Pruefe die neuen Mitglieder und erwaege einen Lockdown."
+                f"(Schwelle: {threshold}).\n{reaktion}"
             ),
+        )
+        embed.add_field(
+            name="Beigetreten", value=self._joiner_text(guild.id, now - window * 3)[:1024],
+            inline=False,
         )
         try:
             await channel.send(
@@ -289,6 +453,7 @@ class VerificationCog(commands.Cog):
         schwelle="Joins die im Fenster einen Alert ausloesen (>=2)",
         fenster_sekunden="Zeitfenster in Sekunden",
         alert_channel="Channel fuer Raid-Alerts (leer = System-Channel)",
+        sperre_minuten="Automatische Sperre nach einem Spike (0 = nur Alarm, leer = unveraendert)",
     )
     @admin_only()
     async def setup_raid(
@@ -297,6 +462,7 @@ class VerificationCog(commands.Cog):
         schwelle: int,
         fenster_sekunden: int = 10,
         alert_channel: Optional[discord.TextChannel] = None,
+        sperre_minuten: Optional[app_commands.Range[int, 0, 120]] = None,
     ) -> None:
         """Raid-Detection-Parameter setzen."""
         await interaction.response.defer(ephemeral=True)
@@ -324,9 +490,35 @@ class VerificationCog(commands.Cog):
                 gid, "security.raid_alert_channel_id", str(alert_channel.id),
                 updated_by="command",
             )
+        if sperre_minuten is not None:
+            await GuildConfig.set(
+                gid, "security.raid_lock_minutes", int(sperre_minuten), updated_by="command"
+            )
+        minuten = await GuildConfig.get(
+            gid, "security.raid_lock_minutes", RAID_LOCK_MINUTES_DEFAULT
+        )
         await interaction.followup.send(
-            f"Raid-Schutz aktiv: {schwelle} Joins / {fenster_sekunden}s.",
+            f"Raid-Schutz aktiv: {schwelle} Joins / {fenster_sekunden}s, "
+            + (f"danach {minuten} min Sperre." if minuten else "nur Alarm."),
             ephemeral=True,
+        )
+
+    @sicherheit.command(
+        name="entsperren",
+        description="Laufende Raid-Sperre sofort aufheben",
+    )
+    @admin_only()
+    async def unlock_raid(self, interaction: discord.Interaction) -> None:
+        """Raid-Sperre manuell beenden."""
+        await interaction.response.defer(ephemeral=True)
+        if interaction.guild is None:
+            await interaction.followup.send("Nur auf einem Server.", ephemeral=True)
+            return
+        aufgehoben = await self._sperre_aufheben(
+            interaction.guild, f"Von {interaction.user.display_name} aufgehoben"
+        )
+        await interaction.followup.send(
+            "Sperre aufgehoben." if aufgehoben else "Es läuft keine Sperre.", ephemeral=True
         )
 
     @sicherheit.command(
@@ -376,12 +568,23 @@ class VerificationCog(commands.Cog):
             if verify_on else "Aus",
             inline=False,
         )
+        minuten = await GuildConfig.get(
+            gid, "security.raid_lock_minutes", RAID_LOCK_MINUTES_DEFAULT
+        )
+        bis = await GuildConfig.get(gid, "security.raid_lock_until")
         embed.add_field(
             name="Raid-Schutz",
-            value=(f"Aktiv — {threshold} Joins / {window}s")
+            value=(
+                f"Aktiv — {threshold} Joins / {window}s, "
+                + (f"Sperre {minuten} min" if minuten else "nur Alarm")
+            )
             if threshold and int(threshold) > 0 else "Aus",
             inline=False,
         )
+        if sperre_aktiv(bis, time.time()):
+            embed.add_field(
+                name="Sperre läuft", value=f"bis <t:{int(float(bis))}:t>", inline=False
+            )
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     async def cog_app_command_error(

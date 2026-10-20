@@ -15,8 +15,15 @@ Konfiguration in data/admin/audit_config.json:
   "join_log_channel": 0,
   "member_log_channel": 0,
   "role_log_channel": 0,
-  "server_log_channel": 0
+  "server_log_channel": 0,
+  "message_log_channel": 0,
+  "voice_log_channel": 0
 }
+
+Erweiterung 20.10.2026 (Marco, nach Maki-Vorbild): Nachrichten geloescht/bearbeitet,
+Massenloeschung, Voice beitreten/wechseln/verlassen, Bann/Unbann/Kick/Timeout mit
+Moderator aus dem Discord-Audit-Log, Invites angelegt/geloescht. Der Inhalt
+geloeschter Nachrichten steht nur im Log-Embed, nicht in der Datenbank.
 
 Die Discord-Kanal-Konfiguration wird in audit_config.json gespeichert.
 Die Logs gehen an Discord-Kanäle UND in die SQLite-Datenbank.
@@ -47,6 +54,8 @@ _DEFAULT_CONFIG = {
     "member_log_channel": 0,
     "role_log_channel": 0,
     "server_log_channel": 0,
+    "message_log_channel": 0,
+    "voice_log_channel": 0,
 }
 
 # Kategorie-Zuordnung für den /audit setup Command
@@ -56,7 +65,14 @@ CATEGORY_TO_KEY = {
     "member": "member_log_channel",
     "role": "role_log_channel",
     "server": "server_log_channel",
+    "message": "message_log_channel",
+    "voice": "voice_log_channel",
 }
+
+# Konten juenger als das gelten im Join-Log als „neu“
+NEW_ACCOUNT_DAYS = 7
+# Maximale Laenge zitierter Nachrichteninhalte im Log-Embed
+CONTENT_LIMIT = 1000
 
 # Farben für verschiedene Log-Typen
 COLOR_JOIN = 0x2ecc71       # Grün
@@ -244,8 +260,9 @@ class AuditLogger:
         bot: discord.Client,
         action: str,
         target: discord.Member | discord.User,
-        moderator: discord.Member | discord.User,
+        moderator: Optional[discord.Member | discord.User] = None,
         reason: Optional[str] = None,
+        until: Optional[datetime] = None,
     ) -> bool:
         """
         Moderations-Aktion loggen (Ban, Kick, Mute, Warn, etc.)
@@ -254,8 +271,10 @@ class AuditLogger:
             bot: Bot-Instanz
             action: Art der Aktion (z.B. "Ban", "Kick", "Warn", "Mute")
             target: Betroffener User
-            moderator: Ausführender Moderator
+            moderator: Ausführender Moderator (None = aus dem Discord-Audit-Log
+                nicht ermittelbar)
             reason: Grund für die Aktion
+            until: Ende einer befristeten Strafe (Timeout)
 
         Returns:
             True wenn erfolgreich geloggt
@@ -273,14 +292,20 @@ class AuditLogger:
         )
         embed.add_field(
             name="Moderator",
-            value=f"{moderator.mention} (`{moderator}`)",
+            value=f"{moderator.mention} (`{moderator}`)" if moderator else "unbekannt",
             inline=False,
         )
         embed.add_field(
             name="Grund",
-            value=reason or "Kein Grund angegeben",
+            value=(reason or "Kein Grund angegeben")[:1024],
             inline=False,
         )
+        if until:
+            embed.add_field(
+                name="Bis",
+                value=discord.utils.format_dt(until, "f"),
+                inline=False,
+            )
 
         if hasattr(target, "display_avatar") and target.display_avatar:
             embed.set_thumbnail(url=target.display_avatar.url)
@@ -290,8 +315,8 @@ class AuditLogger:
         # SQLite-Logging
         await self._log_to_db(
             action=f"mod_{action.lower()}",
-            user_id=str(moderator.id),
-            user_name=str(moderator),
+            user_id=str(moderator.id) if moderator else None,
+            user_name=str(moderator) if moderator else None,
             target=f"{target} ({target.id})",
             details=reason,
             source="mod",
@@ -329,18 +354,23 @@ class AuditLogger:
         else:
             age_str = f"{days} Tag(e)"
 
-        # Warnung bei jungem Account (< 7 Tage)
+        # Markierung neuer Konten (nur hier im Log-Kanal, nie oeffentlich):
+        # junge Konten und Konten ohne eigenen Avatar sind typische Raid-Muster.
+        neu = days < NEW_ACCOUNT_DAYS
+        ohne_avatar = member.avatar is None
         warning = ""
-        if days < 7:
-            warning = "\n**Achtung: Neuer Account!**"
+        if neu:
+            warning = f"\n⚠️ **Neues Konto** (jünger als {NEW_ACCOUNT_DAYS} Tage)"
+        if ohne_avatar:
+            warning += "\nKein eigenes Profilbild"
 
         embed = discord.Embed(
-            title="Mitglied beigetreten",
+            title="⚠️ Neues Konto beigetreten" if neu else "Mitglied beigetreten",
             description=(
                 f"{member.mention} (`{member}`) ist dem Server beigetreten."
                 f"{warning}"
             ),
-            color=COLOR_JOIN,
+            color=COLOR_MOD if neu else COLOR_JOIN,
             timestamp=now,
         )
 
@@ -369,7 +399,7 @@ class AuditLogger:
             user_id=str(member.id),
             user_name=str(member),
             target=member.guild.name if member.guild else None,
-            details=f"Account-Alter: {age_str}",
+            details=f"Account-Alter: {age_str}" + (" (neu)" if neu else ""),
         )
 
         return await self._send_embed(bot, "join_log_channel", embed)
@@ -791,4 +821,159 @@ class AuditLogger:
             details=f"Farbe: {role.color}",
         )
 
+        return await self._send_embed(bot, "server_log_channel", embed)
+
+    # ------------------------------------------------------------------
+    # Erweiterung 20.10.2026: Nachrichten, Voice, Invites
+    # ------------------------------------------------------------------
+
+    def is_log_channel(self, channel_id: int) -> bool:
+        """Ist der Kanal selbst ein Audit-Kanal? Dort wird nichts geloggt (Schleifen)."""
+        return channel_id in {v for v in self._config.values() if isinstance(v, int) and v}
+
+    @staticmethod
+    def zitat(text: Optional[str]) -> str:
+        """Nachrichtentext fuer ein Embed-Feld: Markdown entschaerft, auf CONTENT_LIMIT gekuerzt."""
+        text = discord.utils.escape_markdown(text or "")
+        if len(text) > CONTENT_LIMIT:
+            text = text[:CONTENT_LIMIT] + " …"
+        return text or "*(kein Text)*"
+
+    async def log_message_delete(
+        self, bot: discord.Client, message: discord.Message
+    ) -> bool:
+        """Geloeschte Nachricht (aus dem Cache) mit Inhalt loggen."""
+        embed = discord.Embed(
+            title="Nachricht gelöscht",
+            color=COLOR_LEAVE,
+            timestamp=datetime.now(timezone.utc),
+        )
+        embed.add_field(name="Autor", value=f"{message.author.mention} (`{message.author}`)", inline=True)
+        embed.add_field(name="Kanal", value=message.channel.mention, inline=True)
+        embed.add_field(name="Inhalt", value=self.zitat(message.content), inline=False)
+        if message.attachments:
+            embed.add_field(
+                name="Anhänge",
+                value="\n".join(a.filename for a in message.attachments)[:1024],
+                inline=False,
+            )
+        embed.set_footer(text=f"User-ID: {message.author.id} · Nachricht: {message.id}")
+
+        # Inhalt bewusst NICHT in die DB (nur Laenge und Anzahl Anhaenge)
+        await self._log_to_db(
+            action="message_delete",
+            user_id=str(message.author.id),
+            user_name=str(message.author),
+            target=f"#{getattr(message.channel, 'name', message.channel.id)}",
+            details=f"{len(message.content or '')} Zeichen, {len(message.attachments)} Anhang/Anhänge",
+        )
+        return await self._send_embed(bot, "message_log_channel", embed)
+
+    async def log_message_delete_uncached(
+        self, bot: discord.Client, channel_id: int, message_id: int
+    ) -> bool:
+        """Geloeschte Nachricht, die nicht im Cache lag (aelter als der Bot-Start)."""
+        embed = discord.Embed(
+            title="Nachricht gelöscht",
+            description=f"In <#{channel_id}>. Die Nachricht ist älter als der Bot-Start, Inhalt unbekannt.",
+            color=COLOR_LEAVE,
+            timestamp=datetime.now(timezone.utc),
+        )
+        embed.set_footer(text=f"Nachricht: {message_id}")
+        return await self._send_embed(bot, "message_log_channel", embed)
+
+    async def log_bulk_delete(
+        self, bot: discord.Client, channel_id: int, count: int
+    ) -> bool:
+        """Massenloeschung (z. B. /clear) loggen."""
+        embed = discord.Embed(
+            title="Massenlöschung",
+            description=f"**{count}** Nachrichten in <#{channel_id}> gelöscht.",
+            color=COLOR_MOD,
+            timestamp=datetime.now(timezone.utc),
+        )
+        await self._log_to_db(action="message_bulk_delete", target=str(channel_id), details=f"{count} Nachrichten")
+        return await self._send_embed(bot, "message_log_channel", embed)
+
+    async def log_message_edit(
+        self, bot: discord.Client, before: discord.Message, after: discord.Message
+    ) -> bool:
+        """Bearbeitete Nachricht mit altem und neuem Text loggen."""
+        embed = discord.Embed(
+            title="Nachricht bearbeitet",
+            description=f"[Zur Nachricht]({after.jump_url})",
+            color=COLOR_NICK,
+            timestamp=datetime.now(timezone.utc),
+        )
+        embed.add_field(name="Autor", value=f"{after.author.mention} (`{after.author}`)", inline=True)
+        embed.add_field(name="Kanal", value=after.channel.mention, inline=True)
+        embed.add_field(name="Vorher", value=self.zitat(before.content), inline=False)
+        embed.add_field(name="Nachher", value=self.zitat(after.content), inline=False)
+        embed.set_footer(text=f"User-ID: {after.author.id} · Nachricht: {after.id}")
+        await self._log_to_db(
+            action="message_edit",
+            user_id=str(after.author.id),
+            user_name=str(after.author),
+            target=f"#{getattr(after.channel, 'name', after.channel.id)}",
+        )
+        return await self._send_embed(bot, "message_log_channel", embed)
+
+    async def log_voice(
+        self,
+        bot: discord.Client,
+        member: discord.Member,
+        before: discord.VoiceState,
+        after: discord.VoiceState,
+    ) -> bool:
+        """Voice beitreten / wechseln / verlassen loggen (Mute/Deafen nicht)."""
+        if before.channel == after.channel:
+            return False
+        if before.channel is None:
+            titel, farbe, aktion = "Voice beigetreten", COLOR_JOIN, "voice_join"
+            text = f"{member.mention} ist {after.channel.mention} beigetreten."
+        elif after.channel is None:
+            titel, farbe, aktion = "Voice verlassen", COLOR_LEAVE, "voice_leave"
+            text = f"{member.mention} hat {before.channel.mention} verlassen."
+        else:
+            titel, farbe, aktion = "Voice gewechselt", COLOR_NICK, "voice_move"
+            text = f"{member.mention}: {before.channel.mention} → {after.channel.mention}"
+        embed = discord.Embed(
+            title=titel, description=text, color=farbe, timestamp=datetime.now(timezone.utc)
+        )
+        embed.set_footer(text=f"User-ID: {member.id}")
+        await self._log_to_db(
+            action=aktion,
+            user_id=str(member.id),
+            user_name=str(member),
+            target=getattr(after.channel or before.channel, "name", None),
+        )
+        return await self._send_embed(bot, "voice_log_channel", embed)
+
+    async def log_invite(
+        self, bot: discord.Client, invite: discord.Invite, created: bool
+    ) -> bool:
+        """Einladung erstellt oder geloescht loggen."""
+        embed = discord.Embed(
+            title="Einladung erstellt" if created else "Einladung gelöscht",
+            color=COLOR_CHANNEL_CREATE if created else COLOR_CHANNEL_DELETE,
+            timestamp=datetime.now(timezone.utc),
+        )
+        embed.add_field(name="Code", value=f"`{invite.code}`", inline=True)
+        if invite.channel is not None:
+            embed.add_field(name="Kanal", value=f"<#{invite.channel.id}>", inline=True)
+        if created:
+            if invite.inviter:
+                embed.add_field(name="Erstellt von", value=f"{invite.inviter.mention} (`{invite.inviter}`)", inline=False)
+            embed.add_field(
+                name="Gültig",
+                value=(f"{invite.max_age // 3600} h" if invite.max_age else "unbegrenzt")
+                + (f", max. {invite.max_uses} Nutzungen" if invite.max_uses else ""),
+                inline=False,
+            )
+        await self._log_to_db(
+            action="invite_create" if created else "invite_delete",
+            user_id=str(invite.inviter.id) if created and invite.inviter else None,
+            user_name=str(invite.inviter) if created and invite.inviter else None,
+            target=invite.code,
+        )
         return await self._send_embed(bot, "server_log_channel", embed)
