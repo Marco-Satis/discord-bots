@@ -596,8 +596,10 @@ class LevelingCog(commands.Cog):
         """
         Level-Up Nachricht für Voice-XP senden.
 
-        Versucht den System-Channel des Guilds zu verwenden.
-        Falls nicht vorhanden, wird die Nachricht übersprungen.
+        Nur in den Announce-Channel aus dem Dashboard. Ohne brauchbaren
+        Announce-Channel wird die Nachricht übersprungen: Der frühere Ausweg
+        über System-Channel bzw. ersten Textkanal landete in #willkommen oder
+        #regelwerk.
         """
         user_data = self.leveling.get_user(guild.id, member.id)
         new_level = user_data["level"]
@@ -606,18 +608,7 @@ class LevelingCog(commands.Cog):
             guild.id, member, new_level, via_voice=True
         )
 
-        # Announce-Channel (Dashboard) bevorzugen, sonst System-Channel,
-        # sonst ersten beschreibbaren Text-Channel.
-        channel: Optional[discord.abc.Messageable] = self._resolve_levelup_channel(
-            guild, guild.system_channel
-        )
-        if not channel:
-            for tc in guild.text_channels:
-                perms = tc.permissions_for(guild.me)
-                if perms.send_messages and perms.embed_links:
-                    channel = tc
-                    break
-
+        channel = self._resolve_levelup_channel(guild, None)
         if channel:
             await self._send_levelup(channel, member, file, embed, guild.id)
 
@@ -722,18 +713,25 @@ class LevelingCog(commands.Cog):
         """
         Ziel-Channel fuer Level-Up-Posts ermitteln (B2, Dashboard-konfigurierbar).
 
-        Bevorzugt den im Dashboard gesetzten Announce-Channel (wenn vorhanden,
-        existent und fuer den Bot beschreibbar). Sonst den uebergebenen Fallback:
-        Ausloese-Kanal bei Nachrichten, System-Channel bei Voice.
+        Ist ein Announce-Channel gesetzt, gilt nur er. Ist er geloescht oder
+        fuer den Bot nicht beschreibbar, faellt die Meldung aus (Warn-Log),
+        statt still in Ticket-, Team- oder Counting-Kanaele auszuweichen.
+        Nur ohne gesetzten Announce-Channel gilt der Fallback: Ausloese-Kanal
+        bei Nachrichten, bei Voice keiner.
         """
         cid = self.leveling.get_announce_channel(guild.id)
-        if cid:
-            ch = guild.get_channel(cid)
-            if isinstance(ch, discord.TextChannel):
-                perms = ch.permissions_for(guild.me)
-                if perms.send_messages and perms.embed_links:
-                    return ch
-        return fallback
+        if not cid:
+            return fallback
+        ch = guild.get_channel(cid)
+        if isinstance(ch, discord.TextChannel):
+            perms = ch.permissions_for(guild.me)
+            if perms.send_messages and perms.embed_links:
+                return ch
+        logger.warning(
+            f"[{guild.id}] Level-Up-Kanal {cid} fehlt oder ist nicht beschreibbar, "
+            f"Meldung entfaellt"
+        )
+        return None
 
     async def _send_levelup(
         self,
