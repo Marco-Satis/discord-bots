@@ -32,6 +32,7 @@ Die Logs gehen an Discord-Kanäle UND in die SQLite-Datenbank.
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -104,7 +105,22 @@ class AuditLogger:
 
     def __init__(self) -> None:
         self._config: dict[str, Any] = {}
+        self._mtime: float = 0.0
         self._load_config()
+
+    def _neu_laden_wenn_geaendert(self) -> None:
+        """
+        Datei neu lesen, wenn ein anderer Prozess sie geaendert hat.
+
+        Seit 21.10.2026 stellt auch das Dashboard die Log-Kanaele ein (Seite /logs).
+        Ohne diesen Abgleich galt eine Aenderung erst nach dem naechsten Marshal-Neustart.
+        """
+        try:
+            mtime = CONFIG_FILE.stat().st_mtime
+        except OSError:
+            return
+        if mtime != self._mtime:
+            self._load_config()
 
     # ------------------------------------------------------------------
     # Konfiguration laden/speichern
@@ -116,6 +132,7 @@ class AuditLogger:
             if CONFIG_FILE.exists():
                 with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                     self._config = json.load(f)
+                self._mtime = CONFIG_FILE.stat().st_mtime
                 # Fehlende Keys mit Defaults ergaenzen
                 for key, default_value in _DEFAULT_CONFIG.items():
                     self._config.setdefault(key, default_value)
@@ -131,14 +148,19 @@ class AuditLogger:
         """Audit-Konfiguration auf Disk speichern"""
         try:
             ADMIN_DATA_DIR.mkdir(parents=True, exist_ok=True)
-            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            # Atomar (tmp + replace): Marshal und Dashboard schreiben dieselbe Datei
+            tmp = CONFIG_FILE.with_suffix(".json.tmp")
+            with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(self._config, f, indent=2, ensure_ascii=False)
+            os.replace(tmp, CONFIG_FILE)
+            self._mtime = CONFIG_FILE.stat().st_mtime
             logger.info("Audit-Konfiguration gespeichert")
         except IOError as e:
             logger.error(f"Audit-Konfiguration speichern fehlgeschlagen: {e}")
 
     def get_config(self) -> dict[str, Any]:
         """Aktuelle Konfiguration zurueckgeben (Kopie)"""
+        self._neu_laden_wenn_geaendert()
         return self._config.copy()
 
     def set_channel(self, category: str, channel_id: int) -> bool:
@@ -178,6 +200,7 @@ class AuditLogger:
         Returns:
             TextChannel oder None wenn nicht konfiguriert/gefunden
         """
+        self._neu_laden_wenn_geaendert()
         channel_id = self._config.get(config_key, 0)
         if not channel_id:
             return None
@@ -687,6 +710,35 @@ class AuditLogger:
                 logged = True
 
         return logged
+
+    async def log_server_ereignis(
+        self,
+        bot: discord.Client,
+        titel: str,
+        felder: list[tuple[str, str]],
+        db_aktion: str,
+        akteur: Optional[discord.abc.User] = None,
+        farbe: int = COLOR_SERVER,
+    ) -> bool:
+        """
+        Allgemeines Server-Ereignis (Webhooks, Threads) ins Server-Log + audit_log.
+
+        Ergaenzt 21.10.2026: Webhooks und Threads tauchten bisher nirgends auf. Ein
+        neu angelegter Webhook ist ein typisches Zeichen einer Kontouebernahme.
+        """
+        embed = discord.Embed(title=titel, color=farbe, timestamp=datetime.now(timezone.utc))
+        for name, wert in felder:
+            embed.add_field(name=name, value=str(wert)[:1024] or "–", inline=True)
+        if akteur is not None:
+            embed.add_field(name="Von", value=f"{akteur.mention} ({akteur})", inline=True)
+        await self._log_to_db(
+            db_aktion,
+            user_id=str(akteur.id) if akteur else None,
+            user_name=str(akteur) if akteur else None,
+            target=next((w for n, w in felder if n in ("Kanal", "Thread")), None),
+            details="; ".join(f"{n}: {w}" for n, w in felder),
+        )
+        return await self._send_embed(bot, "server_log_channel", embed)
 
     async def log_channel_change(
         self,

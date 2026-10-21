@@ -652,3 +652,9 @@ body.c3::before,body.c3::after{content:none}
   *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important;scroll-behavior:auto!important}
   .is-flash{outline:2px solid var(--cyan);outline-offset:4px}
 }
+
+/* Leiste „Ungespeicherte Änderungen“ (c3.js) */
+.c3-dirty{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center;max-width:calc(100vw - 32px);padding:10px 12px 10px 18px;border:1px solid var(--magenta);border-radius:var(--r);background:rgba(23,21,42,.96);box-shadow:0 10px 40px -10px rgba(0,0,0,.8),0 0 24px -6px rgba(255,63,164,.55);font-size:14px;color:var(--text)}
+.c3-dirty[hidden]{display:none}
+.c3-dirty span{font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--violet-text);margin-right:6px}
+@media (max-width:760px){.c3-dirty{bottom:84px}}

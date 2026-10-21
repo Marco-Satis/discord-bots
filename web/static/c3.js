@@ -368,6 +368,60 @@
   }
   window.c3Rollen = rollen;
 
+  /* ---------- Ungespeicherte Änderungen (Maki-Vorschlag 7) ----------
+     Jede Einstellungs-Form in .c3-content: nach der ersten Eingabe erscheint unten eine Leiste
+     mit „Zurücksetzen“ und „Speichern“; Verlassen der Seite fragt nach. Ausgenommen sind
+     Befehlszeilen, Such- und Aktionsformulare (data-c3-nodirty oder ohne echte Eingabefelder). */
+  var dirtyForm = null, dirtyBar = null;
+  var NODIRTY = '[data-c3-nodirty], .rcon-form, #bl-add-form, .c3-search';
+  function zaehlt(form) {
+    if (!form || form.closest(NODIRTY) || !form.closest('.c3-content')) return false;
+    return !!form.querySelector('input:not([type=hidden]):not([type=submit]):not([type=button]):not([type=search]), select, textarea');
+  }
+  function bar() {
+    if (dirtyBar) return dirtyBar;
+    dirtyBar = document.createElement('div');
+    dirtyBar.className = 'c3-dirty';
+    dirtyBar.setAttribute('role', 'status');
+    dirtyBar.hidden = true;
+    var t = document.createElement('span'); t.textContent = 'Ungespeicherte Änderungen';
+    var r = document.createElement('button'); r.type = 'button'; r.className = 'btn'; r.textContent = 'Zurücksetzen';
+    var sv = document.createElement('button'); sv.type = 'button'; sv.className = 'btn btn-primary'; sv.textContent = 'Speichern';
+    r.addEventListener('click', function () {
+      if (!dirtyForm) return;
+      // Listen, die per Skript gepflegt werden (z. B. Zugang), stellt nur ein Neuladen sicher her
+      if (dirtyForm.querySelector('input[type=hidden][id]')) { dirtyForm = null; location.reload(); return; }
+      dirtyForm.reset(); sauber();
+    });
+    sv.addEventListener('click', function () {
+      if (!dirtyForm) return;
+      var f = dirtyForm;
+      if (f.requestSubmit) f.requestSubmit(); else f.submit();
+    });
+    dirtyBar.append(t, r, sv);
+    document.body.appendChild(dirtyBar);
+    return dirtyBar;
+  }
+  function sauber() { dirtyForm = null; if (dirtyBar) dirtyBar.hidden = true; }
+  function markiere(e) {
+    var f = e.target instanceof Element ? e.target.closest('form') : null;
+    if (!zaehlt(f)) return;
+    dirtyForm = f; bar().hidden = false;
+  }
+  document.addEventListener('input', markiere);
+  document.addEventListener('change', markiere);
+  document.addEventListener('submit', function (e) { if (e.target === dirtyForm) sauber(); }, true);
+  document.addEventListener('htmx:afterRequest', function (e) {
+    var f = e.detail && e.detail.elt && e.detail.elt.closest ? e.detail.elt.closest('form') : null;
+    if (f && f === dirtyForm && e.detail.successful) sauber();
+  });
+  document.addEventListener('htmx:afterSwap', function () {
+    if (dirtyForm && !document.body.contains(dirtyForm)) sauber();
+  });
+  window.addEventListener('beforeunload', function (e) {
+    if (dirtyForm && document.body.contains(dirtyForm)) { e.preventDefault(); e.returnValue = ''; }
+  });
+
   function boot() { init(); shards(); rollen(); }
   document.addEventListener('htmx:afterSwap', function (e) { rollen(e.target); });
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();

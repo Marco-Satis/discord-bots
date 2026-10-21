@@ -27,7 +27,7 @@ from modules.database.db_manager import get_read_db
 from modules.guild_context import GuildConfig, get_primary_guild_id
 from utils.config import ADMIN_DATA_DIR, funktion_aktiv
 from utils.logger import get_logger
-from web.channel_bridge import get_channels
+from web.channel_bridge import get_channels, get_roles
 from web.routes.moderation_route import RULES as AUTOMOD_REGELN
 from web.temp_voice_bridge import read_temp_voice_hubs
 
@@ -38,6 +38,7 @@ SCHALTBAR: dict[str, str] = {
     "leveling": "cogs/leveling_cog.py (_leveling_enabled)",
     "counting": "cogs/counting_cog.py (on_message, on_message_delete)",
     "audit": "modules/audit_logger.py (_send_embed)",
+    "sticky_roles": "cogs/sticky_roles_cog.py (_aktiv)",
 }
 
 # Quellen, die die Bots lesen (Pfade wie in den jeweiligen Modulen)
@@ -118,7 +119,50 @@ def _dateien_lesen() -> dict[str, Any]:
         "embeds_wartend": wartend,
         "hubs": hubs,
         "kanaele": {str(c.get("id")): c.get("name", "") for c in snapshot.get("channels", [])},
+        **_rollen_lesen(),
     }
+
+
+def _rollen_lesen() -> dict[str, Any]:
+    """Rollen (Name, Position) und Marshals hoechste Position aus dem Snapshot."""
+    rollen = get_roles(auswahl=False).get("roles", [])
+    marshal_top = next((r.get("bot_top") for r in rollen
+                        if r.get("managed") and "marshal" in str(r.get("name", "")).lower()), None)
+    return {
+        "rollen": {str(r["id"]): (r.get("name", ""), int(r.get("position", 0))) for r in rollen},
+        "marshal_top": marshal_top,
+    }
+
+
+def rollen_probleme(q: dict, ids: Any) -> list[str]:
+    """
+    Rollen, die Marshal vergeben soll, aber nicht kann: geloescht oder auf/ueber
+    seiner hoechsten Rolle (Maki-Vorschlag 7). Leere Liste ohne Snapshot-Daten.
+    """
+    rollen, top = q.get("rollen") or {}, q.get("marshal_top")
+    if not rollen:
+        return []
+    probleme = []
+    for rid in ids or []:
+        if not rid:
+            continue
+        eintrag = rollen.get(str(rid))
+        if eintrag is None:
+            probleme.append("eine gelöschte Rolle")
+        elif top is not None and eintrag[1] >= top:
+            probleme.append(f"„{eintrag[0]}“ liegt über Marshal")
+    return probleme
+
+
+async def _ids(sql: str, params: tuple = ()) -> list[str]:
+    """Eine Spalte als ID-Liste; leer wenn die Tabelle fehlt."""
+    try:
+        conn = await get_read_db()
+        cursor = await conn.execute(sql, params)
+        return [str(z[0]) for z in await cursor.fetchall()]
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"ID-Abfrage fehlgeschlagen ({sql[:40]}): {e}")
+        return []
 
 
 async def _zahl(sql: str, params: tuple = ()) -> Optional[int]:
@@ -162,11 +206,12 @@ async def lade_quellen() -> dict[str, Any]:
     quellen.update(await asyncio.to_thread(_dateien_lesen))
     sgid = str(gid) if gid is not None else ""
     (quellen["rr_panels"], quellen["giveaways_laufend"], quellen["custom_commands"],
-     quellen["willkommen"]) = await asyncio.gather(
+     quellen["willkommen"], quellen["rr_rollen"]) = await asyncio.gather(
         _zahl("SELECT COUNT(DISTINCT message_id) FROM reaction_roles WHERE guild_id = ?", (sgid,)),
         _zahl("SELECT COUNT(*) FROM giveaways WHERE ended = 0"),
         _zahl("SELECT COUNT(*) FROM custom_commands"),
         _willkommen(sgid),
+        _ids("SELECT DISTINCT role_id FROM reaction_roles WHERE guild_id = ?", (sgid,)),
     )
     # Automod-Regeln: der Bot nimmt den guild_config-Wert, sonst den Code-Standard
     # (Wortfilter/Anti-Spam zusätzlich mit dem features-Schalter aus config.json).
@@ -187,13 +232,20 @@ def kanal_info(kanaele: dict[str, str], label: str, cid: Any) -> Optional[dict]:
 
 def _karte(key: str, name: str, gruppe: str, text: str, status: str, info: str,
            kanaele: list = (), schalter: Optional[bool] = None, ohne_schalter: str = "",
-           einstellen: str = "", link: str = "") -> dict:
-    """Eine Karte; ein gelöschter Zielkanal macht aus „aktiv" ein „prüfen"."""
+           einstellen: str = "", link: str = "", rollen: list = ()) -> dict:
+    """
+    Eine Karte; ein gelöschter Zielkanal oder eine Rolle, die Marshal nicht vergeben
+    kann (`rollen` = Ergebnis von rollen_probleme), macht aus „aktiv" ein „prüfen".
+    """
     kan = [k for k in kanaele if k]
     fehlend = [k for k in kan if k["fehlt"]]
     if status == "aktiv" and fehlend:
         status = "pruefen"
         info = f"Zielkanal gelöscht ({', '.join(k['label'] for k in fehlend)}). {info}".strip()
+    if status == "aktiv" and rollen:
+        status = "pruefen"
+        info = (f"Marshal kann {', '.join(rollen)} nicht vergeben: "
+                f"seine Rolle in den Server-Einstellungen höher ziehen. {info}").strip()
     return {
         "key": key, "name": name, "gruppe": gruppe, "text": text,
         "status": status, "status_text": STATUS_TEXT[status], "info": info,
@@ -233,7 +285,7 @@ def baue_karten(q: dict) -> list[dict]:
         "verifizierung", "Verifizierung", "Sicherheit",
         "Knopf zum Freischalten neuer Mitglieder.", status, info,
         ohne_schalter="Sicherheit wird bewusst in Discord geschaltet.",
-        einstellen="/sicherheit verifizierung",
+        einstellen="/sicherheit verifizierung", rollen=rollen_probleme(q, [verify_rolle]),
     ))
 
     schwelle = int(cfg.get("security.raid_threshold", 0) or 0)
@@ -302,7 +354,7 @@ def baue_karten(q: dict) -> list[dict]:
     karten.append(_karte(
         "audit", "Audit-Log", "Sicherheit",
         "Beitritte, Austritte, Rollen, Nachrichten, Voice und Moderation im Log-Kanal.",
-        status, info, kanaele=audit_kanaele, schalter=audit_an, einstellen="/audit",
+        status, info, kanaele=audit_kanaele, schalter=audit_an, einstellen="/audit", link="/logs",
     ))
 
     auto = q.get("backup_auto") or {}
@@ -335,6 +387,7 @@ def baue_karten(q: dict) -> list[dict]:
         "aktiv" if lvl_an else "aus",
         info if lvl_an else "Es gibt keine XP. Rangrollen bleiben, wie sie sind.",
         kanaele=[lvl_kanal], schalter=lvl_an, link="/leveling",
+        rollen=rollen_probleme(q, list((cfg.get("leveling.role_rewards") or {}).values())),
     ))
 
     zaehl_kanal = kanal_info(kan, "Zählkanal", cfg.get("counting.channel_id"))
@@ -369,6 +422,7 @@ def baue_karten(q: dict) -> list[dict]:
         "Booster bekommen die Rolle, wer nicht mehr boostet, verliert sie."
         if sup and verify_rolle else "Supporter- oder Verifiziert-Rolle fehlt.",
         ohne_schalter="Aus würde die Rollen einfrieren.", einstellen="/supporter",
+        rollen=rollen_probleme(q, [sup]),
     ))
 
     rr = q.get("rr_panels")
@@ -376,7 +430,7 @@ def baue_karten(q: dict) -> list[dict]:
         "reaction_roles", "Reaction Roles", "Gemeinschaft", "Rollen per Reaktion auf eine Nachricht.",
         "aktiv" if rr else "offen", f"{rr} Nachricht(en) mit Rollen." if rr else "Keine Nachricht eingerichtet.",
         ohne_schalter="Aus würde Reaktionen verlieren, die Rollen liefen auseinander.",
-        einstellen="/reactionrole",
+        einstellen="/reactionrole", rollen=rollen_probleme(q, q.get("rr_rollen")),
     ))
 
     gw = q.get("giveaways_laufend")
@@ -399,6 +453,16 @@ def baue_karten(q: dict) -> list[dict]:
         einstellen="/welcome",
     ))
 
+    sticky_an = _an(q, "sticky_roles")
+    karten.append(_karte(
+        "sticky_roles", "Sticky-Rollen", "Gemeinschaft",
+        "Wer geht und wiederkommt, bekommt seine Rollen zurück.",
+        "aktiv" if sticky_an else "aus",
+        "Ohne Team- und Bot-Rollen, nicht während einer Raid-Sperre, Speicher 180 Tage."
+        if sticky_an else "Rückkehrer starten ohne ihre alten Rollen.",
+        schalter=sticky_an,
+    ))
+
     # --- Werkzeuge ---
     hubs = q.get("hubs") or []
     hub_kanaele = [kanal_info(kan, f"Hub {i + 1}", h.get("hub_id")) for i, h in enumerate(hubs)]
@@ -419,7 +483,7 @@ def baue_karten(q: dict) -> list[dict]:
         "aktiv" if tk else "offen",
         f"{rollen} Support-Rolle(n)." if tk else "Nicht eingerichtet.",
         kanaele=tk_kanaele, ohne_schalter="Die Ticket-Knöpfe bleiben dauerhaft im Kanal.",
-        einstellen="/ticket setup",
+        einstellen="/ticket setup", link="/tickets",
     ))
 
     wartend = q.get("embeds_wartend", 0)

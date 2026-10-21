@@ -1,0 +1,59 @@
+{% from "partials/_channel_select.html" import channel_select %}
+{# Log-Kanäle (HTMX-Ziel #logs-config, outerHTML). Feldnamen kanal_<kategorie>, leer = aus. #}
+<div id="logs-config">
+  {% if success %}<div class="c3-flash c3-flash--ok" role="status"><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span>{{ success }}</span></div>{% endif %}
+  {% if error %}<div class="c3-flash c3-flash--bad" role="alert"><svg class="i" aria-hidden="true"><use href="#i-alert"/></svg><span>{{ error }}</span></div>{% endif %}
+
+  <form hx-post="/logs" hx-target="#logs-config" hx-swap="outerHTML" class="stat-card">
+    <div class="log-alle">
+      <label for="log-alle">Alle Bereiche in einen Kanal</label>
+      <div class="log-alle-zeile">
+        <select class="channel-select" id="log-alle" data-channel-select data-kind="text" data-value="">
+          <option value="">— Kanal wählen —</option>
+        </select>
+        <button type="button" class="btn" onclick="logsAlle()">Für alle übernehmen</button>
+      </div>
+    </div>
+
+    <ul class="log-liste">
+      {% for z in zeilen %}
+      <li class="log-zeile">
+        <div>
+          <div class="toggle-info-label">{{ z.titel }}</div>
+          <div class="toggle-info-desc">{{ z.text }}</div>
+        </div>
+        <div class="log-wahl" aria-label="Kanal für {{ z.titel }}">{{ channel_select('kanal_' ~ z.kategorie, z.wert, kind='text', placeholder='— aus —') }}</div>
+      </li>
+      {% endfor %}
+    </ul>
+
+    <div class="actions-bar">
+      <button type="submit" class="btn btn-primary">Speichern</button>
+    </div>
+  </form>
+</div>
+
+<style>
+.log-alle { margin-bottom: 14px; }
+.log-alle label { display:block; font-size:12px; color:var(--text-2); margin-bottom:6px; }
+.log-alle-zeile { display:flex; flex-wrap:wrap; gap:10px; }
+.log-alle-zeile select { flex:1 1 240px; max-width:420px; }
+.log-liste { list-style:none; margin:0; padding:0; }
+.log-zeile { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; padding:12px 0; border-top:1px solid var(--line); }
+.log-wahl { flex:0 1 320px; min-width:0; }
+.log-wahl select { width:100%; }
+</style>
+<script>
+window.logsAlle = function () {
+  var quelle = document.getElementById('log-alle');
+  if (!quelle || !quelle.value) return;
+  document.querySelectorAll('#logs-config select[name^="kanal_"]').forEach(function (s) {
+    if (!Array.prototype.some.call(s.options, function (o) { return o.value === quelle.value; })) {
+      var o = document.createElement('option'); o.value = quelle.value;
+      o.textContent = quelle.options[quelle.selectedIndex].textContent; s.appendChild(o);
+    }
+    s.value = quelle.value;
+    s.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+};
+</script>

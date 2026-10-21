@@ -1,0 +1,112 @@
+{#- Platzhalter-Liste neben Textfeldern (gemeinsames System: modules/platzhalter.py).
+
+    Benutzung:
+      {% from "partials/_platzhalter.html" import platzhalter_liste %}
+      {{ platzhalter_liste('welcome_message') }}
+      {{ platzhalter_liste('embed-form', mitglied=False, hinweis='…') }}
+      {{ platzhalter_liste('cc_response', extra=[('{level}', 'Level des Mitglieds', '12')]) }}
+
+    target_id: id eines <textarea>/<input> — dort wird an der Cursorposition
+      eingefügt. Ist es ein Container (z. B. ein <form>), landet der Platzhalter
+      im zuletzt gewählten Textfeld darin (sonst im ersten Textfeld).
+    extra: zusätzliche (key, Beschreibung, Beispiel)-Tupel des Moduls.
+    mitglied: False blendet {user}, {user.name}, {kontoalter}, {beitritt} aus
+      (Nachrichten ohne auslösendes Mitglied, z. B. Embed-Sender).
+-#}
+{% macro platzhalter_liste(target_id, extra=[], mitglied=True, hinweis="") %}
+{%- set liste = platzhalter(mitglied, extra) -%}
+<div class="ph-box">
+  <div class="ph-kopf">
+    <span class="c3-label">Platzhalter</span>
+    {% if hinweis %}<span class="ph-hinweis">{{ hinweis }}</span>{% endif %}
+  </div>
+  <div class="ph-chips" role="group" aria-label="Platzhalter einfügen">
+    {%- for p in liste %}
+    <button type="button" class="c3-chip c3-chip--setup ph-chip"
+            data-ph-ziel="{{ target_id }}" data-ph-wert="{{ p.key }}"
+            title="{{ p.beschreibung }}{% if p.beispiel %} · z. B. {{ p.beispiel }}{% endif %}"
+            aria-label="{{ p.key }} einfügen: {{ p.beschreibung }}">{{ p.key }}</button>
+    {%- endfor %}
+  </div>
+  <details class="ph-details">
+    <summary>Was bedeuten die Platzhalter?</summary>
+    <dl class="ph-dl">
+      {%- for p in liste %}
+      <div><dt><code>{{ p.key }}</code></dt><dd>{{ p.beschreibung }}{% if p.beispiel %} · z. B. <span class="ph-bsp">{{ p.beispiel }}</span>{% endif %}</dd></div>
+      {%- endfor %}
+    </dl>
+  </details>
+</div>
+<style>
+.ph-box{margin-top:8px;min-width:0}
+.ph-kopf{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;margin-bottom:6px}
+.ph-hinweis{font-size:12px;color:var(--text-3,#9a95ae)}
+.ph-chips{display:flex;flex-wrap:wrap;gap:6px}
+.ph-chip{min-height:32px;padding:4px 9px;background:transparent;text-transform:none;letter-spacing:0;font-size:12px;font-weight:500;cursor:pointer;max-width:100%}
+.ph-chip:hover{background:rgba(184,77,255,.12)}
+.ph-chip:focus-visible{outline:2px solid var(--cyan,#53e7f2);outline-offset:2px}
+.ph-chip.ph-chip--ok{border-color:var(--cyan,#53e7f2);color:var(--cyan,#53e7f2)}
+.ph-chip.ph-chip--voll{border-color:var(--magenta,#ff3fa4);color:var(--magenta,#ff3fa4)}
+.ph-details{margin-top:6px;font-size:12.5px;color:var(--text-2,#c9c4dc)}
+.ph-details summary{cursor:pointer;color:var(--text-3,#9a95ae);min-height:28px;display:flex;align-items:center}
+.ph-dl{margin:4px 0 0;display:grid;gap:4px}
+.ph-dl div{display:grid;grid-template-columns:minmax(0,9.5em) minmax(0,1fr);gap:8px}
+.ph-dl dt,.ph-dl dd{margin:0;overflow-wrap:anywhere}
+.ph-dl code{font-family:var(--mono,ui-monospace,monospace);color:var(--violet-text,#d9b8ff)}
+.ph-bsp{color:var(--text-3,#9a95ae)}
+</style>
+<script>
+(function () {
+  if (window.__platzhalterInit) return;
+  window.__platzhalterInit = true;
+  var letztes = null;
+
+  function istFeld(el) {
+    if (!el || !el.tagName) return false;
+    if (el.tagName === 'TEXTAREA') return true;
+    return el.tagName === 'INPUT' && /^(text|search)$/i.test(el.getAttribute('type') || 'text');
+  }
+
+  function zielFeld(ziel) {
+    if (!ziel) return null;
+    if (istFeld(ziel)) return ziel;
+    if (letztes && letztes.isConnected && ziel.contains(letztes)) return letztes;
+    return ziel.querySelector('textarea, input[type="text"], input:not([type])');
+  }
+
+  function zeige(btn, klasse) {
+    btn.classList.add(klasse);
+    setTimeout(function () { btn.classList.remove(klasse); }, 700);
+  }
+
+  document.addEventListener('focusin', function (e) {
+    if (istFeld(e.target)) letztes = e.target;
+  });
+
+  // Fokus im Textfeld lassen, damit Cursor/Auswahl erhalten bleiben (Maus)
+  document.addEventListener('mousedown', function (e) {
+    if (e.target.closest && e.target.closest('[data-ph-wert]')) e.preventDefault();
+  });
+
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest && e.target.closest('[data-ph-wert]');
+    if (!btn) return;
+    var el = zielFeld(document.getElementById(btn.getAttribute('data-ph-ziel')));
+    if (!el) return;
+    var wert = btn.getAttribute('data-ph-wert') || '';
+    var text = el.value || '';
+    // Noch nie angeklickt: ans Ende anhängen statt an Position 0
+    var benutzt = el === letztes && typeof el.selectionStart === 'number';
+    var start = benutzt ? el.selectionStart : text.length;
+    var ende = benutzt && typeof el.selectionEnd === 'number' ? el.selectionEnd : start;
+    var neu = text.slice(0, start) + wert + text.slice(ende);
+    if (el.maxLength > 0 && neu.length > el.maxLength) { zeige(btn, 'ph-chip--voll'); return; }
+    el.value = neu;
+    el.focus();
+    try { el.setSelectionRange(start + wert.length, start + wert.length); } catch (_) {}
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    zeige(btn, 'ph-chip--ok');
+  });
+})();
+</script>
+{% endmacro %}

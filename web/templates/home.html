@@ -151,5 +151,22 @@
     {% endif %}
   </section>
 
+  {% if user and user.is_owner in (true, "True", "true") %}
+  {# ---------- Letzte Dashboard-Änderungen (nur Owner) ---------- #}
+  <section class="c3-panel hud span12" style="--hud:rgba(244,241,255,.22);--hi:-3px;--hlen:9px" aria-labelledby="ch-h">
+    <div class="c3-p-head"><h2 class="c3-p-title" id="ch-h"><svg class="i" aria-hidden="true"><use href="#i-file"/></svg>Zuletzt im Dashboard geändert</h2>
+      <a class="c3-p-link" href="/audit">Alle Änderungen<svg class="i" aria-hidden="true"><use href="#i-arrow"/></svg></a></div>
+    {% if aenderungen %}
+    <ol class="c3-events">
+      {% for e in aenderungen %}
+      <li class="c3-ev"><span class="c3-ev-time">{{ e.zeit }}{% if e.tag %}<span class="c3-label c3-ev-from">{{ e.tag }}</span>{% endif %}</span><span class="c3-ev-txt">{{ e.text }}<span class="c3-label c3-ev-from">{{ e.quelle }}</span></span></li>
+      {% endfor %}
+    </ol>
+    {% else %}
+    <p class="c3-empty">Seit heute wird jede Änderung protokolliert. Noch keine.</p>
+    {% endif %}
+  </section>
+  {% endif %}
+
 </div>
 {% endblock %}

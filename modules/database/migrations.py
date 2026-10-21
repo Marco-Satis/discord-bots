@@ -11,7 +11,7 @@ from utils.logger import get_logger
 logger = get_logger("database.migrations")
 
 # Aktuelle Schema-Version
-CURRENT_VERSION = 14
+CURRENT_VERSION = 15
 
 
 # Komplettes Schema (23 Tabellen + Indices + FTS5)
@@ -460,6 +460,13 @@ async def run_migrations(db: aiosqlite.Connection) -> None:
         await set_schema_version(db, 14)
         logger.info("Migration v13 → v14 abgeschlossen")
 
+    # Version 14 → 15: Moderations-Akte (Notizen + Beweisbilder)
+    if current < 15:
+        logger.info("Migration v14 → v15: mod_notes")
+        await _apply_migration_v15(db)
+        await set_schema_version(db, 15)
+        logger.info("Migration v14 → v15 abgeschlossen")
+
     final = await get_schema_version(db)
     logger.info(f"Alle Migrationen abgeschlossen. Schema-Version: {final}")
 
@@ -493,6 +500,7 @@ async def _apply_schema_v1(db: aiosqlite.Connection) -> None:
     await _apply_migration_v12(db)
     await _apply_migration_v13(db)
     await _apply_migration_v14(db)
+    await _apply_migration_v15(db)
 
     # Diese Liste ist die Stelle, an der eine neue Migration am leichtesten
     # vergessen wird. Vergisst man sie, meldet eine frische Datenbank die volle
@@ -1112,3 +1120,46 @@ async def _apply_migration_v14(db: aiosqlite.Connection) -> None:
     )
     await db.commit()
     logger.info("Migration v14: Spalten 'gemerkt', 'gemerkt_von', 'gemerkt_grund' angelegt")
+
+
+# =====================================================
+# Migration v15: Moderations-Akte (Notizen)
+# =====================================================
+
+SCHEMA_V15_MOD_NOTES = """
+-- =====================================================
+-- Moderations-Notizen pro Mitglied (Akte)
+-- guild_id/user_id/author_id = Discord-IDs als TEXT (Schema-Konvention)
+-- evidence_file = Dateiname unter data/admin/evidence/ (KEINE CDN-URL —
+--                 Discord-Anhang-Links laufen ab), NULL = ohne Beweisbild
+-- created_at/updated_at = ISO-8601 in UTC
+-- =====================================================
+CREATE TABLE IF NOT EXISTS mod_notes (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id      TEXT NOT NULL,
+    user_id       TEXT NOT NULL,
+    author_id     TEXT NOT NULL,
+    text          TEXT NOT NULL,
+    evidence_file TEXT,
+    created_at    TEXT NOT NULL,
+    updated_at    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_mod_notes_guild_user
+    ON mod_notes(guild_id, user_id);
+"""
+
+
+async def _apply_migration_v15(db: aiosqlite.Connection) -> None:
+    """
+    v15: Tabelle `mod_notes` fuer die Moderations-Akte.
+
+    Verwarnungen stehen in `warns`, Timeouts/Banns/Kicks in `audit_log`. Was
+    fehlte, war der Platz fuer das, was Moderatoren sich zu einem Mitglied
+    merken wollen, ohne gleich zu verwarnen — mit optionalem Beweisbild, das
+    lokal liegt, weil Discord-Anhang-Links nach einiger Zeit ablaufen.
+
+    Rein additiv und idempotent (CREATE ... IF NOT EXISTS).
+    """
+    await db.executescript(SCHEMA_V15_MOD_NOTES)
+    await db.commit()
+    logger.info("Migration v15: mod_notes + Index angelegt")

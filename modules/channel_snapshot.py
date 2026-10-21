@@ -86,6 +86,13 @@ def build_roles(guild: Any) -> list[dict[str, Any]]:
                 "color": f"#{farbe:06x}" if farbe else "",
                 "managed": bool(getattr(r, "managed", False)),
             })
+            # Bot-Rolle: hoechste Rolle des Bots mitschreiben. Das Dashboard warnt damit,
+            # wenn eine Rolle, die Marshal vergeben soll, ueber ihm liegt (Maki-Vorschlag 7).
+            bot_id = getattr(getattr(r, "tags", None), "bot_id", None)
+            if bot_id:
+                bot_member = guild.get_member(int(bot_id))
+                if bot_member is not None:
+                    out[-1]["bot_top"] = int(bot_member.top_role.position)
         except Exception as e:  # einzelne kaputte Rolle nicht den ganzen Snapshot kippen lassen
             logger.warning(f"channel_snapshot: Rolle uebersprungen: {e}")
     out.sort(key=lambda x: -x["position"])

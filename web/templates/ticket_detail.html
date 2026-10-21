@@ -1,0 +1,96 @@
+{% extends "base_v5.html" %}
+{% from "partials/_c3_kopf.html" import kopf %}
+
+{% block title %}Ticket #{{ ticket.id }}{% endblock %}
+{% block crumb %}Tickets{% endblock %}
+
+{% block content %}
+{% call kopf("Discord-Server", "Ticket #" ~ ticket.id, ticket.subject or "Kein Betreff", chip=ticket.status, chip_art=("on" if ticket.is_open else "off")) %}
+    <a class="btn btn-secondary btn-sm" href="/tickets">Zur Übersicht</a>
+{% endcall %}
+
+<div class="tk-meta">
+    <div class="stat-card tk-meta-card">
+        <span class="stat-label">Erstellt von</span>
+        <span class="tk-meta-val tk-wrap">{{ ticket.creator.name }}</span>
+    </div>
+    <div class="stat-card tk-meta-card">
+        <span class="stat-label">Art</span>
+        <span class="tk-meta-val">{{ ticket.art }}</span>
+    </div>
+    <div class="stat-card tk-meta-card">
+        <span class="stat-label">Geöffnet</span>
+        <span class="tk-meta-val">{{ ticket.created or "—" }}</span>
+    </div>
+    <div class="stat-card tk-meta-card">
+        <span class="stat-label">Geschlossen</span>
+        <span class="tk-meta-val tk-wrap">{% if ticket.closed %}{{ ticket.closed }}{% if ticket.closed_by %} · {{ ticket.closed_by.name }}{% endif %}{% else %}—{% endif %}</span>
+    </div>
+    <div class="stat-card tk-meta-card">
+        <span class="stat-label">Nachrichten</span>
+        <span class="tk-meta-val">{{ ticket.msg_count }}</span>
+    </div>
+</div>
+
+<section class="config-section tk-chat" aria-label="Verlauf">
+    <h3 class="section-title">Verlauf</h3>
+    {% if ticket.messages %}
+    <ol class="tk-msgs">
+        {% for m in ticket.messages %}
+        <li class="tk-msg{% if m.author.system %} tk-msg--system{% elif m.is_creator %} tk-msg--creator{% endif %}">
+            {% if m.author.avatar %}<img class="tk-ava" src="{{ m.author.avatar }}" alt="" width="36" height="36" loading="lazy" referrerpolicy="no-referrer">{% else %}<span class="tk-ava tk-ava--txt" aria-hidden="true">{{ m.author.initial }}</span>{% endif %}
+            <div class="tk-body">
+                <div class="tk-head">
+                    <span class="tk-author tk-wrap">{{ m.author.name }}</span>
+                    {% if m.is_creator %}<span class="c3-chip c3-chip--setup">Ersteller</span>{% endif %}
+                    <time class="tk-when">{{ m.time }}</time>
+                </div>
+                {% if m.segments %}<p class="tk-text tk-wrap">{% for s in m.segments %}{% if s.href %}<a href="{{ s.href }}" target="_blank" rel="noopener noreferrer nofollow">{{ s.text }}</a>{% else %}{{ s.text }}{% endif %}{% endfor %}</p>{% endif %}
+                {% if m.attachments %}
+                <ul class="tk-files">
+                    {% for a in m.attachments %}
+                    <li><a class="tk-wrap" href="{{ a.href }}" target="_blank" rel="noopener noreferrer nofollow">Anhang: {{ a.name }}</a></li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+            </div>
+        </li>
+        {% endfor %}
+    </ol>
+    {% else %}
+    <p class="empty-text">In diesem Ticket wurde nichts geschrieben.</p>
+    {% endif %}
+</section>
+
+<p class="config-hint tk-hint">Anhänge liegen bei Discord. Ist die Original-Nachricht gelöscht, kann der Link ins Leere führen.</p>
+
+<style>
+    .tk-wrap { overflow-wrap: anywhere; word-break: break-word; }
+    .tk-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: 10px; margin: 0 0 14px; }
+    .tk-meta-card { display: flex; flex-direction: column; gap: 4px; padding: 10px 14px; min-width: 0; }
+    .tk-meta-card .stat-label { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); }
+    .tk-meta-val { color: var(--text); font-weight: 600; }
+    .tk-chat { min-width: 0; }
+    .tk-msgs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
+    .tk-msg { display: flex; gap: 12px; align-items: flex-start; min-width: 0; }
+    .tk-ava { width: 36px; height: 36px; border-radius: 50%; flex: none; object-fit: cover; }
+    .tk-ava--txt { display: inline-grid; place-items: center; background: rgba(184,77,255,.25); color: var(--text); font-size: 14px; font-weight: 700; }
+    .tk-msg--system .tk-ava--txt { background: rgba(154,149,174,.2); color: var(--text-3); }
+    .tk-body { flex: 1 1 auto; min-width: 0; }
+    .tk-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; }
+    .tk-author { font-weight: 700; color: var(--text); min-width: 0; }
+    .tk-msg--creator .tk-author { color: var(--cyan); }
+    .tk-msg--system .tk-author { color: var(--text-3); }
+    .tk-when { font-size: 12px; color: var(--text-3); font-family: var(--mono); }
+    .tk-text { margin: 4px 0 0; white-space: pre-wrap; color: var(--text); line-height: 1.5; }
+    .tk-msg--system .tk-text { color: var(--text-3); font-style: italic; }
+    .tk-text a, .tk-files a { color: var(--cyan); }
+    .tk-files { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+    .tk-hint { margin: 10px 0 0; }
+    @media (max-width: 480px) {
+        .tk-meta { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .tk-msg { gap: 8px; }
+        .tk-ava { width: 28px; height: 28px; }
+    }
+</style>
+{% endblock %}

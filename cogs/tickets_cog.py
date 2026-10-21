@@ -29,9 +29,10 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
+from modules.member_cache import upsert_member
 from modules.tickets import TicketManager
 from utils.logger import get_logger
-from utils.config import ADMIN_DATA_DIR, get_config
+from utils.config import ADMIN_DATA_DIR, get_config, get_env
 from utils.permissions import admin_only
 from utils.embeds import (
     error_embed,
@@ -87,6 +88,31 @@ STANDARD_ART = "allgemein"
 def _art_daten(art: str) -> dict[str, str]:
     """Metadaten einer Ticket-Art — unbekannte Art faellt auf 'allgemein'."""
     return TICKET_ARTEN.get(art, TICKET_ARTEN[STANDARD_ART])
+
+
+# Platzhalter-Domain aus web/app.py — damit gibt es keinen brauchbaren Link.
+_PLATZHALTER_DOMAIN = "beispiel.duckdns.org"
+
+
+def transcript_web_url(ticket_id: object) -> str:
+    """
+    Link zur Transcript-Seite im Dashboard (``https://<WEB_DOMAIN>/tickets/<id>``).
+
+    Leer, wenn WEB_DOMAIN fehlt, nur der Platzhalter ist oder die Ticket-Nummer
+    keine Zahl ist — dann sendet der Cog nur die Textdatei wie bisher.
+    """
+    domain = str(get_env("WEB_DOMAIN", "") or "").strip().strip("/")
+    if domain.startswith(("https://", "http://")):
+        domain = domain.split("://", 1)[1]
+    if not domain or domain == _PLATZHALTER_DOMAIN or "/" in domain:
+        return ""
+    try:
+        nummer = int(str(ticket_id))
+    except (TypeError, ValueError):
+        return ""
+    if nummer < 1:
+        return ""
+    return f"https://{domain}/tickets/{nummer}"
 
 
 class TicketCreateView(discord.ui.View):
@@ -450,6 +476,15 @@ class TicketsCog(commands.Cog):
                 content=content,
                 author_id=message.author.id,
             )
+            # Name + Avatar fuer die Transcript-Seite im Dashboard merken
+            # (ticket_messages speichert nur die User-ID). Best-Effort:
+            # upsert_member schluckt DB-Fehler selbst.
+            await upsert_member(
+                message.guild.id,
+                message.author.id,
+                message.author.display_name,
+                str(message.author.display_avatar.url),
+            )
 
     # ==================================================================
     # Ticket-Erstellung (von Modal aufgerufen)
@@ -599,6 +634,10 @@ class TicketsCog(commands.Cog):
                 content=description,
                 author_id=user.id,
             )
+        # Ersteller fuer die Dashboard-Seite benennbar machen (Best-Effort)
+        await upsert_member(
+            guild.id, user.id, user.display_name, str(user.display_avatar.url),
+        )
 
         # Support-Rollen erwaehnen (in separater Nachricht, damit Embed sauber bleibt)
         support_mentions: list[str] = []
@@ -878,8 +917,28 @@ class TicketsCog(commands.Cog):
             filename=f"ticket-{ticket_id}-transcript.txt",
         )
 
+        # Zusaetzlich zur Textdatei: Link zur lesbaren Seite im Dashboard.
+        # Link-Knoepfe brauchen keinen Callback und ueberleben Neustarts.
+        view: discord.ui.View | None = None
+        web_url = transcript_web_url(ticket_id)
+        if web_url:
+            embed.add_field(
+                name="Verlauf im Dashboard",
+                value=f"[Ticket #{ticket_id} öffnen]({web_url})",
+                inline=False,
+            )
+            view = discord.ui.View(timeout=None)
+            view.add_item(discord.ui.Button(
+                label="Im Dashboard öffnen",
+                style=discord.ButtonStyle.link,
+                url=web_url,
+            ))
+
         try:
-            await log_channel.send(embed=embed, file=transcript_file)
+            if view is not None:
+                await log_channel.send(embed=embed, file=transcript_file, view=view)
+            else:
+                await log_channel.send(embed=embed, file=transcript_file)
         except (discord.Forbidden, discord.HTTPException) as e:
             logger.error(f"Transcript-Log senden fehlgeschlagen: {e}")
 

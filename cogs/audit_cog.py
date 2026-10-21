@@ -317,6 +317,69 @@ class AuditCog(commands.Cog):
         except Exception as e:
             logger.error(f"Fehler beim Loggen von role_delete: {e}", exc_info=True)
 
+    @commands.Cog.listener()
+    async def on_webhooks_update(self, channel: discord.abc.GuildChannel) -> None:
+        """Webhook in einem Kanal angelegt, geaendert oder geloescht."""
+        try:
+            await asyncio.sleep(_AUDIT_WAIT_S)
+            jetzt = datetime.now(timezone.utc)
+            treffer = None
+            aktionen = {
+                discord.AuditLogAction.webhook_create: "angelegt",
+                discord.AuditLogAction.webhook_update: "geändert",
+                discord.AuditLogAction.webhook_delete: "gelöscht",
+            }
+            try:
+                async for eintrag in channel.guild.audit_logs(limit=10):
+                    if eintrag.action not in aktionen:
+                        continue
+                    if (jetzt - eintrag.created_at).total_seconds() >= _AUDIT_MAX_AGE_S:
+                        break
+                    kanal_id = getattr(getattr(eintrag, "extra", None), "channel", None)
+                    kanal_id = getattr(kanal_id, "id", None) or getattr(getattr(eintrag.target, "channel", None), "id", None)
+                    if kanal_id in (None, channel.id):
+                        treffer = eintrag
+                        break
+            except (discord.Forbidden, discord.HTTPException) as e:
+                logger.debug(f"Audit-Log fuer Webhooks nicht lesbar: {e}")
+            was = aktionen.get(treffer.action, "geändert") if treffer else "geändert"
+            name = getattr(treffer.target, "name", None) if treffer else None
+            await self.audit.log_server_ereignis(
+                self.bot, f"Webhook {was}",
+                [("Kanal", f"#{channel.name}"), ("Webhook", name or "unbekannt")],
+                db_aktion=f"webhook_{'create' if was == 'angelegt' else 'delete' if was == 'gelöscht' else 'update'}",
+                akteur=treffer.user if treffer else None,
+            )
+        except Exception as e:
+            logger.error(f"Fehler beim Loggen von webhooks_update: {e}", exc_info=True)
+
+    @commands.Cog.listener()
+    async def on_thread_create(self, thread: discord.Thread) -> None:
+        """Thread angelegt."""
+        try:
+            await self.audit.log_server_ereignis(
+                self.bot, "Thread angelegt",
+                [("Thread", thread.name), ("Kanal", f"#{thread.parent.name}" if thread.parent else "–")],
+                db_aktion="thread_create", akteur=thread.owner,
+            )
+        except Exception as e:
+            logger.error(f"Fehler beim Loggen von thread_create: {e}", exc_info=True)
+
+    @commands.Cog.listener()
+    async def on_raw_thread_delete(self, payload: discord.RawThreadDeleteEvent) -> None:
+        """Thread geloescht (auch wenn er nicht im Cache war)."""
+        try:
+            thread = payload.thread
+            parent = self.bot.get_channel(payload.parent_id)
+            await self.audit.log_server_ereignis(
+                self.bot, "Thread gelöscht",
+                [("Thread", thread.name if thread else "nicht im Cache"),
+                 ("Kanal", f"#{parent.name}" if parent else "–")],
+                db_aktion="thread_delete",
+            )
+        except Exception as e:
+            logger.error(f"Fehler beim Loggen von thread_delete: {e}", exc_info=True)
+
     # ==================================================================
     # Slash-Commands
     # ==================================================================

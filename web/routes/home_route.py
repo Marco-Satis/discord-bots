@@ -47,6 +47,13 @@ async def home(request: Request, current_user: dict = Depends(require_auth)):
     except Exception as e:  # noqa: BLE001
         logger.warning(f"manual_stop_state nicht lesbar: {e}")
         gestoppt = set()
+    aenderungen = []
+    if current_user.get("is_owner") in (True, "True", "true"):
+        try:
+            from modules.dashboard_audit import fetch_audit
+            aenderungen = startseite.aenderungen_kompakt(await fetch_audit(limit=5))
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"Änderungsprotokoll für Startseite nicht lesbar: {e}")
     return templates.TemplateResponse(request, "home.html", {
         "request": request,
         "user": current_user,
@@ -56,6 +63,7 @@ async def home(request: Request, current_user: dict = Depends(require_auth)):
         "gestoppt": gestoppt,
         "bots_kurz": startseite.bots_kompakt(bots),
         "ereignisse": startseite.ereignisse_kompakt(events),
+        "aenderungen": aenderungen,
         "schnellzugriff": startseite.SCHNELLZUGRIFF,
         "online": startseite.ONLINE,
     })

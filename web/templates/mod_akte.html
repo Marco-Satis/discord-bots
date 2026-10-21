@@ -1,0 +1,85 @@
+{% extends "base_v5.html" %}
+{% from "partials/_c3_kopf.html" import kopf %}
+
+{% block title %}Moderations-Akte{% endblock %}
+{% block crumb %}Moderation / Akte{% endblock %}
+{% block nav_moderation %}active{% endblock %}
+
+{% block content %}
+{% set lead = "Alle Mitglieder mit Verwarnungen, Moderations-Einträgen oder Notizen. Neueste Aktivität zuerst." %}
+{% if guild_set %}{{ kopf("Discord-Server", "Moderations-Akte", lead) }}{% else %}{{ kopf("Discord-Server", "Moderations-Akte", lead, chip="Server nicht verbunden", chip_art="check") }}{% endif %}
+
+{# Fehlermeldung (error) rendert base_v5.html selbst. #}
+
+<div class="stats-grid akte-stats">
+    <div class="stat-card"><div class="stat-label">Mitglieder mit Akte</div><div class="stat-value">{{ totals.mitglieder }}</div></div>
+    <div class="stat-card"><div class="stat-label">Aktive Verwarnungen</div><div class="stat-value">{{ totals.warns_active }}</div></div>
+    <div class="stat-card"><div class="stat-label">Moderations-Einträge</div><div class="stat-value">{{ totals.actions }}</div></div>
+    <div class="stat-card"><div class="stat-label">Notizen</div><div class="stat-value">{{ totals.notes }}</div></div>
+</div>
+
+<form class="akte-search" method="get" action="/moderation/akte" role="search">
+    <label for="akte-q" class="akte-sr">Mitglied suchen</label>
+    <input id="akte-q" type="search" name="q" value="{{ q }}" placeholder="Name suchen …" maxlength="80" autocomplete="off">
+    <button type="submit" class="btn btn-primary btn-sm">Suchen</button>
+    {% if q %}<a class="btn btn-secondary btn-sm" href="/moderation/akte">Zurücksetzen</a>{% endif %}
+</form>
+
+<div class="table-wrapper">
+    <table class="data-table akte-table">
+        <thead>
+            <tr>
+                <th>Mitglied</th>
+                <th>Verwarnungen</th>
+                <th class="akte-hide-s">Moderation</th>
+                <th class="akte-hide-s">Notizen</th>
+                <th class="akte-hide-xs">Zuletzt</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for a in akten %}
+            <tr>
+                <td>
+                    <a class="akte-member" href="/moderation/akte/{{ a.user_id }}">
+                        {% if a.avatar_url %}<img src="{{ a.avatar_url }}" alt="" width="28" height="28" loading="lazy" referrerpolicy="no-referrer">{% else %}<span class="akte-avatar-ph" aria-hidden="true">{{ a.name[:1]|upper }}</span>{% endif %}
+                        <span>{{ a.name }}</span>
+                    </a>
+                    <span class="akte-mobile-meta">{{ a.actions }} Moderation · {{ a.notes }} Notizen · {{ a.last_display }}</span>
+                </td>
+                <td>
+                    {% if a.warns_active %}<span class="c3-chip c3-chip--check">{{ a.warns_active }} aktiv</span>{% elif a.warns %}<span class="c3-chip c3-chip--off">{{ a.warns }} abgelaufen</span>{% else %}<span class="akte-muted">–</span>{% endif %}
+                </td>
+                <td class="akte-hide-s">{{ a.actions or "–" }}</td>
+                <td class="akte-hide-s">{{ a.notes or "–" }}</td>
+                <td class="akte-hide-xs akte-nowrap">{{ a.last_display }}</td>
+            </tr>
+        {% else %}
+            <tr class="empty-row"><td colspan="5">{% if q %}Kein Mitglied mit „{{ q }}“ gefunden.{% else %}Noch keine Akten. Sobald jemand verwarnt, getimeoutet, gebannt oder mit einer Notiz versehen wird, erscheint er hier.{% endif %}</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<p class="akte-hint">Notizen mit Beweisbild legt der Bot an: <code>/akte notiz</code>. Verwarnungen und Moderations-Einträge stammen aus <code>/warn</code> und dem Audit-Log.</p>
+
+<style>
+    .akte-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+    @media (max-width: 760px) { .akte-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    .akte-search { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 14px; }
+    .akte-search input { flex: 1 1 200px; min-width: 0; min-height: 36px; }
+    .akte-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+    .akte-member { display: inline-flex; align-items: center; gap: 10px; color: var(--text); text-decoration: none; font-weight: 600; min-height: 32px; }
+    .akte-member:hover span, .akte-member:focus-visible span { text-decoration: underline; }
+    .akte-member img, .akte-avatar-ph { width: 28px; height: 28px; border-radius: 50%; flex: none; }
+    .akte-avatar-ph { display: inline-grid; place-items: center; background: rgba(184,77,255,.18); color: var(--text-2); font-size: 13px; }
+    .akte-muted { color: var(--text-3); }
+    .akte-nowrap { white-space: nowrap; }
+    .akte-mobile-meta { display: none; color: var(--text-3); font-size: 12px; margin-top: 2px; }
+    .akte-hint { font-size: 13px; color: var(--text-3); margin-top: 12px; }
+    @media (max-width: 640px) {
+        .akte-hide-s { display: none; }
+        .akte-mobile-meta { display: block; }
+    }
+    @media (max-width: 460px) { .akte-hide-xs { display: none; } }
+</style>
+{% endblock %}

@@ -11,6 +11,7 @@ import discord
 from pathlib import Path
 from discord.ext import commands, tasks
 
+from modules.platzhalter import render
 from utils.config import DATA_DIR
 from utils.logger import get_logger
 from utils.loop_guard import guard
@@ -104,14 +105,22 @@ class EmbedSenderCog(commands.Cog, name="Embed Sender"):
                 filepath.unlink(missing_ok=True)
                 return
 
+        # Platzhalter: ohne ausloesendes Mitglied gibt es nur Server-/Zeit-Werte
+        # ({server}, {membercount}, {datum}, {zeit}); {user} usw. bleiben stehen.
+        guild = getattr(channel, "guild", None)
+
+        def _txt(value, limit: int) -> str:
+            text = render(str(value or "").strip(), guild=guild)
+            return text[:limit]
+
         # Embed erstellen
         embed = discord.Embed()
 
-        title = data.get("title", "").strip()
+        title = _txt(data.get("title", ""), 256)
         if title:
             embed.title = title
 
-        description = data.get("description", "").strip()
+        description = _txt(data.get("description", ""), 4096)
         if description:
             embed.description = description
 
@@ -126,18 +135,18 @@ class EmbedSenderCog(commands.Cog, name="Embed Sender"):
         if image:
             embed.set_image(url=image)
 
-        footer = data.get("footer_text", "").strip()
+        footer = _txt(data.get("footer_text", ""), 2048)
         if footer:
             embed.set_footer(text=footer)
 
-        author = data.get("author_name", "").strip()
+        author = _txt(data.get("author_name", ""), 256)
         if author:
             embed.set_author(name=author)
 
         # Felder hinzufuegen
         for field in data.get("fields", []):
-            fname = field.get("name", "").strip()
-            fvalue = field.get("value", "").strip()
+            fname = _txt(field.get("name", ""), 256)
+            fvalue = _txt(field.get("value", ""), 1024)
             if fname and fvalue:
                 embed.add_field(
                     name=fname,

@@ -19,6 +19,7 @@ Variablen in Nachrichten:
   {user}        -> Mention des neuen Mitglieds
   {server}      -> Guild-Name
   {membercount} -> Aktuelle Mitgliederzahl
+  {user.name}, {kontoalter}, {beitritt}, {datum}, {zeit} -> siehe modules/platzhalter.py
 
 Persistenz: SQLite-Tabelle 'welcome_config'
 """
@@ -32,6 +33,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from modules.database.db_manager import get_db
+from modules.platzhalter import render
 from utils.logger import get_logger
 from utils.embeds import (
     COLOR_SUCCESS,
@@ -170,12 +172,15 @@ class WelcomeCog(commands.Cog):
         member: discord.Member,
     ) -> str:
         """
-        Variablen im Nachrichtentext ersetzen.
+        Variablen im Nachrichtentext ersetzen — über das gemeinsame
+        Platzhalter-System (``modules/platzhalter.py``).
 
-        Unterstuetzte Variablen:
-          {user}        -> Mention des Mitglieds
+        Unterstuetzte Variablen (Auswahl):
+          {user}        -> Mention des Mitglieds (wie bisher)
+          {user.name}   -> Anzeigename
           {server}      -> Guild-Name
           {membercount} -> Aktuelle Mitgliederzahl
+          {kontoalter}, {beitritt}, {datum}, {zeit}
 
         Args:
             text: Roher Text mit Platzhaltern
@@ -184,14 +189,7 @@ class WelcomeCog(commands.Cog):
         Returns:
             Text mit ersetzten Variablen
         """
-        replacements = {
-            "{user}": member.mention,
-            "{server}": member.guild.name,
-            "{membercount}": str(member.guild.member_count),
-        }
-        for placeholder, value in replacements.items():
-            text = text.replace(placeholder, value)
-        return text
+        return render(text, member=member, guild=member.guild)
 
     # ------------------------------------------------------------------
     # Willkommens-Embed erstellen
@@ -471,9 +469,7 @@ class WelcomeCog(commands.Cog):
             return
 
         # Vorschau der Nachricht
-        preview = text.replace("{user}", interaction.user.mention)
-        preview = preview.replace("{server}", interaction.guild.name)
-        preview = preview.replace("{membercount}", str(interaction.guild.member_count))
+        preview = render(text, member=interaction.user, guild=interaction.guild)
 
         embed = success_embed(
             title="Willkommensnachricht gesetzt",
@@ -481,7 +477,10 @@ class WelcomeCog(commands.Cog):
         embed.add_field(name="Vorlage", value=f"```{text}```", inline=False)
         embed.add_field(name="Vorschau", value=preview, inline=False)
         embed.set_footer(
-            text="Variablen: {user} = Mention, {server} = Servername, {membercount} = Mitgliederzahl"
+            text=(
+                "Variablen: {user} = Mention, {user.name} = Anzeigename, {server} = Servername, "
+                "{membercount} = Mitgliederzahl, {kontoalter}, {beitritt}, {datum}, {zeit}"
+            )
         )
 
         await interaction.followup.send(embed=embed, ephemeral=True)

@@ -8,7 +8,7 @@ Schnellzugriff und die letzten Ereignisse. /dashboard bleibt als
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from utils.logger import get_logger
 
@@ -126,4 +126,37 @@ def ereignisse_kompakt(events: list[dict], anzahl: int = 6, heute: datetime | No
             pass
         quelle = e.get("server_id") or e.get("category") or ""
         aus.append({"zeit": zeit, "tag": tag, "text": e.get("message", ""), "quelle": quelle})
+    return aus
+
+
+# Bereich (dashboard_audit.resource) -> Anzeige
+BEREICH_TEXT = {
+    "system": "Bots & System", "rbac": "Zugang und Rechte", "leveling": "Leveling",
+    "lfg": "Spielersuche", "moderation": "Automod", "marshal_bot": "Discord-Module",
+    "minecraft": "Minecraft-Server", "satisfactory": "Satisfactory-Server",
+    "temp_voice": "Temp-Voice", "audit": "Änderungsprotokoll",
+}
+AKTION_TEXT = {"edit": "geändert", "control": "gesteuert", "view": "angesehen"}
+
+
+def aenderungen_kompakt(zeilen: list[dict], heute: datetime | None = None) -> list[dict]:
+    """
+    Letzte Dashboard-Änderungen (dashboard_audit, ts in UTC) für die Startseite:
+    Uhrzeit, Tag, wer, was. Keine IDs, keine Details aus dem Formular.
+    """
+    tag_heute = (heute or datetime.now()).date()
+    aus = []
+    for z in zeilen:
+        zeit, tag = "", ""
+        try:
+            ts = datetime.fromisoformat(str(z.get("ts"))).replace(tzinfo=timezone.utc).astimezone()
+            zeit = ts.strftime("%H:%M")
+            diff = (tag_heute - ts.date()).days
+            tag = "" if diff == 0 else ("gestern" if diff == 1 else ts.strftime("%d.%m."))
+        except (TypeError, ValueError):
+            pass
+        bereich = BEREICH_TEXT.get(str(z.get("resource")), str(z.get("resource") or ""))
+        aktion = AKTION_TEXT.get(str(z.get("action")), str(z.get("action") or ""))
+        aus.append({"zeit": zeit, "tag": tag, "text": f"{bereich} {aktion}",
+                    "quelle": str(z.get("username") or "unbekannt")})
     return aus

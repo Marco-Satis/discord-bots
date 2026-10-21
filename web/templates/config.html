@@ -65,13 +65,14 @@
           "chat_bridge": ("Chat-Bridge", "Minecraft <-> Discord-Chat Bruecke"),
           "login_audit": ("Login-Audit", "Dashboard-Logins protokollieren"),
           "auto_cleanup": ("Auto-Bereinigung", "Alte Logs/Backups automatisch loeschen"),
-          "steam_changelog": ("Steam Changelog", "Satisfactory-Patch-Notes posten")
+          "steam_changelog": ("Steam Changelog", "Satisfactory-Patch-Notes posten"),
+          "server_statistik": ("Statistik-Kanäle", "Mitglieder- und Boosterzahl als Sprachkanäle anzeigen")
       } %}
       {% set feature_groups = [
           ("Monitoring & Tracking", ["player_tracking", "voice_stats", "login_audit"]),
           ("Backups & Daten", ["auto_backup", "onedrive_backup", "auto_cleanup"]),
           ("Updates", ["auto_update", "steam_changelog"]),
-          ("Discord", ["chat_bridge", "status_embed"]),
+          ("Discord", ["chat_bridge", "status_embed", "server_statistik"]),
           ("Betrieb & Alerts", ["daily_restart", "email_notifications"])
       ] %}
       <div class="set-grid">

@@ -1,0 +1,97 @@
+{% extends "base_v5.html" %}
+{% from "partials/_c3_kopf.html" import kopf %}
+
+{% block title %}Tickets{% endblock %}
+{% block crumb %}Tickets{% endblock %}
+
+{% block content %}
+{{ kopf("Discord-Server", "Tickets", "Alle Support-Tickets mit vollständigem Verlauf. Die Gespräche sind privat — nur das Team sieht diese Seite.", chip="Team", chip_art="setup") }}
+
+{% if error %}<div class="c3-flash c3-flash--bad" role="alert"><svg class="i" aria-hidden="true"><use href="#i-alert"/></svg><span>{{ error }}</span></div>{% endif %}
+
+<div class="tk-stats">
+    <a class="stat-card tk-stat{% if f_status == 'alle' %} is-active{% endif %}" href="/tickets?status=alle"{% if f_status == 'alle' %} aria-current="page"{% endif %}>
+        <span class="stat-label">Alle</span>
+        <span class="stat-value">{{ counts.alle }}</span>
+    </a>
+    <a class="stat-card tk-stat{% if f_status == 'offen' %} is-active{% endif %}" href="/tickets?status=offen"{% if f_status == 'offen' %} aria-current="page"{% endif %}>
+        <span class="stat-label">Offen</span>
+        <span class="stat-value">{{ counts.offen }}</span>
+    </a>
+    <a class="stat-card tk-stat{% if f_status == 'geschlossen' %} is-active{% endif %}" href="/tickets?status=geschlossen"{% if f_status == 'geschlossen' %} aria-current="page"{% endif %}>
+        <span class="stat-label">Geschlossen</span>
+        <span class="stat-value">{{ counts.geschlossen }}</span>
+    </a>
+</div>
+
+<p class="config-hint tk-hint">{{ tickets|length }} Ticket{{ '' if tickets|length == 1 else 's' }}{% if tickets|length >= limit %} (die neuesten {{ limit }}){% endif %} · Tippe auf ein Ticket, um den Verlauf zu lesen.</p>
+
+<div class="table-wrapper">
+    <table class="data-table tk-table">
+        <thead>
+            <tr>
+                <th>Nr.</th><th>Erstellt von</th><th>Betreff</th><th>Status</th>
+                <th>Geöffnet</th><th>Geschlossen</th><th class="tk-num">Nachrichten</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for t in tickets %}
+            <tr>
+                <td data-label="Nr."><a class="tk-link" href="/tickets/{{ t.id }}">#{{ t.id }}</a></td>
+                <td data-label="Erstellt von">
+                    <span class="tk-person">
+                        {% if t.creator.avatar %}<img class="tk-ava" src="{{ t.creator.avatar }}" alt="" width="24" height="24" loading="lazy" referrerpolicy="no-referrer">{% else %}<span class="tk-ava tk-ava--txt" aria-hidden="true">{{ t.creator.initial }}</span>{% endif %}
+                        <span class="tk-wrap">{{ t.creator.name }}</span>
+                    </span>
+                </td>
+                <td data-label="Betreff">
+                    <div class="tk-subj"><a class="tk-link tk-wrap" href="/tickets/{{ t.id }}">{{ t.subject or "Kein Betreff" }}</a>
+                    <span class="tk-art">{{ t.art }}</span></div>
+                </td>
+                <td data-label="Status"><span class="c3-chip {{ 'c3-chip--on' if t.is_open else 'c3-chip--off' }}">{{ t.status }}</span></td>
+                <td data-label="Geöffnet" class="tk-time">{{ t.created or "—" }}</td>
+                <td data-label="Geschlossen" class="tk-time">{{ t.closed or "—" }}</td>
+                <td data-label="Nachrichten" class="tk-num">{{ t.msg_count }}</td>
+            </tr>
+        {% else %}
+            <tr class="empty-row"><td colspan="7">{% if f_status == 'offen' %}Gerade ist kein Ticket offen.{% elif f_status == 'geschlossen' %}Noch kein Ticket geschlossen.{% else %}Noch keine Tickets vorhanden.{% endif %}</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<style>
+    .tk-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 0 0 14px; }
+    .tk-stat { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; text-decoration: none; color: var(--text); min-width: 0; }
+    .tk-stat .stat-label { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); }
+    .tk-stat .stat-value { font-size: 1.5rem; font-weight: 700; }
+    .tk-stat.is-active { border-color: var(--violet); box-shadow: 0 0 0 1px var(--violet) inset; }
+    .tk-stat:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+    .tk-hint { margin: 0 0 10px; }
+    .tk-link { color: var(--text); font-weight: 600; text-decoration: none; }
+    .tk-link:hover { color: var(--cyan); text-decoration: underline; }
+    .tk-wrap { overflow-wrap: anywhere; word-break: break-word; }
+    .tk-subj { min-width: 0; max-width: 28rem; }
+    .tk-art { display: block; font-size: 12px; color: var(--text-3); margin-top: 2px; }
+    .tk-person { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+    .tk-ava { width: 24px; height: 24px; border-radius: 50%; flex: none; object-fit: cover; }
+    .tk-ava--txt { display: inline-grid; place-items: center; background: rgba(184,77,255,.25); color: var(--text); font-size: 12px; font-weight: 700; }
+    .tk-time { white-space: nowrap; color: var(--text-3); font-size: 13px; }
+    .tk-num { text-align: right; font-family: var(--mono); }
+    @media (max-width: 720px) {
+        .tk-stats { gap: 8px; }
+        .tk-stat { padding: 10px; }
+        .tk-stat .stat-value { font-size: 1.2rem; }
+        .tk-table thead { display: none; }
+        .tk-table, .tk-table tbody, .tk-table tr, .tk-table td { display: block; width: 100%; }
+        .tk-table tr { border-bottom: 1px solid var(--c3-line); padding: 8px 0; }
+        .tk-table tbody tr:last-child { border-bottom: 0; }
+        .tk-table td { border-bottom: 0 !important; padding: 4px 14px !important; display: flex; gap: 10px; align-items: baseline; }
+        .tk-table td::before { content: attr(data-label); flex: 0 0 7.5rem; font: 500 10.5px/1.5 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); }
+        .tk-table td > * { min-width: 0; }
+        .tk-table td.tk-num { text-align: left; }
+        .tk-table tr.empty-row td::before { content: none; }
+        .tk-time { white-space: normal; }
+    }
+</style>
+{% endblock %}

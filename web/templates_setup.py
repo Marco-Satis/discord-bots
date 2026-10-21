@@ -23,6 +23,7 @@ from pathlib import Path
 
 from fastapi.templating import Jinja2Templates
 
+from modules.platzhalter import platzhalter_daten
 from modules.server_registry import alle as alle_server
 from web.navigation import navigation, suchindex
 
@@ -53,4 +54,7 @@ def erstelle_templates(verzeichnis: Path | str | None = None) -> Jinja2Templates
         return nav
 
     templates.env.globals["c3_navigation"] = c3_navigation
+    # Gemeinsame Platzhalter-Liste (modules/platzhalter.py) für das Macro
+    # partials/_platzhalter.html — platzhalter(mitglied=True, extra=()).
+    templates.env.globals["platzhalter"] = platzhalter_daten
     return templates

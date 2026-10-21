@@ -28,6 +28,8 @@ from utils.logger import get_logger
 from utils.selftest import execute_selftest
 from utils.shutdown import setup_signal_handlers, register_cleanup
 from utils.loop_guard import guard
+from utils import loop_guard
+from modules import notfall_meldung
 from utils.bot_status import set_bot_status
 from modules.database.db_manager import init_db, close_db
 from modules.guild_context import get_primary_guild_id
@@ -75,6 +77,7 @@ bot.admin_data_dir = ADMIN_DATA_DIR
 INITIAL_COGS: list[str] = [
     "cogs.moderation_cog",      # Phase 11b: WordFilter + AntiSpam
     "cogs.warn_cog",            # Phase 11c: Warn-System
+    "cogs.mod_akte_cog",        # Moderations-Akte (/akte, nach warn_cog: nutzt dessen WarnManager)
     "cogs.reaction_roles_cog",  # Phase 11d: Reaction Roles
     "cogs.leveling_cog",        # Phase 11e: Leveling/XP-System
     "cogs.tickets_cog",         # Phase 11f: Ticket-System
@@ -95,6 +98,7 @@ INITIAL_COGS: list[str] = [
     "cogs.command_stats_cog",  # F59: Command-Nutzungsstatistik
     "cogs.supporter_cog",      # HQ-Supporter nur fuer echte Booster (20.10.)
     "cogs.counting_cog",       # Zaehlspiel, Ersatz fuer den Counting-Bot (20.10.)
+    "cogs.sticky_roles_cog",   # Rollen fuer zurueckkehrende Mitglieder (21.10.)
     # 2026-06-13: Pipeline-Approval ausgekoppelt -> eigener 24/7-Bot (bots/pipeline_bot.py).
     # NICHT mehr hier laden (Button-Interactions routen jetzt ueber die Pipeline-Bot-App).
     # "cogs.pipeline_approval_cog",  # -> bots/pipeline_bot.py
@@ -179,6 +183,15 @@ async def on_app_command_error(interaction: discord.Interaction, error):
         # Keine Berechtigung — wird bereits von Decorators behandelt
         return
     logger.error(f"App command error: {error}", exc_info=True)
+    # Fehlt Marshal selbst ein Discord-Recht, soll der Owner es erfahren (Notfall-Erwaehnung)
+    if isinstance(getattr(error, "original", None), discord.Forbidden):
+        befehl = getattr(interaction.command, "qualified_name", "?")
+        await notfall_meldung.melden(
+            bot, "Marshal fehlt ein Recht",
+            f"Befehl `/{befehl}` scheiterte: `{error.original}`.\n"
+            "Rolle von Marshal und Kanalrechte prüfen.",
+            schluessel=f"forbidden:{befehl}",
+        )
     try:
         if interaction.response.is_done():
             await interaction.followup.send(
@@ -237,6 +250,9 @@ async def setup_hook():
     # erstellt. Ein Aufruf vor bot.run() wuerde auf einem anderen, nie
     # laufenden Loop landen und SIGTERM-Cleanups (register_cleanup) verfehlen.
     setup_signal_handlers(bot, "Marshal")
+
+    # Gestorbene Hintergrund-Schleifen melden (mit Owner-Erwaehnung, 1x/h je Schleife)
+    loop_guard.set_reporter(lambda titel, text: notfall_meldung.melden(bot, titel, text))
 
     logger.info("Setup hook complete")
 

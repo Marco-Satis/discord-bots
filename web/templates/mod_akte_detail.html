@@ -1,0 +1,133 @@
+{% extends "base_v5.html" %}
+{% from "partials/_c3_kopf.html" import kopf %}
+
+{% block title %}Akte{% if akte %} · {{ akte.name }}{% endif %}{% endblock %}
+{% block crumb %}Moderation / Akte{% endblock %}
+{% block nav_moderation %}active{% endblock %}
+
+{% block content %}
+{% set csrf = request.state.csrf_token if request.state.csrf_token is defined else '' %}
+{% if akte %}
+{% set lead = "Akte von " ~ akte.name ~ ": Verwarnungen, Moderations-Einträge und Notizen, neueste zuerst." %}
+{% else %}
+{% set lead = "Verwarnungen, Moderations-Einträge und Notizen eines Mitglieds." %}
+{% endif %}
+{% if guild_set %}{{ kopf("Discord-Server", "Moderations-Akte", lead) }}{% else %}{{ kopf("Discord-Server", "Moderations-Akte", lead, chip="Server nicht verbunden", chip_art="check") }}{% endif %}
+
+<p class="akte-back"><a href="/moderation/akte">← Alle Akten</a></p>
+
+{# Meldungen (success/error) rendert base_v5.html selbst. #}
+
+{% if akte %}
+{% set c = akte.counts %}
+<div class="akte-person">
+    {% if akte.avatar_url %}<img src="{{ akte.avatar_url }}" alt="" width="48" height="48" referrerpolicy="no-referrer">{% else %}<span class="akte-avatar-ph" aria-hidden="true">{{ akte.name[:1]|upper }}</span>{% endif %}
+    <h2>{{ akte.name }}</h2>
+</div>
+
+<div class="stats-grid akte-stats">
+    <div class="stat-card"><div class="stat-label">Aktive Verwarnungen</div><div class="stat-value">{{ c.warns_active }}</div></div>
+    <div class="stat-card"><div class="stat-label">Aktive Punkte</div><div class="stat-value">{{ c.points_active }}</div></div>
+    <div class="stat-card"><div class="stat-label">Moderation</div><div class="stat-value">{{ c.actions }}</div></div>
+    <div class="stat-card"><div class="stat-label">Notizen</div><div class="stat-value">{{ c.notes }}</div></div>
+</div>
+
+<div class="config-section">
+    <h3 class="section-title">Notiz hinzufügen</h3>
+    <form method="post" action="/moderation/akte/{{ user_id }}/notiz">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}">
+        <div class="form-group">
+            <label for="akte-note">Notiz</label>
+            <textarea id="akte-note" name="text" rows="3" maxlength="{{ max_note }}" required placeholder="Was soll die Moderation zu diesem Mitglied wissen?"></textarea>
+            <p class="config-hint">Höchstens {{ max_note }} Zeichen. Ein Beweisbild hängst du im Discord an: <code>/akte notiz</code>.</p>
+        </div>
+        <div class="actions-bar"><button type="submit" class="btn btn-primary">Notiz speichern</button></div>
+    </form>
+</div>
+
+<div class="config-section">
+    <h3 class="section-title">Zeitleiste</h3>
+    {% if akte.timeline %}
+    <ol class="akte-timeline">
+    {% for e in akte.timeline %}
+        <li class="akte-entry akte-entry--{{ e.kind }}">
+            <div class="akte-entry-head">
+                {% if e.kind == "warn" %}
+                    <span class="c3-chip {{ 'c3-chip--check' if e.active else 'c3-chip--off' }}">Verwarnung #{{ e.id }}</span>
+                    <span class="akte-meta">{{ e.points }} {{ "Punkt" if e.points == 1 else "Punkte" }} · {{ "aktiv" if e.active else "abgelaufen" }}</span>
+                {% elif e.kind == "action" %}
+                    <span class="c3-chip c3-chip--{{ e.chip }}">{{ e.label }}</span>
+                {% else %}
+                    <span class="c3-chip c3-chip--on">Notiz #{{ e.id }}</span>
+                {% endif %}
+                <time class="akte-meta akte-time">{{ e.ts_display }}</time>
+            </div>
+
+            {% if e.kind == "warn" %}
+                <p class="akte-text">{{ e.reason or "Kein Grund angegeben" }}</p>
+                <p class="akte-meta">von {{ e.moderator_name }}</p>
+                <details class="akte-edit">
+                    <summary>Grund ändern</summary>
+                    <form method="post" action="/moderation/akte/{{ user_id }}/warn/{{ e.id }}/grund">
+                        <input type="hidden" name="csrf_token" value="{{ csrf }}">
+                        <label for="akte-grund-{{ e.id }}" class="akte-sr">Neuer Grund für Verwarnung #{{ e.id }}</label>
+                        <textarea id="akte-grund-{{ e.id }}" name="grund" rows="2" maxlength="{{ max_reason }}" required>{{ e.reason }}</textarea>
+                        <button type="submit" class="btn btn-secondary btn-sm">Grund speichern</button>
+                    </form>
+                </details>
+            {% elif e.kind == "action" %}
+                <p class="akte-text">{{ e.reason or "Kein Grund angegeben" }}</p>
+                <p class="akte-meta">von {{ e.moderator_display }}</p>
+            {% else %}
+                <p class="akte-text">{{ e.text }}</p>
+                {% if e.evidence_file %}
+                <a class="akte-evidence" href="/moderation/akte/beweis/{{ e.evidence_file }}" target="_blank" rel="noopener">
+                    <img src="/moderation/akte/beweis/{{ e.evidence_file }}" alt="Beweisbild zu Notiz #{{ e.id }}" loading="lazy">
+                </a>
+                {% endif %}
+                <div class="akte-entry-foot">
+                    <p class="akte-meta">von {{ e.author_name }}{% if e.updated_display %} · geändert {{ e.updated_display }}{% endif %}</p>
+                    <form method="post" action="/moderation/akte/{{ user_id }}/notiz/{{ e.id }}/loeschen"
+                          onsubmit="return confirm('Notiz #{{ e.id }} wirklich löschen? Ein Beweisbild wird mit gelöscht.');">
+                        <input type="hidden" name="csrf_token" value="{{ csrf }}">
+                        <button type="submit" class="btn btn-danger btn-sm">Löschen</button>
+                    </form>
+                </div>
+            {% endif %}
+        </li>
+    {% endfor %}
+    </ol>
+    {% else %}
+    <p class="akte-muted">Keine Einträge. Die Akte ist leer.</p>
+    {% endif %}
+</div>
+{% endif %}
+
+<style>
+    .akte-back { margin: 0 0 12px; font-size: 14px; }
+    .akte-back a { color: var(--text-2); }
+    .akte-person { display: flex; align-items: center; gap: 12px; margin: 0 0 14px; min-width: 0; }
+    .akte-person h2 { margin: 0; font-size: 20px; overflow-wrap: anywhere; }
+    .akte-person img, .akte-person .akte-avatar-ph { width: 48px; height: 48px; border-radius: 50%; flex: none; }
+    .akte-avatar-ph { display: inline-grid; place-items: center; background: rgba(184,77,255,.18); color: var(--text-2); font-size: 18px; }
+    .akte-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+    @media (max-width: 760px) { .akte-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    .akte-timeline { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+    .akte-entry { border: 1px solid var(--c3-line, var(--line)); border-radius: 10px; padding: 12px 14px; background: rgba(9,10,20,.35); min-width: 0; }
+    .akte-entry-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .akte-time { margin-left: auto; white-space: nowrap; }
+    .akte-meta { color: var(--text-3); font-size: 12.5px; margin: 0; }
+    .akte-text { margin: 8px 0 4px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); }
+    .akte-muted { color: var(--text-3); }
+    .akte-edit { margin-top: 8px; }
+    .akte-edit summary { cursor: pointer; color: var(--text-2); font-size: 13px; min-height: 32px; display: inline-flex; align-items: center; }
+    .akte-edit form { display: grid; gap: 8px; margin-top: 6px; }
+    .akte-edit textarea, .config-section textarea { width: 100%; box-sizing: border-box; }
+    .akte-edit .btn { justify-self: start; }
+    .akte-evidence { display: inline-block; margin: 6px 0; }
+    .akte-evidence img { display: block; max-width: min(100%, 280px); max-height: 200px; border-radius: 8px; border: 1px solid var(--c3-line, var(--line)); object-fit: contain; background: rgba(0,0,0,.25); }
+    .akte-entry-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; }
+    .akte-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+    @media (max-width: 460px) { .akte-time { margin-left: 0; width: 100%; } }
+</style>
+{% endblock %}

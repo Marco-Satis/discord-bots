@@ -70,7 +70,9 @@ def _bereiche(spielserver: list) -> tuple[Bereich, ...]:
                 Seite("k-verifizierung", "Verifizierung und Raid-Schutz", "/marshal-bot#mod-verifizierung", "i-shield-check", "verifizieren raid sperre beitritte sicherheit"),
                 Seite("moderation", "Automod", "/moderation", "i-filter", "moderation wortfilter anti-spam caps links"),
                 Seite("k-warn", "Verwarnungen", "/marshal-bot#mod-warn", "i-flag", "warn mute kick bann"),
+                Seite("mod-akte", "Moderations-Akte", "/moderation/akte", "i-file", "akte notizen beweis verwarnung timeout bann kick"),
                 Seite("k-audit", "Audit-Log", "/marshal-bot#mod-audit", "i-list", "log protokoll discord"),
+                Seite("logs", "Log-Kanäle", "/logs", "i-hash", "log kanal audit protokoll webhook thread"),
                 Seite("k-backups", "Server-Backups", "/marshal-bot#mod-backups", "i-archive", "backup sicherung rollen kanaele"),
             )),
             Gruppe("Gemeinschaft", (
@@ -81,10 +83,12 @@ def _bereiche(spielserver: list) -> tuple[Bereich, ...]:
                 Seite("k-reaction_roles", "Reaction Roles", "/marshal-bot#mod-reaction_roles", "i-smile", "reaktion rollen"),
                 Seite("k-giveaways", "Giveaways", "/marshal-bot#mod-giveaways", "i-gift", "verlosung"),
                 Seite("k-willkommen", "Willkommen", "/marshal-bot#mod-willkommen", "i-door", "welcome begruessung"),
+                Seite("k-sticky_roles", "Sticky-Rollen", "/marshal-bot#mod-sticky_roles", "i-refresh", "rollen zurueck rueckkehr wiederkommen"),
             )),
             Gruppe("Werkzeuge", (
                 Seite("m-temp_voice", "Temp-Voice", "/marshal-bot?tab=temp_voice", "i-headphones", "voice talk panel hubs"),
                 Seite("k-tickets", "Tickets", "/marshal-bot#mod-tickets", "i-ticket", "support transkript"),
+                Seite("tickets", "Ticket-Verlauf", "/tickets", "i-history", "support transkript verlauf ticket", nur_owner=True),
                 Seite("m-embeds", "Embeds", "/marshal-bot?tab=embeds", "i-message", "nachricht senden embedinator"),
                 Seite("k-custom_commands", "Custom Commands", "/marshal-bot#mod-custom_commands", "i-terminal", "befehle eigene"),
             )),

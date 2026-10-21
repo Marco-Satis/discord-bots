@@ -25,6 +25,7 @@ from utils.logger import get_logger
 from web.middleware.csrf import CSRFMiddleware
 from web.middleware.session_timeout import SessionTimeoutMiddleware
 from web.middleware.rate_limiter import RateLimitMiddleware
+from web.middleware.aenderungs_protokoll import AenderungsProtokollMiddleware
 from modules.database.db_manager import init_db, close_db
 
 # Umgebungsvariablen laden
@@ -73,6 +74,10 @@ WEB_HTTPS = get_env("WEB_HTTPS", "true", cast=bool)
 # wird als ERSTE ausgefuehrt (aeusserste Schicht).
 # Session muss ZULETZT registriert werden, damit request.session fuer
 # alle anderen Middlewares verfuegbar ist.
+
+# Änderungsprotokoll: jede erfolgreiche schreibende Anfrage -> dashboard_audit
+# (innerste Schicht, sieht den endgueltigen Status der Route).
+app.add_middleware(AenderungsProtokollMiddleware)
 
 # CORS-Middleware (innerste Schicht — laeuft als letztes)
 SERVER_IP = get_env("SERVER_IP", "203.0.113.10")
@@ -290,6 +295,9 @@ from web.routes.search_route import router as search_router            # noqa: E
 from web.routes.leveling_route import router as leveling_router        # noqa: E402
 from web.routes.moderation_route import router as moderation_router    # noqa: E402
 from web.routes.lfg_route import router as lfg_router                  # noqa: E402
+from web.routes.logs_route import router as logs_router                # noqa: E402
+from web.routes.tickets_route import router as tickets_router          # noqa: E402
+from web.routes.mod_akte_route import router as mod_akte_router        # noqa: E402
 from web.routes.landing_route import router as landing_router          # noqa: E402  (D9: oeffentliche Landing `/`)
 from web.routes.home_route import router as home_router                # noqa: E402  (D9: Post-Login `/home`)
 from web.routes.rbac_route import router as rbac_router                # noqa: E402  (RBAC: /rbac — war nicht registriert)
@@ -323,6 +331,9 @@ app.include_router(search_router)
 app.include_router(leveling_router)
 app.include_router(moderation_router)
 app.include_router(lfg_router)
+app.include_router(logs_router)     # Log-Kanäle (/logs, 21.10.2026)
+app.include_router(tickets_router)  # Ticket-Verlauf (/tickets, 21.10.2026)
+app.include_router(mod_akte_router)  # Moderations-Akte: /moderation/akte* (moderation:edit)
 
 
 # F64: CSRF-Token wird jetzt direkt in der CSRFMiddleware (Pure ASGI) gesetzt.

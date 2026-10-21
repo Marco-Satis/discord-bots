@@ -1,0 +1,9 @@
+{% extends "base_v5.html" %}
+{% from "partials/_c3_kopf.html" import kopf %}
+
+{% block title %}Log-Kanäle{% endblock %}
+
+{% block content %}
+{{ kopf("Discord-Server", "Log-Kanäle", "Wohin Marshal welche Ereignisse meldet. Ohne Kanal ist der Bereich aus; der Eintrag im Protokoll entsteht trotzdem.") }}
+{% include "partials/logs_config.html" %}
+{% endblock %}

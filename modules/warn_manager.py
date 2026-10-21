@@ -429,6 +429,48 @@ class WarnManager:
         return True
 
     # ------------------------------------------------------------------
+    # Grund nachtraeglich aendern (Moderations-Akte)
+    # ------------------------------------------------------------------
+
+    def update_cached_reason(
+        self,
+        user_id: int | str,
+        db_id: int,
+        created_at: Optional[str],
+        new_reason: str,
+    ) -> bool:
+        """
+        Spiegelt eine Grund-Aenderung (bereits in SQLite geschrieben) in den Cache.
+
+        Warns aus `load_from_db` tragen ihre DB-ID (`_db_id`), Warns aus der
+        laufenden Sitzung nur eine UUID — fuer die ist der Zeitstempel der
+        einzige gemeinsame Schluessel (`warned_at` == `created_at` in SQLite,
+        beide aus demselben `datetime.now().isoformat()`).
+
+        Args:
+            user_id: Discord-User-ID des Verwarnten
+            db_id: SQLite-ID des Warns
+            created_at: created_at-Wert der SQLite-Zeile (Fallback-Schluessel)
+            new_reason: Neuer Grund
+
+        Returns:
+            True wenn ein Cache-Eintrag aktualisiert wurde
+        """
+        entry = self._data.get(str(user_id))
+        if not entry:
+            return False
+        created_str = str(created_at) if created_at else None
+        for w in entry.get("warns", []):
+            if (
+                w.get("_db_id") == db_id
+                or w.get("id") == str(db_id)
+                or (created_str and w.get("warned_at") == created_str)
+            ):
+                w["reason"] = new_reason
+                return True
+        return False
+
+    # ------------------------------------------------------------------
     # Warns abfragen
     # ------------------------------------------------------------------
 

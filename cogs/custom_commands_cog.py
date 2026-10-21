@@ -21,6 +21,7 @@ Variablen in Antworten:
   {server}      -> Name des Servers (Guild)
   {date}        -> Aktuelles Datum (DD.MM.YYYY)
   {membercount} -> Aktuelle Mitgliederzahl
+  {user.name}, {kontoalter}, {beitritt}, {datum}, {zeit} -> siehe modules/platzhalter.py
 
 Persistenz: SQLite-Tabelle 'custom_commands'
 """
@@ -36,6 +37,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from modules.database.db_manager import get_db
+from modules.platzhalter import jetzt_berlin, render
 from utils.logger import get_logger
 from utils.permissions import admin_only
 from utils.embeds import (
@@ -185,13 +187,15 @@ class CustomCommandsCog(commands.Cog):
         self, text: str, message: discord.Message
     ) -> str:
         """
-        Variablen in der Antwort ersetzen.
+        Variablen in der Antwort ersetzen — über das gemeinsame
+        Platzhalter-System (``modules/platzhalter.py``).
 
-        Unterstuetzte Variablen:
-          {user}        -> Mention des Users
-          {server}      -> Guild-Name
-          {date}        -> Aktuelles Datum (DD.MM.YYYY)
-          {membercount} -> Mitgliederzahl des Servers
+        Unterstuetzte Variablen (Auswahl):
+          {user}        -> Mention des Users (wie bisher)
+          {server}      -> Guild-Name ("DM" ausserhalb eines Servers)
+          {date}        -> Aktuelles Datum (DD.MM.YYYY), Alias zu {datum}
+          {membercount} -> Mitgliederzahl des Servers ("0" ausserhalb)
+          {user.name}, {kontoalter}, {beitritt}, {datum}, {zeit}
 
         Args:
             text: Roher Antwort-Text mit Platzhaltern
@@ -200,15 +204,20 @@ class CustomCommandsCog(commands.Cog):
         Returns:
             Text mit ersetzten Variablen
         """
-        replacements = {
-            "{user}": message.author.mention,
-            "{server}": message.guild.name if message.guild else "DM",
-            "{date}": datetime.now().strftime("%d.%m.%Y"),
-            "{membercount}": str(message.guild.member_count) if message.guild else "0",
-        }
-        for placeholder, value in replacements.items():
-            text = text.replace(placeholder, value)
-        return text
+        extra = {"date": jetzt_berlin().strftime("%d.%m.%Y")}
+        if message.guild is None:
+            extra.update({"server": "DM", "membercount": "0"})
+        return render(text, member=message.author, guild=message.guild, extra=extra)
+
+    def _render_tree(self, data, message: discord.Message):
+        """Platzhalter in allen Strings einer geparsten JSON-Struktur ersetzen."""
+        if isinstance(data, str):
+            return self._replace_variables(data, message)
+        if isinstance(data, list):
+            return [self._render_tree(x, message) for x in data]
+        if isinstance(data, dict):
+            return {k: self._render_tree(v, message) for k, v in data.items()}
+        return data
 
     # ------------------------------------------------------------------
     # Embed-Parsing
@@ -236,17 +245,24 @@ class CustomCommandsCog(commands.Cog):
         # {embed}-Praefix entfernen
         raw = text[len("{embed}"):].strip()
 
-        # Variablen im gesamten Text ersetzen
-        raw = self._replace_variables(raw, message)
-
-        # JSON parsen versuchen
+        # Erst die Vorlage als JSON parsen und die Platzhalter nur in den
+        # Strings ersetzen — ein Anzeigename mit Anfuehrungszeichen kann das
+        # JSON so nicht mehr zerbrechen. Ist die Vorlage selbst kein JSON
+        # (z. B. `"color": {membercount}` ohne Anfuehrungszeichen), gilt das
+        # alte Verhalten: erst ersetzen, dann parsen.
         try:
-            data = json.loads(raw)
+            data = self._render_tree(json.loads(raw), message)
         except (json.JSONDecodeError, TypeError):
-            # Kein gueltiges JSON — rohen Text als Description verwenden
-            return info_embed(
-                description=raw if raw else "Leere Antwort",
-            )
+            raw = self._replace_variables(raw, message)
+            try:
+                data = json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                # Kein gueltiges JSON — rohen Text als Description verwenden
+                return info_embed(
+                    description=raw if raw else "Leere Antwort",
+                )
+        if not isinstance(data, dict):
+            return info_embed(description=raw if raw else "Leere Antwort")
 
         # Embed aus JSON-Daten bauen
         embed = discord.Embed()

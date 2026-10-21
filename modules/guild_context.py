@@ -52,6 +52,7 @@ KNOWN_MODULES: tuple[str, ...] = (
     "welcome",
     "counting",     # Zaehlspiel (Schalter in der Marshal-Modulübersicht)
     "audit",        # Audit-Log-Meldungen nach #logs (dito)
+    "sticky_roles", # Rollen fuer zurueckkehrende Mitglieder (dito)
 )
 
 # --- TTL-Cache (Hot-Path-Entlastung) ---------------------------------------
