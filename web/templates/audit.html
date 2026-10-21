@@ -1,6 +1,7 @@
 {% extends "base_v5.html" %}
+{% from "partials/_c3_kopf.html" import kopf %}
 
-{% block title %}Audit-Log{% endblock %}
+{% block title %}Änderungsprotokoll{% endblock %}
 {% block nav_audit %}active{% endblock %}
 {% block crumb %}Audit-Log{% endblock %}
 
@@ -9,13 +10,7 @@
    globalen v5-Komponenten (.config-section, .form-row, .table-wrapper/.data-table,
    .badge, native .appcont-Inputs) + token-basierte Inline-Styles wie home.html.
    Kein Hardcode-Blau mehr, kein undefiniertes --border. Backend/Query unveraendert. #}
-<div class="page-header">
-    <h1>Audit-Log</h1>
-    <p class="page-subtitle">
-        Wer hat was im Dashboard geaendert
-        <span class="status-badge status-online">Owner-only</span>
-    </p>
-</div>
+{{ kopf("Verwaltung", "Änderungsprotokoll", "Wer hat im Dashboard wann was geändert.", chip="Nur Owner", chip_art="setup") }}
 
 <!-- Filter -->
 <div class="config-section" style="margin-bottom:16px">

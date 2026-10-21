@@ -1,14 +1,12 @@
 {% extends "base_v5.html" %}
+{% from "partials/_c3_kopf.html" import kopf %}
 
-{% block title %}System{% endblock %}
+{% block title %}Bots und Dienste{% endblock %}
 {% block crumb %}System{% endblock %}
 {% block nav_system %}active{% endblock %}
 
 {% block content %}
-<div class="page-header">
-    <h1>System-Verwaltung</h1>
-    <p class="page-subtitle">Server-Informationen und Service-Verwaltung</p>
-</div>
+{{ kopf("Bots & System", "Bots und Dienste", "Dienste neu starten, System-Updates einspielen und den Server neu starten.") }}
 
 <!-- System-Info Kacheln -->
 <div class="stats-grid" style="margin-bottom: 1.5rem;">

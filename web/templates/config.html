@@ -1,7 +1,8 @@
 {% extends "base_v5.html" %}
+{% from "partials/_c3_kopf.html" import kopf %}
 {% from "partials/_channel_select.html" import channel_select %}
 
-{% block title %}Config-Panel{% endblock %}
+{% block title %}Einstellungen{% endblock %}
 {% block crumb %}Konfiguration{% endblock %}
 {% block nav_config %}active{% endblock %}
 
@@ -34,12 +35,7 @@
 .set-group-title { font-size: 11px; text-transform: uppercase; letter-spacing: .12em; color: var(--acc-2); font-weight: 700; margin: 4px 0 2px; font-family: ui-monospace, monospace; }
 </style>
 
-<div class="page-header">
-  <div>
-    <h1>Config-Panel</h1>
-    <p class="page-subtitle">Bot-Konfiguration, Login-Verwaltung und Bot-Profile &mdash; &Auml;nderungen werden sofort &uuml;bernommen</p>
-  </div>
-</div>
+{{ kopf("Bots & System", "Einstellungen", "Schalter, Intervalle, Schwellwerte und Kanäle der Bots. Änderungen gelten sofort.") }}
 
 {% if success %}<div class="alert" style="background: var(--success-dim); color: var(--success); border: 1px solid rgba(35,165,90,0.2); padding: var(--s-3) var(--s-4); border-radius: var(--radius-sm); margin-bottom: var(--s-4);">{{ success }}</div>{% endif %}
 {% if error %}<div class="alert" style="background: var(--danger-dim); color: var(--danger); border: 1px solid rgba(242,63,67,0.2); padding: var(--s-3) var(--s-4); border-radius: var(--radius-sm); margin-bottom: var(--s-4);">{{ error }}</div>{% endif %}

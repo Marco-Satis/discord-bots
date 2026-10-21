@@ -1,17 +1,12 @@
 {% extends "base_v5.html" %}
+{% from "partials/_c3_kopf.html" import kopf %}
 
 {% block title %}Changelog{% endblock %}
 {% block nav_changelog %}active{% endblock %}
 {% block crumb %}Changelog{% endblock %}
 
 {% block content %}
-<div class="page-header">
-    <h1>Changelog</h1>
-    <p class="page-subtitle">
-        Aktuelle Version:
-        <span class="status-badge status-online">v{{ version }}</span>
-    </p>
-</div>
+{{ kopf("Verwaltung", "Changelog", "Was sich an Bots und Dashboard geändert hat.", chip="Version " ~ version) }}
 
 <div class="config-section changelog-content">
     {{ changelog_html|safe }}

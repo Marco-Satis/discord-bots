@@ -1,6 +1,7 @@
 {% extends "base_v5.html" %}
+{% from "partials/_c3_kopf.html" import kopf %}
 
-{% block title %}RBAC{% endblock %}
+{% block title %}Rechte je Rolle{% endblock %}
 {% block crumb %}RBAC{% endblock %}
 {% block nav_rbac %}active{% endblock %}
 
@@ -10,13 +11,7 @@
    .badge, .btn, native .appcont-Inputs). Nur die Permission-Matrix hat ein schlankes
    token-only Layout-Style (kein Roh-Hex, kein undefiniertes --border).
    Backend/HTMX-Kontrakt (Feldnamen, IDs, Endpunkte) unveraendert. #}
-<div class="page-header">
-    <h1>RBAC — Rollen &amp; Rechte</h1>
-    <p class="page-subtitle">
-        Discord-Rolle → Dashboard-Bereich + Aktion. Owner darf immer alles.
-        <span class="status-badge status-online">Owner-only</span>
-    </p>
-</div>
+{{ kopf("Verwaltung", "Rechte je Rolle", "Welche Discord-Rolle im Dashboard was sehen und ändern darf. Der Owner darf immer alles.", chip="Nur Owner", chip_art="setup") }}
 
 <div id="rbac-config">
 {% include "partials/rbac_config.html" %}

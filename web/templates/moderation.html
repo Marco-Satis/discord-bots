@@ -1,21 +1,12 @@
 {% extends "base_v5.html" %}
+{% from "partials/_c3_kopf.html" import kopf %}
 
-{% block title %}Moderation{% endblock %}
+{% block title %}Automod{% endblock %}
 {% block crumb %}Moderation{% endblock %}
 {% block nav_moderation %}active{% endblock %}
 
 {% block content %}
-<div class="page-header">
-    <h1>Moderation — Auto-Mod</h1>
-    <p class="page-subtitle">
-        Auto-Mod-Regeln der Haupt-Guild
-        {% if guild_set %}
-            <span class="status-badge status-online">live</span>
-        {% else %}
-            <span class="status-badge status-offline">keine GUILD_ID</span>
-        {% endif %}
-    </p>
-</div>
+{% if guild_set %}{{ kopf("Discord-Server", "Automod", "Wortfilter, Anti-Spam und weitere Filter. Jeder Filter hat seinen eigenen Schalter.") }}{% else %}{{ kopf("Discord-Server", "Automod", "Wortfilter, Anti-Spam und weitere Filter. Jeder Filter hat seinen eigenen Schalter.", chip="Server nicht verbunden", chip_art="check") }}{% endif %}
 
 {% include "partials/moderation_config.html" %}
 

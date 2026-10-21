@@ -1,5 +1,6 @@
 {% extends "base_v5.html" %}
-{% block title %}Sicherheit{% endblock %}
+{% from "partials/_c3_kopf.html" import kopf %}
+{% block title %}Server-Schutz{% endblock %}
 {% block crumb %}Sicherheit{% endblock %}
 {% block nav_security %}active{% endblock %}
 
@@ -17,10 +18,7 @@
 .config-item .val { font-size: 13px; color: var(--t1); font-family: ui-monospace, monospace; word-break: break-all; }
 </style>
 
-<div class="page-header">
-    <h1>Sicherheit</h1>
-    <p class="page-subtitle">Firewall, Fail2Ban, SSL und IP-Sperren</p>
-</div>
+{{ kopf("Bots & System", "Server-Schutz", "IP-Sperren, Fail2Ban, Firewall und Zertifikate des Servers. Verifizierung und Raid-Schutz im Discord findest du unter Discord-Server.") }}
 
 <!-- F44: Ban-Statistiken -->
 <div class="stats-grid" style="margin-bottom: 1.5rem;" id="ban-stats-area">

@@ -1,4 +1,5 @@
 {% extends "base_v5.html" %}
+{% from "partials/_c3_kopf.html" import kopf %}
 
 {% block title %}Suche{% endblock %}
 {% block nav_search %}active{% endblock %}
@@ -9,10 +10,7 @@
    --bg-primary/--border-color/--accent*/--radius-sm). Alle Search-Klassen kommen
    jetzt token-only aus v5_components.css. Filter-Pills -> .filter-bar + .btn btn-sm,
    .search-source-badge -> .badge badge-info. Backend/Query-Kontrakt unveraendert. #}
-<div class="page-header">
-    <h1>Suche</h1>
-    <p class="page-subtitle">Volltextsuche ueber alle Dashboard-Daten</p>
-</div>
+{{ kopf("Suche", "Suche", "Durchsucht Logs, Ereignisse und Spielerdaten. Seiten findest du schneller über das Suchfeld oben.") }}
 
 <!-- Suchfeld -->
 <div class="config-section">

@@ -1,6 +1,7 @@
 {% extends "base_v5.html" %}
+{% from "partials/_c3_kopf.html" import kopf %}
 
-{% block title %}Übersicht{% endblock %}
+{% block title %}Übersicht und Verlauf{% endblock %}
 {% block crumb %}Übersicht{% endblock %}
 {% block nav_dashboard %}active{% endblock %}
 
@@ -43,13 +44,7 @@
 </style>
 
 <!-- Page-Header -->
-<div class="page-header">
-    <div>
-        <h1>Server-Übersicht</h1>
-        <div class="page-subtitle">// Game-Server · Bots · System</div>
-    </div>
-    <div><span class="status"><span class="status-dot status-dot--online"></span>Live</span></div>
-</div>
+{{ kopf("Game-Server", "Übersicht und Verlauf", "Status, Auslastung und Verlauf aller Game-Server.", chip="Live") }}
 
 {% set online_servers = servers|selectattr('status','equalto','online')|list|length if servers else 0 %}
 {% set total_servers = servers|length if servers else 0 %}

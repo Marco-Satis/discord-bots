@@ -1,14 +1,12 @@
 {% extends "base_v5.html" %}
+{% from "partials/_c3_kopf.html" import kopf %}
 
 {% block title %}Fehler{% endblock %}
 {% block nav_errors %}active{% endblock %}
 {% block crumb %}Fehler{% endblock %}
 
 {% block content %}
-<div class="page-header">
-    <h1>Fehler-Uebersicht</h1>
-    <p class="page-subtitle">ERROR- und WARNING-Meldungen aus den Bot-Logs</p>
-</div>
+{{ kopf("Bots & System", "Fehler", "Fehler und Warnungen aus den Logs der Bots.") }}
 
 <!-- Filter-Buttons -->
 <div class="filter-bar">

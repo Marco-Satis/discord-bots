@@ -1,6 +1,7 @@
 {% extends "base_v5.html" %}
+{% from "partials/_c3_kopf.html" import kopf %}
 
-{% block title %}LFG{% endblock %}
+{% block title %}Spielersuche{% endblock %}
 {% block crumb %}LFG{% endblock %}
 {% block nav_lfg %}active{% endblock %}
 
@@ -17,17 +18,7 @@
 .set-group-title { font-size: 11px; text-transform: uppercase; letter-spacing: .12em; color: var(--acc-2); font-weight: 700; margin: 4px 0 2px; font-family: ui-monospace, monospace; }
 </style>
 
-<div class="page-header">
-    <h1>LFG — Mitspieler-Suche</h1>
-    <p class="page-subtitle">
-        Ping-Rolle für #spielersuche
-        {% if guild_set %}
-            <span class="status-badge status-online">live</span>
-        {% else %}
-            <span class="status-badge status-offline">keine GUILD_ID</span>
-        {% endif %}
-    </p>
-</div>
+{% if guild_set %}{{ kopf("Discord-Server", "Spielersuche", "Ping-Rolle für die Mitspielersuche und Abklingzeit gegen Spam.") }}{% else %}{{ kopf("Discord-Server", "Spielersuche", "Ping-Rolle für die Mitspielersuche und Abklingzeit gegen Spam.", chip="Server nicht verbunden", chip_art="check") }}{% endif %}
 
 <div id="lfg-config">
 {% include "partials/lfg_config.html" %}

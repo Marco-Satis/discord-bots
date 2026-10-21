@@ -1,0 +1,20 @@
+{# Seitenkopf im Design C3 für Unterseiten.
+   Aufruf: {% from "partials/_c3_kopf.html" import kopf %}
+           {{ kopf("Bots & System", "Fehler", "Fehler und Warnungen aus den Logs.", chip="live") }}
+   chip_art: on (Cyan), check (Magenta), off (gedämpft), setup (Violett-Umriss). #}
+{% macro kopf(bereich, titel, lead="", chip=none, chip_art="on") %}
+<div class="c3-page-head">
+  <div class="c3-shards" aria-hidden="true">
+    <i class="c3-shard c-vio" style="--l:46%;--t:-50%;--w:60%;--h:130%;--fa:.16;--ea:.7" data-pts="22 0, 100 0, 100 66, 0 100"></i>
+    <i class="c3-shard c-cyan" style="--l:14%;--t:-14%;--w:34%;--h:80%;--fa:0;--ea:.45" data-pts="0 40, 70 0, 100 100"></i>
+    <i class="c3-shard c3-shard--line c-vio" style="--l:4%;--t:64%;--w:80%;--h:22%" data-line="0 100, 58 0, 100 54" data-t="2"></i>
+  </div>
+  <p class="c3-label c3-crumbs">{{ bereich }} <span class="sep" aria-hidden="true">/</span> {{ titel }}</p>
+  <div class="c3-ph-row">
+    <h1>{{ titel }}</h1>
+    {% if chip %}<span class="c3-chip c3-chip--{{ chip_art }}">{{ chip }}</span>{% endif %}
+    {% if caller is defined %}<div class="c3-ph-actions">{{ caller() }}</div>{% endif %}
+  </div>
+  {% if lead %}<p class="c3-lead">{{ lead }}</p>{% endif %}
+</div>
+{% endmacro %}
