@@ -108,7 +108,7 @@ load_env()
 # Configuration
 # ------------------------------------------------------------------
 
-TOKEN = get_env("DISCORD_TOKEN_WATCHDOG")
+TOKEN = get_env("RECON_BOT_TOKEN")
 GUILD_ID = get_primary_guild_id()  # zentralisiert via Multi-Tenant-Resolver (Phase 0.5)
 ADMIN_LOG_CHANNEL_ID = get_env("ADMIN_LOG_CHANNEL_ID", cast=int, default=0)
 STATUS_EMBED_CHANNEL_ID = get_env("STATUS_EMBED_CHANNEL_ID", cast=int, default=0)
@@ -3579,13 +3579,13 @@ async def shutdown():
 
 def main():
     if not TOKEN:
-        logger.error("DISCORD_TOKEN_WATCHDOG not set in .env!")
+        logger.error("RECON_BOT_TOKEN not set in .env!")
         sys.exit(1)
 
     # F62: Startup Selftest
     selftest_ok = execute_selftest(
         "Recon",
-        required_env=["DISCORD_TOKEN_WATCHDOG", "GUILD_ID"],
+        required_env=["RECON_BOT_TOKEN", "GUILD_ID"],
     )
     if not selftest_ok:
         logger.error("Selftest fehlgeschlagen — Bot wird nicht gestartet!")

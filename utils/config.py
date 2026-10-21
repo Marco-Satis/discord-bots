@@ -23,6 +23,24 @@ MONITOR_DATA_DIR = DATA_DIR / "monitor"
 ADMIN_DATA_DIR = DATA_DIR / "admin"
 
 
+# Bot-Umbenennung 2026-06-13 (Manager->Operator, Watchdog->Recon, Admin->Marshal):
+# die Token-Variablen heissen seit 21.10. wie die Bots. Alte Namen in einer
+# noch nicht umgestellten .env bleiben gueltig und werden auf den neuen Namen
+# gespiegelt.
+BOT_TOKEN_ALIASES = {
+    "OPERATOR_BOT_TOKEN": "DISCORD_TOKEN_MANAGER",
+    "RECON_BOT_TOKEN": "DISCORD_TOKEN_WATCHDOG",
+    "MARSHAL_BOT_TOKEN": "ADMIN_BOT_TOKEN",
+}
+
+
+def _bot_token_aliases_spiegeln() -> None:
+    """Neuen Token-Namen aus dem alten befuellen, wenn nur der alte gesetzt ist."""
+    for neu, alt in BOT_TOKEN_ALIASES.items():
+        if not os.getenv(neu) and os.getenv(alt):
+            os.environ[neu] = os.environ[alt]
+
+
 def load_env():
     """Load .env file from config directory"""
     env_path = CONFIG_DIR / ".env"
@@ -33,6 +51,7 @@ def load_env():
         alt = PROJECT_ROOT / ".env"
         if alt.exists():
             load_dotenv(alt)
+    _bot_token_aliases_spiegeln()
 
 
 def get_config():

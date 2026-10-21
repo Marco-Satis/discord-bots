@@ -52,7 +52,7 @@ from modules.guild_context import get_primary_guild_id
 load_env()
 
 # Configuration
-TOKEN = get_env("DISCORD_TOKEN_MANAGER")
+TOKEN = get_env("OPERATOR_BOT_TOKEN")
 GUILD_ID = get_primary_guild_id()  # zentralisiert via Multi-Tenant-Resolver (Phase 0.5)
 
 logger = get_logger("operator_bot")
@@ -528,13 +528,13 @@ async def setup_hook():
 
 def main():
     if not TOKEN:
-        logger.error("DISCORD_TOKEN_MANAGER not set in .env!")
+        logger.error("OPERATOR_BOT_TOKEN not set in .env!")
         sys.exit(1)
 
     # F62: Startup Selftest — pruefen ob alles konfiguriert ist
     selftest_ok = execute_selftest(
         "Operator",
-        required_env=["DISCORD_TOKEN_MANAGER", "GUILD_ID"],
+        required_env=["OPERATOR_BOT_TOKEN", "GUILD_ID"],
     )
     if not selftest_ok:
         logger.error("Selftest fehlgeschlagen — Bot wird nicht gestartet!")

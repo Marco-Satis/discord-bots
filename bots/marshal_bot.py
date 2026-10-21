@@ -38,7 +38,7 @@ from modules.guild_context import get_primary_guild_id
 load_env()
 
 # Konfiguration
-TOKEN = get_env("ADMIN_BOT_TOKEN")
+TOKEN = get_env("MARSHAL_BOT_TOKEN")
 GUILD_ID = get_primary_guild_id()  # zentralisiert via Multi-Tenant-Resolver (Phase 0.5)
 
 logger = get_logger("marshal_bot")
@@ -48,7 +48,7 @@ logger = get_logger("marshal_bot")
 # ------------------------------------------------------------------
 
 if not TOKEN:
-    logger.info("ADMIN_BOT_TOKEN nicht gesetzt — Marshal deaktiviert")
+    logger.info("MARSHAL_BOT_TOKEN nicht gesetzt — Marshal deaktiviert")
     sys.exit(0)
 
 # ------------------------------------------------------------------
@@ -261,7 +261,7 @@ def main():
     # F62: Startup Selftest
     selftest_ok = execute_selftest(
         "Marshal",
-        required_env=["ADMIN_BOT_TOKEN", "GUILD_ID"],
+        required_env=["MARSHAL_BOT_TOKEN", "GUILD_ID"],
     )
     if not selftest_ok:
         logger.error("Selftest fehlgeschlagen — Bot wird nicht gestartet!")
