@@ -30,7 +30,7 @@
 .config-pairs { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: var(--s-3); }
 @media (max-width: 600px) { .config-pairs { grid-template-columns: 1fr; } }
 .config-item { display: flex; flex-direction: column; gap: 5px; padding: 12px 15px 11px; border: 1px solid var(--line); border-radius: var(--radius-sm, 12px); background: rgba(120,180,240,.03); }
-.config-item .key { font-size: 11px; text-transform: uppercase; letter-spacing: .1em; font-weight: 700; color: var(--acc-2, #6fb0f7); font-family: ui-monospace, 'JetBrains Mono', monospace; }
+.config-item .key { font-size: 11px; text-transform: uppercase; letter-spacing: .1em; font-weight: 700; color: var(--violet-text); font-family: ui-monospace, 'JetBrains Mono', monospace; }
 .config-item .val { font-size: 14px; color: var(--t1, #eef3fb); font-family: ui-monospace, 'JetBrains Mono', monospace; word-break: break-all; }
 .chart-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-4); margin-bottom: var(--s-4); }
 @media (max-width: 900px) { .chart-row { grid-template-columns: 1fr; } }
@@ -505,12 +505,12 @@ function sdLoadAnalytics() {
       set('sd-stat-peak', peak); set('sd-stat-avg', Math.round(avg * 10) / 10);
 
       sdRender('sd-chart-uptime', { type: 'bar',
-        data: { labels: labels, datasets: [{ label: 'Online', data: status.map(function(s){ return s === 1 ? 1 : 0; }), backgroundColor: 'rgba(52,224,161,.5)', borderColor: '#34e0a1', borderWidth: 1, borderRadius: 3 }] },
+        data: { labels: labels, datasets: [{ label: 'Online', data: status.map(function(s){ return s === 1 ? 1 : 0; }), backgroundColor: 'rgba(83,231,242,.5)', borderColor: '#53E7F2', borderWidth: 1, borderRadius: 3 }] },
         options: Object.assign({}, d, { scales: Object.assign({}, d.scales, { y: Object.assign({}, d.scales.y, { min: 0, max: 1, ticks: { stepSize: 1, color: d.scales.y.ticks.color, callback: function(v){ return v ? 'On' : 'Off'; } } }) }) }) });
 
       sdRender('sd-chart-perf', { type: 'line',
         data: { labels: labels, datasets: [
-          { label: 'CPU %', data: cpu, borderColor: '#3F8EF2', backgroundColor: 'rgba(63,142,242,.1)', fill: true, tension: .3 },
+          { label: 'CPU %', data: cpu, borderColor: '#53E7F2', backgroundColor: 'rgba(83,231,242,.1)', fill: true, tension: .3 },
           { label: 'RAM MB', data: ram, borderColor: '#FF5FB5', backgroundColor: 'rgba(255,95,181,.1)', fill: true, tension: .3, yAxisID: 'y1' }
         ]},
         options: Object.assign({}, d, { scales: Object.assign({}, d.scales, {
@@ -519,7 +519,7 @@ function sdLoadAnalytics() {
         })}) });
 
       sdRender('sd-chart-players', { type: 'line',
-        data: { labels: labels, datasets: [{ label: 'Spieler', data: players, borderColor: '#3F8EF2', backgroundColor: 'rgba(63,142,242,.15)', fill: true, tension: .3, pointRadius: 3 }] },
+        data: { labels: labels, datasets: [{ label: 'Spieler', data: players, borderColor: '#53E7F2', backgroundColor: 'rgba(83,231,242,.15)', fill: true, tension: .3, pointRadius: 3 }] },
         options: d });
 
       // TPS: kein Backend-Feld in den Server-Analytics -> ehrlicher Hinweis statt erfundener Kurve
