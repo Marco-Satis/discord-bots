@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from web.templates_setup import erstelle_templates
 
-from utils.config import get_config, save_config
+from utils.config import get_config, get_env, save_config
 from utils.logger import get_logger
 from web.auth import require_auth
 
@@ -88,126 +88,160 @@ def _is_owner(user: dict) -> bool:
     return user.get("is_owner") in (True, "True", "true")
 
 
-@router.get("/config", response_class=HTMLResponse)
-async def config_page(request: Request, current_user: dict = Depends(require_auth)):
-    """
-    Zeigt die aktuelle Konfiguration in einem bearbeitbaren Formular.
-    Nur für Owner zugänglich.
-    """
-    if not _is_owner(current_user):
-        raise HTTPException(403, "Nur der Owner darf die Konfiguration aendern")
+# --- Einstellungs-Seiten (je Bereich eine eigene Seite, Reihenfolge = Navigation) ---
+EINSTELLUNGEN = {
+    "toggles": ("Funktionen", "Welche Bot-Funktionen laufen. Änderungen gelten sofort."),
+    "intervals": ("Zeitpläne", "Neustart, Backups, Update-Prüfung und Countdowns."),
+    "thresholds": ("Warnschwellen", "Ab welchen Werten die Bots im Admin-Log warnen."),
+    "channels": ("Kanäle der Bots", "Wohin die Bots schreiben."),
+    "notifications": ("Benachrichtigungen", "Welches Ereignis in welchem Kanal landet."),
+    "botprofiles": ("Bot-Profile", "Namen, Status und Avatare der Bots."),
+}
 
-    config = get_config()
+# Funktionsschalter auf der Seite „Funktionen“. word_filter und anti_spam fehlen
+# bewusst: sie werden unter Automod (/moderation) je Server geschaltet, und diese
+# Regel ueberstimmt den globalen Schalter (cogs/moderation_cog.py:_rule_on). Zwei
+# Schalter fuer dieselbe Sache waren eine Falle; der globale Wert bleibt unangetastet.
+FEATURE_KEYS = [
+    "player_tracking", "auto_backup", "onedrive_backup",
+    "email_notifications", "auto_update", "daily_restart",
+    "voice_stats", "status_embed", "chat_bridge",
+    "login_audit", "auto_cleanup", "steam_changelog",
+]
+# Audit 2026-08-18 (C-10, Marco-Entscheid): `savegame_protection` und
+# `graceful_degradation` stehen hier bewusst NICHT. Beide sind Sicherheitsnetze —
+# der Speicherstand-Schutz greift bei Absturzschleifen, die Degradation haelt den
+# Betrieb bei Teilausfaellen aufrecht. Ein Kaestchen, das sie abschaltet, ist eine
+# Fussangel: der Schaden faellt erst auf, wenn das Netz gebraucht wird.
 
+THRESHOLD_KEYS = ["cpu_warning", "ram_warning", "disk_warning", "disk_critical",
+                  "tick_rate_warning", "warning_cooldown"]
+
+SCHEDULER_INT_KEYS = [
+    "daily_restart_hour", "daily_restart_minute",
+    "min_uptime_for_restart_hours",
+    "auto_backup_interval_hours", "max_local_backups",
+    "max_cloud_backups", "update_check_interval_hours",
+    "auto_update_hour", "daily_report_hour",
+    "weekly_report_day", "weekly_report_hour",
+    "config_backup_hour", "auto_cleanup_hour",
+    "backup_verify_day", "backup_verify_hour",
+]
+SCHEDULER_BOOL_KEYS = [
+    "daily_restart_enabled", "auto_backup_enabled",
+    "update_check_enabled", "auto_update_enabled",
+    "auto_update_require_empty", "daily_report_enabled",
+    "config_backup_enabled", "auto_cleanup_enabled",
+    "backup_before_restart",
+]
+
+
+def _bereich(wert: str) -> str:
+    """Gueltigen Einstellungs-Bereich bestimmen (Default: Funktionen)."""
+    return wert if wert in EINSTELLUNGEN else "toggles"
+
+
+def _bot_kanaele() -> list[dict]:
+    """
+    Kanaele, die die Bots tatsaechlich benutzen (aus der .env), mit Namen aus dem
+    Kanal-Snapshot. IDs werden nie angezeigt — nur Name oder Zustand.
+    """
+    from modules.server_registry import minecraft_server
+    from web.channel_bridge import get_channels
+
+    namen = {str(c.get("id")): c.get("name", "") for c in get_channels().get("channels", [])}
+    eintraege = [
+        ("ADMIN_LOG_CHANNEL_ID", "Admin-Log", "Fehler, Warnungen, Neustarts und Backups aller Bots"),
+        ("STATUS_EMBED_CHANNEL_ID", "Live-Status", "Status-Anzeige der Game-Server"),
+        ("PUBLIC_STATUS_CHANNEL_ID", "Satisfactory-Spielerkanal", "Update-Hinweise für Satisfactory-Spieler"),
+    ]
+    for srv in minecraft_server():
+        eintraege.append((f"{srv.env_praefix}GAME_CHAT_CHANNEL_ID", f"Chat-Brücke {srv.label}",
+                          "Spiel-Chat ↔ Discord"))
+
+    kanaele = []
+    for env_key, titel, zweck in eintraege:
+        wert = str(get_env(env_key, "") or "").strip()
+        if not wert or wert == "0":
+            name, zustand = "", "fehlt"
+        elif wert in namen:
+            name, zustand = namen[wert], "ok"
+        else:
+            name, zustand = "", "unbekannt"
+        kanaele.append({"titel": titel, "zweck": zweck, "name": name, "zustand": zustand})
+    return kanaele
+
+
+def _seite(request: Request, user: dict, bereich: str, config: dict,
+           success: str = "", error: str = "") -> HTMLResponse:
+    """Eine Einstellungs-Seite rendern."""
+    titel, lead = EINSTELLUNGEN[bereich]
     return templates.TemplateResponse(request, "config.html", {
         "request": request,
-        "user": current_user,
+        "user": user,
         "config": config,
-        "success": "",
-        "error": "",
+        "bereich": bereich,
+        "titel": titel,
+        "lead": lead,
+        "kanaele": _bot_kanaele() if bereich == "channels" else [],
+        "success": success,
+        "error": error,
     })
 
 
-@router.post("/config", response_class=HTMLResponse)
-async def config_save(request: Request, current_user: dict = Depends(require_auth)):
-    """
-    Speichert die geaenderte Konfiguration.
-    Liest alle Formularfelder und aktualisiert config.json.
-    """
+@router.get("/config", response_class=HTMLResponse)
+async def config_page(request: Request, current_user: dict = Depends(require_auth)):
+    """Eine Einstellungs-Seite (?tab=<bereich>). Nur für Owner zugänglich."""
     if not _is_owner(current_user):
         raise HTTPException(403, "Nur der Owner darf die Konfiguration aendern")
+    bereich = _bereich(request.query_params.get("tab", ""))
+    return _seite(request, current_user, bereich, get_config())
 
-    user = current_user  # Alias fuer Backward-Compatibility im Body
-    try:
-        form = await request.form()
-        config = get_config()
 
-        # --- Features (Booleans) ---
-        if "features" not in config:
-            config["features"] = {}
-        feature_keys = [
-            "player_tracking", "auto_backup", "onedrive_backup",
-            "email_notifications", "auto_update", "daily_restart",
-            "voice_stats", "status_embed", "chat_bridge", "word_filter",
-            "anti_spam", "login_audit", "auto_cleanup", "steam_changelog",
-        ]
-        # Audit 2026-08-18 (C-10, Marco-Entscheid): `savegame_protection` und
-        # `graceful_degradation` stehen hier bewusst NICHT mehr. Beide sind
-        # Sicherheitsnetze — der Speicherstand-Schutz greift bei Absturz-
-        # schleifen (`bots/recon_bot.py:848`), die Degradation haelt den Betrieb
-        # bei Teilausfaellen aufrecht. Ein Kaestchen im Web, das sie abschaltet,
-        # ist eine Fussangel: der Schaden faellt erst auf, wenn das Netz
-        # gebraucht wird. Sie liefen ohnehin immer — das Ankreuzfeld war
-        # wirkungslos und hat genau das Gegenteil suggeriert.
-        for key in feature_keys:
-            field_name = f"features.{key}"
-            # Checkbox: vorhanden = True, nicht vorhanden = False
-            config["features"][key] = field_name in form
+def _uebernehmen(bereich: str, form, config: dict) -> None:
+    """
+    Formularwerte EINES Bereichs in die Konfiguration schreiben.
 
-        # --- Thresholds (Zahlen) ---
-        if "thresholds" not in config:
-            config["thresholds"] = {}
-        threshold_keys = {
-            "cpu_warning": int,
-            "ram_warning": int,
-            "disk_warning": int,
-            "disk_critical": int,
-            "tick_rate_warning": int,
-            "warning_cooldown": int,
-        }
-        for key, cast_type in threshold_keys.items():
+    Nur die Felder des abgeschickten Bereichs werden angefasst: Checkboxen fehlen
+    im Formular, wenn sie aus sind — wuerde jeder Bereich alle Schalter lesen,
+    schaltete das Speichern einer anderen Seite sie still ab.
+    """
+    if bereich == "toggles":
+        features = config.setdefault("features", {})
+        for key in FEATURE_KEYS:
+            features[key] = f"features.{key}" in form
+
+    elif bereich == "thresholds":
+        thresholds = config.setdefault("thresholds", {})
+        for key in THRESHOLD_KEYS:
             field_name = f"thresholds.{key}"
             if field_name in form:
                 try:
-                    config["thresholds"][key] = cast_type(form[field_name])
+                    thresholds[key] = int(form[field_name])
                 except (ValueError, TypeError):
                     pass  # Ungueltige Werte ignorieren
 
-        # --- Scheduler / Intervalle ---
-        if "scheduler" not in config:
-            config["scheduler"] = {}
-        scheduler_int_keys = [
-            "daily_restart_hour", "daily_restart_minute",
-            "min_uptime_for_restart_hours",
-            "auto_backup_interval_hours", "max_local_backups",
-            "max_cloud_backups", "update_check_interval_hours",
-            "auto_update_hour", "daily_report_hour",
-            "weekly_report_day", "weekly_report_hour",
-            "config_backup_hour", "auto_cleanup_hour",
-            "backup_verify_day", "backup_verify_hour",
-        ]
-        for key in scheduler_int_keys:
+    elif bereich == "intervals":
+        scheduler = config.setdefault("scheduler", {})
+        for key in SCHEDULER_INT_KEYS:
             field_name = f"scheduler.{key}"
             if field_name in form:
                 try:
-                    config["scheduler"][key] = int(form[field_name])
+                    scheduler[key] = int(form[field_name])
                 except (ValueError, TypeError):
                     pass
+        for key in SCHEDULER_BOOL_KEYS:
+            scheduler[key] = f"scheduler.{key}" in form
 
-        scheduler_bool_keys = [
-            "daily_restart_enabled", "auto_backup_enabled",
-            "update_check_enabled", "auto_update_enabled",
-            "auto_update_require_empty", "daily_report_enabled",
-            "config_backup_enabled", "auto_cleanup_enabled",
-            "backup_before_restart",
-        ]
-        for key in scheduler_bool_keys:
-            field_name = f"scheduler.{key}"
-            config["scheduler"][key] = field_name in form
-
-        # --- Restart Timer ---
-        if "restart_timer" not in config:
-            config["restart_timer"] = {}
-        restart_keys = ["default_duration", "stop_duration"]
-        for key in restart_keys:
+        restart_timer = config.setdefault("restart_timer", {})
+        for key in ("default_duration", "stop_duration"):
             field_name = f"restart_timer.{key}"
             if field_name in form:
                 try:
-                    config["restart_timer"][key] = int(form[field_name])
+                    restart_timer[key] = int(form[field_name])
                 except (ValueError, TypeError):
                     pass
 
-        # --- Auto Restart & Delay ---
         config["auto_restart"] = "auto_restart" in form
         if "restart_delay" in form:
             try:
@@ -215,28 +249,29 @@ async def config_save(request: Request, current_user: dict = Depends(require_aut
             except (ValueError, TypeError):
                 pass
 
-        # Konfiguration speichern
-        save_config(config)
-        logger.info(f"Konfiguration gespeichert von {user.get('username', 'Unbekannt')}")
 
-        return templates.TemplateResponse(request, "config.html", {
-            "request": request,
-            "user": user,
-            "config": config,
-            "success": "Konfiguration erfolgreich gespeichert.",
-            "error": "",
-        })
+@router.post("/config", response_class=HTMLResponse)
+async def config_save(request: Request, current_user: dict = Depends(require_auth)):
+    """Speichert die Felder EINES Einstellungs-Bereichs in config.json."""
+    if not _is_owner(current_user):
+        raise HTTPException(403, "Nur der Owner darf die Konfiguration aendern")
+
+    bereich = "toggles"
+    try:
+        form = await request.form()
+        bereich = _bereich(str(form.get("bereich", "")))
+        if bereich not in ("toggles", "thresholds", "intervals"):
+            raise ValueError(f"Bereich {bereich} wird nicht ueber /config gespeichert")
+        config = get_config()
+        _uebernehmen(bereich, form, config)
+        save_config(config)
+        logger.info(f"Konfiguration ({bereich}) gespeichert von {current_user.get('username', 'Unbekannt')}")
+        return _seite(request, current_user, bereich, config, success="Gespeichert. Die Bots übernehmen es sofort.")
 
     except Exception as e:
         logger.error(f"Fehler beim Speichern der Konfiguration: {e}")
-        config = get_config()
-        return templates.TemplateResponse(request, "config.html", {
-            "request": request,
-            "user": user,
-            "config": config,
-            "success": "",
-            "error": "Fehler beim Speichern der Einstellungen. Details im Server-Log.",
-        })
+        return _seite(request, current_user, bereich, get_config(),
+                      error="Fehler beim Speichern der Einstellungen. Details im Server-Log.")
 
 
 # ==============================================================

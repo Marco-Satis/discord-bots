@@ -104,9 +104,9 @@ def _bereiche(spielserver: list) -> tuple[Bereich, ...]:
                 Seite("security", "IP-Sperren und Fail2Ban", "/security", "i-shield", "sicherheit ip sperren fail2ban zertifikate ssl"),
             )),
             Gruppe("Einstellungen", (
-                Seite("config", "Schalter", "/config", "i-sliders", "konfiguration config feature toggles"),
-                Seite("config-intervals", "Intervalle", "/config?tab=intervals", "i-clock", "konfiguration intervall"),
-                Seite("config-thresholds", "Schwellwerte", "/config?tab=thresholds", "i-gauge", "konfiguration alarm schwelle"),
+                Seite("config", "Funktionen", "/config", "i-sliders", "konfiguration config feature toggles schalter"),
+                Seite("config-intervals", "Zeitpläne", "/config?tab=intervals", "i-clock", "konfiguration intervall neustart backup"),
+                Seite("config-thresholds", "Warnschwellen", "/config?tab=thresholds", "i-gauge", "konfiguration alarm schwelle schwellwert"),
                 Seite("config-channels", "Kanäle", "/config?tab=channels", "i-hash", "konfiguration channels kanal"),
                 Seite("config-notifications", "Benachrichtigungen", "/config?tab=notifications", "i-bell", "konfiguration benachrichtigung"),
                 Seite("config-botprofiles", "Bot-Profile", "/config?tab=botprofiles", "i-bot", "avatar name profil"),

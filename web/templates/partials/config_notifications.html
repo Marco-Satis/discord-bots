@@ -8,7 +8,7 @@
     <div class="alert alert-danger">{{ error }}</div>
     {% endif %}
 
-    <form hx-post="/config/notifications" hx-target="#tab-notifications" hx-swap="innerHTML">
+    <form hx-post="/config/notifications" hx-target="#config-notifications-content" hx-swap="outerHTML">
 
         <p class="config-hint">
             Lege fest, in welchen Kanal jede Benachrichtigung gesendet wird und ob zusaetzlich eine E-Mail verschickt werden soll.

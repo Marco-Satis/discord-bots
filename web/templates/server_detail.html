@@ -4,17 +4,10 @@
 {% block title %}{{ server.name }}{% endblock %}
 
 {% block content %}
-{# Refactor 2026-05-17: .sd-*-Prefix entfernt, style.css v5.0-Klassen direkt.
-   8 Tabs mit HTMX-Lazy-Load, Chart.js fuer Analyse-Tab. #}
+{# Aufbau nach Variante A (C3, 2026-10-21): Kopf mit Steuerung, Kennzahlen, dann Tabs in der
+   Reihenfolge Spieler · Konsole · Backups · Updates · Mods · Einstellungen · Sperrliste · Verlauf.
+   HTMX-Lazy-Load wie bisher, Chart.js nur im Verlauf-Tab. #}
 <style>
-/* Ad-hoc Komponenten ohne style.css-Pendant */
-.detail-breadcrumb { display: flex; align-items: center; gap: var(--s-2); font-size: 13px; color: var(--text-muted); margin-bottom: var(--s-5); }
-.detail-breadcrumb a { color: var(--accent-light); text-decoration: none; }
-.detail-breadcrumb a:hover { text-decoration: underline; }
-.detail-server-icon { width: 56px; height: 56px; border-radius: var(--radius); display: flex; align-items: center; justify-content: center; font-size: 28px; flex-shrink: 0; }
-.detail-server-icon.minecraft   { background: var(--success-dim); color: var(--success); }
-.detail-server-icon.satisfactory { background: var(--warning-dim); color: var(--warning); }
-.detail-server-icon.unknown      { background: var(--bg-card-hover); color: var(--text-muted); }
 .tab-panel { display: none; }
 .tab-panel.active { display: block; }
 .rcon-console { background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: var(--radius); padding: var(--s-4); font-family: 'JetBrains Mono', monospace; font-size: 13px; }
@@ -34,17 +27,15 @@
 .config-item .val { font-size: 14px; color: var(--t1, #eef3fb); font-family: ui-monospace, 'JetBrains Mono', monospace; word-break: break-all; }
 .chart-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-4); margin-bottom: var(--s-4); }
 @media (max-width: 900px) { .chart-row { grid-template-columns: 1fr; } }
+.sd-sub { font-family: var(--mono, 'IBM Plex Mono', monospace); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--text-3); margin: 22px 0 10px; }
+.sd-sub:first-child { margin-top: 0; }
 .chart-host { position: relative; height: 250px; margin-bottom: var(--s-3); }
 .inline-stats { display: flex; gap: var(--s-6); margin-bottom: var(--s-3); flex-wrap: wrap; }
 .inline-stat-val { font-size: 24px; font-weight: 700; }
 </style>
 
-{% set server_icon_class = server.type if server.type in ['minecraft', 'satisfactory'] else 'unknown' %}
-{% set status_class = 'status-online' if server.status == 'online' else ('status-offline' if server.status == 'offline' else 'status-unknown') %}
-{% set dot_class = 'status-dot--online' if server.status == 'online' else ('status-dot--offline' if server.status == 'offline' else 'status-dot--warning') %}
-
 {% set typ = {'minecraft': 'Minecraft', 'satisfactory': 'Satisfactory'}.get(server.type, server.type|capitalize) %}
-{% set lead = typ ~ ' · Uptime ' ~ server.uptime ~ ' · ' ~ server.players_online ~ '/' ~ server.max_players ~ ' Spieler' ~ ((' · ' ~ server.address ~ ((':' ~ server.port) if server.port != 'N/A' else '')) if server.address != 'N/A' else '') %}
+{% set lead = typ ~ ' · läuft seit ' ~ server.uptime ~ ' · ' ~ server.players_online ~ '/' ~ server.max_players ~ ' Spieler' ~ ((' · ' ~ server.address ~ ((':' ~ server.port) if server.port != 'N/A' else '')) if server.address != 'N/A' else '') %}
 {% set chip_art = 'on' if server.status == 'online' else 'check' %}
 {% call kopf("Game-Server", server.name, lead, chip=('Online' if server.status == 'online' else ('Offline' if server.status == 'offline' else 'Unbekannt')), chip_art=chip_art) %}
     {% if server.status == 'offline' %}
@@ -87,7 +78,7 @@
   </div>
   <div class="hero-stat">
     <div class="stat-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
-    <div class="stat-label">Uptime</div>
+    <div class="stat-label">Laufzeit</div>
     <div class="stat-value">{{ server.uptime }}</div>
   </div>
   <div class="hero-stat">
@@ -112,22 +103,21 @@
   <button class="tab active" data-tab="players">Spieler</button>
   {% if server.has_rcon %}<button class="tab" data-tab="rcon">Konsole</button>{% endif %}
   <button class="tab" data-tab="backups">Backups</button>
-  <button class="tab" data-tab="world">Welt</button>
-  <button class="tab" data-tab="config">Einstellungen</button>
   <button class="tab" data-tab="updates">Updates</button>
   <button class="tab" data-tab="mods">Mods</button>
+  <button class="tab" data-tab="config">Einstellungen</button>
   <button class="tab" data-tab="blacklist">Sperrliste</button>
-  <button class="tab" data-tab="analyse">Analyse</button>
+  <button class="tab" data-tab="analyse">Verlauf</button>
 </div>
 
 <!-- TAB: Spieler -->
 <div class="tab-panel active" id="tab-players">
   <div class="tile">
-    <h3 class="subsection-title">Aktuelle Spieler ({{ server.players_online }}/{{ server.max_players }})</h3>
+    <h3 class="sd-sub">Gerade online · {{ server.players_online }} von {{ server.max_players }}</h3>
     <div hx-get="/api/server/{{ server.server_id }}/players"
          hx-trigger="load, every 10s[document.visibilityState==='visible']"
          hx-swap="innerHTML">
-      <p class="empty-text">Spielerliste wird geladen...</p>
+      <p class="empty-text">Spielerliste wird geladen …</p>
     </div>
   </div>
 </div>
@@ -136,21 +126,21 @@
 {% if server.has_rcon %}
 <div class="tab-panel" id="tab-rcon">
   <div class="tile">
-    <h3 class="subsection-title">RCON-Konsole &mdash; {{ server.name }}</h3>
+    <h3 class="sd-sub">Befehl an den Server (RCON)</h3>
     <div class="rcon-console">
       <div class="rcon-output" id="rcon-output">
-        <div class="rcon-line"><span class="rcon-resp">[Console] Bereit. Befehle werden hier angezeigt.</span></div>
+        <div class="rcon-line"><span class="rcon-resp">Bereit. Befehle und Antworten erscheinen hier.</span></div>
       </div>
       <form hx-post="/api/server/{{ server.server_id }}/rcon"
             hx-target="#rcon-output"
             hx-swap="beforeend scroll:#rcon-output:bottom"
             class="rcon-form"
             onsubmit="setTimeout(function(){ document.getElementById('rcon-cmd').value = ''; }, 50);">
-        <input type="text" id="rcon-cmd" name="command" placeholder="RCON-Befehl eingeben..." autocomplete="off">
+        <input type="text" id="rcon-cmd" name="command" placeholder="Befehl eingeben, z. B. list" aria-label="RCON-Befehl" autocomplete="off">
         <button type="submit" class="btn btn-primary">Senden</button>
       </form>
     </div>
-    <p class="text-muted text-sm mt-2">&#9888; Eingabe wird durch RCON-Sanitizer gefiltert (Whitelist). Gefaehrliche Befehle werden blockiert.</p>
+    <p class="config-hint" style="margin-top:10px">Erlaubt sind nur freigegebene Befehle; gefährliche blockiert der Server-Filter.</p>
   </div>
 </div>
 {% endif %}
@@ -158,28 +148,46 @@
 <!-- TAB: Backups -->
 <div class="tab-panel" id="tab-backups">
   <div class="section-header">
-    <h3 class="section-title">Backups &mdash; {{ server.name }}</h3>
+    <h3 class="sd-sub" style="margin:0">Gesicherte Spielstände</h3>
     <button class="btn btn-primary btn-sm"
             hx-post="/api/server/{{ server.server_id }}/action"
             hx-vals='{"action": "backup"}'
             hx-target="#action-result"
             hx-swap="innerHTML"
-            hx-confirm="Backup fuer {{ server.name }} erstellen?">+ Backup jetzt erstellen</button>
+            hx-confirm="Backup für {{ server.name }} erstellen?">Backup jetzt erstellen</button>
   </div>
   <div class="tile">
     <div hx-get="/api/server/{{ server.server_id }}/backups"
          hx-trigger="load"
          hx-swap="innerHTML">
-      <p class="empty-text">Backup-Liste wird geladen...</p>
+      <p class="empty-text">Backup-Liste wird geladen …</p>
     </div>
   </div>
 </div>
 
-<!-- TAB: Welt-Info -->
-<div class="tab-panel" id="tab-world">
-  {% if server.world_info %}
+<!-- TAB: Einstellungen (Server-Konfiguration + Spielstand, nur lesend) -->
+<div class="tab-panel" id="tab-config">
   <div class="tile">
-    <h3 class="subsection-title">{% if server.type == 'minecraft' %}Welt-Informationen{% elif server.type == 'satisfactory' %}Session-Informationen{% else %}Server-Informationen{% endif %}</h3>
+    <h3 class="sd-sub">{% if server.type == 'minecraft' %}Server-Konfiguration (server.properties){% else %}Server-Konfiguration{% endif %}</h3>
+    {% if server.server_config %}
+    <div class="config-pairs">
+      {% for key, value in server.server_config.items() %}
+      <div class="config-item">
+        <div class="key">{{ key }}</div>
+        <div class="val">
+          {% if value is sameas true %}<span class="text-success">an</span>
+          {% elif value is sameas false %}<span class="text-danger">aus</span>
+          {% else %}{{ value }}{% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="empty-text">Keine Konfigurationsdaten verfügbar.</p>
+    {% endif %}
+
+    <h3 class="sd-sub">{% if server.type == 'minecraft' %}Welt{% elif server.type == 'satisfactory' %}Spielstand{% else %}Server-Informationen{% endif %}</h3>
+    {% if server.world_info %}
     <div class="config-pairs">
       {% for key, value in server.world_info.items() %}
       <div class="config-item">
@@ -188,68 +196,40 @@
       </div>
       {% endfor %}
     </div>
+    {% else %}
+    <p class="empty-text">Keine Welt- oder Spielstanddaten verfügbar.</p>
+    {% endif %}
   </div>
-  {% else %}
-  <div class="tile"><p class="empty-text">Keine Welt-/Savegame-Daten verfuegbar.</p></div>
-  {% endif %}
-</div>
-
-<!-- TAB: Server-Config -->
-<div class="tab-panel" id="tab-config">
-  {% if server.server_config %}
-  <div class="tile">
-    <h3 class="subsection-title">server.properties (Auszug)</h3>
-    <div class="config-pairs">
-      {% for key, value in server.server_config.items() %}
-      <div class="config-item">
-        <div class="key">{{ key }}</div>
-        <div class="val">
-          {% if value is sameas true %}<span class="text-success">true</span>
-          {% elif value is sameas false %}<span class="text-danger">false</span>
-          {% else %}{{ value }}{% endif %}
-        </div>
-      </div>
-      {% endfor %}
-    </div>
-  </div>
-  {% else %}
-  <div class="tile"><p class="empty-text">Keine Konfigurationsdaten verfuegbar.</p></div>
-  {% endif %}
 </div>
 
 <!-- TAB: Updates -->
 <div class="tab-panel" id="tab-updates">
-  <div class="stats-grid">
-    <div class="stat-card">
-      <h4>Server-Version</h4>
-      <div class="config-pairs">
-        <div class="config-item">
-          <div class="key">Aktuell</div>
-          <div class="val">{{ server.update_info.current_version if server.update_info else '—' }}</div>
-        </div>
-        <div class="config-item">
-          <div class="key">Verfuegbar</div>
-          <div class="val {% if server.update_info and server.update_info.update_available %}text-warning{% else %}text-success{% endif %}">
-            {% if server.update_info %}
-              {{ server.update_info.available_version }}
-              {% if server.update_info.update_available %} &uarr; Update verfuegbar{% else %} &check; Aktuell{% endif %}
-            {% else %}&mdash;{% endif %}
-          </div>
+  <div class="tile">
+    <h3 class="sd-sub">Server-Version</h3>
+    <div class="config-pairs">
+      <div class="config-item">
+        <div class="key">Installiert</div>
+        <div class="val">{{ server.update_info.current_version if server.update_info else '—' }}</div>
+      </div>
+      <div class="config-item">
+        <div class="key">Neueste</div>
+        <div class="val">{{ server.update_info.available_version if server.update_info else '—' }}</div>
+      </div>
+      <div class="config-item">
+        <div class="key">Stand</div>
+        <div class="val">
+          {% if not server.update_info %}<span class="c3-chip c3-chip--off">unbekannt</span>
+          {% elif server.update_info.update_available %}<span class="c3-chip c3-chip--check">Update verfügbar</span>
+          {% else %}<span class="c3-chip c3-chip--on">aktuell</span>{% endif %}
         </div>
       </div>
     </div>
-    <div class="stat-card">
-      <h4>Mods</h4>
-      <p class="empty-text" style="margin:0 0 .5rem;">
-        Mod-Verwaltung liegt im eigenen Tab &mdash; installieren, ein-/ausschalten, entfernen.
-      </p>
-      <button type="button" class="btn btn-secondary btn-sm" onclick="sdOpenTab('mods')">Zum Mods-Tab</button>
-    </div>
+    <p class="config-hint" style="margin-top:12px">Zeitplan und automatisches Einspielen stellst du unter <a href="/config?tab=intervals">Zeitpläne</a> ein; Mods haben einen eigenen Tab.</p>
   </div>
 </div>
 
 <!-- TAB: Mods -->
-{# Laedt erst beim ersten Oeffnen des Tabs (sdOpenTab feuert 'loadMods').
+{# Laedt erst beim ersten Oeffnen des Tabs (der Tab-Klick feuert 'loadMods').
    Grund: die Mod-Liste startet fuer Satisfactory einen ficsit-Subprozess —
    das gehoert nicht in jeden Seitenaufruf. 'modListChanged' kommt als
    HX-Trigger aus _mod_result_html und laedt die Liste nach jeder Aktion neu. #}
@@ -259,7 +239,7 @@
          hx-get="/api/server/{{ server.server_id }}/mods"
          hx-trigger="loadMods from:body, modListChanged from:body"
          hx-swap="innerHTML">
-      <p class="empty-text">Mod-Verwaltung wird geladen...</p>
+      <p class="empty-text">Mod-Verwaltung wird geladen …</p>
     </div>
   </div>
 </div>
@@ -267,9 +247,9 @@
 <!-- TAB: Blacklist -->
 <div class="tab-panel" id="tab-blacklist">
   <div class="section-header">
-    <h3 class="section-title">Blacklist &mdash; {{ server.name }}</h3>
+    <h3 class="sd-sub" style="margin:0">Gesperrte Spieler</h3>
     <button type="button" class="btn btn-danger btn-sm"
-            onclick="var f=document.getElementById('bl-add-form'); f.style.display=(f.style.display==='none'?'block':'none');">+ Spieler sperren</button>
+            onclick="var f=document.getElementById('bl-add-form'); f.style.display=(f.style.display==='none'?'block':'none');">Spieler sperren</button>
   </div>
   <form id="bl-add-form" class="tile" style="display:none; margin-bottom:1rem;"
         hx-post="/api/server/{{ server.server_id }}/action"
@@ -289,7 +269,7 @@
       <button type="submit" class="btn btn-danger btn-sm">Sperren</button>
     </div>
     <p class="text-sm text-muted" style="margin-top:0.5rem;">
-      {% if server.type == 'minecraft' %}Ban wird per RCON an die MC-Server gesendet und serveruebergreifend gespeichert.{% else %}Spieler muss mind. einmal verbunden gewesen sein (IP wird per iptables blockiert).{% endif %}
+      {% if server.type == 'minecraft' %}Die Sperre geht per RCON an die Minecraft-Server und gilt serverübergreifend.{% else %}Der Spieler muss mindestens einmal verbunden gewesen sein; gesperrt wird seine IP-Adresse.{% endif %}
     </p>
   </form>
   <div class="tile">
@@ -297,7 +277,7 @@
          hx-get="/api/server/{{ server.server_id }}/blacklist"
          hx-trigger="load, blacklistChanged from:body"
          hx-swap="innerHTML">
-      <p class="empty-text">Blacklist wird geladen...</p>
+      <p class="empty-text">Sperrliste wird geladen …</p>
     </div>
   </div>
 </div>
@@ -312,10 +292,10 @@
 
   <div class="chart-row">
     <div class="chart-card">
-      <h4>Uptime-Verlauf</h4>
+      <h4>Erreichbarkeit</h4>
       <div class="inline-stats">
-        <div><span class="inline-stat-val text-success" id="sd-stat-uptime">—</span><br><span class="text-muted text-sm">Verfuegbarkeit</span></div>
-        <div><span class="inline-stat-val text-primary" id="sd-stat-outages">—</span><br><span class="text-muted text-sm">Ausfaelle</span></div>
+        <div><span class="inline-stat-val text-success" id="sd-stat-uptime">—</span><br><span class="text-muted text-sm">online</span></div>
+        <div><span class="inline-stat-val text-primary" id="sd-stat-outages">—</span><br><span class="text-muted text-sm">Ausfälle</span></div>
       </div>
       <div class="chart-host"><canvas id="sd-chart-uptime"></canvas></div>
     </div>
@@ -327,7 +307,7 @@
 
   <div class="chart-row">
     <div class="chart-card">
-      <h4>Spieler-Aktivitaet</h4>
+      <h4>Spieler</h4>
       <div class="inline-stats">
         <div><span class="inline-stat-val text-accent" id="sd-stat-peak">—</span><br><span class="text-muted text-sm">Peak</span></div>
         <div><span class="inline-stat-val text-primary" id="sd-stat-avg">—</span><br><span class="text-muted text-sm">&Oslash; Online</span></div>
@@ -335,15 +315,15 @@
       <div class="chart-host"><canvas id="sd-chart-players"></canvas></div>
     </div>
     <div class="chart-card">
-      <h4>{% if server.type == 'minecraft' %}TPS-Verlauf{% else %}Performance-Verlauf{% endif %}</h4>
+      <h4>{% if server.type == 'minecraft' %}TPS{% else %}Tick-Rate{% endif %}</h4>
       <div class="chart-host"><canvas id="sd-chart-tps"></canvas></div>
     </div>
   </div>
 
   <div class="tile">
-    <h3 class="subsection-title">Ausfall-Log (letzte 7 Tage)</h3>
+    <h3 class="sd-sub">Ausfälle</h3>
     {% if analytics and analytics.outage_log %}
-    <table>
+    <div class="table-wrapper"><table class="data-table">
       <thead>
         <tr><th>Zeitpunkt</th><th>Dauer</th><th>Grund</th><th>Wiederherstellung</th></tr>
       </thead>
@@ -357,9 +337,9 @@
         </tr>
         {% endfor %}
       </tbody>
-    </table>
+    </table></div>
     {% else %}
-    <p class="empty-text">Keine Ausfaelle im gewaehlten Zeitraum (oder Analytics-Backend noch nicht angebunden).</p>
+    <p class="empty-text">Keine Ausfälle erfasst.</p>
     {% endif %}
   </div>
 </div>
@@ -384,12 +364,6 @@ function sdLoadModsOnce() {
   if (sdModsLoaded) return;
   sdModsLoaded = true;
   htmx.trigger(document.body, 'loadMods');
-}
-
-// Tab von aussen oeffnen (z.B. Button im Updates-Tab)
-function sdOpenTab(name) {
-  var btn = document.querySelector('.tabs .tab[data-tab="' + name + '"]');
-  if (btn) btn.click();
 }
 
 // Time-Range Toggle -> Analytics mit neuem Zeitraum neu laden
@@ -468,7 +442,7 @@ function sdLoadAnalytics() {
     .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
     .then(function (data) {
       if (seq !== sdReqSeq) return;   // veraltete Response (schneller Zeitraum-Wechsel) verwerfen
-      if (!data || !data.labels || !data.labels.length) { ids.forEach(function(id){ sdEmpty(id, 'Keine Analytics-Daten im Zeitraum'); }); return; }
+      if (!data || !data.labels || !data.labels.length) { ids.forEach(function(id){ sdEmpty(id, 'Keine Daten im Zeitraum'); }); return; }
       var labels = data.labels;
       function ds(name){ var x = (data.datasets||[]).find(function(s){ return s.label === name; }); return x ? x.data : []; }
       var players = ds('Spieler'), cpu = ds('CPU %'), ram = ds('RAM (MB)'), status = ds('Status');
@@ -491,7 +465,7 @@ function sdLoadAnalytics() {
       sdRender('sd-chart-perf', { type: 'line',
         data: { labels: labels, datasets: [
           { label: 'CPU %', data: cpu, borderColor: '#53E7F2', backgroundColor: 'rgba(83,231,242,.1)', fill: true, tension: .3 },
-          { label: 'RAM MB', data: ram, borderColor: '#FF5FB5', backgroundColor: 'rgba(255,95,181,.1)', fill: true, tension: .3, yAxisID: 'y1' }
+          { label: 'RAM MB', data: ram, borderColor: '#FF3FA4', backgroundColor: 'rgba(255,63,164,.1)', fill: true, tension: .3, yAxisID: 'y1' }
         ]},
         options: Object.assign({}, d, { scales: Object.assign({}, d.scales, {
           y: Object.assign({}, d.scales.y, { title: { display: true, text: 'CPU %', color: d.scales.y.ticks.color } }),
@@ -503,9 +477,9 @@ function sdLoadAnalytics() {
         options: d });
 
       // TPS: kein Backend-Feld in den Server-Analytics -> ehrlicher Hinweis statt erfundener Kurve
-      sdEmpty('sd-chart-tps', 'TPS-Verlauf: wird noch nicht erfasst');
+      sdEmpty('sd-chart-tps', 'Wird noch nicht erfasst');
     })
-    .catch(function(){ if (seq !== sdReqSeq) return; ids.forEach(function(id){ sdEmpty(id, 'Fehler beim Laden der Analytics (nicht erreichbar/Auth)'); }); });
+    .catch(function(){ if (seq !== sdReqSeq) return; ids.forEach(function(id){ sdEmpty(id, 'Verlauf konnte nicht geladen werden'); }); });
 }
 </script>
 {% endblock %}

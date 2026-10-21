@@ -1,8 +1,7 @@
 {% extends "base_v5.html" %}
 {% from "partials/_c3_kopf.html" import kopf %}
-{% from "partials/_channel_select.html" import channel_select %}
 
-{% block title %}Einstellungen{% endblock %}
+{% block title %}{{ titel }}{% endblock %}
 {% block crumb %}Konfiguration{% endblock %}
 {% block nav_config %}active{% endblock %}
 
@@ -32,35 +31,27 @@
 .set-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 4px; align-items: start; }
 @media (max-width: 760px) { .set-grid { grid-template-columns: 1fr; } }
 .set-group { border: 1px solid var(--line); border-radius: 14px; padding: 10px 15px 4px; background: rgba(120,180,240,.03); }
+.kanal-liste { list-style: none; margin: 0 0 14px; padding: 0; }
+.kanal-zeile { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.kanal-zeile:last-child { border-bottom: 0; }
+.kanal-name { color: var(--cyan, #53E7F2); font-weight: 600; font-size: 14px; overflow-wrap: anywhere; }
 .set-group-title { font-size: 11px; text-transform: uppercase; letter-spacing: .12em; color: var(--acc-2); font-weight: 700; margin: 4px 0 2px; font-family: ui-monospace, monospace; }
 </style>
 
-{{ kopf("Bots & System", "Einstellungen", "Schalter, Intervalle, Schwellwerte und Kanäle der Bots. Änderungen gelten sofort.") }}
+{{ kopf("Bots & System", titel, lead) }}
 
-{% if success %}<div class="alert" style="background: var(--success-dim); color: var(--success); border: 1px solid rgba(35,165,90,0.2); padding: var(--s-3) var(--s-4); border-radius: var(--radius-sm); margin-bottom: var(--s-4);">{{ success }}</div>{% endif %}
-{% if error %}<div class="alert" style="background: var(--danger-dim); color: var(--danger); border: 1px solid rgba(242,63,67,0.2); padding: var(--s-3) var(--s-4); border-radius: var(--radius-sm); margin-bottom: var(--s-4);">{{ error }}</div>{% endif %}
+{% if success %}<div class="c3-flash c3-flash--ok" role="status"><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span>{{ success }}</span></div>{% endif %}
+{% if error %}<div class="c3-flash c3-flash--bad" role="alert"><svg class="i" aria-hidden="true"><use href="#i-alert"/></svg><span>{{ error }}</span></div>{% endif %}
 
-<!-- Tabs -->
-<div class="tabs">
-  <button class="tab active" data-tab="toggles">Feature-Toggles</button>
-  <button class="tab" data-tab="intervals">Intervalle</button>
-  <button class="tab" data-tab="thresholds">Schwellwerte</button>
-  <button class="tab" data-tab="channels">Channels</button>
-  <button class="tab" data-tab="botprofiles"
-          hx-get="/config/bot-profiles" hx-target="#tab-botprofiles" hx-swap="innerHTML">Bot-Profile</button>
-  <button class="tab" data-tab="notifications"
-          hx-get="/config/notifications" hx-target="#tab-notifications" hx-swap="innerHTML">Benachrichtigungen</button>
-</div>
-
-{# Gemeinsames Form fuer Toggles+Intervalle+Schwellwerte+Channels (POST /config) #}
-<form action="/config" method="POST" id="form-general">
+{% if bereich in ("toggles", "intervals", "thresholds") %}
+{# Je Seite ein eigenes Formular; „bereich“ sagt dem Server, welche Felder er uebernimmt. #}
+<form action="/config?tab={{ bereich }}" method="POST">
   {% if request.state.csrf_token is defined %}<input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">{% endif %}
-
-  <!-- TAB: Feature-Toggles -->
-  <div class="tab-panel active" id="tab-toggles">
+  <input type="hidden" name="bereich" value="{{ bereich }}">
+{% if bereich == "toggles" %}
+  <div class="cfg-seite">
     <div class="stat-card">
-      <h3 class="section-title">Feature-Toggles</h3>
-      <p class="page-subtitle mb-3">Features ein- und ausschalten &mdash; &Auml;nderungen werden sofort an die Bots &uuml;bertragen (Hot-Reload)</p>
+      <p class="config-hint" style="margin:0 0 12px">Wortfilter und Anti-Spam schaltest du unter <a href="/moderation">Automod</a>.</p>
 
       {% set feature_labels = {
           "player_tracking": ("Spieler-Tracking", "Player-Joins, Spielzeit, Leaderboard"),
@@ -72,18 +63,15 @@
           "voice_stats": ("Voice-Channel Statistiken", "Voice-Aktivitaet pro Spieler tracken"),
           "status_embed": ("Status-Embed", "Live-Status-Embed im Discord posten"),
           "chat_bridge": ("Chat-Bridge", "Minecraft <-> Discord-Chat Bruecke"),
-          "word_filter": ("WordFilter (Discord)", "Nachrichten in Discord-Channels filtern"),
-          "anti_spam": ("AntiSpam (Discord)", "Spam-Erkennung in Discord-Channels"),
           "login_audit": ("Login-Audit", "Dashboard-Logins protokollieren"),
           "auto_cleanup": ("Auto-Bereinigung", "Alte Logs/Backups automatisch loeschen"),
-          "steam_changelog": ("Steam Changelog", "Satisfactory-Patch-Notes posten"),
-          "modpack_update_check": ("Modpack-Update-Check", "BMC Modpack auf Updates pruefen (Modrinth/CurseForge)")
+          "steam_changelog": ("Steam Changelog", "Satisfactory-Patch-Notes posten")
       } %}
       {% set feature_groups = [
           ("Monitoring & Tracking", ["player_tracking", "voice_stats", "login_audit"]),
           ("Backups & Daten", ["auto_backup", "onedrive_backup", "auto_cleanup"]),
-          ("Updates", ["auto_update", "modpack_update_check", "steam_changelog"]),
-          ("Discord", ["chat_bridge", "word_filter", "anti_spam", "status_embed"]),
+          ("Updates", ["auto_update", "steam_changelog"]),
+          ("Discord", ["chat_bridge", "status_embed"]),
           ("Betrieb & Alerts", ["daily_restart", "email_notifications"])
       ] %}
       <div class="set-grid">
@@ -114,12 +102,9 @@
     </div>
   </div>
 
-  <!-- TAB: Intervalle -->
-  <div class="tab-panel" id="tab-intervals">
+{% elif bereich == "intervals" %}
+  <div class="cfg-seite">
     <div class="stat-card">
-      <h3 class="section-title">Intervalle und Timer</h3>
-      <p class="page-subtitle mb-3">Zeitintervalle fuer wiederkehrende Tasks</p>
-
       <div class="section-sub-header">Neustart</div>
       <div class="form-row-3">
         <div class="form-group">
@@ -240,12 +225,9 @@
     </div>
   </div>
 
-  <!-- TAB: Schwellwerte -->
-  <div class="tab-panel" id="tab-thresholds">
+{% else %}
+  <div class="cfg-seite">
     <div class="stat-card">
-      <h3 class="section-title">Schwellwerte und Limits</h3>
-      <p class="page-subtitle mb-3">Warnschwellen fuer System-&Uuml;berwachung und Limits</p>
-
       {% set threshold_labels = {
           "cpu_warning": ("CPU-Warnung", "%", 80, 0, 100),
           "ram_warning": ("RAM-Warnung", "%", 85, 0, 100),
@@ -271,57 +253,36 @@
     </div>
   </div>
 
-  <!-- TAB: Channels -->
-  <div class="tab-panel" id="tab-channels">
-    <div class="stat-card">
-      <h3 class="section-title">Channel-Zuordnungen</h3>
-      <p class="page-subtitle mb-3">Discord-Channels fuer Bot-Ausgaben und Benachrichtigungen</p>
-
-      {% set channel_labels = [
-          ("admin_channel", "Admin-Channel", "GameServer Bot"),
-          ("log_channel", "Log-Channel", "GameServer Bot"),
-          ("status_channel", "Status-Channel", "Monitor Bot"),
-          ("alert_channel", "Alert-Channel", "Monitor Bot"),
-          ("mod_log_channel", "Mod-Log-Channel", "Admin Bot"),
-          ("audit_channel", "Audit-Channel", "Admin Bot")
-      ] %}
-      <div class="form-row">
-        {% for key, label, scope in channel_labels %}
-        <div class="form-group">
-          <label>{{ label }} <span class="hint">({{ scope }})</span></label>
-          {{ channel_select('channels.' ~ key, config.channels[key] if config.channels is defined and key in config.channels else '', kind='text') }}
-        </div>
-        {% endfor %}
-      </div>
-
-      <div class="actions-bar">
-        <button type="reset" class="btn">Zuruecksetzen</button>
-        <button type="submit" class="btn btn-primary">Speichern</button>
-      </div>
-    </div>
-  </div>
+{% endif %}
 </form>
 
-<!-- TAB: Bot-Profile (HTMX-Lazy-Load) -->
-<div class="tab-panel" id="tab-botprofiles">
-  <div class="stat-card"><p class="empty-text">Klicke auf den Tab "Bot-Profile" zum Laden...</p></div>
+{% elif bereich == "channels" %}
+<div class="stat-card">
+  <ul class="kanal-liste">
+    {% for k in kanaele %}
+    <li class="kanal-zeile">
+      <div>
+        <div class="toggle-info-label">{{ k.titel }}</div>
+        <div class="toggle-info-desc">{{ k.zweck }}</div>
+      </div>
+      {% if k.zustand == "ok" %}<span class="kanal-name"><span aria-hidden="true">#</span> {{ k.name }}</span>
+      {% elif k.zustand == "fehlt" %}<span class="c3-chip c3-chip--setup">nicht eingerichtet</span>
+      {% else %}<span class="c3-chip c3-chip--check">Kanal nicht gefunden</span>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  <p class="config-hint">Diese Kanäle stehen in der Server-Konfiguration der Bots (.env) und lassen sich hier nur ansehen.
+    Kanäle der Discord-Module (Willkommen, Tickets, Level …) stellst du im jeweiligen Modul unter <a href="/marshal-bot">Discord-Server</a> ein.</p>
 </div>
 
-<!-- TAB: Benachrichtigungen (HTMX-Lazy-Load) -->
-<div class="tab-panel" id="tab-notifications">
-  <div class="stat-card"><p class="empty-text">Klicke auf den Tab "Benachrichtigungen" zum Laden...</p></div>
+{% elif bereich == "notifications" %}
+<div hx-get="/config/notifications" hx-trigger="load" hx-swap="outerHTML">
+  <div class="stat-card"><p class="empty-text">Wird geladen …</p></div>
 </div>
 
-<script>
-// Tab-Switching via Event-Delegation (greift auch fuer HTMX-nachgeladene Tabs)
-document.addEventListener('click', function(e) {
-  var tab = e.target.closest('.tabs .tab');
-  if (!tab) return;
-  document.querySelectorAll('.tabs .tab').forEach(function(t) { t.classList.remove('active'); });
-  document.querySelectorAll('.tab-panel').forEach(function(c) { c.classList.remove('active'); });
-  tab.classList.add('active');
-  var target = document.getElementById('tab-' + tab.dataset.tab);
-  if (target) target.classList.add('active');
-});
-</script>
+{% elif bereich == "botprofiles" %}
+<div hx-get="/config/bot-profiles" hx-trigger="load" hx-swap="outerHTML">
+  <div class="stat-card"><p class="empty-text">Wird geladen …</p></div>
+</div>
+{% endif %}
 {% endblock %}
