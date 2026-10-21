@@ -20,7 +20,7 @@ from discord.ext import commands
 
 from modules import mod_akte
 from modules.member_cache import upsert_member
-from utils.embeds import COLOR_BRAND
+from utils.embeds import info_embed, success_embed
 from utils.logger import get_logger
 from utils.permissions import admin_only
 
@@ -123,10 +123,10 @@ class ModAkteCog(commands.Cog):
         elif rest > 0:
             lines.append(f"-# … und {rest} ältere Einträge (vollständig im Dashboard)")
 
-        embed = discord.Embed(
+        embed = info_embed(
             title=f"Akte: {_esc(mitglied.display_name)}",
             description="\n\n".join(lines),
-            color=COLOR_BRAND,
+            timestamp=False,
         )
         embed.add_field(
             name="Verwarnungen",
@@ -242,7 +242,7 @@ class ModAkteCog(commands.Cog):
             )
             return
         logger.info(f"Warn #{id}: Grund geaendert von {interaction.user.id}")
-        embed = discord.Embed(title=f"Verwarnung #{id}: Grund geändert", color=COLOR_BRAND)
+        embed = success_embed(title=f"Verwarnung #{id}: Grund geändert", timestamp=False)
         embed.add_field(name="Vorher", value=_esc(_short(res["old_reason"], 1000)) or "–", inline=False)
         embed.add_field(name="Jetzt", value=_esc(_short(res["new_reason"], 1000)), inline=False)
         await interaction.followup.send(embed=embed, ephemeral=True, allowed_mentions=_NO_MENTIONS)

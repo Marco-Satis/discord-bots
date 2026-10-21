@@ -426,11 +426,11 @@ def _parse_form_embeds(form) -> dict:
     den der Marshal abholt und sendet.
     """
     # Farbe bestimmen
-    color_val = form.get("embed_color", "#5865F2")
+    color_val = form.get("embed_color", "#B84DFF")
     if color_val == "custom":
-        color_val = form.get("custom_color", "#5865F2").strip()
+        color_val = form.get("custom_color", "#B84DFF").strip()
     if not color_val.startswith("#"):
-        color_val = "#5865F2"
+        color_val = "#B84DFF"
 
     # Felder sammeln
     fields = []

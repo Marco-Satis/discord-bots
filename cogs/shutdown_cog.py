@@ -28,7 +28,6 @@ from modules.server_registry import (alle as alle_server, kennung_zu_label,
                                      kennung_zu_service)
 from utils.logger import get_logger
 from utils.embeds import (
-    COLOR_WARNING,
     error_embed,
     success_embed,
     warning_embed,
@@ -184,10 +183,9 @@ class ShutdownCog(commands.Cog):
             channel = self.bot.get_channel(channel_id)
             if channel:
                 try:
-                    embed = discord.Embed(
+                    embed = (warning_embed if minutes_left > 1 else error_embed)(
                         title=f"Shutdown-Warnung: {display}",
                         description=warning_msg,
-                        color=COLOR_WARNING if minutes_left > 1 else 0xFF0000,
                         timestamp=datetime.now(),
                     )
                     embed.set_footer(text=f"Geplant von {info.get('planned_by', 'System')}")

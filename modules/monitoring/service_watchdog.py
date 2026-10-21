@@ -15,10 +15,8 @@ from utils.config import get_config, get_env
 logger = get_logger("service_watchdog")
 
 # Embed-Farben
-COLOR_WARNING: int = 0xF39C12
-COLOR_ERROR: int = 0xE74C3C
-COLOR_SUCCESS: int = 0x2ECC71
-COLOR_INFO: int = 0x5865F2
+# Farben aus der zentralen C3-Palette (utils/embeds.py), keine eigenen Hex-Werte
+from utils.embeds import COLOR_ERROR, COLOR_INFO, COLOR_SUCCESS, COLOR_WARNING  # noqa: E402
 
 def _standard_dienste() -> list[Dict[str, str]]:
     """

@@ -947,7 +947,7 @@ class LevelingCog(commands.Cog):
         Hintergrund existiert (1-Admin-Template). Sonst None (Embed-Fallback).
         """
         png = await self._karte_png(
-            guild_id, member, level, xp_in_level, xp_for_next, header=header,
+            guild_id, member, level, xp_in_level, xp_for_next, header=header, immer=True,
         )
         if png is None:
             return None
@@ -963,6 +963,7 @@ class LevelingCog(commands.Cog):
         *,
         header: Optional[str] = None,
         levelup: bool = False,
+        immer: bool = False,
     ) -> Optional[bytes]:
         """
         Level-Up- bzw. Rang-Karte nach der Dashboard-Gestaltung rendern.
@@ -971,7 +972,8 @@ class LevelingCog(commands.Cog):
         Ein Hintergrundbild ist optional: ohne Bild zeichnet die Karte den
         C3-Neon-Hintergrund selbst.
         """
-        if not (_CARD_AVAILABLE and self.leveling.is_card_enabled(guild_id)):
+        # immer=True: /rank zeigt die Karte auch, wenn sie fuer Level-Ups aus ist
+        if not (_CARD_AVAILABLE and (immer or self.leveling.is_card_enabled(guild_id))):
             return None
         k = self.leveling.get_card_settings(guild_id)
         bg_path = None
@@ -1030,12 +1032,11 @@ class LevelingCog(commands.Cog):
             and self.leveling.is_leaderboard_card_enabled(guild.id)
         ):
             return None
+        # Hintergrundbild optional: ohne Bild zeichnet die Karte den Neon-Hintergrund
+        bg_path = None
         bg_name = self.leveling.get_leaderboard_bg(guild.id)
-        if not bg_name:
-            return None
-        bg_path = LEVELUP_BG_DIR / bg_name
-        if not bg_path.exists():
-            return None
+        if bg_name and (LEVELUP_BG_DIR / bg_name).exists():
+            bg_path = LEVELUP_BG_DIR / bg_name
 
         top = entries[:LEADERBOARD_CARD_ROWS]
 
@@ -1060,16 +1061,17 @@ class LevelingCog(commands.Cog):
             *[_row(i, e) for i, e in enumerate(top, start=1)]
         )
 
-        accent = self.leveling.get_card_accent(guild.id)
-        subtitle = f"{guild.name} · {len(entries)} Spieler"
+        k = self.leveling.get_card_settings(guild.id)
+        subtitle = f"{guild.name} · {len(entries)} Spieler mit XP"
         try:
             png = await asyncio.to_thread(
                 render_leaderboard_card,
                 list(rows),
                 bg_path,
-                accent,
+                k["accent"],
                 "LEADERBOARD",
                 subtitle,
+                stil=k["stil"],
             )
         except Exception as e:  # noqa: BLE001 — Fallback auf Embed
             logger.warning(f"Leaderboard-Karte fehlgeschlagen: {e}")
@@ -1144,7 +1146,11 @@ class LevelingCog(commands.Cog):
             )
             return
 
-        entries = self.leveling.get_leaderboard(interaction.guild.id, limit=None)
+        # Nur wer schon XP gesammelt hat (Marco 21.10.)
+        entries = [
+            e for e in self.leveling.get_leaderboard(interaction.guild.id, limit=None)
+            if int(e.get("xp", 0) or 0) > 0
+        ]
 
         if not entries:
             await interaction.followup.send(
@@ -1158,7 +1164,13 @@ class LevelingCog(commands.Cog):
         # B3: Bild-Karte bevorzugen (wenn aktiviert + Hintergrund), sonst Embed.
         image = await self._build_leaderboard_image(interaction.guild, entries)
         if image is not None:
-            await interaction.followup.send(file=image)
+            eigene = (
+                f"Dein Platz: **#{own_rank}** von {len(entries)}"
+                if own_rank and own_rank <= len(entries) else
+                "Du hast noch keine XP. Schreib im Chat oder komm in einen Talk."
+            )
+            await interaction.followup.send(content=eigene, file=image,
+                                            allowed_mentions=discord.AllowedMentions.none())
             return
 
         view = LeaderboardView(

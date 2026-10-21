@@ -14,7 +14,7 @@ import discord
 from modules.database.db_manager import get_db
 from utils.logger import get_logger
 from utils.config import LOG_DIR
-from utils.embeds import COLOR_SUCCESS
+from utils.embeds import base_embed, COLOR_ERROR, COLOR_SUCCESS
 
 logger = get_logger("command_logger")
 
@@ -151,11 +151,11 @@ class CommandLogger:
             if entry['command'] in skip_commands:
                 return
 
-            color = COLOR_SUCCESS if entry['success'] else 0xe74c3c
+            color = COLOR_SUCCESS if entry['success'] else COLOR_ERROR
 
-            embed = discord.Embed(
+            embed = base_embed(
                 color=color,
-                timestamp=datetime.fromisoformat(entry['timestamp'])
+                timestamp=datetime.fromisoformat(entry['timestamp']),
             )
 
             cmd_text = f"/{entry['command']}"

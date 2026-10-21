@@ -94,7 +94,6 @@ from modules.database.maintenance import DatabaseMaintenance
 from modules.system.package_checker import PackageChecker
 from modules.command_logger import CommandLogger
 from utils.embeds import (
-    COLOR_WARNING,
     error_embed,
     info_embed,
     success_embed,
@@ -1282,10 +1281,9 @@ async def _on_disk_warning(result: dict):
         channel = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
         if channel:
             try:
-                embed = discord.Embed(
+                embed = warning_embed(
                     title="Speicherplatz-Warnung",
                     description=disk_guard.format_status(result),
-                    color=disk_guard.get_embed_color(result.get("level", "warning")),
                     timestamp=datetime.now(),
                 )
                 await channel.send(embed=embed)
@@ -1298,10 +1296,9 @@ async def _on_disk_cleanup(result: dict):
         channel = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
         if channel:
             try:
-                embed = discord.Embed(
+                embed = info_embed(
                     title="Automatische Speicherbereinigung",
                     description=disk_guard.format_status(result),
-                    color=disk_guard.get_embed_color(result.get("level", "cleanup")),
                     timestamp=datetime.now(),
                 )
                 await channel.send(embed=embed)
@@ -1946,15 +1943,14 @@ async def ssl_check_task():
                 if channel:
                     days = result.get("days_remaining", "?")
                     status = result.get("status", "unbekannt")
-                    color = COLOR_WARNING if status == "warning" else 0xe74c3c
-                    embed = discord.Embed(
+                    _ssl_fn = warning_embed if status == "warning" else error_embed
+                    embed = _ssl_fn(
                         title=f"SSL-Zertifikat: {status.upper()}",
                         description=(
                             f"Domain: `{result.get('domain', '?')}`\n"
                             f"Verbleibend: **{days} Tage**\n"
                             f"Aussteller: {result.get('issuer', 'unbekannt')}"
                         ),
-                        color=color,
                         timestamp=datetime.now(),
                     )
                     try:

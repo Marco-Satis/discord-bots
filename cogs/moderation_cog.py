@@ -34,7 +34,7 @@ from modules.guild_context import GuildConfig
 from utils.config import get_env, funktion_aktiv
 from utils.logger import get_logger
 from utils.permissions import admin_only, is_admin
-from utils.embeds import COLOR_SUCCESS
+from utils.embeds import success_embed, neutral_embed
 from utils.loop_guard import guard
 
 logger = get_logger("cogs.moderation")
@@ -492,10 +492,10 @@ class ModerationCog(commands.Cog):
             else:
                 normal_words.append(f"`{w}`")
 
-        embed = discord.Embed(
-            title=f"Wortfilter ({status})",
-            color=COLOR_SUCCESS if self.word_filter.enabled else 0x95a5a6,
-        )
+        if self.word_filter.enabled:
+            embed = success_embed(title=f"Wortfilter ({status})", timestamp=False)
+        else:
+            embed = neutral_embed(title=f"Wortfilter ({status})", timestamp=False)
 
         if normal_words:
             # Auf mehrere Fields aufteilen falls noetig (1024 Zeichen Limit)

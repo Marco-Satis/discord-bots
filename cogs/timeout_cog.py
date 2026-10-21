@@ -32,6 +32,7 @@ from utils.embeds import (
     COLOR_ERROR,
     COLOR_SUCCESS,
     COLOR_WARNING,
+    base_embed,
     error_embed,
     info_embed,
     success_embed,
@@ -757,7 +758,7 @@ class TimeoutCog(commands.Cog):
             user = self.bot.get_user(discord_id) or await self.bot.fetch_user(
                 discord_id
             )
-            embed = discord.Embed(
+            embed = base_embed(
                 title=title,
                 description=description,
                 color=color,

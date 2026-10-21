@@ -36,6 +36,7 @@ from zoneinfo import ZoneInfo
 import discord
 from discord.ext import commands
 
+from utils.embeds import COLOR_INFO, COLOR_NEUTRAL, COLOR_SUCCESS
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -295,11 +296,11 @@ class PipelineApprovalCog(commands.Cog):
         if msg is None:
             return
         meta = {
-            "approve": ("✅", "Approved", 0x57F287),
-            "dismiss": ("🗑", "Dismissed", 0x95A5A6),
-            "delete": ("🗑", "Gelöscht", 0x95A5A6),
-            "recategorize": ("📁", "Recategorized", 0x5865F2),
-        }.get(action, ("•", action.title(), 0x95A5A6))
+            "approve": ("✅", "Approved", COLOR_SUCCESS),
+            "dismiss": ("🗑", "Dismissed", COLOR_NEUTRAL),
+            "delete": ("🗑", "Gelöscht", COLOR_NEUTRAL),
+            "recategorize": ("📁", "Recategorized", COLOR_INFO),
+        }.get(action, ("•", action.title(), COLOR_NEUTRAL))
         emoji, state_label, new_color = meta
         now_str = datetime.now(BERLIN).strftime("%Y-%m-%d %H:%M Berlin")
         field_value = f"{emoji} **{state_label}{extra}** · {now_str}"

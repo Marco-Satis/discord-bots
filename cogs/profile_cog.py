@@ -22,7 +22,9 @@ from modules.database.db_manager import get_db
 from utils.logger import get_logger
 from utils.embeds import (
     COLOR_SUCCESS,
-    warning_embed,
+    COLOR_INFO,
+    base_embed,
+    info_embed,
 )
 
 logger = get_logger("cogs.profile")
@@ -286,9 +288,10 @@ class ProfileCog(commands.Cog):
             rank = await self._get_rank(spieler)
 
             # Embed erstellen
-            embed = discord.Embed(
+            embed = base_embed(
                 title=f"Profil — {spieler}",
-                color=COLOR_SUCCESS if current_session else 0x5865F2,
+                color=COLOR_SUCCESS if current_session else COLOR_INFO,
+                timestamp=False,
             )
 
             # Online-Status
@@ -402,8 +405,9 @@ class ProfileCog(commands.Cog):
                 )
                 return
 
-            embed = warning_embed(
+            embed = info_embed(
                 title=f"Spieler-Leaderboard — {zeitraum_text}",
+                timestamp=False,
             )
 
             # Nummerierte Liste mit Medaillen für Top 3

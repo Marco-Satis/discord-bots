@@ -1,9 +1,9 @@
 """
 Zentraler Embed-Helper — einheitlicher Stil für ALLE Bot-Nachrichten.
 
-Konsolidiert die verstreuten ``discord.Embed(...)``-Aufrufe. Der Stil ist seit
-2026-08-13 der **HUD-Stil** (Marcos Wahl aus ``/design hud``): Gold als Grundton
-für den Normalbetrieb, Bedeutung über Farbe UND Statuspunkt, Kennzahlen-Zeile
+Konsolidiert die verstreuten ``discord.Embed(...)``-Aufrufe. Der Aufbau ist der
+**HUD-Stil** (2026-08-13), die Farben seit 2026-10-21 die des Dashboards (C3):
+Violett als Grundton für den Normalbetrieb, Bedeutung über Farbe UND Statuspunkt, Kennzahlen-Zeile
 mit Fortschrittsbalken im Kopf, Metazeilen als kleiner Subtext.
 
 Wer welche Funktion nimmt:
@@ -24,14 +24,16 @@ import discord
 
 from utils.ui_kit import meta_row, progress_bar, status_dot, subtext
 
-# --- Semantische Farben (HUD-Palette — Restyle = NUR hier ändern) ----------
-COLOR_BRAND: int = 0xF2C14E     # Gold — Normalbetrieb, Panels, Boards
-COLOR_SUCCESS: int = 0x2ECC71   # grün
-COLOR_ERROR: int = 0xE5484D     # rot
-COLOR_WARNING: int = 0xE8A33D   # bernstein (dunkler als Brand-Gold)
-COLOR_INFO: int = 0x1F6FEB      # blau
-COLOR_NEUTRAL: int = 0x949BA4   # grau
-COLOR_PROGRESS: int = 0x7C5CFF  # violett — Fortschritt, Level, XP
+# --- Semantische Farben (Design C3 „Neon-Lobby“ seit 21.10.2026 — Restyle = NUR hier) ---
+# Dieselben Werte wie web/static/c3.css: Violett = Marke, Cyan = in Ordnung,
+# Magenta = Fehler, Rosa = Warnung. Bis 21.10. galt die Gold-HUD-Palette.
+COLOR_BRAND: int = 0xB84DFF     # Violett — Normalbetrieb, Panels, Boards (--violet)
+COLOR_SUCCESS: int = 0x53E7F2   # Cyan — in Ordnung (--ok)
+COLOR_ERROR: int = 0xFF3FA4     # Magenta — Fehler (--bad)
+COLOR_WARNING: int = 0xFF8FCB   # Rosa — Warnung (--warn)
+COLOR_INFO: int = 0xD49BFF      # helles Violett — Hinweise (--violet-text)
+COLOR_NEUTRAL: int = 0x9A95AE   # Grau (--text-3)
+COLOR_PROGRESS: int = 0x8F6BFF  # Blauviolett — Fortschritt, Level, XP (eigene Farbe, eindeutig)
 
 # Zustand -> (Farbe, Statuspunkt). Ein Aufruf, beide Signale konsistent.
 STATE_STYLE = {

@@ -16,6 +16,7 @@ from typing import Optional
 import discord
 
 from utils.config import get_env
+from utils.embeds import error_embed
 from utils.logger import get_logger
 
 logger = get_logger("notfall_meldung")
@@ -57,7 +58,7 @@ async def melden(bot: discord.Client, titel: str, text: str, schluessel: Optiona
             logger.warning(f"Notfall ohne Log-Kanal: {titel}")
             return False
         oid = owner_id()
-        embed = discord.Embed(title=f"⚠️ {titel}"[:256], description=text[:3900], color=0xFF3FA4)
+        embed = error_embed(title=f"⚠️ {titel}"[:256], description=text[:3900], timestamp=False)
         await kanal.send(
             content=f"<@{oid}>" if oid else None,
             embed=embed,

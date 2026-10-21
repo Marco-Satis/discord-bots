@@ -41,6 +41,18 @@ import discord
 
 from modules.database.db_manager import get_db
 from modules.guild_context import GuildConfig
+from utils.embeds import (
+    base_embed,
+    error_embed,
+    info_embed,
+    success_embed,
+    warning_embed,
+    COLOR_BRAND,
+    COLOR_ERROR,
+    COLOR_INFO,
+    COLOR_SUCCESS,
+    COLOR_WARNING,
+)
 from utils.logger import get_logger
 from utils.config import ADMIN_DATA_DIR
 
@@ -76,17 +88,6 @@ NEW_ACCOUNT_DAYS = 7
 # Maximale Laenge zitierter Nachrichteninhalte im Log-Embed
 CONTENT_LIMIT = 1000
 
-# Farben für verschiedene Log-Typen
-COLOR_JOIN = 0x2ecc71       # Grün
-COLOR_LEAVE = 0xe74c3c      # Rot
-COLOR_MOD = 0xe67e22        # Orange
-COLOR_NICK = 0x3498db       # Blau
-COLOR_AVATAR = 0x9b59b6     # Lila
-COLOR_ROLE_ADD = 0x2ecc71   # Grün
-COLOR_ROLE_REMOVE = 0xe74c3c  # Rot
-COLOR_CHANNEL_CREATE = 0x2ecc71  # Grün
-COLOR_CHANNEL_DELETE = 0xe74c3c  # Rot
-COLOR_SERVER = 0xf1c40f      # Gelb
 
 
 class AuditLogger:
@@ -307,9 +308,8 @@ class AuditLogger:
         Returns:
             True wenn erfolgreich geloggt
         """
-        embed = discord.Embed(
+        embed = warning_embed(
             title=f"Moderation: {action}",
-            color=COLOR_MOD,
             timestamp=datetime.now(timezone.utc),
         )
 
@@ -392,13 +392,13 @@ class AuditLogger:
         if ohne_avatar:
             warning += "\nKein eigenes Profilbild"
 
-        embed = discord.Embed(
+        _join_fn = warning_embed if neu else success_embed
+        embed = _join_fn(
             title="⚠️ Neues Konto beigetreten" if neu else "Mitglied beigetreten",
             description=(
                 f"{member.mention} (`{member}`) ist dem Server beigetreten."
                 f"{warning}"
             ),
-            color=COLOR_MOD if neu else COLOR_JOIN,
             timestamp=now,
         )
 
@@ -469,10 +469,9 @@ class AuditLogger:
         else:
             membership_str = "Unbekannt"
 
-        embed = discord.Embed(
+        embed = error_embed(
             title="Mitglied verlassen",
             description=f"`{member}` hat den Server verlassen.",
-            color=COLOR_LEAVE,
             timestamp=now,
         )
 
@@ -532,10 +531,9 @@ class AuditLogger:
 
         # Nickname-Änderung
         if before.nick != after.nick:
-            embed = discord.Embed(
+            embed = info_embed(
                 title="Nickname geändert",
                 description=f"{after.mention} (`{after}`)",
-                color=COLOR_NICK,
                 timestamp=datetime.now(timezone.utc),
             )
 
@@ -565,10 +563,10 @@ class AuditLogger:
 
         # Avatar-Änderung (Guild-spezifisch)
         if before.guild_avatar != after.guild_avatar:
-            embed = discord.Embed(
+            embed = base_embed(
                 title="Server-Avatar geändert",
                 description=f"{after.mention} (`{after}`)",
-                color=COLOR_AVATAR,
+                color=COLOR_BRAND,
                 timestamp=datetime.now(timezone.utc),
             )
 
@@ -642,10 +640,9 @@ class AuditLogger:
             added_roles = [r for r in after_roles if r.id in added_ids]
             roles_str = ", ".join(r.mention for r in added_roles)
 
-            embed = discord.Embed(
+            embed = success_embed(
                 title="Rolle(n) hinzugefügt",
                 description=f"{member.mention} (`{member}`)",
-                color=COLOR_ROLE_ADD,
                 timestamp=datetime.now(timezone.utc),
             )
             embed.add_field(
@@ -678,10 +675,9 @@ class AuditLogger:
             removed_roles = [r for r in before_roles if r.id in removed_ids]
             roles_str = ", ".join(r.mention for r in removed_roles)
 
-            embed = discord.Embed(
+            embed = error_embed(
                 title="Rolle(n) entfernt",
                 description=f"{member.mention} (`{member}`)",
-                color=COLOR_ROLE_REMOVE,
                 timestamp=datetime.now(timezone.utc),
             )
             embed.add_field(
@@ -718,7 +714,7 @@ class AuditLogger:
         felder: list[tuple[str, str]],
         db_aktion: str,
         akteur: Optional[discord.abc.User] = None,
-        farbe: int = COLOR_SERVER,
+        farbe: int = COLOR_WARNING,
     ) -> bool:
         """
         Allgemeines Server-Ereignis (Webhooks, Threads) ins Server-Log + audit_log.
@@ -726,7 +722,7 @@ class AuditLogger:
         Ergaenzt 21.10.2026: Webhooks und Threads tauchten bisher nirgends auf. Ein
         neu angelegter Webhook ist ein typisches Zeichen einer Kontouebernahme.
         """
-        embed = discord.Embed(title=titel, color=farbe, timestamp=datetime.now(timezone.utc))
+        embed = base_embed(title=titel, color=farbe, timestamp=datetime.now(timezone.utc))
         for name, wert in felder:
             embed.add_field(name=name, value=str(wert)[:1024] or "–", inline=True)
         if akteur is not None:
@@ -758,7 +754,6 @@ class AuditLogger:
             True wenn erfolgreich geloggt
         """
         is_create = action.lower() in ("erstellt", "create", "created")
-        color = COLOR_CHANNEL_CREATE if is_create else COLOR_CHANNEL_DELETE
 
         # Channel-Typ bestimmen
         type_map = {
@@ -771,9 +766,9 @@ class AuditLogger:
         }
         channel_type = type_map.get(channel.type, str(channel.type))
 
-        embed = discord.Embed(
+        _kanal_fn = success_embed if is_create else error_embed
+        embed = _kanal_fn(
             title=f"Kanal {action}",
-            color=color,
             timestamp=datetime.now(timezone.utc),
         )
 
@@ -815,9 +810,8 @@ class AuditLogger:
         Returns:
             True wenn erfolgreich geloggt
         """
-        embed = discord.Embed(
+        embed = success_embed(
             title="Rolle erstellt",
-            color=COLOR_CHANNEL_CREATE,
             timestamp=datetime.now(timezone.utc),
         )
 
@@ -859,9 +853,8 @@ class AuditLogger:
         Returns:
             True wenn erfolgreich geloggt
         """
-        embed = discord.Embed(
+        embed = error_embed(
             title="Rolle geloescht",
-            color=COLOR_CHANNEL_DELETE,
             timestamp=datetime.now(timezone.utc),
         )
 
@@ -900,9 +893,8 @@ class AuditLogger:
         self, bot: discord.Client, message: discord.Message
     ) -> bool:
         """Geloeschte Nachricht (aus dem Cache) mit Inhalt loggen."""
-        embed = discord.Embed(
+        embed = error_embed(
             title="Nachricht gelöscht",
-            color=COLOR_LEAVE,
             timestamp=datetime.now(timezone.utc),
         )
         embed.add_field(name="Autor", value=f"{message.author.mention} (`{message.author}`)", inline=True)
@@ -930,10 +922,9 @@ class AuditLogger:
         self, bot: discord.Client, channel_id: int, message_id: int
     ) -> bool:
         """Geloeschte Nachricht, die nicht im Cache lag (aelter als der Bot-Start)."""
-        embed = discord.Embed(
+        embed = error_embed(
             title="Nachricht gelöscht",
             description=f"In <#{channel_id}>. Die Nachricht ist älter als der Bot-Start, Inhalt unbekannt.",
-            color=COLOR_LEAVE,
             timestamp=datetime.now(timezone.utc),
         )
         embed.set_footer(text=f"Nachricht: {message_id}")
@@ -943,10 +934,9 @@ class AuditLogger:
         self, bot: discord.Client, channel_id: int, count: int
     ) -> bool:
         """Massenloeschung (z. B. /clear) loggen."""
-        embed = discord.Embed(
+        embed = warning_embed(
             title="Massenlöschung",
             description=f"**{count}** Nachrichten in <#{channel_id}> gelöscht.",
-            color=COLOR_MOD,
             timestamp=datetime.now(timezone.utc),
         )
         await self._log_to_db(action="message_bulk_delete", target=str(channel_id), details=f"{count} Nachrichten")
@@ -956,10 +946,9 @@ class AuditLogger:
         self, bot: discord.Client, before: discord.Message, after: discord.Message
     ) -> bool:
         """Bearbeitete Nachricht mit altem und neuem Text loggen."""
-        embed = discord.Embed(
+        embed = info_embed(
             title="Nachricht bearbeitet",
             description=f"[Zur Nachricht]({after.jump_url})",
-            color=COLOR_NICK,
             timestamp=datetime.now(timezone.utc),
         )
         embed.add_field(name="Autor", value=f"{after.author.mention} (`{after.author}`)", inline=True)
@@ -986,17 +975,17 @@ class AuditLogger:
         if before.channel == after.channel:
             return False
         if before.channel is None:
-            titel, farbe, aktion = "Voice beigetreten", COLOR_JOIN, "voice_join"
+            titel, aktion = "Voice beigetreten", "voice_join"
             text = f"{member.mention} ist {after.channel.mention} beigetreten."
+            embed = success_embed(title=titel, description=text, timestamp=datetime.now(timezone.utc))
         elif after.channel is None:
-            titel, farbe, aktion = "Voice verlassen", COLOR_LEAVE, "voice_leave"
+            titel, aktion = "Voice verlassen", "voice_leave"
             text = f"{member.mention} hat {before.channel.mention} verlassen."
+            embed = error_embed(title=titel, description=text, timestamp=datetime.now(timezone.utc))
         else:
-            titel, farbe, aktion = "Voice gewechselt", COLOR_NICK, "voice_move"
+            titel, aktion = "Voice gewechselt", "voice_move"
             text = f"{member.mention}: {before.channel.mention} → {after.channel.mention}"
-        embed = discord.Embed(
-            title=titel, description=text, color=farbe, timestamp=datetime.now(timezone.utc)
-        )
+            embed = info_embed(title=titel, description=text, timestamp=datetime.now(timezone.utc))
         embed.set_footer(text=f"User-ID: {member.id}")
         await self._log_to_db(
             action=aktion,
@@ -1010,9 +999,9 @@ class AuditLogger:
         self, bot: discord.Client, invite: discord.Invite, created: bool
     ) -> bool:
         """Einladung erstellt oder geloescht loggen."""
-        embed = discord.Embed(
+        _inv_fn = success_embed if created else error_embed
+        embed = _inv_fn(
             title="Einladung erstellt" if created else "Einladung gelöscht",
-            color=COLOR_CHANNEL_CREATE if created else COLOR_CHANNEL_DELETE,
             timestamp=datetime.now(timezone.utc),
         )
         embed.add_field(name="Code", value=f"`{invite.code}`", inline=True)

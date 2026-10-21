@@ -384,143 +384,181 @@ def render_levelup_card(
     return out.getvalue()
 
 
-# --- Leaderboard-Karte (B3) ------------------------------------------------
+# --- Leaderboard-Karte (C3 Neon-Lobby, 21.10.2026) --------------------------
 
-# Leaderboard-Dimensionen
-LB_W = 920
-LB_HEADER_H = 130
-LB_ROW_H = 82
-LB_PAD = 40
+LB_W = 1200
+LB_HEAD = 190
+LB_ROW = 104
+LB_GAP = 10
+LB_PAD = 48
 
-# Medaillen-Farben fuer die Top-3-Raenge (Gold/Silber/Bronze)
-_MEDAL_COLORS = {
-    1: (255, 200, 40),
-    2: (200, 200, 210),
-    3: (205, 127, 50),
+# Platz 1-3: Gold, Silber, Bronze (Verlauf hell -> satt)
+_MEDAILLE = {
+    1: [(255, 224, 120), (255, 170, 40)],
+    2: [(236, 238, 248), (170, 176, 196)],
+    3: [(240, 176, 120), (196, 112, 52)],
 }
 
 
 def render_leaderboard_card(
     rows: list[dict],
     bg_path: str | Path | None,
-    accent: str = "#f1c40f",
+    accent: str = "#B84DFF",
     title: str = "LEADERBOARD",
     subtitle: str | None = None,
+    *,
+    stil: str = "neon",
 ) -> bytes:
     """
-    Leaderboard als PNG rendern (Wallpaper-BG + Rang-Liste, Arcane-Stil).
-
-    Reine synchrone Funktion — im Cog via ``asyncio.to_thread`` aufrufen.
+    Leaderboard als PNG im Stil der Level-Up-Karte rendern.
 
     Args:
-        rows: Liste von Dicts je Spieler, je: rank (int), name (str),
-              level (int), xp (int), optional avatar (bytes|None).
-        bg_path: Hintergrund-Bild oder None (dann Solid-Fallback).
-        accent: Akzentfarbe als Hex (#RRGGBB).
-        title: Kopfzeile (Default "LEADERBOARD").
-        subtitle: Optionale Unterzeile (z.B. Guild-Name + Spielerzahl).
-
-    Returns:
-        PNG-Bytes der fertigen Leaderboard-Karte.
+        rows: je Spieler rank, name, level, xp, optional avatar (bytes|None)
+        bg_path: eigenes Hintergrundbild oder None (C3-Neon-Hintergrund)
+        accent / stil: wie bei der Level-Up-Karte
+        title / subtitle: Kopfzeile und Unterzeile (z. B. Servername)
     """
-    acc = _hex_to_rgb(accent)
+    s = _SS
     n = max(1, len(rows))
-    height = LB_HEADER_H + n * LB_ROW_H + 24
+    W = LB_W * s
+    H = (LB_HEAD + n * (LB_ROW + LB_GAP) + LB_PAD - LB_GAP) * s
+    acc = _hex_to_rgb(accent, C3_VIOLET)
+    if stil == "akzent":
+        farben = [acc, tuple(min(255, int(c * 0.6 + 255 * 0.4)) for c in acc)]
+        glow_a, glow_b = acc, acc
+    else:
+        farben = [C3_VIOLET, C3_MAGENTA, C3_CYAN]
+        glow_a, glow_b = C3_VIOLET, C3_CYAN
+    hl = farben[0]
 
-    # --- Hintergrund (cover) ---
-    try:
-        if bg_path is None:
-            raise ValueError("kein BG")
-        bg = Image.open(bg_path).convert("RGB")
-        bg = _cover(bg, LB_W, height)
-    except Exception as e:  # noqa: BLE001 — BG nie fatal, Solid-Fallback
-        if bg_path is not None:
+    card = Image.new("RGBA", (W, H), C3_BG + (255,))
+    if bg_path:
+        try:
+            bg = _cover(Image.open(bg_path).convert("RGB"), W, H).convert("RGBA")
+            card = Image.alpha_composite(card, bg)
+            card = Image.alpha_composite(card, Image.new("RGBA", (W, H), (0, 0, 0, 175)))
+        except Exception as e:  # noqa: BLE001
             logger.warning(f"Leaderboard-BG laden fehlgeschlagen ({bg_path}): {e}")
-        bg = Image.new("RGB", (LB_W, height), (15, 13, 20))
-    card = bg.convert("RGBA")
-
-    # --- Dunkles Overlay (gleichmaessig) fuer Text-Kontrast ---
-    ov = Image.new("RGBA", (LB_W, height), (8, 6, 14, 180))
-    card = Image.alpha_composite(card, ov)
-    d = ImageDraw.Draw(card)
+    card = Image.alpha_composite(card, _glow((W, H), (int(W * 0.1), 120 * s), 360 * s, glow_a, 90))
+    card = Image.alpha_composite(card, _glow((W, H), (int(W * 0.95), int(H * 0.55)), 420 * s, glow_b, 50))
+    raster = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    rd = ImageDraw.Draw(raster)
+    for x in range(0, W, 40 * s):
+        rd.line([(x, 0), (x, H)], fill=(244, 241, 255, 8), width=s)
+    for y in range(0, H, 40 * s):
+        rd.line([(0, y), (W, y)], fill=(244, 241, 255, 8), width=s)
+    card = Image.alpha_composite(card, raster)
 
     # --- Kopf ---
-    head = title if len(title) <= 24 else title[:23] + "…"
-    d.text((LB_PAD, 34), head.upper(), font=_font(42, True), fill=acc + (255,))
+    d = ImageDraw.Draw(card, "RGBA")
+    f_title = _grotesk(64 * s, 700)
+    titel = _sauber(title).upper() or "LEADERBOARD"
+    tw = int(d.textlength(titel, font=f_title))
+    maske = Image.new("L", (W, H), 0)
+    ImageDraw.Draw(maske).text((LB_PAD * s, 44 * s), titel, font=f_title, fill=255)
+    fuell = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    fuell.paste(_verlauf(tw, 80 * s, farben).convert("RGBA"), (LB_PAD * s, 44 * s))
+    fuell.putalpha(maske)
+    card = Image.alpha_composite(card, fuell)
+    d = ImageDraw.Draw(card, "RGBA")
     if subtitle:
-        sub = subtitle if len(subtitle) <= 48 else subtitle[:47] + "…"
-        d.text((LB_PAD, 88), sub, font=_font(22, False), fill=(210, 205, 225, 255))
-    d.line(
-        [(LB_PAD, LB_HEADER_H - 6), (LB_W - LB_PAD, LB_HEADER_H - 6)],
-        fill=acc + (160,), width=2,
-    )
+        f_sub = _mono(24 * s)
+        d.text((LB_PAD * s, 124 * s), _passt(d, _sauber(subtitle).upper(), f_sub, W - 2 * LB_PAD * s),
+               font=f_sub, fill=C3_TEXT2 + (255,))
+    linie = _verlauf(W - 2 * LB_PAD * s, 2 * s, farben).convert("RGBA")
+    card.paste(linie, (LB_PAD * s, (LB_HEAD - 18) * s), linie)
 
-    av_size = 54
-    name_x = LB_PAD + 70 + av_size + 18
-
+    # --- Zeilen ---
+    av = 64 * s
     for i, row in enumerate(rows):
-        ry = LB_HEADER_H + i * LB_ROW_H
-        cy = ry + LB_ROW_H // 2
+        y0 = (LB_HEAD + i * (LB_ROW + LB_GAP)) * s
+        y1 = y0 + LB_ROW * s
+        cy = (y0 + y1) // 2
         rank = int(row.get("rank", i + 1))
+        medaille = _MEDAILLE.get(rank)
+        x0, x1 = LB_PAD * s, W - LB_PAD * s
 
-        # Rang (Top-3 in Medaillen-Farbe, sonst hell)
-        rank_color = _MEDAL_COLORS.get(rank, (235, 230, 245)) + (255,)
-        rank_font = _font(32, True)
-        rank_txt = f"#{rank}"
-        rw = d.textlength(rank_txt, font=rank_font)
-        d.text(
-            (LB_PAD + 34 - rw / 2, cy - 18), rank_txt,
-            font=rank_font, fill=rank_color,
-        )
+        def _zeile(od, _y0=y0, _y1=y1, _m=medaille):
+            od.rounded_rectangle([x0, _y0, x1, _y1], radius=22 * s,
+                                 fill=(244, 241, 255, 16 if _m else 10),
+                                 outline=(_m[1] + (150,)) if _m else (244, 241, 255, 26), width=2 * s)
+        card = _halbtransparent(card, _zeile)
+        if rank == 1:
+            card = Image.alpha_composite(card, _glow((W, H), (x0 + 60 * s, cy), 90 * s, medaille[1], 70))
+        d = ImageDraw.Draw(card, "RGBA")
 
-        # Avatar (rund) — optional
-        avatar = row.get("avatar")
-        ax = LB_PAD + 70
-        ay = cy - av_size // 2
-        if avatar:
+        # Platz
+        f_rank = _grotesk(44 * s, 700)
+        r_txt = f"#{rank}"
+        rx = x0 + 28 * s
+        r_w = int(d.textlength(r_txt, font=f_rank))
+        if medaille:
+            m = Image.new("L", (W, H), 0)
+            ImageDraw.Draw(m).text((rx, cy - 30 * s), r_txt, font=f_rank, fill=255)
+            f = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+            f.paste(_verlauf(r_w, 60 * s, medaille).convert("RGBA"), (rx, cy - 30 * s))
+            f.putalpha(m)
+            card = Image.alpha_composite(card, f)
+            d = ImageDraw.Draw(card, "RGBA")
+        else:
+            d.text((rx, cy - 30 * s), r_txt, font=f_rank, fill=C3_TEXT2 + (255,))
+
+        # Avatar mit Ring
+        ax = x0 + 138 * s
+        ay = cy - av // 2
+        ring_farben = medaille or farben
+        ring = _verlauf(av + 8 * s, av + 8 * s, ring_farben).convert("RGBA")
+        rm = Image.new("L", ring.size, 0)
+        ImageDraw.Draw(rm).ellipse([0, 0, ring.size[0] - 1, ring.size[1] - 1], fill=255)
+        ring.putalpha(rm)
+        card.paste(ring, (ax - 4 * s, ay - 4 * s), ring)
+        av_img = None
+        if row.get("avatar"):
             try:
-                av = (
-                    Image.open(io.BytesIO(avatar))
-                    .convert("RGBA")
-                    .resize((av_size, av_size), Image.LANCZOS)
-                )
-                mask = Image.new("L", (av_size, av_size), 0)
-                ImageDraw.Draw(mask).ellipse([0, 0, av_size, av_size], fill=255)
-                card.paste(av, (ax, ay), mask)
-                d = ImageDraw.Draw(card)
-            except Exception as e:  # noqa: BLE001 — Avatar nie fatal
+                av_img = Image.open(io.BytesIO(row["avatar"])).convert("RGBA").resize((av, av), Image.LANCZOS)
+            except Exception as e:  # noqa: BLE001
                 logger.debug(f"Leaderboard-Avatar fehlgeschlagen: {e}")
+        if av_img is None:
+            av_img = _verlauf(av, av, farben[:2]).convert("RGBA")
+            ad = ImageDraw.Draw(av_img)
+            ini = (_sauber(str(row.get("name", "?")))[:1] or "?").upper()
+            f_ini = _grotesk(34 * s)
+            ad.text(((av - ad.textlength(ini, font=f_ini)) / 2, av * 0.16), ini, font=f_ini, fill=C3_TEXT)
+        am = Image.new("L", (av, av), 0)
+        ImageDraw.Draw(am).ellipse([0, 0, av - 1, av - 1], fill=255)
+        card.paste(av_img, (ax, ay), am)
+        d = ImageDraw.Draw(card, "RGBA")
 
-        # Name + Sub-Zeile (Level + XP)
-        raw_name = str(row.get("name", "?"))
-        name = raw_name if len(raw_name) <= 22 else raw_name[:21] + "…"
-        d.text((name_x, ry + 16), name, font=_font(28, True), fill=(255, 255, 255, 255))
+        # Name + XP
         level = int(row.get("level", 0))
         xp = int(row.get("xp", 0))
-        d.text(
-            (name_x, ry + 48),
-            f"Level {level} · {xp:,} XP",
-            font=_font(19, False), fill=(195, 190, 212, 255),
-        )
+        nx = ax + av + 28 * s
+        f_lvl = _grotesk(40 * s, 700)
+        lvl_txt = f"{level}"
+        lw = int(d.textlength(lvl_txt, font=f_lvl))
+        f_lbl = _mono(18 * s)
+        lbl_w = int(d.textlength("LVL", font=f_lbl))
+        rechts = x1 - 30 * s
+        f_name = _grotesk(34 * s, 700)
+        name = _passt(d, _sauber(str(row.get("name", "?"))) or "Mitglied", f_name,
+                      rechts - lw - lbl_w - 40 * s - nx)
+        d.text((nx, cy - 34 * s), name, font=f_name, fill=C3_TEXT + (255,))
+        d.text((nx, cy + 10 * s), f"{xp:,} XP".replace(",", "."), font=_mono(22 * s),
+               fill=C3_TEXT2 + (255,))
 
-        # Level rechtsbuendig gross
-        lvl_txt = f"Lvl {level}"
-        lvl_font = _font(30, True)
-        lw = d.textlength(lvl_txt, font=lvl_font)
-        d.text(
-            (LB_W - LB_PAD - lw, cy - 18), lvl_txt,
-            font=lvl_font, fill=acc + (255,),
-        )
+        # Level rechts
+        d.text((rechts - lw, cy - 28 * s), lvl_txt, font=f_lvl, fill=(medaille[0] if medaille else hl) + (255,))
+        d.text((rechts - lw - lbl_w - 12 * s, cy - 6 * s), "LVL", font=f_lbl, fill=C3_TEXT2 + (220,))
 
-        # Zeilen-Trenner (dezent)
-        if i < len(rows) - 1:
-            sy = ry + LB_ROW_H
-            d.line([(LB_PAD, sy), (LB_W - LB_PAD, sy)], fill=(255, 255, 255, 22), width=1)
-
-    # --- Akzent-Linie unten ---
-    d.rectangle([0, height - 5, LB_W, height], fill=acc + (255,))
-
+    # Rahmen, runde Ecken, verkleinern
+    card = _halbtransparent(card, lambda od: od.rounded_rectangle(
+        [s, s, W - s, H - s], radius=36 * s, outline=(244, 241, 255, 34), width=2 * s))
+    oben = _verlauf(W - 72 * s, 3 * s, farben).convert("RGBA")
+    card.paste(oben, (36 * s, 0), oben)
+    ecken = Image.new("L", (W, H), 0)
+    ImageDraw.Draw(ecken).rounded_rectangle([0, 0, W - 1, H - 1], radius=36 * s, fill=255)
+    card.putalpha(ecken)
+    card = card.resize((W // s, H // s), Image.LANCZOS)
     out = io.BytesIO()
-    card.convert("RGB").save(out, "PNG")
-    out.seek(0)
+    card.save(out, "PNG")
     return out.getvalue()

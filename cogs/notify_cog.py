@@ -34,6 +34,12 @@ from modules.database.db_manager import get_db
 from modules.server_registry import alle as alle_server, kennung_zu_label
 from utils.logger import get_logger
 from utils.embeds import (
+    COLOR_BRAND,
+    COLOR_ERROR,
+    COLOR_INFO,
+    COLOR_SUCCESS,
+    COLOR_WARNING,
+    base_embed,
     error_embed,
     info_embed,
     success_embed,
@@ -437,13 +443,13 @@ class NotifyCog(commands.Cog):
         event_label = _EVENT_LABELS.get(event_type, event_type)
 
         # Embed für die DM erstellen
-        embed = discord.Embed(
+        embed = base_embed(
             title=f"{server_label} — {event_label}",
             description=message,
             color=self._event_color(event_type),
             timestamp=datetime.now(timezone.utc),
+            footer="Abmelden mit /notify unsubscribe",
         )
-        embed.set_footer(text="Abmelden mit /notify unsubscribe")
 
         # DMs an alle Abonnenten senden — mit Retry-After-Handling und Throttle.
         sent_count = 0
@@ -489,14 +495,14 @@ class NotifyCog(commands.Cog):
 
     @staticmethod
     def _event_color(event_type: str) -> int:
-        """Farbe für das Embed je nach Event-Typ"""
+        """C3-Farbe je nach Event-Typ"""
         colors = {
-            "server_online": 0x2ECC71,    # Grün
-            "server_offline": 0xE74C3C,   # Rot
-            "update_available": 0x3498DB,  # Blau
-            "planned_restart": 0xF39C12,   # Orange
+            "server_online": COLOR_SUCCESS,    # Cyan — in Ordnung
+            "server_offline": COLOR_ERROR,     # Magenta — Fehler
+            "update_available": COLOR_INFO,    # helles Violett — Hinweis
+            "planned_restart": COLOR_WARNING,  # Rosa — Warnung
         }
-        return colors.get(event_type, 0x5865F2)
+        return colors.get(event_type, COLOR_BRAND)
 
     # ==================================================================
     # Fehlerbehandlung

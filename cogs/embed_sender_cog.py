@@ -13,6 +13,7 @@ from discord.ext import commands, tasks
 
 from modules.platzhalter import render
 from utils.config import DATA_DIR
+from utils.embeds import COLOR_BRAND
 from utils.logger import get_logger
 from utils.loop_guard import guard
 
@@ -28,7 +29,7 @@ def _hex_to_color(hex_str: str) -> discord.Color:
         value = int(hex_str, 16)
         return discord.Color(value)
     except (ValueError, TypeError):
-        return discord.Color.blurple()
+        return discord.Color(COLOR_BRAND)  # ungueltige Eingabe -> C3-Violett
 
 
 class EmbedSenderCog(commands.Cog, name="Embed Sender"):
@@ -124,7 +125,7 @@ class EmbedSenderCog(commands.Cog, name="Embed Sender"):
         if description:
             embed.description = description
 
-        color_hex = data.get("color", "#5865F2")
+        color_hex = data.get("color", "#B84DFF")  # Standard = C3-Violett
         embed.color = _hex_to_color(color_hex)
 
         thumbnail = data.get("thumbnail_url", "").strip()

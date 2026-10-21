@@ -31,17 +31,18 @@ from modules.giveaways import GiveawayManager
 from utils.logger import get_logger
 from utils.permissions import admin_only
 from utils.loop_guard import guard
+from utils.embeds import (
+    error_embed,
+    hud_embed,
+    info_embed,
+    neutral_embed,
+    success_embed,
+)
 
 logger = get_logger("cogs.giveaway")
 
 # Custom-ID-Prefix für den Teilnehmen-Button (persistent)
 BUTTON_CUSTOM_ID_PREFIX = "giveaway_join:"
-
-# Farben
-COLOR_ACTIVE = 0xf1c40f    # Gelb — aktives Giveaway
-COLOR_ENDED = 0x2ecc71     # Gruen — Giveaway beendet
-COLOR_CANCELLED = 0x95a5a6  # Grau — Giveaway abgebrochen
-COLOR_NO_WINNER = 0xe74c3c  # Rot — Keine Gewinner (zu wenige Teilnehmer)
 
 
 # ==================================================================
@@ -372,10 +373,12 @@ class GiveawayCog(commands.Cog):
         from datetime import timedelta
         ends_at = now + timedelta(minutes=duration_minutes)
 
-        embed = discord.Embed(
-            title="\U0001f389 Giveaway \U0001f389",
+        embed = hud_embed(
+            "\U0001f389 Giveaway \U0001f389",
+            state="brand",
+            meta=[(str(participant_count), "Teilnehmer"), (str(winners_count), "Gewinner")],
             description=f"**{prize}**",
-            color=COLOR_ACTIVE,
+            footer="Endet",
             timestamp=ends_at,
         )
 
@@ -414,8 +417,6 @@ class GiveawayCog(commands.Cog):
                     inline=False,
                 )
 
-        embed.set_footer(text="Endet")  # Discord zeigt Timestamp daneben an
-
         return embed
 
     def _build_ended_embed(
@@ -437,17 +438,18 @@ class GiveawayCog(commands.Cog):
         """
         if winner_ids:
             winners_str = ", ".join(f"<@{uid}>" for uid in winner_ids)
-            color = COLOR_ENDED
+            embed = success_embed(
+                title="\U0001f389 Giveaway beendet \U0001f389",
+                description=f"**{prize}**",
+                timestamp=datetime.now(timezone.utc),
+            )
         else:
             winners_str = "Keine Gewinner (zu wenige Teilnehmer)"
-            color = COLOR_NO_WINNER
-
-        embed = discord.Embed(
-            title="\U0001f389 Giveaway beendet \U0001f389",
-            description=f"**{prize}**",
-            color=color,
-            timestamp=datetime.now(timezone.utc),
-        )
+            embed = error_embed(
+                title="\U0001f389 Giveaway beendet \U0001f389",
+                description=f"**{prize}**",
+                timestamp=datetime.now(timezone.utc),
+            )
 
         embed.add_field(name="Gewinner", value=winners_str, inline=False)
         embed.add_field(
@@ -548,14 +550,13 @@ class GiveawayCog(commands.Cog):
         """
         try:
             user = self.bot.get_user(user_id) or await self.bot.fetch_user(user_id)
-            embed = discord.Embed(
+            embed = success_embed(
                 title="\U0001f389 Du hast gewonnen!",
                 description=(
                     f"Herzlichen Glueckwunsch! Du hast **{prize}** "
                     f"im Giveaway in {channel.mention} gewonnen!\n\n"
                     f"Melde dich bei einem Admin um deinen Preis zu erhalten."
                 ),
-                color=COLOR_ENDED,
                 timestamp=datetime.now(timezone.utc),
             )
             await user.send(embed=embed)
@@ -911,10 +912,9 @@ class GiveawayCog(commands.Cog):
             try:
                 message = await channel.fetch_message(msg_id)
 
-                cancelled_embed = discord.Embed(
+                cancelled_embed = neutral_embed(
                     title="\U0001f389 Giveaway abgebrochen",
                     description=f"~~**{prize}**~~\n\nDieses Giveaway wurde abgebrochen.",
-                    color=COLOR_CANCELLED,
                     timestamp=datetime.now(timezone.utc),
                 )
 
@@ -959,9 +959,9 @@ class GiveawayCog(commands.Cog):
             )
             return
 
-        embed = discord.Embed(
+        embed = info_embed(
             title=f"Aktive Giveaways ({len(active)})",
-            color=COLOR_ACTIVE,
+            timestamp=False,
         )
 
         for giveaway in active[:25]:  # Max 25 Felder im Embed

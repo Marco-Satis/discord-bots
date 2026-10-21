@@ -33,13 +33,12 @@ from utils.logger import get_logger
 from utils.config import ADMIN_DATA_DIR
 from utils.permissions import admin_only, owner_only
 from utils.embeds import (
-    COLOR_ERROR,
-    COLOR_SUCCESS,
     error_embed,
     hud_embed,
     info_embed,
     neutral_embed,
     success_embed,
+    warning_embed,
 )
 from utils.ui_kit import bullet_list, subtext, truncate
 from utils.loop_guard import guard
@@ -471,10 +470,9 @@ class ServerBackupCog(commands.Cog):
         success = results.get("success", False)
         mode = results.get("mode", "unbekannt")
 
-        embed = discord.Embed(
+        embed = (success_embed if success else error_embed)(
             title="Wiederherstellung abgeschlossen" if success
             else "Wiederherstellung fehlgeschlagen",
-            color=COLOR_SUCCESS if success else 0xe74c3c,
             timestamp=datetime.now(timezone.utc),
         )
 
@@ -800,7 +798,7 @@ class ServerBackupCog(commands.Cog):
         mode_desc = _MODE_DESCRIPTIONS.get(mode, mode)
 
         # Bestaetigung-Embed
-        embed = discord.Embed(
+        embed = (error_embed if mode == "full" else warning_embed)(
             title="Backup-Wiederherstellung bestaetigen",
             description=(
                 f"**Backup-ID:** `{backup_id}`\n"
@@ -814,7 +812,6 @@ class ServerBackupCog(commands.Cog):
                 f"- {len(backup.get('roles', []))} Rollen\n"
                 f"- {len(backup.get('emojis', []))} Emojis"
             ),
-            color=COLOR_ERROR if mode == "full" else 0xf39c12,
             timestamp=datetime.now(timezone.utc),
         )
 
@@ -923,9 +920,8 @@ class ServerBackupCog(commands.Cog):
             interval = self._auto_config.get("interval_days", 7)
             running = self.auto_backup_task.is_running()
 
-            embed = discord.Embed(
+            embed = (success_embed if enabled else neutral_embed)(
                 title="Auto-Backup Status",
-                color=COLOR_SUCCESS if enabled else 0x95a5a6,
                 timestamp=datetime.now(timezone.utc),
             )
             embed.add_field(

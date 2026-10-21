@@ -25,6 +25,7 @@ from utils.embeds import (
     COLOR_INFO,
     COLOR_SUCCESS,
     COLOR_WARNING,
+    base_embed,
     error_embed,
     info_embed,
 )
@@ -393,7 +394,7 @@ class GeneralCog(commands.Cog):
                     else:
                         title = "✅ Clear-Befehl abgeschlossen"
                         color = COLOR_SUCCESS
-                    embed = discord.Embed(
+                    embed = base_embed(
                         title=title,
                         color=color,
                         timestamp=datetime.now(timezone.utc),

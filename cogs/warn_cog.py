@@ -31,6 +31,7 @@ from utils.embeds import (
     COLOR_ERROR,
     COLOR_SUCCESS,
     COLOR_WARNING,
+    base_embed,
     error_embed,
     hud_embed,
     success_embed,
@@ -258,13 +259,14 @@ class WarnCog(commands.Cog):
             )
             return
 
-        embed = discord.Embed(
+        embed = base_embed(
             title=f"Aktive Warns — {user.display_name}",
             description=(
                 f"**{len(active_warns)}** aktive Warn(s), "
                 f"**{total_points}** Punkt(e) gesamt"
             ),
             color=self._points_color(total_points),
+            timestamp=False,
         )
 
         # Schwellenwert-Info
@@ -329,7 +331,7 @@ class WarnCog(commands.Cog):
         active_count = sum(1 for w in all_warns if not w.get("expired", False))
         expired_count = len(all_warns) - active_count
 
-        embed = discord.Embed(
+        embed = base_embed(
             title=f"Warn-Historie — {user.display_name}",
             description=(
                 f"**{len(all_warns)}** Warn(s) insgesamt "
@@ -337,6 +339,7 @@ class WarnCog(commands.Cog):
                 f"Aktuelle Punkte: **{total_points}**"
             ),
             color=self._points_color(total_points),
+            timestamp=False,
         )
 
         for i, warn in enumerate(all_warns[:20], 1):

@@ -12,11 +12,12 @@ from enum import Enum
 
 from utils.logger import get_logger
 from utils.embeds import (
+    base_embed,
+    info_embed,
     COLOR_ERROR,
     COLOR_INFO,
     COLOR_SUCCESS,
     COLOR_WARNING,
-    info_embed,
 )
 
 logger = get_logger("discord_notifier")
@@ -88,7 +89,7 @@ class DiscordNotifier:
             return
 
         _, color, emoji = level.value
-        embed = discord.Embed(
+        embed = base_embed(
             title=f"{emoji} {title}",
             description=description,
             color=color,
@@ -333,7 +334,7 @@ class DiscordNotifier:
         try:
             user = await self.bot.fetch_user(owner_id)
             _, color, emoji = level.value
-            embed = discord.Embed(
+            embed = base_embed(
                 title=f"{emoji} {title}",
                 description=description,
                 color=color,

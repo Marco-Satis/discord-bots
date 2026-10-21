@@ -1070,10 +1070,9 @@ class SatisfactoryCog(commands.Cog):
                     f"({format_bytes(existing_size)}) — wird überschrieben!"
                 )
 
-            embed = discord.Embed(
+            embed = (warning_embed if exists else info_embed)(
                 title="Savegame Upload bestaetigen",
                 description=desc,
-                color=COLOR_WARNING if exists else COLOR_INFO,
             )
             embed.set_footer(text=f"von {interaction.user.display_name}")
             await interaction.followup.send(embed=embed, view=view)
@@ -1614,10 +1613,9 @@ class SatisfactoryCog(commands.Cog):
                 von, nach, overwrite=False, only_names=new_bps
             )
 
-        embed = discord.Embed(
+        embed = (success_embed if not (conflict or copy_errors) else warning_embed)(
             title="Blueprint-Migration",
             description=f"**{von}** → **{nach}**",
-            color=COLOR_SUCCESS if not (conflict or copy_errors) else COLOR_WARNING,
         )
         if copied:
             embed.add_field(
@@ -2347,10 +2345,9 @@ class BlueprintDeleteConfirmView(discord.ui.View):
             desc += f"**{len(failed)} fehlgeschlagen:**\n"
             desc += "\n".join(f"\u274c {f}" for f in failed[:10])
 
-        embed = discord.Embed(
+        embed = (error_embed if not failed else warning_embed)(
             title="Blueprints gelöscht",
             description=desc,
-            color=COLOR_ERROR if not failed else COLOR_WARNING,
         )
         embed.set_footer(text=f"von {interaction.user.display_name}")
 

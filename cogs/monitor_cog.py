@@ -25,12 +25,17 @@ from utils.ui_kit import progress_bar as ui_progress_bar, subtext, truncate, zah
 from utils.permissions import is_admin, is_owner
 from utils.config import PROJECT_ROOT
 from utils.embeds import (
+    base_embed,
+    error_embed,
+    info_embed,
+    neutral_embed,
+    success_embed,
+    warning_embed,
     COLOR_ERROR,
+    COLOR_PROGRESS,
     COLOR_SUCCESS,
     COLOR_WARNING,
     hud_embed,
-    info_embed,
-    warning_embed,
 )
 
 logger = get_logger("monitor_cog")
@@ -461,9 +466,9 @@ class MonitorCog(commands.Cog):
             if stats["is_online"] and stats["current_session_minutes"] > 0:
                 online_str += f" (seit {stats['current_session_minutes']} Min)"
 
-            embed = discord.Embed(
+            _stat_fn = success_embed if stats["is_online"] else neutral_embed
+            embed = _stat_fn(
                 title=f"📊 Statistiken: {stats['name']}",
-                color=COLOR_SUCCESS if stats["is_online"] else 0x888888,
                 timestamp=datetime.now(),
             )
             embed.add_field(name="Status", value=online_str, inline=True)
@@ -788,13 +793,18 @@ class MonitorCog(commands.Cog):
             failed = total - passed
 
             # Build embed
-            embed = discord.Embed(
+            if failed == 0:
+                _test_fn = success_embed
+            elif failed <= 2:
+                _test_fn = warning_embed
+            else:
+                _test_fn = error_embed
+            embed = _test_fn(
                 title="🔍 System-Selbsttest",
                 description=(
                     f"**Ergebnis:** {passed}/{total} bestanden\n"
                     f"✅ {passed} | ❌ {failed}"
                 ),
-                color=COLOR_SUCCESS if failed == 0 else 0xf39c12 if failed <= 2 else 0xe74c3c,
                 timestamp=datetime.now(),
             )
 
@@ -1297,9 +1307,9 @@ class MonitorCog(commands.Cog):
         for event_type, last_time in notifier._last_sent.items():
             recent.append(f"`{event_type}`: {last_time.strftime('%d.%m. %H:%M')}")
 
-        embed = discord.Embed(
+        _mail_fn = success_embed if notifier.enabled else error_embed
+        embed = _mail_fn(
             title="📧 Email-Konfiguration",
-            color=COLOR_SUCCESS if notifier.enabled else 0xe74c3c,
             timestamp=datetime.now(),
         )
         embed.add_field(
@@ -1386,9 +1396,10 @@ class MonitorCog(commands.Cog):
             color = COLOR_SUCCESS  # Gruen: OK
             disk_status = "OK"
 
-        embed = discord.Embed(
+        embed = base_embed(
             title="Backup-Statistiken",
             color=color,
+            timestamp=False,
         )
 
         # Satisfactory Backups
@@ -1491,9 +1502,9 @@ class MonitorCog(commands.Cog):
         info = od.get_status()
         configured = await od.is_configured()
 
-        embed = discord.Embed(
+        _od_fn = success_embed if od.enabled and configured else error_embed
+        embed = _od_fn(
             title="☁️ OneDrive Backup",
-            color=COLOR_SUCCESS if od.enabled and configured else 0xe74c3c,
             timestamp=datetime.now(),
         )
         embed.add_field(
@@ -1707,10 +1718,12 @@ class MonitorCog(commands.Cog):
 
         info = sg_prot.get_rollback_info()
 
-        embed = discord.Embed(
+        _rb_fn = warning_embed if info["crash_loop_active"] else base_embed
+        _rb_kw = {} if info["crash_loop_active"] else {"color": COLOR_PROGRESS}
+        embed = _rb_fn(
             title="🔄 Rollback-Status",
-            color=COLOR_WARNING if info["crash_loop_active"] else 0x5865F2,
             timestamp=datetime.now(),
+            **_rb_kw,
         )
 
         embed.add_field(

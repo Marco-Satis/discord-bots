@@ -61,6 +61,9 @@
                     <div class="form-group">
                         <label for="embed_color">Farbe</label>
                         <select id="embed_color" name="embed_color">
+                            <option value="#B84DFF">Violett (Server-Design)</option>
+                            <option value="#FF3FA4">Magenta (Server-Design)</option>
+                            <option value="#53E7F2">Cyan (Server-Design)</option>
                             <option value="#5865F2">Blurple (Discord)</option>
                             <option value="#2ecc71">Gruen</option>
                             <option value="#e74c3c">Rot</option>
@@ -234,7 +237,7 @@ function previewEmbed() {
     var author = document.getElementById('embed_author').value || '';
     var colorSelect = document.getElementById('embed_color');
     var color = colorSelect.value === 'custom'
-        ? (document.getElementById('custom_color').value || '#5865F2')
+        ? (document.getElementById('custom_color').value || '#B84DFF')
         : colorSelect.value;
     var thumbnail = document.getElementById('embed_thumbnail').value || '';
     var image = document.getElementById('embed_image').value || '';

@@ -621,10 +621,9 @@ class MinecraftCog(commands.Cog):
                 created_by=str(interaction.user)
             )
 
-            embed = discord.Embed(
-                title=("Backup erstellt" if success else "Backup fehlgeschlagen"),
+            embed = (success_embed if success else error_embed)(
+                title="Backup erstellt" if success else "Backup fehlgeschlagen",
                 description=f"**{srv.display_name}**\n{msg}",
-                color=COLOR_SUCCESS if success else COLOR_ERROR,
             )
             if success:
                 embed.set_footer(text=f"von {interaction.user.display_name}")
@@ -713,11 +712,9 @@ class MinecraftCog(commands.Cog):
 
         try:
             success, msg = await mgr.restore(name)
-            embed = discord.Embed(
-                title=("Wiederhergestellt" if success
-                       else "Wiederherstellung fehlgeschlagen"),
+            embed = (success_embed if success else error_embed)(
+                title="Wiederhergestellt" if success else "Wiederherstellung fehlgeschlagen",
                 description=msg,
-                color=COLOR_SUCCESS if success else COLOR_ERROR,
             )
             await interaction.followup.send(embed=embed)
             logger.info(

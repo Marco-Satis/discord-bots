@@ -36,7 +36,7 @@ from modules.database.db_manager import get_db
 from modules.platzhalter import render
 from utils.logger import get_logger
 from utils.embeds import (
-    COLOR_SUCCESS,
+    error_embed,
     info_embed,
     success_embed,
 )
@@ -525,12 +525,12 @@ class WelcomeCog(commands.Cog):
             return
 
         status_text = "aktiviert" if new_enabled else "deaktiviert"
-        status_color = COLOR_SUCCESS if new_enabled else 0xE74C3C
+        _embed_fn = success_embed if new_enabled else error_embed
 
-        embed = discord.Embed(
+        embed = _embed_fn(
             title="Willkommenssystem",
             description=f"Das Willkommenssystem wurde **{status_text}**.",
-            color=status_color,
+            timestamp=False,
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
 
