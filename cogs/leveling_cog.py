@@ -674,12 +674,14 @@ class LevelingCog(commands.Cog):
 
     def _xp_progress(self, user_data: dict, level: int) -> tuple[int, int]:
         """XP im aktuellen Level + XP-Spanne zum naechsten Level berechnen."""
+        # xp_for_level(n) = Gesamt-XP, um Level n ERREICHT zu haben (kumulativ).
+        # Fortschritt laeuft also von xp_for_level(level) bis xp_for_level(level + 1).
+        # Bis 21.10. stand hier die Spanne level-1 -> level (Rest der alten
+        # Pro-Stufe-Formel): Anzeige "33 / 10 XP" bei Level 1.
         current_xp = user_data.get("xp", 0)
-        xp_needed = self.leveling.xp_for_level(level)
-        if level > 0:
-            xp_prev = self.leveling.xp_for_level(level - 1)
-            return current_xp - xp_prev, xp_needed - xp_prev
-        return current_xp, xp_needed
+        xp_prev = self.leveling.xp_for_level(level)
+        xp_next = self.leveling.xp_for_level(level + 1)
+        return max(0, current_xp - xp_prev), xp_next - xp_prev
 
     async def _build_levelup_message(
         self,
@@ -895,15 +897,8 @@ class LevelingCog(commands.Cog):
         total_messages = user_data.get("total_messages", 0)
         voice_minutes = user_data.get("voice_minutes", 0)
 
-        # XP-Fortschritt im aktuellen Level berechnen
-        xp_needed = self.leveling.xp_for_level(level)
-        if level > 0:
-            xp_prev = self.leveling.xp_for_level(level - 1)
-            xp_in_level = xp - xp_prev
-            xp_for_next = xp_needed - xp_prev
-        else:
-            xp_in_level = xp
-            xp_for_next = xp_needed
+        # XP-Fortschritt im aktuellen Level (gleiche Rechnung wie _xp_progress)
+        xp_in_level, xp_for_next = self._xp_progress(user_data, level)
 
         # Voice-Minuten in lesbares Format umwandeln
         if voice_minutes >= 60:
