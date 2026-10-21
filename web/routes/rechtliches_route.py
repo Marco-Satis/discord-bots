@@ -1,7 +1,9 @@
 """
 Datenschutzerklärung und Impressum (DSGVO/DDG, 21.10.2026).
 
-  /datenschutz, /impressum   öffentlich (allow_anon), auf jeder Seite verlinkt
+  /datenschutz, /kontakt     öffentlich (allow_anon), auf jeder Seite verlinkt
+  /impressum                 leitet auf /kontakt (kein Impressum: Seite ohne
+                             öffentlichen Inhalt, Willkommensseite offline)
   /rechtliches               nur Owner: Kontaktangaben pflegen
 
 Die Kontaktangaben stehen in `guild_config` (Keys `rechtliches.*`), nicht im
@@ -40,7 +42,6 @@ FELDER = {
     "name": ("Name oder Bezeichnung des Betreibers", 120),
     "email": ("E-Mail für Datenschutz-Anfragen", 120),
     "discord": ("Discord-Name für Anfragen (optional)", 60),
-    "anschrift": ("Anschrift (nur falls ein Impressum nötig ist, optional)", 300),
     "bundesland": ("Bundesland (für die zuständige Aufsichtsbehörde)", 40),
 }
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -83,12 +84,18 @@ async def datenschutz(request: Request):
     })
 
 
-@router.get("/impressum", response_class=HTMLResponse, dependencies=[Depends(allow_anon)])
-async def impressum(request: Request):
+@router.get("/kontakt", response_class=HTMLResponse, dependencies=[Depends(allow_anon)])
+async def kontakt(request: Request):
     return templates.TemplateResponse(request, "rechtliches_seite.html", {
-        "request": request, "seite": "impressum", "k": await lade_kontakt(),
+        "request": request, "seite": "kontakt", "k": await lade_kontakt(),
         "fristen": fristen(), "stand": STAND,
     })
+
+
+@router.get("/impressum", dependencies=[Depends(allow_anon)])
+async def impressum_alt():
+    """Alte Adresse: kein Impressum (keine öffentlichen Inhalte), nur Kontakt."""
+    return RedirectResponse("/kontakt", status_code=301)
 
 
 @router.get("/rechtliches", response_class=HTMLResponse)
@@ -107,10 +114,6 @@ async def rechtliches_speichern(request: Request, current_user: dict = Depends(r
         return RedirectResponse("/home", status_code=303)
     form = await request.form()
     werte = {k: " ".join(str(form.get(k, "") or "").split())[:laenge] for k, (_t, laenge) in FELDER.items()}
-    # Anschrift darf Zeilen haben
-    werte["anschrift"] = "\n".join(
-        z.strip() for z in str(form.get("anschrift", "") or "").splitlines() if z.strip()
-    )[:FELDER["anschrift"][1]]
     fehler = ""
     if werte["email"] and not _EMAIL.match(werte["email"]):
         fehler = "Die E-Mail-Adresse sieht nicht gültig aus."

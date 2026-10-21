@@ -1,10 +1,10 @@
 {% extends "base_v5.html" %}
 {% from "partials/_c3_kopf.html" import kopf %}
 
-{% block title %}Datenschutz und Impressum{% endblock %}
+{% block title %}Datenschutz und Kontakt{% endblock %}
 
 {% block content %}
-{{ kopf("Verwaltung", "Datenschutz und Impressum", "Kontaktangaben für die öffentlichen Seiten /datenschutz und /impressum. Sie stehen nur in der Datenbank, nicht im Code.") }}
+{{ kopf("Verwaltung", "Datenschutz und Kontakt", "Kontaktangaben für die Seiten /datenschutz und /kontakt. Sie stehen nur in der Datenbank, nicht im Code.") }}
 
 {% if ok %}<div class="c3-flash c3-flash--ok" role="status"><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span>Gespeichert. Die Seiten zeigen die neuen Angaben sofort.</span></div>{% endif %}
 {% if fehler %}<div class="c3-flash c3-flash--bad" role="alert"><svg class="i" aria-hidden="true"><use href="#i-alert"/></svg><span>{{ fehler }}</span></div>{% endif %}
@@ -16,18 +16,14 @@
     {% for key, (text, laenge) in felder.items() %}
     <div class="form-group">
       <label for="rt-{{ key }}">{{ text }}</label>
-      {% if key == "anschrift" %}
-      <textarea id="rt-{{ key }}" name="{{ key }}" rows="3" maxlength="{{ laenge }}">{{ k[key] }}</textarea>
-      {% else %}
       <input id="rt-{{ key }}" type="{{ 'email' if key == 'email' else 'text' }}" name="{{ key }}" value="{{ k[key] }}" maxlength="{{ laenge }}">
-      {% endif %}
     </div>
     {% endfor %}
-    <p class="rt-hinweis">Ohne Anschrift zeigt /impressum nur den Kontakt und den Hinweis, dass die Seite privat und nicht-kommerziell ist. Hintergrund: <code>docs/recherche/</code>.</p>
+    <p class="rt-hinweis">Kein Impressum nötig, solange das Dashboard keine öffentlichen Inhalte hat (Willkommensseite offline, Passwortabfrage davor). /kontakt zeigt die Angaben oben. Hintergrund: <code>docs/recherche/</code>.</p>
     <div class="actions-bar">
       <button type="submit" class="btn btn-primary">Speichern</button>
       <a class="btn" href="/datenschutz" target="_blank" rel="noopener">Datenschutz ansehen</a>
-      <a class="btn" href="/impressum" target="_blank" rel="noopener">Impressum ansehen</a>
+      <a class="btn" href="/kontakt" target="_blank" rel="noopener">Kontakt ansehen</a>
     </div>
   </form>
 </section>

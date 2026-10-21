@@ -127,7 +127,7 @@ def _bereiche(spielserver: list) -> tuple[Bereich, ...]:
                 Seite("changelog", "Changelog", "/changelog", "i-file", "version neu"),
             )),
             Gruppe("Rechtliches", (
-                Seite("rechtliches", "Datenschutz und Impressum", "/rechtliches", "i-shield-check", "dsgvo datenschutz impressum kontakt", nur_owner=True),
+                Seite("rechtliches", "Datenschutz und Kontakt", "/rechtliches", "i-shield-check", "dsgvo datenschutz impressum kontakt", nur_owner=True),
             )),
         )),
     )

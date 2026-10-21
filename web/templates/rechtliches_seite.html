@@ -8,7 +8,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="color-scheme" content="dark">
   <meta name="robots" content="noindex">
-  <title>{{ "Datenschutzerklärung" if seite == "datenschutz" else "Impressum" }} · Ostfront HQ</title>
+  <title>{{ "Datenschutzerklärung" if seite == "datenschutz" else "Kontakt" }} · Ostfront HQ</title>
   <link rel="stylesheet" href="/static/c3.css?v=c3-20261021h">
 </head>
 <body class="c3">
@@ -20,7 +20,7 @@
       <a class="c3-brand" href="/"><svg class="c3-mark" viewBox="0 0 32 32" aria-hidden="true"><use href="#mark"/></svg>Ostfront HQ</a>
       <nav class="c3-lp-links" aria-label="Rechtliches">
         <a href="/datenschutz"{% if seite == "datenschutz" %} aria-current="page"{% endif %}>Datenschutz</a>
-        <a href="/impressum"{% if seite == "impressum" %} aria-current="page"{% endif %}>Impressum</a>
+        <a href="/kontakt"{% if seite == "kontakt" %} aria-current="page"{% endif %}>Kontakt</a>
       </nav>
     </div>
   </header>
@@ -28,7 +28,6 @@
   <main class="wrap rt-main" id="rt-main">
   {% set kontakt %}
     {% if k.name %}{{ k.name }}<br>{% endif %}
-    {% if k.anschrift %}{{ k.anschrift|e|replace("\n", "<br>"|safe) }}<br>{% endif %}
     {% if k.email %}E-Mail: <a href="mailto:{{ k.email }}">{{ k.email }}</a><br>{% endif %}
     {% if k.discord %}Discord: {{ k.discord }} (Direktnachricht)<br>{% endif %}
     {% if not (k.email or k.discord) %}<em>Kontaktangaben werden gerade eingetragen.</em>{% endif %}
@@ -48,7 +47,7 @@
       <li><strong>Rechtsgrundlage:</strong> Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;f DSGVO (sicherer Betrieb).</li>
       <li><strong>Speicherdauer:</strong> Webserver-Protokolle etwa 15 Tage, System-Protokolle höchstens 30 Tage, Sperrprotokolle höchstens 4 Wochen.</li>
     </ul>
-    <p>Alle Schriften und Programmbibliotheken liegen auf unserem eigenen Server. Beim Aufruf der öffentlichen Seiten werden keine Daten an Dritte übertragen.</p>
+    <p>Alle Schriften und Programmbibliotheken liegen auf unserem eigenen Server. Vor dem Discord-Login werden keine Daten an Dritte übertragen. Das Dashboard ist durch eine vorgeschaltete Passwortabfrage nur für das Team zugänglich.</p>
 
     <h2>3. Cookies</h2>
     <p>Wir setzen nur technisch notwendige Cookies (§&nbsp;25 Abs.&nbsp;2 Nr.&nbsp;2 TDDDG); eine Einwilligung ist dafür nicht nötig.</p>
@@ -109,15 +108,10 @@
     <p class="rt-stand">Stand: {{ stand }}</p>
 
   {% else %}
-    <h1>Impressum</h1>
-    {% if k.anschrift %}
-      <h2>Verantwortlich</h2>
-      <p>{{ kontakt }}</p>
-    {% else %}
-      <p class="rt-lead">Ostfront HQ ist ein privater, nicht-kommerzieller Discord-Server. Dieses Dashboard ist ein internes Werkzeug für das Team; es gibt keine Werbung, keine Bezahlangebote und keine redaktionellen Inhalte.</p>
-      <h2>Kontakt</h2>
-      <p>{{ kontakt }}</p>
-    {% endif %}
+    <h1>Kontakt</h1>
+    <p class="rt-lead">Ostfront HQ ist ein privater, nicht-kommerzieller Discord-Server. Dieses Dashboard ist ein internes Werkzeug für das Team; es gibt keine öffentlichen Inhalte, keine Werbung und keine Bezahlangebote.</p>
+    <h2>So erreichst du uns</h2>
+    <p>{{ kontakt }}</p>
     <p>Angaben zum Datenschutz findest du in der <a href="/datenschutz">Datenschutzerklärung</a>.</p>
   {% endif %}
   </main>
@@ -125,7 +119,7 @@
   <footer class="c3-lp-foot">
     <div class="wrap c3-lp-foot-in">
       <span class="c3-lp-foot-brand"><svg class="c3-mark" viewBox="0 0 32 32" aria-hidden="true"><use href="#mark"/></svg>Ostfront HQ</span>
-      <span class="rt-foot"><a href="/datenschutz">Datenschutz</a> · <a href="/impressum">Impressum</a> · <a href="/">Startseite</a></span>
+      <span class="rt-foot"><a href="/datenschutz">Datenschutz</a> · <a href="/kontakt">Kontakt</a> · <a href="/auth/login">Anmelden</a></span>
     </div>
   </footer>
 </div>

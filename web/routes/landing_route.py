@@ -13,7 +13,7 @@ import asyncio
 from pathlib import Path
 
 from fastapi import APIRouter, Request, Depends
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from web.templates_setup import erstelle_templates
 
 from web.auth import allow_anon
@@ -27,6 +27,11 @@ TEMPLATE_DIR = Path(__file__).parent.parent / "templates"
 templates = erstelle_templates(TEMPLATE_DIR)
 
 router = APIRouter()
+
+# Willkommensseite offline (Marco 21.10.2026): ohne oeffentlichen Inhalt entfaellt
+# die Impressumspflicht nach § 18 MStV (docs/recherche/IMPRESSUM_OHNE_ADRESSE_2026-10-21.md).
+# Vorlage landing.html bleibt erhalten; True schaltet sie wieder ein.
+WILLKOMMENSSEITE_AKTIV = False
 
 
 async def _public_payload() -> dict:
@@ -52,6 +57,8 @@ def _ohne_gestoppte(data: dict) -> dict:
 @router.get("/", response_class=HTMLResponse, dependencies=[Depends(allow_anon)])
 async def landing(request: Request):
     """Öffentliche Landing-Page mit Live-Status (ohne Event-Log)."""
+    if not WILLKOMMENSSEITE_AKTIV:
+        return RedirectResponse("/auth/login", status_code=302)
     data = _ohne_gestoppte(await _public_payload())
     return templates.TemplateResponse(request, "landing.html", {"request": request, **data})
 
@@ -60,5 +67,7 @@ async def landing(request: Request):
             dependencies=[Depends(allow_anon)])
 async def landing_stats(request: Request):
     """30s-Poll-Target: rendert nur den Live-Stat-Strip."""
+    if not WILLKOMMENSSEITE_AKTIV:
+        return HTMLResponse("", status_code=404)
     data = _ohne_gestoppte(await _public_payload())
     return templates.TemplateResponse(request, "_landing_stats.html", {"request": request, **data})
