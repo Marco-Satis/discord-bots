@@ -1,31 +1,56 @@
-# Lock-File — exakte Server-venv-Stände (pip freeze, 2026-06-23, Server 203.0.113.10).
+# Lock-File — exakte Server-venv-Stände (pip freeze der Live-venv, 2026-10-21).
 #
-# STARLETTE / CVE-2026-48710 (BadHost, Host-Header-Auth-Bypass), Korrektur 2026-06-23:
-#   Fix ist starlette>=1.0.1 (Release 2026-05-21). ABER fastapi 0.138.0 (neueste) pinnt
-#   starlette<1.0 -> aufloesbar ist nur starlette==0.52.1. Es gibt derzeit KEINE fastapi-
-#   Version, die starlette 1.0.1 zulaesst. Ein voriger Lock-Eintrag "starlette==1.0.1" +
-#   "fastapi==0.136.3" war daher INKOMPATIBEL/uninstallierbar — hier korrigiert.
-#   NICHT exploitierbar bei uns: Auth + alle Middleware (csrf/rate_limiter/session_timeout)
-#   nutzen `scope["path"]` (rohe ASGI-Path), KEIN `request.url.path`; in web/ gibt es null
-#   `request.url`-Nutzung fuer Security-Entscheidungen. Auf starlette 1.0.1 bumpen sobald
-#   fastapi es zulaesst (dann fastapi>= entsprechend + starlette>=1.0.1).
+# STARLETTE 0.52.1 -> 1.6.0 (vorbereitet 2026-08-14, siehe docs/STARLETTE_1X.md)
+#   Die frueher hier stehende Begruendung ("fastapi pinnt starlette<1.0") war falsch:
+#       fastapi-0.138.0.dist-info/METADATA -> "Requires-Dist: starlette>=0.46.0"
+#   Sie hatte fuenf starlette-CVEs (PYSEC-2026-161, -249, -248, -2281, -2280) als
+#   nicht behebbar festgeschrieben. pip-audit: 0.52.1 = 5 Treffer, 1.6.0 = keiner.
+#
+#   Der Hauptversionswechsel ist gegen 1.6.0 durchgemessen, nicht nebenbei gebumpt:
+#   fastapi 0.138 traegt die Entfernungen aus starlette 1.0 bereits nach (eigenes
+#   on_startup/on_shutdown-Handling, fastapi/routing.py:2350). Im Projekt selbst
+#   traf genau eine Entfernung zu — die alte TemplateResponse(name, context)-Form
+#   an 46 Stellen; die laeuft jetzt in der Form TemplateResponse(request, name,
+#   context), die 0.52 UND 1.x verstehen. Die Web-Suiten und ein Rauchtest gegen
+#   die echte App liefern unter beiden Versionen identische Antworten.
+#
+#   Weiterhin gilt: BadHost ist bei uns nicht ausnutzbar, weil Auth und alle Middleware
+#   `scope["path"]` benutzen und nirgends `request.url` fuer Sicherheitsentscheidungen.
+#
+# SICHERHEITS-BUMPS 2026-08-14 (pip-audit gegen dieses Lock-File, gleiche Hauptversion,
+# deshalb ohne Verhaltensrisiko):
+#   pillow 12.2.0 -> 12.3.0            13 Treffer, u.a. Heap-Schreibfehler beim Dekodieren
+#   aiohttp 3.14.0 -> 3.14.3           11 Treffer, u.a. Request-Smuggling ueber WS-Upgrade
+#   python-multipart 0.0.27 -> 0.0.31   3 Treffer, DoS ueber praeparierte Formulare
+#   click 8.3.1 -> 8.3.3                1 Treffer (nur transitiv, click.edit() ungenutzt)
+#   ACHTUNG: die venv installiert das nicht von selbst. Wirksam erst nach
+#   `pip install -r requirements-lock.txt` als botuser — das ist ein Marco-Schritt.
+#
+# CVE-UPDATE 2026-10-21 (cve_watch/OSV, Marco-Freigabe, live eingespielt + verifiziert):
+#   certifi 2026.1.4 -> 2026.10.19   CRITICAL (kompromittierte emSign-Zwischen-CA)
+#   anyio 4.12.1 -> 4.15.1           CRITICAL (TLS-Hostname-Kodierung)
+#   PyJWT 2.13.0 -> 2.15.1           HIGH
+#   starlette 0.52.1 -> 1.7.0 + fastapi 0.138.0 -> 0.158.0   HIGH (Testsuite alt/neu identisch)
+#   OFFEN: pillow 13.0.0 (CRITICAL JPEG-Decode) braucht Python >= 3.11, venv laeuft auf 3.10.12.
+#   Rueckweg: ~botuser/venv_backup_pre_cve_1792603257 (Kopie der venv vor dem Update).
 aiofiles==25.1.0
 aiohappyeyeballs==2.6.1
-aiohttp==3.14.0
+aiohttp==3.14.3
 aiosignal==1.4.0
 aiosqlite==0.22.1
 annotated-doc==0.0.4
 annotated-types==0.7.0
-anyio==4.12.1
+anyio==4.15.1
 async-timeout==5.0.1
 attrs==25.4.0
 bcrypt==5.0.0
-certifi==2026.1.4
-click==8.3.1
+certifi==2026.10.19
+click==8.3.3
 discord.py==2.6.4
 exceptiongroup==1.3.1
-fastapi==0.138.0
+fastapi==0.158.0
 frozenlist==1.8.0
+greenlet==3.5.3
 h11==0.16.0
 httpcore==1.0.9
 httpx==0.28.1
@@ -36,19 +61,22 @@ MarkupSafe==3.0.3
 multidict==6.7.1
 nbtlib==2.0.4
 numpy==2.2.6
-pillow==12.2.0
+opentelemetry-api==1.45.1
+pillow==12.3.0
+playwright==1.61.0
 propcache==0.4.1
 psutil==7.2.2
 pydantic==2.12.5
 pydantic_core==2.41.5
-PyJWT==2.13.0
+pyee==13.0.1
+PyJWT==2.15.1
 python-dotenv==1.2.2
-python-multipart==0.0.27
-satisfactory-save==0.9.0
+python-multipart==0.0.31
+satisfactory-save==0.11.0
 sse-starlette==3.4.4
-starlette==0.52.1
+starlette==1.7.0
 typing-inspection==0.4.2
-typing_extensions==4.15.0
+typing_extensions==4.16.0
 uvicorn==0.41.0
 websockets==16.0
 yarl==1.22.0
