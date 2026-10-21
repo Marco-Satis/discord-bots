@@ -106,7 +106,7 @@ FEATURE_KEYS = [
     "player_tracking", "auto_backup", "onedrive_backup",
     "email_notifications", "auto_update", "daily_restart",
     "voice_stats", "status_embed", "chat_bridge",
-    "login_audit", "auto_cleanup", "steam_changelog", "server_statistik",
+    "login_audit", "auto_cleanup", "steam_changelog",
 ]
 # Audit 2026-08-18 (C-10, Marco-Entscheid): `savegame_protection` und
 # `graceful_degradation` stehen hier bewusst NICHT. Beide sind Sicherheitsnetze —

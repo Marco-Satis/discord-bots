@@ -483,7 +483,7 @@ def baue_karten(q: dict) -> list[dict]:
         "aktiv" if tk else "offen",
         f"{rollen} Support-Rolle(n)." if tk else "Nicht eingerichtet.",
         kanaele=tk_kanaele, ohne_schalter="Die Ticket-Knöpfe bleiben dauerhaft im Kanal.",
-        einstellen="/ticket setup", link="/tickets",
+        einstellen="/ticket setup",
     ))
 
     wartend = q.get("embeds_wartend", 0)

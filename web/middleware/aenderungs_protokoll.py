@@ -58,7 +58,6 @@ def bereich(pfad: str) -> Optional[tuple[str, str]]:
         ("/lfg", "lfg"),
         ("/moderation", "moderation"),
         ("/marshal-bot", "marshal_bot"),
-        ("/tickets", "marshal_bot"),
     ):
         if pfad.startswith(praefix):
             return resource, aktion

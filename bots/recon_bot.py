@@ -33,7 +33,7 @@ from typing import List, Optional
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from utils.config import load_env, get_env, get_config, server_ids, funktion_aktiv
+from utils.config import load_env, get_env, get_config, server_ids
 from utils.logger import get_logger
 from utils.privacy import hash_player
 from modules.word_filter import WordFilter
@@ -2747,56 +2747,21 @@ async def _get_or_create_voice_channel(
         return None
 
 
-# Statistik-Kanaele (Maki-Vorschlag 9, 21.10.2026). Schluessel = Text im Namen,
-# ueber den `_get_or_create_voice_channel` den Kanal wiederfindet.
-STATISTIK_KANAELE = (
-    ("Mitglieder", "👥 Mitglieder: {}"),
-    ("Booster", "💎 Booster: {}"),
-)
+# Statistik-Kanaele gab es am 21.10.2026 kurz (Maki-Vorschlag 9), Marco hat sie
+# wieder abbestellt. Diese Funktion raeumt die angelegten Kanaele weg; Namen exakt
+# nach dem damaligen Muster, nur leere Kanaele. Kann nach dem Aufraeumen entfallen.
+_STATISTIK_PRAEFIXE = ("👥 Mitglieder: ", "💎 Booster: ")
 
 
-def statistik_werte(guild: discord.Guild) -> dict[str, int]:
-    """Mitglieder ohne Bots (Fallback: Gesamtzahl, solange der Cache unvollstaendig ist) und Booster."""
-    if guild.chunked:
-        mitglieder = sum(1 for m in guild.members if not m.bot)
-    else:
-        mitglieder = guild.member_count or 0
-    return {"Mitglieder": mitglieder, "Booster": guild.premium_subscription_count or 0}
-
-
-async def _statistik_kanaele(category: discord.CategoryChannel, guild: discord.Guild) -> None:
-    """
-    Anzeige-Kanaele mit Mitglieder- und Boosterzahl pflegen.
-
-    Umbenannt wird nur bei Aenderung; die Schleife laeuft alle 5 min und bleibt
-    damit unter Discords Grenze von 2 Umbenennungen je 10 min und Kanal.
-    Schalter aus (features.server_statistik): die Kanaele werden entfernt,
-    aber nur bei exakt passendem Namen und wenn niemand drin ist.
-    """
-    if not funktion_aktiv("server_statistik"):
-        for key, muster in STATISTIK_KANAELE:
-            praefix = muster.split("{}")[0]
-            for vc in list(category.voice_channels):
-                if vc.name.startswith(praefix) and not vc.members:
-                    try:
-                        await vc.delete(reason="Statistik-Kanaele abgeschaltet")
-                        _voice_channel_cache.pop(key, None)
-                    except Exception as e:
-                        logger.warning(f"Statistik-Kanal {vc.name} entfernen fehlgeschlagen: {e}")
-        return
-
-    werte = statistik_werte(guild)
-    for key, muster in STATISTIK_KANAELE:
-        name = muster.format(werte[key])
-        vc = await _get_or_create_voice_channel(category, key, name)
-        if vc is None or vc.name == name:
-            continue
-        try:
-            await vc.edit(name=name)
-        except discord.Forbidden:
-            logger.warning(f"Keine Berechtigung fuer Statistik-Kanal: {vc.name}")
-        except Exception as e:
-            logger.error(f"Statistik-Kanal {key} fehlgeschlagen: {e}")
+async def _statistik_kanaele_entfernen(category: discord.CategoryChannel) -> None:
+    """Die kurzzeitig angelegten Statistik-Kanaele entfernen."""
+    for vc in list(category.voice_channels):
+        if vc.name.startswith(_STATISTIK_PRAEFIXE) and not vc.members:
+            try:
+                await vc.delete(reason="Statistik-Kanaele abbestellt")
+                logger.info(f"Statistik-Kanal entfernt: {vc.name}")
+            except Exception as e:
+                logger.warning(f"Statistik-Kanal {vc.name} entfernen fehlgeschlagen: {e}")
 
 
 @tasks.loop(seconds=300)
@@ -2926,8 +2891,8 @@ async def update_voice_stats():
                     except Exception as e:
                         logger.error(f"Voice stats MC-{sid} error: {e}")
 
-        # --- Server-Statistik (Mitglieder, Booster) ---
-        await _statistik_kanaele(category, guild)
+        # --- Kurzzeitige Statistik-Kanaele wieder entfernen (21.10.2026) ---
+        await _statistik_kanaele_entfernen(category)
 
         # --- Kanaele stillgelegter Server entfernen ---
         await _voice_channels_aufraeumen(category, sat_servers, bot.mc_servers

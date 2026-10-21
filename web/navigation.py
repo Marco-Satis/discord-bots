@@ -88,7 +88,6 @@ def _bereiche(spielserver: list) -> tuple[Bereich, ...]:
             Gruppe("Werkzeuge", (
                 Seite("m-temp_voice", "Temp-Voice", "/marshal-bot?tab=temp_voice", "i-headphones", "voice talk panel hubs"),
                 Seite("k-tickets", "Tickets", "/marshal-bot#mod-tickets", "i-ticket", "support transkript"),
-                Seite("tickets", "Ticket-Verlauf", "/tickets", "i-history", "support transkript verlauf ticket", nur_owner=True),
                 Seite("m-embeds", "Embeds", "/marshal-bot?tab=embeds", "i-message", "nachricht senden embedinator"),
                 Seite("k-custom_commands", "Custom Commands", "/marshal-bot#mod-custom_commands", "i-terminal", "befehle eigene"),
             )),
