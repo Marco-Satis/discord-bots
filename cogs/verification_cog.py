@@ -34,6 +34,7 @@ from discord.ext import commands, tasks
 from modules.guild_context import GuildConfig
 from modules.raid_detector import RaidDetector
 from utils.logger import get_logger
+from utils.loop_guard import guard
 from utils.permissions import admin_only
 from utils.embeds import (
     error_embed,
@@ -166,6 +167,7 @@ class VerificationCog(commands.Cog):
     async def cog_load(self) -> None:
         """Persistente Verify-View registrieren (ueberlebt Bot-Restart)."""
         self.bot.add_view(VerificationView())
+        guard(self.sperren_pruefen, name="sperren_pruefen")  # stirbt sonst endgueltig beim ersten Fehler
         self.sperren_pruefen.start()
         logger.info("Verification-Cog geladen, persistente View registriert")
 

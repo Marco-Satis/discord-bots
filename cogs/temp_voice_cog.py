@@ -39,6 +39,7 @@ from modules.temp_voice_views import (
     send_panel,
 )
 from utils.logger import get_logger
+from utils.loop_guard import guard
 from utils.config import ADMIN_DATA_DIR
 from utils.permissions import admin_only
 from utils.async_tasks import track_task
@@ -98,6 +99,7 @@ class TempVoiceCog(commands.Cog):
         # cog_load nicht blockiert + GC den Task nicht einsammelt; track_task
         # loggt unbehandelte Exceptions selbst).
         track_task(self._startup_cleanup(), name="tempvoice-startup-cleanup")
+        guard(self._panel_takt, name="_panel_takt")  # stirbt sonst endgueltig beim ersten Fehler
         self._panel_takt.start()
 
     async def cog_unload(self) -> None:

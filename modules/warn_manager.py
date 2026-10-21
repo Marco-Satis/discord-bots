@@ -294,6 +294,21 @@ class WarnManager:
             logger.error(f"SQLite UPDATE warn (remove) fehlgeschlagen: {e}", exc_info=True)
             return False
 
+    async def _db_deactivate_by_created(self, user_id: str, created_at: str) -> bool:
+        """Setzt active=FALSE ueber user_id + created_at (Warns ohne bekannte DB-ID)."""
+        try:
+            db = await get_db()
+            await db.execute(
+                "UPDATE warns SET active = FALSE WHERE user_id = ? AND created_at = ?",
+                (user_id, created_at),
+            )
+            await db.commit()
+            logger.debug(f"Warn in SQLite als inaktiv markiert (remove per Zeitstempel): User {user_id}")
+            return True
+        except Exception as e:
+            logger.error(f"SQLite UPDATE warn (remove per Zeitstempel) fehlgeschlagen: {e}", exc_info=True)
+            return False
+
     # ------------------------------------------------------------------
     # Warn hinzufuegen
     # ------------------------------------------------------------------
@@ -350,18 +365,23 @@ class WarnManager:
             f"(von {warned_by}, Gesamt: {self._data[user_id_str]['total_points']})"
         )
 
-        # SQLite INSERT fire-and-forget
-        self._fire_and_forget(
-            self._db_insert_warn(
-                user_id=user_id_str,
-                moderator_id=warned_by,
-                reason=reason,
-                points=warn_entry["points"],
-                created_at=now_iso,
-            )
-        )
+        # SQLite INSERT fire-and-forget; die neue DB-ID landet am Cache-Eintrag,
+        # damit /warn remove und der Verfall die Zeile spaeter treffen.
+        self._fire_and_forget(self._insert_und_id_merken(warn_entry, user_id_str))
 
         return warn_entry
+
+    async def _insert_und_id_merken(self, warn_entry: dict[str, Any], user_id_str: str) -> None:
+        """INSERT ausfuehren und die SQLite-ID als `_db_id` am Cache-Eintrag ablegen."""
+        new_id = await self._db_insert_warn(
+            user_id=user_id_str,
+            moderator_id=warn_entry["warned_by"],
+            reason=warn_entry["reason"],
+            points=warn_entry["points"],
+            created_at=warn_entry["warned_at"],
+        )
+        if new_id is not None:
+            warn_entry["_db_id"] = new_id
 
     # ------------------------------------------------------------------
     # Warn entfernen
@@ -390,10 +410,12 @@ class WarnManager:
 
         # Warn mit passender ID finden (und DB-ID merken fuer SQLite)
         removed_db_id = None
+        removed_warned_at = None
         new_warns = []
         for w in warns:
             if w.get("id") == warn_id:
                 removed_db_id = w.get("_db_id")
+                removed_warned_at = w.get("warned_at")
             else:
                 new_warns.append(w)
 
@@ -415,16 +437,16 @@ class WarnManager:
         # SQLite UPDATE active=FALSE fire-and-forget
         if removed_db_id is not None:
             self._fire_and_forget(self._db_delete_warn(removed_db_id))
+        elif removed_warned_at:
+            # Warn aus dieser Sitzung, dessen INSERT noch keine ID geliefert hat:
+            # warned_at == created_at in SQLite (gleicher isoformat-String).
+            self._fire_and_forget(
+                self._db_deactivate_by_created(user_id_str, removed_warned_at)
+            )
         else:
-            # Fallback: Versuche per warn_id (die als String-ID im Feld steht) zu deaktivieren
-            # Dies greift wenn die ID eine DB-ID als String ist
-            try:
-                db_id_int = int(warn_id)
-                self._fire_and_forget(self._db_delete_warn(db_id_int))
-            except (ValueError, TypeError):
-                logger.warning(
-                    f"Warn {warn_id} entfernt, aber keine DB-ID fuer SQLite-Update gefunden"
-                )
+            logger.warning(
+                f"Warn {warn_id} entfernt, aber keine DB-ID fuer SQLite-Update gefunden"
+            )
 
         return True
 
@@ -469,6 +491,38 @@ class WarnManager:
                 w["reason"] = new_reason
                 return True
         return False
+
+    async def gruende_abgleichen(self, user_id: int | str) -> int:
+        """
+        Gruende eines Users aus SQLite in den Cache uebernehmen.
+
+        Die Moderations-Akte im Dashboard schreibt den Grund in SQLite, laeuft
+        aber in einem anderen Prozess — ihr `update_cached_reason` erreicht
+        Marshals Cache nicht. /warn list und /warn history rufen das hier vorher
+        auf. Bewusst kein `load_from_db`: das ersetzte den ganzen Cache und
+        verloere Warns, deren INSERT gerade noch laeuft.
+
+        Returns:
+            Anzahl geaenderter Cache-Eintraege
+        """
+        entry = self._data.get(str(user_id))
+        if not entry:
+            return 0
+        try:
+            db = await get_db()
+            cursor = await db.execute(
+                "SELECT id, reason, created_at FROM warns WHERE user_id = ?",
+                (str(user_id),),
+            )
+            rows = await cursor.fetchall()
+        except Exception as e:
+            logger.error(f"SQLite Gruende-Abgleich fehlgeschlagen: {e}")
+            return 0
+        geaendert = 0
+        for db_id, reason, created_at in rows:
+            if self.update_cached_reason(user_id, db_id, created_at, reason or ""):
+                geaendert += 1
+        return geaendert
 
     # ------------------------------------------------------------------
     # Warns abfragen

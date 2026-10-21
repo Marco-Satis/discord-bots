@@ -246,6 +246,8 @@ class WarnCog(commands.Cog):
     ) -> None:
         await interaction.response.defer(ephemeral=True)
 
+        # Gruende koennen im Dashboard geaendert worden sein (anderer Prozess)
+        await self.warn_mgr.gruende_abgleichen(user.id)
         active_warns = self.warn_mgr.get_warns(user.id)
         total_points = self.warn_mgr.get_total_points(user.id)
 
@@ -313,6 +315,7 @@ class WarnCog(commands.Cog):
     ) -> None:
         await interaction.response.defer(ephemeral=True)
 
+        await self.warn_mgr.gruende_abgleichen(user.id)
         all_warns = self.warn_mgr.get_all_warns(user.id)
         total_points = self.warn_mgr.get_total_points(user.id)
 

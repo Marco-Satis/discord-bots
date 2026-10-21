@@ -31,6 +31,7 @@ from discord.ext import commands, tasks
 
 from modules.tickets import TicketManager
 from utils.logger import get_logger
+from utils.loop_guard import guard
 from utils.config import ADMIN_DATA_DIR, get_config
 from utils.permissions import admin_only
 from utils.embeds import (
@@ -274,6 +275,7 @@ class TicketsCog(commands.Cog):
             logger.info("Ticket-Daten aus SQLite geladen")
         except Exception as e:
             logger.warning(f"SQLite-Load fehlgeschlagen: {e}")
+        guard(self._aufraeumen, name="_aufraeumen")  # stirbt sonst endgueltig beim ersten Fehler
         self._aufraeumen.start()
         logger.info(
             "Ticket-Cog geladen, persistente Views registriert — Aufraeumen: "
