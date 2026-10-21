@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="de">
+{# Datenschutzerklärung / Impressum — öffentlich (allow_anon), Design C3.
+   Kontakt aus guild_config rechtliches.* (Owner pflegt unter /rechtliches).
+   Fristen kommen aus modules/database/maintenance.py, nicht von Hand eintragen. #}
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <meta name="robots" content="noindex">
+  <title>{{ "Datenschutzerklärung" if seite == "datenschutz" else "Impressum" }} · Ostfront HQ</title>
+  <link rel="stylesheet" href="/static/c3.css?v=c3-20261021h">
+</head>
+<body class="c3">
+{% include "partials/_c3_icons.html" %}
+<div class="c3-bg" aria-hidden="true"></div>
+<div class="c3-lp">
+  <header class="c3-lp-nav">
+    <div class="wrap c3-lp-nav-in">
+      <a class="c3-brand" href="/"><svg class="c3-mark" viewBox="0 0 32 32" aria-hidden="true"><use href="#mark"/></svg>Ostfront HQ</a>
+      <nav class="c3-lp-links" aria-label="Rechtliches">
+        <a href="/datenschutz"{% if seite == "datenschutz" %} aria-current="page"{% endif %}>Datenschutz</a>
+        <a href="/impressum"{% if seite == "impressum" %} aria-current="page"{% endif %}>Impressum</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="wrap rt-main" id="rt-main">
+  {% set kontakt %}
+    {% if k.name %}{{ k.name }}<br>{% endif %}
+    {% if k.anschrift %}{{ k.anschrift|e|replace("\n", "<br>"|safe) }}<br>{% endif %}
+    {% if k.email %}E-Mail: <a href="mailto:{{ k.email }}">{{ k.email }}</a><br>{% endif %}
+    {% if k.discord %}Discord: {{ k.discord }} (Direktnachricht)<br>{% endif %}
+    {% if not (k.email or k.discord) %}<em>Kontaktangaben werden gerade eingetragen.</em>{% endif %}
+  {% endset %}
+
+  {% if seite == "datenschutz" %}
+    <h1>Datenschutzerklärung</h1>
+    <p class="rt-lead">Dieses Dashboard ist ein privates, nicht-kommerzielles Werkzeug, mit dem das Team den Discord-Server „Ostfront HQ“ und die zugehörigen Game-Server verwaltet. Es gibt keine Werbung, kein Tracking und keine Analyse-Dienste.</p>
+
+    <h2>1. Verantwortlicher</h2>
+    <p>{{ kontakt }}</p>
+
+    <h2>2. Aufruf der Website</h2>
+    <p>Beim Aufruf verarbeitet der Webserver technisch notwendig: IP-Adresse, Zeitpunkt, aufgerufene Seite, Statuscode, Datenmenge, Browser-Kennung und verweisende Seite.</p>
+    <ul>
+      <li><strong>Zweck:</strong> Auslieferung der Seite, Fehlersuche, Abwehr von Angriffen (z.&nbsp;B. automatische Sperre nach wiederholten Fehlversuchen).</li>
+      <li><strong>Rechtsgrundlage:</strong> Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;f DSGVO (sicherer Betrieb).</li>
+      <li><strong>Speicherdauer:</strong> Webserver-Protokolle etwa 15 Tage, System-Protokolle höchstens 30 Tage, Sperrprotokolle höchstens 4 Wochen.</li>
+    </ul>
+    <p>Alle Schriften und Programmbibliotheken liegen auf unserem eigenen Server. Beim Aufruf der öffentlichen Seiten werden keine Daten an Dritte übertragen.</p>
+
+    <h2>3. Cookies</h2>
+    <p>Wir setzen nur technisch notwendige Cookies (§&nbsp;25 Abs.&nbsp;2 Nr.&nbsp;2 TDDDG); eine Einwilligung ist dafür nicht nötig.</p>
+    <ul>
+      <li><code>dashboard_session</code>: Schutz vor gefälschten Formularanfragen, Ablauf der Discord-Anmeldung, Erkennung von Inaktivität. Laufzeit höchstens 24 Stunden.</li>
+      <li><code>dashboard_token</code>: hält angemeldete Teammitglieder angemeldet (Discord-ID, Name, Avatar-Link, Rollen). Laufzeit höchstens 24 Stunden, wird beim Abmelden gelöscht.</li>
+    </ul>
+
+    <h2>4. Anmeldung mit Discord</h2>
+    <p>Die Anmeldung läuft über Discord (Discord Inc., USA). Nach deiner Zustimmung bei Discord erhalten wir Discord-ID, Benutzernamen, Avatar und deine Rollen auf „Ostfront HQ“. Damit prüfen wir, ob du zum Team gehörst und welche Bereiche du sehen darfst.</p>
+    <ul>
+      <li><strong>Rechtsgrundlage:</strong> Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;b DSGVO (gewünschter Zugang) und lit.&nbsp;f (Zugriffsschutz).</li>
+      <li><strong>Drittland:</strong> Discord sitzt in den USA und stützt Übermittlungen nach eigenen Angaben auf das EU-U.S. Data Privacy Framework (Art.&nbsp;45 DSGVO).</li>
+      <li>Im angemeldeten Bereich werden Profilbilder direkt von Discord (cdn.discordapp.com) geladen; dabei erhält Discord deine IP-Adresse.</li>
+    </ul>
+
+    <h2>5. Was das Dashboard verarbeitet</h2>
+    <p>Das Dashboard zeigt Daten, die die Bots auf dem Discord-Server und den Game-Servern erheben. Betroffen sind die Mitglieder des Servers und Spieler der Game-Server.</p>
+    <ul>
+      <li><strong>Profildaten:</strong> Discord-ID, Anzeigename, Avatar.</li>
+      <li><strong>Level-System:</strong> XP für Nachrichten und Sprachkanäle, Level, Rang.</li>
+      <li><strong>Moderation:</strong> Verwarnungen (Grund, Punkte, Moderator, Zeitpunkt), Timeouts, Bans, Kicks, Moderationsnotizen mit optionalem Beweisbild.</li>
+      <li><strong>Protokolle:</strong> Server-Ereignisse und genutzte Bot-Befehle.</li>
+      <li><strong>Game-Server:</strong> Spielername, Spielzeiten und IP-Adresse beim Verbinden; bei Sperren die gesperrte IP-Adresse.</li>
+      <li><strong>Teammitglieder:</strong> Jede Änderung im Dashboard wird mit Discord-ID, Name, Aktion, Zeitpunkt und IP-Adresse protokolliert.</li>
+    </ul>
+    <p><strong>Zweck und Rechtsgrundlage:</strong> geordneter, sicherer und fairer Betrieb der Community, Schutz vor Spam, Raids und Regelverstößen, Nachvollziehbarkeit von Moderationsentscheidungen (Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;f DSGVO). Deine Interessen schützen kurze Fristen, Zugriff nur für freigeschaltete Admins mit Rechten je Bereich und eine verschlüsselte Verbindung.</p>
+
+    <h2>6. Speicherdauer</h2>
+    <p>Die folgenden Fristen löscht der Server automatisch:</p>
+    <table class="rt-tabelle">
+      <thead><tr><th scope="col">Daten</th><th scope="col">Gelöscht nach</th></tr></thead>
+      <tbody>
+        <tr><td>Server-Ereignisse</td><td>{{ fristen.events }} Tagen</td></tr>
+        <tr><td>Bot-Befehle, Statistiken</td><td>{{ fristen.command_log }} Tagen</td></tr>
+        <tr><td>Moderations-Protokoll</td><td>{{ fristen.audit_log }} Tagen</td></tr>
+        <tr><td>Änderungsprotokoll des Dashboards (mit IP)</td><td>{{ fristen.dashboard_audit }} Tagen</td></tr>
+        <tr><td>Zwischengespeicherte Namen und Avatare</td><td>{{ fristen.member_cache }} Tagen ohne Aktualisierung</td></tr>
+        <tr><td>Sprachkanal-Zeiten (Leveling)</td><td>{{ fristen.voice_sessions }} Tagen</td></tr>
+        <tr><td>IP-Adresse in Game-Server-Sitzungen</td><td>{{ fristen.session_ip }} Tagen (die Sitzung selbst bleibt ohne IP)</td></tr>
+        <tr><td>IP-Zuordnung von Spielern</td><td>{{ fristen.player_ips }} Tagen nach der letzten Verbindung</td></tr>
+        <tr><td>Abgelaufene oder entfernte Verwarnungen</td><td>{{ fristen.warns }} Tagen</td></tr>
+        <tr><td>Moderationsnotizen samt Beweisbild</td><td>{{ fristen.mod_notes }} Tagen nach der letzten Änderung</td></tr>
+        <tr><td>Datenbank-Sicherungen</td><td>spätestens 5 Wochen</td></tr>
+      </tbody>
+    </table>
+    <p>Gesperrte IP-Adressen bleiben gespeichert, bis die Sperre aufgehoben wird. Level-Daten bleiben erhalten, solange der Server besteht, damit sie bei einem Wiedereintritt nicht verloren gehen. Auf Anfrage löschen wir sie sofort.</p>
+
+    <h2>7. Empfänger</h2>
+    <p>Zugriff haben nur freigeschaltete Admins. Die Daten liegen auf einem gemieteten Server in Deutschland; der Hoster ist Auftragsverarbeiter nach Art.&nbsp;28 DSGVO. Eine Weitergabe an andere Dritte findet nicht statt, außer an Discord im Rahmen der Bot-Funktionen.</p>
+
+    <h2>8. Deine Rechte</h2>
+    <p>Du hast das Recht auf Auskunft (Art.&nbsp;15), Berichtigung (Art.&nbsp;16), Löschung (Art.&nbsp;17), Einschränkung (Art.&nbsp;18), Datenübertragbarkeit (Art.&nbsp;20) und <strong>Widerspruch gegen Verarbeitungen aus berechtigtem Interesse (Art.&nbsp;21)</strong>. Melde dich dafür über den Kontakt unter Punkt&nbsp;1; wir antworten innerhalb eines Monats.</p>
+    <p>Du kannst dich außerdem bei einer Datenschutz-Aufsichtsbehörde beschweren (Art.&nbsp;77 DSGVO){% if k.bundesland %}, z.&nbsp;B. bei der Behörde deines Bundeslandes oder der für {{ k.bundesland }} zuständigen Behörde{% endif %}.</p>
+
+    <h2>9. Sicherheit</h2>
+    <p>Die Verbindung ist durchgehend per HTTPS verschlüsselt. Cookies werden nur verschlüsselt übertragen und sind für Skripte nicht lesbar.</p>
+    <p class="rt-stand">Stand: {{ stand }}</p>
+
+  {% else %}
+    <h1>Impressum</h1>
+    {% if k.anschrift %}
+      <h2>Verantwortlich</h2>
+      <p>{{ kontakt }}</p>
+    {% else %}
+      <p class="rt-lead">Ostfront HQ ist ein privater, nicht-kommerzieller Discord-Server. Dieses Dashboard ist ein internes Werkzeug für das Team; es gibt keine Werbung, keine Bezahlangebote und keine redaktionellen Inhalte.</p>
+      <h2>Kontakt</h2>
+      <p>{{ kontakt }}</p>
+    {% endif %}
+    <p>Angaben zum Datenschutz findest du in der <a href="/datenschutz">Datenschutzerklärung</a>.</p>
+  {% endif %}
+  </main>
+
+  <footer class="c3-lp-foot">
+    <div class="wrap c3-lp-foot-in">
+      <span class="c3-lp-foot-brand"><svg class="c3-mark" viewBox="0 0 32 32" aria-hidden="true"><use href="#mark"/></svg>Ostfront HQ</span>
+      <span class="rt-foot"><a href="/datenschutz">Datenschutz</a> · <a href="/impressum">Impressum</a> · <a href="/">Startseite</a></span>
+    </div>
+  </footer>
+</div>
+<style>
+.rt-main { max-width: 820px; padding-top: 32px; padding-bottom: 56px; }
+.rt-main h1 { font-size: clamp(28px, 4vw, 40px); margin: 0 0 12px; }
+.rt-main h2 { font-size: 20px; margin: 32px 0 8px; }
+.rt-main p, .rt-main li { color: var(--text-2); line-height: 1.65; overflow-wrap: anywhere; }
+.rt-main ul { padding-left: 20px; }
+.rt-main a { color: var(--cyan); }
+.rt-lead { font-size: 17px; color: var(--text) !important; }
+.rt-tabelle { width: 100%; border-collapse: collapse; margin: 8px 0 12px; font-size: 14px; }
+.rt-tabelle th, .rt-tabelle td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); color: var(--text-2); vertical-align: top; }
+.rt-tabelle th { color: var(--text); font-weight: 600; }
+.rt-stand { margin-top: 32px; font-size: 13px; }
+.rt-foot { font-size: 14px; }
+.rt-foot a { color: var(--text-2); }
+.c3-lp-links a[aria-current="page"] { color: var(--text); }
+</style>
+</body>
+</html>

@@ -46,7 +46,20 @@ DEFAULT_RETENTION: dict[str, tuple[str, int]] = {
     "events":        ("timestamp", 30),
     "audit_log":     ("timestamp", 365),
     "command_log":   ("timestamp", 90),
+    # DSGVO-Speicherbegrenzung (Art. 5 Abs. 1 lit. e), 21.10.2026 — Fristen stehen
+    # so auch in der Datenschutzerklaerung (web/templates/datenschutz.html).
+    "dashboard_audit": ("ts", 180),          # Aenderungsprotokoll mit IP
+    "member_cache":    ("updated_at", 90),   # Name/Avatar, wird bei Bedarf neu geholt
+    "voice_sessions":  ("join_time", 180),   # Voice-Zeiten fuers Leveling
+    "player_ips":      ("last_seen", 180),   # Spieler-IPs; Sperren speichern ihre IP selbst (bans)
 }
+
+# Spieler-Sitzungen bleiben fuer die Statistik, ihre IP wird nach 30 Tagen entfernt.
+SESSION_IP_DAYS = 30
+# Inaktive (abgelaufene/entfernte) Verwarnungen nach einem Jahr loeschen.
+WARN_INACTIVE_DAYS = 365
+# Moderationsnotizen (samt Beweisbild) zwei Jahre nach der letzten Aenderung loeschen.
+MOD_NOTES_DAYS = 730
 
 # Sonderfall: alerts_sent wird nur geloescht wenn resolved=TRUE
 ALERTS_RETENTION_DAYS = 30
@@ -295,6 +308,46 @@ class DatabaseMaintenance:
             except Exception as exc:
                 results[table] = -1
                 logger.error(f"Retention-Fehler fuer [{table}]: {exc}")
+
+        # 1b. DSGVO: IP aus alten Spieler-Sitzungen entfernen, inaktive Warns loeschen
+        for name, sql, days in (
+            ("player_sessions (IP entfernt)",
+             "UPDATE player_sessions SET ip_address = NULL "
+             "WHERE ip_address IS NOT NULL AND join_time < ?", SESSION_IP_DAYS),
+            ("warns (inaktiv)",
+             "DELETE FROM warns WHERE active = 0 AND created_at < ?", WARN_INACTIVE_DAYS),
+        ):
+            try:
+                cursor = await db.execute(sql, ((now - timedelta(days=days)).isoformat(),))
+                results[name] = cursor.rowcount
+                if cursor.rowcount > 0:
+                    logger.info(f"Retention [{name}]: {cursor.rowcount} Zeilen (aelter als {days} Tage)")
+            except Exception as exc:
+                results[name] = -1
+                logger.error(f"Retention-Fehler fuer [{name}]: {exc}")
+
+        # 1c. Moderationsnotizen: erst die Beweisbilder, dann die Zeilen
+        try:
+            from modules.mod_akte import evidence_path
+
+            cutoff_notes = (now - timedelta(days=MOD_NOTES_DAYS)).isoformat()
+            cursor = await db.execute(
+                "SELECT id, evidence_file FROM mod_notes "
+                "WHERE COALESCE(updated_at, created_at) < ?",
+                (cutoff_notes,),
+            )
+            alte = await cursor.fetchall()
+            for _nid, datei in alte:
+                pfad = evidence_path(datei) if datei else None
+                if pfad is not None and pfad.exists():
+                    pfad.unlink()
+            if alte:
+                await db.executemany("DELETE FROM mod_notes WHERE id = ?", [(r[0],) for r in alte])
+                logger.info(f"Retention [mod_notes]: {len(alte)} Notizen samt Beweisbild geloescht")
+            results["mod_notes"] = len(alte)
+        except Exception as exc:
+            results["mod_notes"] = -1
+            logger.error(f"Retention-Fehler fuer [mod_notes]: {exc}")
 
         # 2. Sonderfall: alerts_sent — nur aufgeloeste Alerts loeschen
         try:

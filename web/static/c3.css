@@ -554,6 +554,10 @@ body.c3::before,body.c3::after{content:none}
 .c3-lp-foot-brand .c3-mark{width:22px;height:22px}
 .c3-lp-foot-link{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 16px;border:1px solid rgba(184,77,255,.6);border-radius:var(--r);text-decoration:none;font-weight:600;color:var(--text)}
 .c3-lp-foot-link:hover{background:rgba(184,77,255,.12)}
+.c3-lp-foot-legal,.c3-app-legal{font-size:13px;color:var(--text-3)}
+.c3-lp-foot-legal a,.c3-app-legal a{color:var(--text-2);text-decoration:none;padding:12px 4px}
+.c3-lp-foot-legal a:hover,.c3-app-legal a:hover{color:var(--text);text-decoration:underline}
+.c3-app-legal{margin-top:40px;padding:16px 0 8px;border-top:1px solid var(--line-soft);text-align:center}
 .c3-lp-foot-link .i{width:18px;height:18px}
 .c3-login-main{position:relative;isolation:isolate;flex:1;display:grid;place-items:center;padding:48px 16px 64px;overflow:hidden}
 .c3-login-main>.c3-shards{inset:0;z-index:-1}
