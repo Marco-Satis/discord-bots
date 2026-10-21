@@ -24,6 +24,7 @@ from pathlib import Path
 from fastapi.templating import Jinja2Templates
 
 from modules.server_registry import alle as alle_server
+from web.navigation import navigation, suchindex
 
 TEMPLATE_DIR = Path(__file__).parent / "templates"
 
@@ -41,5 +42,15 @@ def erstelle_templates(verzeichnis: Path | str | None = None) -> Jinja2Templates
         baut daraus ihre Einträge.
     """
     templates = Jinja2Templates(directory=str(verzeichnis or TEMPLATE_DIR))
-    templates.env.globals["spielserver"] = alle_server()
+    server = alle_server()
+    templates.env.globals["spielserver"] = server
+
+    def c3_navigation(request, user=None) -> dict:
+        """Navigation der aktuellen Seite (Bereiche, aktive Seite, Suchindex)."""
+        ist_owner = bool(user.get("is_owner")) if isinstance(user, dict) else bool(getattr(user, "is_owner", False))
+        nav = navigation(request.url.path, request.query_params.get("tab", ""), ist_owner, server)
+        nav["suchindex"] = suchindex(nav["bereiche"])
+        return nav
+
+    templates.env.globals["c3_navigation"] = c3_navigation
     return templates

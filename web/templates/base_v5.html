@@ -1,23 +1,22 @@
 <!DOCTYPE html>
 <html lang="de" data-theme="dark" id="html-root">
+{# Design C3 „Lobby-HUD“ (Marco-Wahl 21.10.2026). Navigation aus web/navigation.py,
+   Stil in static/c3.css, Verhalten in static/c3.js. #}
+{% set nav = c3_navigation(request, user if user is defined else none) %}
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="color-scheme" content="dark">
     <meta name="csrf-token" content="{{ request.state.csrf_token|default('') }}">
-    <title>{% block title %}Dashboard{% endblock %} — Bot Control</title>
-    <!-- Inline-SVG-Favicon (data: URI, CSP-compliant via img-src 'data:') -->
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='%233b82f6'/><stop offset='1' stop-color='%236d5cf6'/></linearGradient></defs><rect width='32' height='32' rx='7' fill='url(%23g)'/><text x='16' y='22' font-family='-apple-system,BlinkMacSystemFont,sans-serif' font-size='18' font-weight='700' text-anchor='middle' fill='white'>B</text></svg>">
+    <title>{% block title %}Dashboard{% endblock %} · Ostfront HQ</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23090A14'/><path d='M16 4 26.5 10 24.2 23.2 13.4 28.3 5.4 18.1 7.8 8.1Z' fill='none' stroke='%23B84DFF' stroke-width='2' stroke-linejoin='round'/><path d='M16 4 13.4 28.3M5.4 18.1 26.5 10' stroke='%23FF3FA4' stroke-width='1.4' stroke-linecap='round'/></svg>">
 
-    <!-- v5 Design-System (Midnight Navy Data-Terminal). Stack wie genehmigtes Preview. -->
-    <link rel="stylesheet" href="/static/fonts/geist/geist.css">
+    <!-- Basis-Bausteine (Tailwind-Utilities + v5-Komponenten), danach C3 als letzte Schicht -->
     <link rel="stylesheet" href="/static/tailwind/output.css">
     <link rel="stylesheet" href="/static/tailwind/_tokens.css?v=navy20260719c">
-    <link rel="stylesheet" href="/static/_preview/v5.css?v=navy20260719c">
     <link rel="stylesheet" href="/static/_preview/v5_components.css?v=navy20260720d">
-    <!-- Mobile-First-Layer — MUSS nach v5_components laden (Load-Order gewinnt) -->
     <link rel="stylesheet" href="/static/_preview/mobile.css?v=navy20260720f">
-    <!-- Zentrale Motion-/Modern-Schicht (v5.1) — Scroll-Reveal, Spotlight, Magnetic, View-Transitions -->
-    <link rel="stylesheet" href="/static/ui_motion.css?v=motion2">
+    <link rel="stylesheet" href="/static/c3.css?v=c3-20261021b">
 
     <!-- HTMX 2.0.4 -->
     <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"
@@ -35,10 +34,10 @@
             }
         });
 
-        // Session-Timeout Warnung (5 Min vor Ablauf) — aus base.html uebernommen
+        // Session-Timeout Warnung (1 Min vor Ablauf)
         (function() {
             var SESSION_TIMEOUT = 600;  // 10 min — an Server-Soft-Idle (session_timeout.py) angeglichen
-            var WARNING_BEFORE = 60;    // 1 Minute vorher warnen
+            var WARNING_BEFORE = 60;
             var _lastActivity = Date.now();
 
             ['click', 'keypress', 'scroll', 'mousemove'].forEach(function(evt) {
@@ -49,254 +48,125 @@
             setInterval(function() {
                 var idle = (Date.now() - _lastActivity) / 1000;
                 var remaining = SESSION_TIMEOUT - idle;
+                var banner = document.getElementById('session-timeout-banner');
                 if (remaining <= 0) {
                     window.location.href = '/auth/login?reason=timeout';
                 } else if (remaining <= WARNING_BEFORE) {
                     var mins = Math.floor(remaining / 60);
                     var secs = Math.floor(remaining % 60);
-                    var banner = document.getElementById('session-timeout-banner');
                     if (!banner) {
                         banner = document.createElement('div');
                         banner.id = 'session-timeout-banner';
-                        banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;text-align:center;padding:10px;background:var(--warn-bg);color:var(--warn);font-size:13px;border-bottom:1px solid var(--line);';
+                        banner.setAttribute('role', 'status');
+                        banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;text-align:center;padding:10px;background:#FF3FA4;color:#090A14;font:600 14px/1.3 system-ui,sans-serif;';
                         document.body.prepend(banner);
                     }
-                    banner.textContent = 'Sitzung laeuft in ' + mins + ':' + (secs < 10 ? '0' : '') + secs + ' ab. Klicke irgendwo um aktiv zu bleiben.';
+                    banner.textContent = 'Sitzung läuft in ' + mins + ':' + (secs < 10 ? '0' : '') + secs + ' ab. Klicke irgendwo, um aktiv zu bleiben.';
                     banner.style.display = 'block';
-                } else {
-                    var banner = document.getElementById('session-timeout-banner');
-                    if (banner) banner.style.display = 'none';
+                } else if (banner) {
+                    banner.style.display = 'none';
                 }
             }, 5000);
         })();
-
-        // Theme fest auf Dark (Midnight Navy) — Hell/Dunkel-Umschaltung entfernt.
         try { localStorage.removeItem('dashboard-theme'); } catch (e) {}
     </script>
-    <style>
-      /* === Globales Azur-„Farb-Fluss-Band"-Design (Design 3) — Transfer aus home nach base_v5 (2026-07-13, Marco-Abnahme) ===
-         Gilt fuer Start + alle 14 Unterseiten. Landing/Login sind standalone und behalten den kraeftigen Nordlicht-Vorhang.
-         Nach den verlinkten v5-CSS geladen -> gewinnt die Kaskade. */
-      :root{
-        --s0:#0A0E13; --s1:#0c121c; --s2:#141d2b; --s3:#1c2740;
-        --line:rgba(120,210,220,.16); --line-soft:rgba(120,210,220,.07); --line-accent:rgba(63,142,242,.42);
-        --t1:#EAF3F6; --t2:#c3d0d8; --t3:#8FA3AE;
-        --acc:#3F8EF2; --acc-2:#6fb0f7; --acc-3:#FF5FB5;
-        --acc-grad:linear-gradient(135deg,#57a0f7,#2f7fe8);
-        --acc-grad-3:linear-gradient(115deg,#8fc0fb,#3F8EF2 42%,#FF5FB5);
-        --acc-soft:rgba(63,142,242,.14); --pill-grad:linear-gradient(135deg,#3F8EF2,#FF5FB5);
-      }
-      .btn--primary{ color:#06121a; box-shadow:0 0 0 1px rgba(63,142,242,.34), 0 12px 30px rgba(63,142,242,.30) }
-      .btn--primary:hover{ box-shadow:0 0 0 1px rgba(63,142,242,.55), 0 16px 44px rgba(63,142,242,.44), 0 0 24px rgba(255,95,181,.28) }
-      .sb-foot .mark[style*="linear-gradient"]{ background:linear-gradient(135deg,#3F8EF2,#FF5FB5)!important }
-
-      /* Ruhiger dunkler Hintergrund (2026-07-13, Marco-Abnahme „das ist perfekt"): fast-schwarze Basis
-         + Azur-Glow oben links + Vignette + sehr dezentes Punkt-Raster. KEIN Fluss-Band mehr (war zu auffaellig).
-         Pink lebt nur noch als leichter Glow am unteren Kachelrand (siehe Karten weiter unten). */
-      body{ background-color:#05070b;
-        background-image:
-          radial-gradient(58% 46% at 15% 0%, rgba(63,142,242,.12), transparent 60%),
-          radial-gradient(120% 120% at 50% 42%, transparent 55%, rgba(0,0,0,.5)) }
-      body::before{ content:""; position:fixed; inset:0; z-index:-2; pointer-events:none;
-        background-image:radial-gradient(rgba(150,200,250,.09) 1.4px, transparent 1.9px); background-size:30px 30px;
-        -webkit-mask-image:linear-gradient(180deg, rgba(0,0,0,.6), transparent 56%);
-                mask-image:linear-gradient(180deg, rgba(0,0,0,.6), transparent 56%) }
-
-      /* Sidebar im dunklen Ton (nicht mehr transluzent) */
-      .appside{ background:#070a11; border-right:1px solid rgba(120,210,220,.08) }
-
-      /* Karten (Marco-Abnahme): Azur-Glow oben links + dunkle Basis + sehr dezenter Pink-Glow ueber den
-         GESAMTEN unteren Rand — als oberster Hintergrund-Layer (immer hinter dem Inhalt, kein Pseudo/Overflow).
-         Alter Top-Sheen (::before) entfaellt. Gilt fuer .card UND .stat-card (config/moderation/etc). */
-      /* Glow „Design B" (Marco-Wahl 2026-07-14): diagonaler Verlauf pro Karte — links sehr stark
-         (tiefes Dunkelblau #1F57B5 -> Azur -> Pink-Hauch), diagonal nach unten-rechts auslaufend (transparent ~78%). */
-      .appcont .card, .appcont .stat-card, .appcont .config-section, .appcont .lvl-config-card{ background:
-          linear-gradient(125deg, rgba(31,87,181,.80) 0%, rgba(63,142,242,.42) 22%, rgba(255,95,181,.20) 46%, transparent 78%),
-          linear-gradient(135deg, #141d2b 0%, rgba(16,25,38,0) 60%, #141826 100%), #0e1622 }
-      /* Alte Panel-Wrapper (marshal-Partials, leveling) auf den neuen Karten-Look bringen */
-      .appcont .config-section, .appcont .lvl-config-card{ border:1px solid var(--line); border-radius:var(--radius); padding:22px; margin-bottom:16px }
-      .appcont .card::before{ content:none }
-
-      /* Tab-Leiste A: Azur-Pill statt altem Lila (config/server_detail/admin/marshal-Untertabs) */
-      .tabs .tab.active, .tab-nav .tab-btn.active, .tab-list .tab.active{
-        background:var(--acc); color:#06121a; border:0; box-shadow:0 4px 14px rgba(63,142,242,.26) }
-      .tabs .tab:hover, .tab-nav .tab-btn:hover, .tab-list .tab:hover{ color:var(--t1); background:rgba(63,142,242,.10) }
-      /* Primaer-Button + Toggle „an" auf Azur (statt Lila/Gruen) */
-      .btn-primary, .btn.btn-primary{ background:var(--acc); color:#06121a; border:0; font-weight:600; box-shadow:0 4px 14px rgba(63,142,242,.24) }
-      .btn-primary:hover{ box-shadow:0 6px 20px rgba(63,142,242,.36) }
-      .toggle input:checked + .slider{ background:var(--acc) }
-
-      /* Toggle-Switches der admin-Tabs (audit/antispam/giveaways/tickets/reaction_roles):
-         .toggle-switch/.toggle-slider hatten kein CSS → rohe Checkbox. Self-contained V6-Switch (2026-07-14). */
-      .appcont .toggle-grid{ display:flex; flex-direction:column; gap:12px }
-      .appcont .toggle-item{ display:flex; align-items:center; justify-content:flex-start; gap:12px }
-      /* v5_components.css stylt .toggle-switch schon als eigenen Switch (bg + ::after-Knopf) → Geister-Knopf neutralisieren (2026-07-14, Fable-Review H2) */
-      .appcont .toggle-switch{ position:relative; display:inline-block; width:44px; height:24px; flex:0 0 auto; background:none; border-radius:0 }
-      .appcont .toggle-switch::after{ content:none }
-      .appcont .toggle-switch input{ position:absolute; opacity:0; width:0; height:0 }
-      .appcont .toggle-slider{ position:absolute; inset:0; cursor:pointer; background:rgba(255,255,255,.14);
-        border:1px solid var(--line); border-radius:999px; transition:background .18s ease, border-color .18s ease }
-      .appcont .toggle-slider::before{ content:""; position:absolute; height:18px; width:18px; left:2px; top:50%;
-        transform:translateY(-50%); background:#e7eef7; border-radius:50%; transition:transform .18s ease }
-      .appcont .toggle-switch input:checked + .toggle-slider{ background:var(--acc); border-color:var(--acc) }
-      .appcont .toggle-switch input:checked + .toggle-slider::before{ transform:translate(20px,-50%); background:#06121a }
-      .appcont .toggle-switch input:focus-visible + .toggle-slider{ box-shadow:0 0 0 3px rgba(63,142,242,.35) }
-      .appcont .toggle-label{ font-size:14px; color:var(--t1); line-height:1.3 }
-
-      /* label.toggle/.slider (config Feature-Toggles, embeds) wird komplett von v5_components.css gestylt
-         (.toggle/.slider inkl. Azur-Fill bei :checked, Z.574-588) — KEIN eigenes CSS hier. Die frühere
-         Version übersteuerte den Azur-Fill mit grau (gleiche Spezifität, später) → Toggles blieben grau
-         (Fable-Review H1, 2026-07-14). Entfernt. */
-
-      /* Begrüßung über dem Hintergrund lesbar + monochrome Quick-Link-Icons (home) */
-      .home-hello h1{ text-shadow:0 2px 26px rgba(6,9,13,.55) }
-      .home-hello p{ text-shadow:0 1px 12px rgba(6,9,13,.5) }
-      .ql-ico{ color:var(--acc-2); display:inline-flex }
-
-      /* Settings-Schrift etwas groesser (Marco 2026-07-14) — !important schlaegt Seiten-Inline-Styles */
-      .appcont .set-group-title{ font-size:12px!important }
-      .appcont .toggle-info-label{ font-size:15px!important }
-      .appcont .toggle-info-desc{ font-size:12.5px!important }
-      .appcont .toggle-label{ font-size:14px!important }
-      .appcont .form-group label, .appcont label.set-label{ font-size:13px!important }
-      .appcont input, .appcont select, .appcont textarea{ font-size:14px!important }
-      /* Alte Uppercase-Label-Regel (marshal-Partials .config-section label) neutralisieren
-         -> Feld-Labels Normal-Schreibung wie auf den Settings-Seiten, nicht „shouty" */
-      .appcont label{ text-transform:none!important }
-    </style>
     {% block extra_head %}{% endblock %}
 </head>
-<body>
-  <div class="app">
-    <!-- SIDEBAR -->
-    <aside class="appside" id="sidebar">
-      <a class="sb-head" href="/" style="text-decoration:none;color:inherit;cursor:pointer"><span class="mark">B</span><span class="sb-title" style="font-weight:600">Bot Control</span></a>
-      <nav class="sb-nav" aria-label="Hauptnavigation">
-        <div class="sb-sec">Übersicht</div>
-        <a class="nav-i {% block nav_home %}{% endblock %}" href="/home">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8"/><path d="M5 10v10a1 1 0 0 0 1 1h3v-6h6v6h3a1 1 0 0 0 1-1V10"/></svg><span class="lbl">Start</span>
-        </a>
-        <a class="nav-i {% block nav_dashboard %}{% endblock %}" href="/dashboard">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg><span class="lbl">Dashboard</span>
-        </a>
-        <a class="nav-i {% block nav_errors %}{% endblock %}" href="/errors">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg><span class="lbl">Fehler</span>
-        </a>
-        <a class="nav-i {% block nav_system %}{% endblock %}" href="/system">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg><span class="lbl">System</span>
-        </a>
-        <a class="nav-i {% block nav_security %}{% endblock %}" href="/security">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 4v6c0 5-3.5 7.5-8 10-4.5-2.5-8-5-8-10V6z"/></svg><span class="lbl">Sicherheit</span>
-        </a>
+<body class="c3">
+  {% include "partials/_c3_icons.html" %}
+  <div class="c3-bg" aria-hidden="true"></div>
 
-        <div class="sb-sec">Bot-Verwaltung</div>
-        <a class="nav-i {% block nav_marshal_bot %}{% endblock %}" href="/marshal-bot">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><circle cx="9" cy="10" r="1" fill="currentColor"/><circle cx="15" cy="10" r="1" fill="currentColor"/></svg><span class="lbl">Marshal</span>
-        </a>
-        <a class="nav-i {% block nav_config %}{% endblock %}" href="/config">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l1.5 4.5L18 5l-1.5 4.5L21 11l-4.5 1.5L18 17l-4.5-1.5L12 20l-1.5-4.5L6 17l1.5-4.5L3 11l4.5-1.5L6 5l4.5 1.5z"/></svg><span class="lbl">Konfiguration</span>
-        </a>
-        <a class="nav-i {% block nav_leveling %}{% endblock %}" href="/leveling">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19h16M7 19V9M12 19V5M17 19v-7"/></svg><span class="lbl">Leveling</span>
-        </a>
-        <a class="nav-i {% block nav_moderation %}{% endblock %}" href="/moderation">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 4v6c0 5-3.5 7.5-8 10-4.5-2.5-8-5-8-10V6z"/><path d="M9 12l2 2 4-4"/></svg><span class="lbl">Moderation</span>
-        </a>
-        <a class="nav-i {% block nav_lfg %}{% endblock %}" href="/lfg">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M3 20v-1a5 5 0 0 1 10 0v1M14 20v-1a4 4 0 0 1 7-2.5"/></svg><span class="lbl">LFG</span>
-        </a>
+  <div class="c3-app">
+    <a class="c3-skip" href="#c3-main">Zum Inhalt springen</a>
 
-        {% if user and user.is_owner %}
-        <div class="sb-sec">Verwaltung</div>
-        <a class="nav-i {% block nav_rbac %}{% endblock %}" href="/rbac">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="3.5"/><path d="M5 20v-1a5 5 0 0 1 10 0v1"/><path d="M17 11l1.5 1.5L21 10"/></svg><span class="lbl">RBAC</span>
-        </a>
-        <a class="nav-i {% block nav_audit %}{% endblock %}" href="/audit">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><path d="M5 4h14v16l-7-3-7 3z"/></svg><span class="lbl">Audit-Log</span>
-        </a>
-        {% endif %}
-
-        {# Serverliste aus der ENV — siehe web/templates_setup.py #}
-        {% if spielserver %}
-        <div class="sb-sec">Game-Server</div>
-        {% for srv in spielserver %}
-        <a class="nav-i {{ 'active' if aktiver_server == srv.kennung else '' }}" href="/server/{{ srv.kennung }}">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><circle cx="7" cy="7" r="1" fill="currentColor"/><circle cx="7" cy="17" r="1" fill="currentColor"/></svg><span class="lbl">{{ srv.label }}</span>
-        </a>
-        {% endfor %}
-        {% endif %}
-
-        <div class="sb-sec">Info</div>
-        <a class="nav-i {% block nav_search %}{% endblock %}" href="/search">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg><span class="lbl">Suche</span>
-        </a>
-        <a class="nav-i {% block nav_changelog %}{% endblock %}" href="/changelog">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span class="lbl">Changelog</span>
-        </a>
-
-        {# Abmelden per POST: als Link liess sich die Abmeldung von fremden
-           Seiten ausloesen (<img src=".../auth/logout">). Der Knopf sieht aus
-           wie die uebrigen Navigationseintraege. #}
-        <form method="POST" action="/auth/logout" style="margin-top:8px">
-          <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token if request.state.csrf_token is defined else '' }}">
-          <button type="submit" class="nav-i" style="width:100%;background:none;border:none;cursor:pointer;font:inherit;color:inherit;text-align:left">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg><span class="lbl">Abmelden</span>
-          </button>
-        </form>
-      </nav>
-      <div class="sb-foot">
-        {% if user %}
-        <div class="nav-i" style="cursor:default">
-          {% if user.avatar %}
-          <span class="mark" style="width:30px;height:30px;border-radius:9px;box-shadow:none;background-image:url('{{ user.avatar }}');background-size:cover"></span>
+    <!-- Bereichsleiste: 5 Bereiche -->
+    <nav class="c3-rail" aria-label="Bereiche">
+      <a class="c3-rail-mark" href="/home" aria-label="Ostfront HQ, Startseite"><svg class="c3-mark" viewBox="0 0 32 32" aria-hidden="true"><use href="#mark"/></svg></a>
+      <div class="c3-rail-sep" aria-hidden="true"></div>
+      <ul class="c3-rail-list">
+        {% for b in nav.bereiche %}
+        {% set einzeln = b.gruppen|length == 1 and b.gruppen[0].seiten|length == 1 %}
+        <li>
+          {% if einzeln %}
+          <a class="c3-rail-item" href="{{ b.start_url }}" data-area="{{ b.key }}"{% if b.key == nav.aktiv_bereich %} aria-current="page"{% endif %}>
           {% else %}
-          <span class="mark" style="width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,#3b82f6,#6d5cf6);box-shadow:none">{{ user.username[:1]|upper }}</span>
+          <button class="c3-rail-item" type="button" data-area="{{ b.key }}" aria-controls="c3-areanav" aria-pressed="false"{% if b.key == nav.aktiv_bereich %} aria-current="page"{% endif %}>
           {% endif %}
-          <span class="lbl" style="font-size:13px;font-weight:600">{{ user.username }} · Owner</span>
+            <span class="c3-rail-ico"><svg class="i" aria-hidden="true"><use href="#{{ b.icon }}"/></svg></span>
+            <span class="c3-rail-label">{{ b.titel }}</span>
+          {% if einzeln %}</a>{% else %}</button>{% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+    </nav>
+
+    <!-- Zweite Spalte: Seiten des Bereichs -->
+    <aside class="c3-areanav" id="c3-areanav" aria-label="Seiten des Bereichs" data-current="{{ nav.aktiv_bereich }}">
+      <button class="c3-an-close" type="button"><svg class="i" aria-hidden="true"><use href="#i-x"/></svg><span class="sr">Seitenliste schließen</span></button>
+      {% for b in nav.bereiche %}
+      <div data-panel="{{ b.key }}" data-title="{{ b.titel }}"{% if b.key != nav.aktiv_bereich %} hidden{% endif %}>
+        <div class="c3-an-head">
+          <p class="c3-label" style="margin:0">Bereich</p>
+          <h2 class="c3-an-title">{{ b.titel }}</h2>
+          <p class="c3-an-sub c3-label">{{ b.untertitel }}</p>
         </div>
-        {% else %}
-        <div class="nav-i" style="cursor:default"><span class="mark" style="width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,#3b82f6,#6d5cf6);box-shadow:none">M</span><span class="lbl" style="font-size:13px;font-weight:600">Marco · Owner</span></div>
-        {% endif %}
+        <div class="c3-an-body">
+          {% for g in b.gruppen %}
+          {% if g.titel %}<h3 class="c3-nav-cat">{{ g.titel }}</h3>{% endif %}
+          <ul class="c3-nav-list">
+            {% for s in g.seiten %}
+            <li><a class="c3-nav-item" href="{{ s.url }}"{% if s.key == nav.aktiv_seite %} aria-current="page"{% endif %}><svg class="i" aria-hidden="true"><use href="#{{ s.icon }}"/></svg><span class="c3-nav-t">{{ s.titel }}</span></a></li>
+            {% endfor %}
+          </ul>
+          {% endfor %}
+        </div>
       </div>
+      {% endfor %}
     </aside>
+    <div class="c3-backdrop" id="c3-backdrop" hidden></div>
 
-    <!-- MAIN -->
-    <div class="appmain">
-      <div class="apptop">
-        <button class="iconbtn" id="burger" aria-label="Sidebar umschalten"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
-        <div id="crumb" class="h2">{% block crumb %}Übersicht{% endblock %}</div>
-        <div style="margin-left:auto;display:flex;align-items:center;gap:10px">
-          <span class="pill"><span class="live"></span> stabil</span>
-          <button class="btn btn--primary magnetic" onclick="window.location.reload()">↻ Aktualisieren</button>
+    <div class="c3-main">
+      <header class="c3-topbar">
+        <button class="c3-icon-btn c3-drawer-btn" id="c3-drawer-btn" type="button" aria-controls="c3-areanav" aria-expanded="false"><svg class="i" aria-hidden="true"><use href="#i-panel"/></svg><span class="sr">Seiten des Bereichs</span></button>
+        <a class="c3-tb-server" href="/home">
+          <svg class="c3-mark" viewBox="0 0 32 32" aria-hidden="true"><use href="#mark"/></svg>
+          <span class="c3-tb-txt"><span class="c3-tb-name">Ostfront HQ</span><span class="c3-tb-crumb" id="c3-crumb">{% if nav.aktiv_seite %}{{ nav.brotkrumen }}{% else %}{% block crumb %}{{ nav.brotkrumen }}{% endblock %}{% endif %}</span></span>
+        </a>
+        <form class="c3-search" id="c3-q-form" role="search" autocomplete="off" action="/search" method="get">
+          <svg class="i" aria-hidden="true"><use href="#i-search"/></svg>
+          <label class="sr" for="c3-q">Suchen (Tastenkürzel /)</label>
+          <input id="c3-q" name="q" type="search" placeholder="Seiten, Module, Server suchen">
+          <kbd title="Tastenkürzel">/</kbd>
+          <div class="c3-q-results" id="c3-q-results" hidden></div>
+        </form>
+        <div class="c3-tb-user">
+          {% if user %}
+          <span class="c3-avatar" aria-hidden="true"{% if user.avatar %} style="background-image:url('{{ user.avatar }}')"{% endif %}>{% if not user.avatar %}{{ (user.username or '?')[:1]|upper }}{% endif %}</span>
+          <span class="c3-tb-pro-t"><span class="c3-tb-pro-n">{{ user.username }}</span><span class="c3-tb-pro-r">{{ 'Owner' if user.is_owner else 'Admin' }}</span></span>
+          {% endif %}
+          {# Abmelden per POST: als Link liess sich die Abmeldung von fremden Seiten ausloesen. #}
+          <form method="POST" action="/auth/logout" style="margin:0">
+            <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token if request.state.csrf_token is defined else '' }}">
+            <button type="submit" class="c3-btn-out"><svg class="i" aria-hidden="true"><use href="#i-logout"/></svg><span>Abmelden</span></button>
+          </form>
         </div>
-      </div>
+      </header>
 
-      <div class="appcont">
+      <main class="c3-content appcont" id="c3-main" tabindex="-1">
         {% if error is defined and error %}
-        <div class="card" style="padding:14px 18px;margin-bottom:18px;border-color:var(--bad);color:var(--bad)">{{ error }}</div>
+        <div class="c3-flash c3-flash--bad" role="alert"><svg class="i" aria-hidden="true"><use href="#i-alert"/></svg><span>{{ error }}</span></div>
         {% endif %}
         {% if success is defined and success %}
-        <div class="card" style="padding:14px 18px;margin-bottom:18px;border-color:var(--ok);color:var(--ok)">{{ success }}</div>
+        <div class="c3-flash c3-flash--ok" role="status"><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span>{{ success }}</span></div>
         {% endif %}
 
         {% block content %}{% endblock %}
-      </div>
+      </main>
     </div>
   </div>
 
-  <script>
-    // Sidebar-Collapse + Mobile-Toggle (aus v5_dashboard.html)
-    (function(){
-      var mob = function(){ return window.matchMedia('(max-width:760px)').matches; };
-      if (localStorage.getItem('sb') === 'c') document.body.classList.add('collapsed');
-      var burger = document.getElementById('burger');
-      if (burger) burger.addEventListener('click', function(){
-        if (mob()) { document.body.classList.toggle('sb-open'); return; }
-        document.body.classList.toggle('collapsed');
-        localStorage.setItem('sb', document.body.classList.contains('collapsed') ? 'c' : 'o');
-      });
-    })();
-  </script>
+  <script type="application/json" id="c3-suchindex">{{ nav.suchindex|tojson }}</script>
+  <script src="/static/c3.js?v=c3-20261021b" defer></script>
   <!-- Channel-Select-Populator: befuellt <select data-channel-select> aus /api/guild/channels
        (Namen statt IDs). Persistent + HTMX-swap-sicher (re-scan bei afterSwap). -->
   <script>
@@ -338,15 +208,15 @@
             if (String(c.id) === String(current)) { o.selected = true; found = true; }
             sel.appendChild(o);
           });
-          if (current && !found) {           // aktueller Wert nicht im Snapshot (stale/geloescht) -> Roh-ID behalten
+          if (current && !found) {           // aktueller Wert nicht im Snapshot (geloescht/unbekannt) -> Wert behalten, ohne ID zu zeigen
             var o2 = document.createElement('option');
-            o2.value = current; o2.textContent = 'ID ' + current + ' (nicht in Liste)';
+            o2.value = current; o2.textContent = 'Gelöschter oder unbekannter Kanal';
             o2.selected = true; sel.appendChild(o2);
           }
           if (!channels.length && !current) {  // Snapshot leer -> Hinweis-Option (Bot offline / kein Snapshot)
             var o3 = document.createElement('option');
             o3.value = ''; o3.disabled = true;
-            o3.textContent = '(keine Channels für diese Auswahl)';
+            o3.textContent = '(keine Kanäle für diese Auswahl)';
             sel.appendChild(o3);
           }
         });
@@ -362,8 +232,6 @@
       if (document.readyState !== 'loading') scan();
     })();
   </script>
-  <!-- Motion-Schicht (defer, non-blocking) -->
-  <script src="/static/ui_motion.js?v=motion2" defer></script>
   {% block extra_js %}{% endblock %}
 </body>
 </html>
