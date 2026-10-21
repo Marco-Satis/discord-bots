@@ -1,131 +1,155 @@
 {% extends "base_v5.html" %}
 {#
-  Welcome-Home — Post-Login-Startseite (Route GET /home via home_route.py, require_auth).
-  Begrüßung + Status-Snapshot + Quick-Links. Server-Liste lebt getrennt unter /dashboard.
-
-  Design „Farb-Fluss-Band" (Azur/Pink, Design 3) lebt seit 2026-07-13 GLOBAL in base_v5
-  (Palette + Hintergrund + Design-4-Karten + transluzente Sidebar). Diese Seite braucht
-  daher KEIN eigenes extra_head mehr — sie erbt alles wie die 14 Unterseiten.
-
-  Erwarteter Kontext: user, servers (list), system (dict), bots (list).
+  Startseite (Bereich „Übersicht“, Design C3 „Lobby-HUD“). Route GET /home (home_route.py).
+  Kontext: user, servers, system, bots, datum, punkte, bots_kurz, ereignisse, schnellzugriff, online.
 #}
-{% block title %}Start{% endblock %}
-{% block crumb %}Start{% endblock %}
+{% block title %}Startseite{% endblock %}
 
 {% block content %}
-{% set ns = namespace(bots_active=0, servers_online=0, players=0) %}
-{% for b in bots %}{% if b.status in ['online', 'connected', 'ready', 'ok'] %}{% set ns.bots_active = ns.bots_active + 1 %}{% endif %}{% endfor %}
-{% for s in servers %}{% if s.status in ['online', 'running'] %}{% set ns.servers_online = ns.servers_online + 1 %}{% endif %}{% set ns.players = ns.players + (s.players | int) %}{% endfor %}
-{% set all_bots = bots and ns.bots_active == (bots | length) %}
-{% set sys_ok = (system.cpu_percent | default(0)) < 85 and (system.ram_percent | default(0)) < 90 and (system.disk_percent | default(0)) < 90 %}
-{% if all_bots and sys_ok %}{% set ns.h_label = 'Gesund' %}{% set ns.h_color = 'var(--ok)' %}
-{% elif (not all_bots) or (system.disk_percent | default(0)) >= 95 %}{% set ns.h_label = 'Achtung' %}{% set ns.h_color = 'var(--bad)' %}
-{% else %}{% set ns.h_label = 'Erhöht' %}{% set ns.h_color = 'var(--warn)' %}{% endif %}
+{% set ns = namespace(bots_on=0, srv_on=0, spieler=0) %}
+{% for b in bots_kurz %}{% if b.online %}{% set ns.bots_on = ns.bots_on + 1 %}{% endif %}{% endfor %}
+{% for s in servers %}{% if s.status in online %}{% set ns.srv_on = ns.srv_on + 1 %}{% endif %}{% set ns.spieler = ns.spieler + (s.players | int) %}{% endfor %}
+{% set cpu = system.cpu_percent | default(0) | round | int %}
+{% set ram = system.ram_percent | default(0) | round | int %}
 
-<!-- Startseiten-Aurora: Nordlicht-Vorhang wie Willkommensseite, nur kleiner + ruhiger (2026-07-14) -->
-<style>
-  .home-atmos{ position:fixed; inset:0; z-index:-1; overflow:hidden; pointer-events:none;
-    background-image:
-      radial-gradient(120% 80% at 28% -8%, rgba(63,142,242,0.24), rgba(63,142,242,0) 62%),
-      radial-gradient(120% 80% at 78% -10%, rgba(255,95,181,0.18), rgba(255,95,181,0) 64%),
-      radial-gradient(150% 120% at 50% 4%, rgba(63,142,242,0.10), transparent 78%); }
-  .home-atmos::before{ content:""; position:absolute; inset:-24%; pointer-events:none; transform-origin:top center; will-change:transform,opacity;
-    background-image:linear-gradient(99deg, rgba(63,142,242,0) 4%, rgba(63,142,242,0.46) 13%, rgba(63,142,242,0) 23%, rgba(63,142,242,0.32) 37%, rgba(63,142,242,0) 49%, rgba(63,142,242,0.44) 62%, rgba(63,142,242,0) 73%, rgba(63,142,242,0.34) 88%, rgba(63,142,242,0) 97%);
-    -webkit-mask-image:linear-gradient(180deg,#000 0%,#000 50%,rgba(0,0,0,.55) 76%,rgba(0,0,0,0) 95%);
-            mask-image:linear-gradient(180deg,#000 0%,#000 50%,rgba(0,0,0,.55) 76%,rgba(0,0,0,0) 95%);
-    animation:home-cur-a 20s ease-in-out infinite }
-  .home-atmos::after{ content:""; position:absolute; inset:-24%; pointer-events:none; transform-origin:top center; will-change:transform,opacity;
-    background-image:linear-gradient(97deg, rgba(255,95,181,0) 6%, rgba(255,95,181,0.40) 17%, rgba(255,95,181,0) 28%, rgba(255,95,181,0.28) 44%, rgba(255,95,181,0) 55%, rgba(255,95,181,0.38) 69%, rgba(255,95,181,0) 80%, rgba(255,95,181,0.28) 92%, rgba(255,95,181,0) 99%);
-    -webkit-mask-image:linear-gradient(180deg,#000 0%,#000 46%,rgba(0,0,0,.5) 72%,rgba(0,0,0,0) 90%);
-            mask-image:linear-gradient(180deg,#000 0%,#000 46%,rgba(0,0,0,.5) 72%,rgba(0,0,0,0) 90%);
-    mix-blend-mode:screen; animation:home-cur-b 17s ease-in-out infinite }
-  @keyframes home-cur-a{ 0%{transform:translate3d(-3.5%,0,0) skewX(-4.5deg); opacity:.78} 50%{transform:translate3d(3.5%,0,0) skewX(4deg); opacity:.96} 100%{transform:translate3d(-3.5%,0,0) skewX(-4.5deg); opacity:.78} }
-  @keyframes home-cur-b{ 0%{transform:translate3d(3%,0,0) skewX(4deg); opacity:.55} 50%{transform:translate3d(-3%,0,0) skewX(-4deg); opacity:.92} 100%{transform:translate3d(3%,0,0) skewX(4deg); opacity:.55} }
-  @media (prefers-reduced-motion: reduce){ .home-atmos::before,.home-atmos::after{ animation:none } }
-</style>
-<div class="home-atmos" aria-hidden="true"></div>
-
-<!-- Begrüßung -->
-<div class="home-hello" style="margin-bottom:22px" data-reveal>
-  <h1 class="display" style="font-size:clamp(24px,3.4vw,34px);margin:0">Willkommen zurück, <span class="grad-text">{{ (user.username if user else 'Marco') }}</span>.</h1>
-  <p style="color:var(--t2);margin:8px 0 0;font-size:15px">Hier ist der schnelle Überblick. Spring direkt dahin, wo du hin willst.</p>
+<div class="c3-page-head">
+  <div class="c3-shards" aria-hidden="true">
+    <i class="c3-shard c-mag" style="--l:44%;--t:-40%;--w:62%;--h:120%;--fa:.2;--ea:.75" data-pts="20 0, 100 0, 100 72, 0 100"></i>
+    <i class="c3-shard c-vio" style="--l:10%;--t:18%;--w:46%;--h:110%;--fa:.14;--ea:.6" data-pts="28 0, 100 26, 74 100, 0 70"></i>
+    <i class="c3-shard c-cyan" style="--l:2%;--t:-10%;--w:36%;--h:70%;--fa:0;--ea:.5" data-pts="0 40, 70 0, 100 100"></i>
+    <i class="c3-shard c3-shard--line c-vio" style="--l:0%;--t:62%;--w:82%;--h:24%" data-line="0 100, 58 0, 100 50" data-t="2"></i>
+  </div>
+  <p class="c3-label c3-crumbs">Übersicht <span class="sep" aria-hidden="true">/</span> {{ datum }}</p>
+  <div class="c3-ph-row"><h1>Willkommen zurück, {{ user.username if user else 'Marco' }}.</h1></div>
+  <p class="c3-lead">Was gerade wichtig ist, steht oben. Alles andere erreichst du über die Bereiche links.</p>
 </div>
 
-<!-- Status-Snapshot -->
-<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:var(--gap-card);margin-bottom:26px">
-  <div class="card" style="padding:18px" data-reveal>
-    <div class="cap">Bots aktiv</div>
-    <div class="grad-text tnum" style="font-size:30px;font-weight:700;margin-top:5px">{{ ns.bots_active }}<span style="font-size:16px;color:var(--t3);-webkit-text-fill-color:var(--t3)">/{{ bots | length }}</span></div>
-  </div>
-  <div class="card" style="padding:18px" data-reveal>
-    <div class="cap">Server online</div>
-    <div class="tnum" style="font-size:30px;font-weight:700;margin-top:5px;{% if ns.servers_online > 0 %}color:var(--ok){% endif %}">{{ ns.servers_online }}<span style="font-size:16px;color:var(--t3)">/{{ servers | length }}</span></div>
-  </div>
-  <div class="card" style="padding:18px" data-reveal>
-    <div class="cap">Spieler online</div>
-    <div class="tnum" style="font-size:30px;font-weight:700;margin-top:5px;{% if ns.players > 0 %}color:var(--ok){% endif %}">{{ ns.players }}</div>
-  </div>
-  <div class="card" style="padding:18px" data-reveal>
-    <div class="cap">System</div>
-    <div style="display:flex;align-items:center;gap:9px;margin-top:10px">
-      <span class="dot" style="width:11px;height:11px;border-radius:99px;background:{{ ns.h_color }};box-shadow:0 0 10px {{ ns.h_color }}"></span>
-      <span style="font-size:18px;font-weight:600;color:{{ ns.h_color }}">{{ ns.h_label }}</span>
-    </div>
-    <div style="color:var(--t3);font-size:12px;margin-top:6px">CPU {{ system.cpu_percent | default(0) | round | int }}% · RAM {{ system.ram_percent | default(0) | round | int }}%</div>
-  </div>
-</div>
+<div class="c3-grid12">
 
-<!-- Quick-Links -->
-<div class="cap" style="margin:0 0 12px" data-reveal>Schnellzugriff</div>
-<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:var(--gap-card)">
-
-  <a class="card" href="/dashboard" style="padding:20px;display:block;text-decoration:none" data-reveal>
-    <div style="display:flex;align-items:center;gap:11px;margin-bottom:8px">
-      <span class="ql-ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg></span>
-      <span style="font-weight:600;font-size:15px">Server-Übersicht</span>
+  {# ---------- Braucht Aufmerksamkeit ---------- #}
+  {% if punkte %}
+  <section class="c3-panel hud c3-attn span12" aria-labelledby="attn-h">
+    <div class="c3-attn-top"><svg class="i" aria-hidden="true" style="color:var(--magenta)"><use href="#i-alert"/></svg><h2 class="c3-label" id="attn-h" style="margin:0">Braucht Aufmerksamkeit · {{ punkte | length }}</h2></div>
+    <ul class="c3-attn-list">
+      {% for p in punkte %}
+      <li class="c3-attn-row">
+        <span class="c3-attn-ico" aria-hidden="true"><svg class="i"><use href="#{{ p.icon }}"/></svg></span>
+        <div class="c3-attn-txt"><h3>{{ p.titel }}</h3><p>{{ p.text }}</p></div>
+        <a class="c3-btn c3-btn--check c3-btn--sm" href="{{ p.url }}">{{ p.knopf }}<svg class="i" aria-hidden="true"><use href="#i-arrow"/></svg></a>
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% else %}
+  <section class="c3-panel hud c3-attn c3-attn--calm span12" aria-labelledby="attn-h">
+    <div class="c3-attn-row">
+      <span class="c3-attn-ico" aria-hidden="true"><svg class="i"><use href="#i-check"/></svg></span>
+      <div class="c3-attn-txt"><h2 id="attn-h">Alles läuft.</h2><p>Bots, Game-Server und Discord-Module melden keine Probleme.</p></div>
     </div>
-    <p style="margin:0;color:var(--t2);font-size:13px">Status & Steuerung aller Game-Server und Bots.</p>
-  </a>
+  </section>
+  {% endif %}
 
-  <a class="card" href="/leveling" style="padding:20px;display:block;text-decoration:none" data-reveal>
-    <div style="display:flex;align-items:center;gap:11px;margin-bottom:8px">
-      <span class="ql-ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19h16M7 19V9M12 19V5M17 19v-7"/></svg></span>
-      <span style="font-weight:600;font-size:15px">Leveling</span>
+  {# ---------- Kennzahlen ---------- #}
+  <dl class="c3-stats span12">
+    <div class="c3-panel hud c3-stat" style="--hud:rgba(244,241,255,.22);--hi:-3px;--hlen:9px">
+      <dt class="c3-label">Bots aktiv</dt>
+      <dd class="c3-stat-v {{ 'ok' if ns.bots_on == bots_kurz|length else 'bad' }}"><b>{{ ns.bots_on }}</b><span class="of">/{{ bots_kurz | length }}</span></dd>
+      <dd class="c3-stat-sub">{{ 'Alle melden sich.' if ns.bots_on == bots_kurz|length else 'Mindestens einer fehlt.' }}</dd>
     </div>
-    <p style="margin:0;color:var(--t2);font-size:13px">Leaderboard, Role-Rewards und XP-Konfiguration.</p>
-  </a>
+    <div class="c3-panel hud c3-stat" style="--hud:rgba(244,241,255,.22);--hi:-3px;--hlen:9px">
+      <dt class="c3-label">Game-Server online</dt>
+      {% set aus = servers | selectattr('id', 'in', gestoppt) | rejectattr('status', 'in', online) | list %}
+      {% set soll = (servers | length) - (aus | length) %}
+      <dd class="c3-stat-v {{ 'ok' if ns.srv_on >= soll else 'bad' }}"><b>{{ ns.srv_on }}</b><span class="of">/{{ soll }}</span></dd>
+      <dd class="c3-stat-sub">{% if aus %}Bewusst gestoppt: {{ aus | map(attribute='name') | join(', ') }}{% elif servers %}Alle laufen, die laufen sollen.{% else %}Keine Server gemeldet.{% endif %}</dd>
+    </div>
+    <div class="c3-panel hud c3-stat" style="--hud:rgba(244,241,255,.22);--hi:-3px;--hlen:9px">
+      <dt class="c3-label">Spieler online</dt>
+      <dd class="c3-stat-v"><b style="font-weight:600">{{ ns.spieler }}</b></dd>
+      <dd class="c3-stat-sub">auf allen Game-Servern</dd>
+    </div>
+    <div class="c3-panel hud c3-stat" style="--hud:rgba(244,241,255,.22);--hi:-3px;--hlen:9px">
+      <dt class="c3-label">System</dt>
+      <dd class="c3-sys">
+        <div class="c3-sys-row"><span class="c3-sys-k">CPU</span><span class="c3-sys-v">{{ cpu }}&nbsp;%</span><span class="c3-meter{{ ' c3-meter--hot' if cpu >= 85 }}" aria-hidden="true"><span style="--v:{{ cpu }}%"></span></span></div>
+        <div class="c3-sys-row"><span class="c3-sys-k">RAM</span><span class="c3-sys-v">{{ ram }}&nbsp;%</span><span class="c3-meter{{ ' c3-meter--hot' if ram >= 90 }}" aria-hidden="true"><span style="--v:{{ ram }}%"></span></span></div>
+      </dd>
+    </div>
+  </dl>
 
-  <a class="card" href="/moderation" style="padding:20px;display:block;text-decoration:none" data-reveal>
-    <div style="display:flex;align-items:center;gap:11px;margin-bottom:8px">
-      <span class="ql-ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 4v6c0 5-3.5 7.5-8 10-4.5-2.5-8-5-8-10V6z"/><path d="M9 12l2 2 4-4"/></svg></span>
-      <span style="font-weight:600;font-size:15px">Moderation</span>
+  {# ---------- Bots ---------- #}
+  <section class="c3-panel hud span6" style="--hud:rgba(244,241,255,.22);--hi:-3px;--hlen:9px" aria-labelledby="bots-h">
+    <div class="c3-p-head">
+      <h2 class="c3-p-title" id="bots-h"><svg class="i" aria-hidden="true"><use href="#i-bot"/></svg>Bots</h2>
+      <a class="c3-p-link" href="/system">Bots und Dienste<svg class="i" aria-hidden="true"><use href="#i-arrow"/></svg></a>
     </div>
-    <p style="margin:0;color:var(--t2);font-size:13px">AutoMod-Regeln, Warn-System und Tickets.</p>
-  </a>
+    <ul class="c3-rows">
+      {% for b in bots_kurz %}
+      <li>
+        <span class="c3-row-ico{{ '' if b.online else ' is-off' }}" aria-hidden="true"><svg class="i"><use href="#i-bot"/></svg></span>
+        <span class="c3-row-main"><span class="c3-row-t">{{ b.name }}</span><span class="c3-row-d">{{ b.aufgabe }}</span></span>
+        <span class="c3-chip {{ 'c3-chip--on' if b.online else 'c3-chip--check' }}">{{ b.status_text }}</span>
+      </li>
+      {% else %}
+      <li><span class="c3-row-d">Keine Bot-Meldungen gefunden.</span></li>
+      {% endfor %}
+    </ul>
+  </section>
 
-  <a class="card" href="/lfg" style="padding:20px;display:block;text-decoration:none" data-reveal>
-    <div style="display:flex;align-items:center;gap:11px;margin-bottom:8px">
-      <span class="ql-ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M3 20v-1a5 5 0 0 1 10 0v1M14 20v-1a4 4 0 0 1 7-2.5"/></svg></span>
-      <span style="font-weight:600;font-size:15px">LFG</span>
+  {# ---------- Game-Server ---------- #}
+  <section class="c3-panel hud span6" style="--hud:rgba(244,241,255,.22);--hi:-3px;--hlen:9px" aria-labelledby="gs-h">
+    <div class="c3-p-head">
+      <h2 class="c3-p-title" id="gs-h"><svg class="i" aria-hidden="true"><use href="#i-pad"/></svg>Game-Server</h2>
+      <a class="c3-p-link" href="/dashboard">Verlauf<svg class="i" aria-hidden="true"><use href="#i-arrow"/></svg></a>
     </div>
-    <p style="margin:0;color:var(--t2);font-size:13px">Spielersuche-Rolle und Ping-Konfiguration.</p>
-  </a>
+    <ul class="c3-rows">
+      {% for s in servers %}
+      {% set reg = spielserver | selectattr('kennung', 'equalto', s.id) | first %}
+      {% set an = s.status in online %}
+      <li>
+        <a class="c3-row-link" href="{{ '/server/' ~ reg.kennung if reg else '/dashboard' }}">
+          <span class="c3-row-ico{{ '' if an or s.id in gestoppt else ' is-off' }}" aria-hidden="true"><svg class="i"><use href="#i-server"/></svg></span>
+          <span class="c3-row-main"><span class="c3-row-t">{{ reg.label if reg else s.name }}</span><span class="c3-row-d num">{{ s.players }}{% if s.max_players %}/{{ s.max_players }}{% endif %} Spieler</span></span>
+        </a>
+        {% if an %}<span class="c3-chip c3-chip--on">Online</span>
+        {% elif s.id in gestoppt %}<span class="c3-chip c3-chip--off" title="Bewusst gestoppt">Gestoppt</span>
+        {% else %}<span class="c3-chip c3-chip--check">Offline</span>{% endif %}
+      </li>
+      {% else %}
+      <li><span class="c3-row-d">Keine Game-Server gemeldet.</span></li>
+      {% endfor %}
+    </ul>
+  </section>
 
-  <a class="card" href="/config" style="padding:20px;display:block;text-decoration:none" data-reveal>
-    <div style="display:flex;align-items:center;gap:11px;margin-bottom:8px">
-      <span class="ql-ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l1.5 4.5L18 5l-1.5 4.5L21 11l-4.5 1.5L18 17l-4.5-1.5L12 20l-1.5-4.5L6 17l1.5-4.5L3 11l4.5-1.5L6 5l4.5 1.5z"/></svg></span>
-      <span style="font-weight:600;font-size:15px">Konfiguration</span>
-    </div>
-    <p style="margin:0;color:var(--t2);font-size:13px">Feature-Flags, Kanäle und Bot-Einstellungen.</p>
-  </a>
+  {# ---------- Schnellzugriff ---------- #}
+  <section class="c3-panel hud span8" style="--hud:rgba(244,241,255,.22);--hi:-3px;--hlen:9px" aria-labelledby="qa-h">
+    <div class="c3-p-head"><h2 class="c3-p-title" id="qa-h"><svg class="i" aria-hidden="true"><use href="#i-grid"/></svg>Schnellzugriff</h2></div>
+    <ul class="c3-quick">
+      {% for q in schnellzugriff %}
+      <li><a class="c3-qa" href="{{ q.url }}">
+        <span class="c3-qa-ico" aria-hidden="true"><svg class="i"><use href="#{{ q.icon }}"/></svg></span>
+        <span class="c3-qa-t">{{ q.titel }}</span>
+        <span class="c3-qa-d">{{ q.text }}</span>
+        <span class="c3-qa-area">{{ q.bereich }}</span>
+        <svg class="i c3-qa-go" aria-hidden="true"><use href="#i-arrow"/></svg>
+      </a></li>
+      {% endfor %}
+    </ul>
+  </section>
 
-  <a class="card" href="/security" style="padding:20px;display:block;text-decoration:none" data-reveal>
-    <div style="display:flex;align-items:center;gap:11px;margin-bottom:8px">
-      <span class="ql-ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 4v6c0 5-3.5 7.5-8 10-4.5-2.5-8-5-8-10V6z"/></svg></span>
-      <span style="font-weight:600;font-size:15px">Sicherheit</span>
-    </div>
-    <p style="margin:0;color:var(--t2);font-size:13px">Verification, Anti-Raid und Audit-Übersicht.</p>
-  </a>
+  {# ---------- Letzte Ereignisse ---------- #}
+  <section class="c3-panel hud span4" style="--hud:rgba(244,241,255,.22);--hi:-3px;--hlen:9px" aria-labelledby="ev-h">
+    <div class="c3-p-head"><h2 class="c3-p-title" id="ev-h"><svg class="i" aria-hidden="true"><use href="#i-history"/></svg>Letzte Ereignisse</h2></div>
+    {% if ereignisse %}
+    <ol class="c3-events">
+      {% for e in ereignisse %}
+      <li class="c3-ev"><span class="c3-ev-time">{{ e.zeit }}{% if e.tag %}<span class="c3-label c3-ev-from">{{ e.tag }}</span>{% endif %}</span><span class="c3-ev-txt">{{ e.text }}{% if e.quelle %}<span class="c3-label c3-ev-from">{{ e.quelle }}</span>{% endif %}</span></li>
+      {% endfor %}
+    </ol>
+    {% else %}
+    <p class="c3-empty">Noch keine Ereignisse.</p>
+    {% endif %}
+  </section>
 
 </div>
 {% endblock %}
