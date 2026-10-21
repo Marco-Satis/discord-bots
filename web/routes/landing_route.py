@@ -39,10 +39,20 @@ async def _public_payload() -> dict:
     return {"servers": servers, "system": system, "bots": bots}
 
 
+def _ohne_gestoppte(data: dict) -> dict:
+    """Bewusst gestoppte Game-Server (manual_stop_state) nicht als „offline“ zeigen."""
+    try:
+        from modules.monitoring.manual_stop_state import get_stopped_servers
+        gestoppt = set(get_stopped_servers())
+    except Exception:  # noqa: BLE001 — öffentliche Seite darf daran nie scheitern
+        gestoppt = set()
+    return {**data, "servers": [s for s in data["servers"] if s.get("id") not in gestoppt]}
+
+
 @router.get("/", response_class=HTMLResponse, dependencies=[Depends(allow_anon)])
 async def landing(request: Request):
     """Öffentliche Landing-Page mit Live-Status (ohne Event-Log)."""
-    data = await _public_payload()
+    data = _ohne_gestoppte(await _public_payload())
     return templates.TemplateResponse(request, "landing.html", {"request": request, **data})
 
 
@@ -50,5 +60,5 @@ async def landing(request: Request):
             dependencies=[Depends(allow_anon)])
 async def landing_stats(request: Request):
     """30s-Poll-Target: rendert nur den Live-Stat-Strip."""
-    data = await _public_payload()
+    data = _ohne_gestoppte(await _public_payload())
     return templates.TemplateResponse(request, "_landing_stats.html", {"request": request, **data})

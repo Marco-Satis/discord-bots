@@ -1,28 +1,24 @@
 {#
-  Partial — Live-Stat-Strip der öffentlichen Landing.
-  Wird (a) von landing.html eingebunden (Server-Render beim ersten Laden) und
-  (b) vom Partial-Endpoint GET /partials/landing-stats für den 30s-HTMX-Poll
-  gerendert. Beide Pfade liefern identisches Markup (DRY).
+  Partial — Live-Status der Willkommensseite (Design C3).
+  Wird (a) von landing.html eingebunden und (b) vom Partial-Endpoint
+  GET /partials/landing-stats für den 30s-HTMX-Poll gerendert (identisches Markup).
 
-  Erwarteter Kontext: servers (list), system (dict), bots (list).
+  Erwarteter Kontext: servers (list, ohne bewusst gestoppte), system (dict), bots (list).
   KEIN events — Privacy-Schnitt (öffentliche Seite, keine Admin-/Spieler-Logs).
 #}
 {% set ns = namespace(bots_active=0, servers_online=0, players=0) %}
 {% for b in bots %}{% if b.status in ['online', 'connected', 'ready', 'ok'] %}{% set ns.bots_active = ns.bots_active + 1 %}{% endif %}{% endfor %}
 {% for s in servers %}{% if s.status in ['online', 'running'] %}{% set ns.servers_online = ns.servers_online + 1 %}{% endif %}{% set ns.players = ns.players + (s.players | int) %}{% endfor %}
-<div class="card stat">
-  <div class="cap">Bots aktiv</div>
-  <div class="v grad-text tnum">{{ ns.bots_active }}<span style="font-size:18px;color:var(--t3);-webkit-text-fill-color:var(--t3)">/{{ bots | length }}</span></div>
-</div>
-<div class="card stat">
-  <div class="cap">Game-Server online</div>
-  <div class="v tnum"{% if ns.servers_online > 0 %} style="color:var(--ok)"{% endif %}>{{ ns.servers_online }}<span style="font-size:18px;color:var(--t3)">/{{ servers | length }}</span></div>
-</div>
-<div class="card stat">
-  <div class="cap">Spieler online</div>
-  <div class="v tnum"{% if ns.players > 0 %} style="color:var(--ok)"{% endif %}>{{ ns.players }}</div>
-</div>
-<div class="card stat">
-  <div class="cap">CPU-Last</div>
-  <div class="v tnum">{{ system.cpu_percent | round | int }}<span style="font-size:18px;color:var(--t3)">%</span></div>
-</div>
+{% set cpu = system.cpu_percent | default(0) | round | int %}
+<dl class="c3-ro-grid">
+  <div class="c3-ro-cell{{ ' c3-ro-ok' if bots and ns.bots_active == bots|length }}"><dt class="c3-label">Bots aktiv</dt><dd><span class="c3-ro-n">{{ ns.bots_active }}</span><span class="c3-ro-of">/{{ bots | length }}</span></dd></div>
+  <div class="c3-ro-cell{{ ' c3-ro-ok' if servers and ns.servers_online == servers|length }}"><dt class="c3-label">Game-Server online</dt><dd><span class="c3-ro-n">{{ ns.servers_online }}</span><span class="c3-ro-of">/{{ servers | length }}</span></dd></div>
+  <div class="c3-ro-cell"><dt class="c3-label">Spieler online</dt><dd><span class="c3-ro-n">{{ ns.players }}</span></dd></div>
+  <div class="c3-ro-cell"><dt class="c3-label">CPU-Last</dt><dd><span class="c3-ro-n">{{ cpu }}</span><span class="c3-ro-of">&nbsp;%</span><span class="c3-meter{{ ' c3-meter--hot' if cpu >= 85 }}" aria-hidden="true"><span style="--v:{{ cpu }}%"></span></span></dd></div>
+</dl>
+<ul class="c3-ro-servers" aria-label="Game-Server">
+  {% for s in servers %}
+  {% set an = s.status in ['online', 'running'] %}
+  <li><span class="c3-sdot{{ '' if an else ' c3-sdot--bad' }}" aria-hidden="true"></span>{{ s.name }}<span class="c3-ro-s">{{ 'Online' if an else 'Offline' }} · {{ s.players | int }} Spieler</span></li>
+  {% endfor %}
+</ul>

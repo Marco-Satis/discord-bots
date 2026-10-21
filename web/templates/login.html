@@ -1,155 +1,79 @@
 <!DOCTYPE html>
-<html lang="de" data-theme="dark">
+<html lang="de">
+{#
+  Anmeldung (Route GET /auth/login) — Design C3 „Lobby-HUD“.
+  Kontext: error, reason ('inactive'|'timeout'), oauth_configured.
+  Formular-Felder und Ziele unverändert: POST /auth/login (csrf_token, username, password), GET /auth/discord.
+#}
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
   <meta name="csrf-token" content="{{ request.state.csrf_token|default('') }}">
-  <title>Bot Control — Anmelden</title>
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='%233F8EF2'/><stop offset='1' stop-color='%23FF5FB5'/></linearGradient></defs><rect width='32' height='32' rx='7' fill='url(%23g)'/><text x='16' y='22' font-family='sans-serif' font-size='18' font-weight='700' text-anchor='middle' fill='%230A0E13'>B</text></svg>">
-  <link rel="stylesheet" href="/static/fonts/geist/geist.css">
-  <link rel="stylesheet" href="/static/tailwind/output.css">
-  <link rel="stylesheet" href="/static/tailwind/_tokens.css?v=navy20260605b">
-  <link rel="stylesheet" href="/static/_preview/v5.css?v=navy20260605b">
-  <style>
-    /* Nordlicht-Palette (Azur/Pink) — page-lokal, identisch zu landing.html */
-    :root{
-      --s0:#0A0E13; --s1:#0c121c; --s2:#141d2b; --s3:#1c2740;
-      --line:rgba(120,210,220,.16); --line-soft:rgba(120,210,220,.07); --line-accent:rgba(63,142,242,.42);
-      --t1:#EAF3F6; --t2:#c3d0d8; --t3:#8FA3AE;
-      --acc:#3F8EF2; --acc-2:#6fb0f7; --acc-3:#FF5FB5;
-      --acc-grad:linear-gradient(135deg,#57a0f7,#2f7fe8);
-      --acc-grad-3:linear-gradient(115deg,#8fc0fb,#3F8EF2 42%,#FF5FB5);
-      --acc-soft:rgba(63,142,242,.14);
-    }
-    .btn--primary{ color:#06121a; box-shadow:0 0 0 1px rgba(63,142,242,.34), 0 12px 30px rgba(63,142,242,.30) }
-    .btn--primary:hover{ box-shadow:0 0 0 1px rgba(63,142,242,.55), 0 16px 44px rgba(63,142,242,.44), 0 0 24px rgba(255,95,181,.28) }
-    body{ background:#0B1017 }
-
-    /* Nordlicht-Vorhang (animiert) — identisch zu landing.html */
-    .atmos{ position:fixed; inset:0; z-index:-3; overflow:hidden; background-color:#0B1017;
-      background-image:
-        radial-gradient(120% 80% at 28% -8%, rgba(63,142,242,0.34), rgba(63,142,242,0) 62%),
-        radial-gradient(120% 80% at 78% -10%, rgba(255,95,181,0.26), rgba(255,95,181,0) 64%),
-        radial-gradient(150% 120% at 50% 4%, rgba(63,142,242,0.15), transparent 78%),
-        linear-gradient(180deg,#0e1420,#0A0E13 72%) }
-    .atmos::before{ content:""; position:absolute; inset:-32%; pointer-events:none; transform-origin:top center;
-      background-image:linear-gradient(99deg, rgba(63,142,242,0) 4%, rgba(63,142,242,0.56) 13%, rgba(63,142,242,0) 23%, rgba(63,142,242,0.40) 37%, rgba(63,142,242,0) 49%, rgba(63,142,242,0.54) 62%, rgba(63,142,242,0) 73%, rgba(63,142,242,0.42) 88%, rgba(63,142,242,0) 97%);
-      -webkit-mask-image:linear-gradient(180deg,#000 0%,#000 50%,rgba(0,0,0,.55) 76%,rgba(0,0,0,0) 95%);
-              mask-image:linear-gradient(180deg,#000 0%,#000 50%,rgba(0,0,0,.55) 76%,rgba(0,0,0,0) 95%);
-      animation:cur-a 12s ease-in-out infinite }
-    .atmos::after{ content:""; position:absolute; inset:-32%; pointer-events:none; transform-origin:top center;
-      background-image:linear-gradient(97deg, rgba(255,95,181,0) 6%, rgba(255,95,181,0.50) 17%, rgba(255,95,181,0) 28%, rgba(255,95,181,0.34) 44%, rgba(255,95,181,0) 55%, rgba(255,95,181,0.48) 69%, rgba(255,95,181,0) 80%, rgba(255,95,181,0.34) 92%, rgba(255,95,181,0) 99%);
-      -webkit-mask-image:linear-gradient(180deg,#000 0%,#000 46%,rgba(0,0,0,.5) 72%,rgba(0,0,0,0) 90%);
-              mask-image:linear-gradient(180deg,#000 0%,#000 46%,rgba(0,0,0,.5) 72%,rgba(0,0,0,0) 90%);
-      mix-blend-mode:screen; animation:cur-b 10s ease-in-out infinite }
-    @keyframes cur-a{ 0%{transform:translate3d(-5%,0,0) skewX(-7deg); opacity:.82} 50%{transform:translate3d(5%,0,0) skewX(6.5deg); opacity:1} 100%{transform:translate3d(-5%,0,0) skewX(-7deg); opacity:.82} }
-    @keyframes cur-b{ 0%{transform:translate3d(4.5%,0,0) skewX(6deg); opacity:.6} 50%{transform:translate3d(-4.5%,0,0) skewX(-6.5deg); opacity:1} 100%{transform:translate3d(4.5%,0,0) skewX(6deg); opacity:.6} }
-    .login-wrap{ min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; position:relative; z-index:1 }
-    .login-card{ width:100%; max-width:420px; text-align:center }
-    .orb-stage{ position:relative; height:190px; display:flex; align-items:center; justify-content:center; margin-bottom:8px }
-    .orb-glow{ position:absolute; width:300px; height:200px; border-radius:50%; z-index:0; pointer-events:none;
-      background:radial-gradient(ellipse at center, #bcd6fb 0%, rgba(63,142,242,.5) 35%, rgba(255,95,181,.16) 60%, transparent 75%);
-      filter:blur(40px); opacity:.7; animation:obreath 6s ease-in-out infinite }
-    @keyframes obreath{ 50%{ opacity:.95; transform:scale(1.06) } }
-    .orb{ position:relative; z-index:1; width:96px; height:96px; border-radius:24px;
-      display:flex; align-items:center; justify-content:center; font-weight:800; font-size:42px; color:#fff;
-      font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
-      background:linear-gradient(135deg,var(--acc),var(--acc-3));
-      box-shadow:0 0 50px rgba(63,142,242,.55), inset 0 2px 0 rgba(255,255,255,.35) }
-    .orb-grid{ position:absolute; inset:0; z-index:0; opacity:.5;
-      background-image:radial-gradient(rgba(63,142,242,.42) 1px, transparent 1px);
-      background-size:22px 22px;
-      -webkit-mask-image:radial-gradient(closest-side, #000 30%, transparent 75%);
-      mask-image:radial-gradient(closest-side, #000 30%, transparent 75%) }
-    .login-eyebrow{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11px;
-      letter-spacing:.22em; text-transform:uppercase; color:var(--acc-2); margin-top:4px }
-    .login-title{ font-size:23px; font-weight:600; letter-spacing:-.01em; margin:6px 0 0 }
-    .login-sub{ color:var(--t2); font-size:14px; margin:7px 0 26px }
-    .oauth{ display:flex; gap:12px; margin-bottom:22px }
-    .oauth .btn{ flex:1; justify-content:center; padding:13px; font-weight:500 }
-    .btn-discord{ border:0; color:#fff; background:linear-gradient(135deg,#5865f2,#6d5cf6);
-      box-shadow:0 0 0 1px rgba(99,102,241,.4), 0 10px 28px rgba(88,101,242,.42) }
-    .btn-discord:hover{ transform:translateY(-2px); box-shadow:0 0 0 1px rgba(99,102,241,.6), 0 16px 40px rgba(88,101,242,.55) }
-    .divider{ display:flex; align-items:center; gap:12px; color:var(--t3); font-size:11.5px;
-      font-family:ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.08em; text-transform:uppercase; margin:6px 0 18px }
-    .divider::before,.divider::after{ content:""; flex:1; height:1px; background:var(--line) }
-    .field{ width:100%; padding:13px 15px; border-radius:10px; border:1px solid var(--line);
-      background:var(--s2); color:var(--t1); font-size:14px; font-family:inherit; margin-bottom:12px;
-      transition:border-color var(--fast), box-shadow var(--fast) }
-    .field::placeholder{ color:var(--t3) }
-    .field:focus{ outline:0; border-color:var(--line-accent); box-shadow:0 0 0 3px var(--acc-soft) }
-    .btn-cont{ width:100%; justify-content:center; padding:14px; font-weight:600; font-size:15px; border:0; cursor:pointer }
-    .login-foot{ margin-top:30px; display:flex; gap:18px; justify-content:center; font-size:13px }
-    .login-foot a{ color:var(--t3); text-decoration:none } .login-foot a:hover{ color:var(--t1) }
-    .copyr{ color:var(--t3); font-size:12px; margin-top:14px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace }
-    .backlink{ position:fixed; top:20px; left:24px; z-index:2; color:var(--t2); text-decoration:none;
-      font-size:14px; display:flex; align-items:center; gap:7px; padding:8px 12px; border-radius:10px; border:1px solid var(--line); background:var(--s1) }
-    .backlink:hover{ color:#fff; border-color:var(--line-accent) }
-    .login-alert{ border-radius:10px; padding:12px 14px; margin-bottom:18px; font-size:13px; text-align:left;
-      display:flex; align-items:center; gap:9px }
-    .login-alert.err{ background:var(--bad-soft,rgba(239,68,68,.12)); border:1px solid var(--bad); color:var(--bad) }
-    .login-alert.warn{ background:var(--warn-soft,rgba(245,177,61,.12)); border:1px solid var(--warn); color:var(--warn) }
-    .login-alert.note{ background:var(--acc-soft); border:1px solid var(--line-accent); color:var(--t1) }
-    .login-alert code{ font-family:ui-monospace,monospace; font-size:12px }
-  </style>
+  <title>Anmelden · Ostfront HQ</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23090A14'/><path d='M16 4 26.5 10 24.2 23.2 13.4 28.3 5.4 18.1 7.8 8.1Z' fill='none' stroke='%23B84DFF' stroke-width='2' stroke-linejoin='round'/><path d='M16 4 13.4 28.3M5.4 18.1 26.5 10' stroke='%23FF3FA4' stroke-width='1.4' stroke-linecap='round'/></svg>">
+  <link rel="stylesheet" href="/static/c3.css?v=c3-20261021d">
 </head>
-<body>
-  <div class="atmos"></div>
-  <a class="backlink" href="/">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M11 6l-6 6 6 6"/></svg> Zurück
-  </a>
+<body class="c3">
+{% include "partials/_c3_icons.html" %}
+<div class="c3-bg" aria-hidden="true"></div>
 
-  <div class="login-wrap">
-    <div class="login-card">
-      <div class="orb-stage">
-        <div class="orb-glow"></div>
-        <div class="orb-grid"></div>
-        <div class="orb">B</div>
-      </div>
-      <div class="login-eyebrow">// System Access</div>
-      <h1 class="login-title">Willkommen zurück</h1>
-      <p class="login-sub">Melde dich an, um dein Bot-Control-Center zu öffnen.</p>
+<div class="c3-lp c3-login">
+  <header class="c3-lp-nav">
+    <div class="wrap c3-lp-nav-in">
+      <a class="c3-brand" href="/"><svg class="c3-mark" viewBox="0 0 32 32" aria-hidden="true"><use href="#mark"/></svg>Ostfront HQ</a>
+      <a class="c3-lp-foot-link" href="/" style="margin-left:auto"><svg class="i" aria-hidden="true" style="transform:scaleX(-1)"><use href="#i-arrow"/></svg>Zur Willkommensseite</a>
+    </div>
+  </header>
+
+  <main class="c3-login-main">
+    <div class="c3-shards" aria-hidden="true">
+      <i class="c3-shard c-cyan" style="--l:-10%;--t:46%;--w:42%;--h:62%;--fa:.16;--ea:.75;--a:35deg" data-pts="0 30, 60 0, 100 84, 4 100"></i>
+      <i class="c3-shard c-mag" style="--l:62%;--t:-14%;--w:46%;--h:60%;--fa:.22;--ea:.75" data-pts="12 0, 100 8, 90 100, 0 58"></i>
+      <i class="c3-shard c3-shard--line c-vio" style="--l:40%;--t:70%;--w:62%;--h:12%" data-line="0 100, 46 0, 100 64" data-t="2"></i>
+    </div>
+
+    <section class="c3-panel hud c3-login-card" aria-labelledby="login-h">
+      <p class="c3-label c3-kicker"><span class="c3-sdot" aria-hidden="true"></span>Zugang · Team</p>
+      <h1 id="login-h">Willkommen zurück.</h1>
+      <p class="c3-login-sub">Melde dich an, um Discord-Server, Game-Server und Bots zu steuern.</p>
 
       {% if error %}
-      <div class="login-alert err">
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
-        <span>{{ error }}</span>
-      </div>
+      <div class="c3-flash c3-flash--bad" role="alert"><svg class="i" aria-hidden="true"><use href="#i-alert"/></svg><span>{{ error }}</span></div>
       {% elif reason in ('inactive', 'timeout') %}
-      <div class="login-alert note">
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
-        <span>Deine Sitzung ist abgelaufen. Bitte melde dich erneut an.</span>
-      </div>
+      <div class="c3-flash c3-flash--ok" role="status"><svg class="i" aria-hidden="true"><use href="#i-clock"/></svg><span>Deine Sitzung ist abgelaufen. Bitte melde dich erneut an.</span></div>
       {% endif %}
 
       {% if oauth_configured %}
-      <div class="oauth">
-        <a class="btn btn-discord" href="/auth/discord">
-          <svg width="19" height="19" viewBox="0 0 24 24" fill="currentColor"><path d="M20.3 4.4A19.8 19.8 0 0015.4 3l-.2.5c1.7.4 2.5.9 3.4 1.5a13.3 13.3 0 00-11.2 0c.9-.6 1.9-1.1 3.4-1.5L10.6 3a19.8 19.8 0 00-4.9 1.4C2.6 9 1.8 13.5 2.2 17.9a19.9 19.9 0 006 3l.4-.6c-1-.3-1.8-.7-2.6-1.2l.6-.4a14.2 14.2 0 0012.8 0l.6.4c-.8.5-1.6.9-2.6 1.2l.4.6a19.9 19.9 0 006-3c.5-5.1-.8-9.6-3.5-13.5zM9 15.3c-1 0-1.7-.9-1.7-2s.8-2 1.7-2 1.7.9 1.7 2-.8 2-1.7 2zm6 0c-1 0-1.7-.9-1.7-2s.8-2 1.7-2 1.7.9 1.7 2-.8 2-1.7 2z"/></svg>
-          Mit Discord anmelden
-        </a>
-      </div>
+      <a class="c3-btn c3-btn--primary c3-login-discord" href="/auth/discord">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.3 4.4A19.8 19.8 0 0015.4 3l-.2.5c1.7.4 2.5.9 3.4 1.5a13.3 13.3 0 00-11.2 0c.9-.6 1.9-1.1 3.4-1.5L10.6 3a19.8 19.8 0 00-4.9 1.4C2.6 9 1.8 13.5 2.2 17.9a19.9 19.9 0 006 3l.4-.6c-1-.3-1.8-.7-2.6-1.2l.6-.4a14.2 14.2 0 0012.8 0l.6.4c-.8.5-1.6.9-2.6 1.2l.4.6a19.9 19.9 0 006-3c.5-5.1-.8-9.6-3.5-13.5zM9 15.3c-1 0-1.7-.9-1.7-2s.8-2 1.7-2 1.7.9 1.7 2-.8 2-1.7 2zm6 0c-1 0-1.7-.9-1.7-2s.8-2 1.7-2 1.7.9 1.7 2-.8 2-1.7 2z"/></svg>
+        Mit Discord anmelden
+      </a>
       {% else %}
-      <div class="login-alert warn">
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
-        <span>Discord-Login ist nicht konfiguriert (<code>DISCORD_CLIENT_ID</code>/<code>SECRET</code> fehlen). Nutze den Login unten.</span>
-      </div>
+      <div class="c3-flash c3-flash--bad" role="status"><svg class="i" aria-hidden="true"><use href="#i-alert"/></svg><span>Der Discord-Login ist nicht eingerichtet. Nutze die Anmeldung mit Benutzername darunter.</span></div>
       {% endif %}
 
-      <div class="divider">oder Login</div>
+      <details class="c3-login-alt"{% if not oauth_configured or error %} open{% endif %}>
+        <summary>Mit Benutzername und Passwort</summary>
+        <form action="/auth/login" method="post" autocomplete="on">
+          <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token|default('') }}">
+          <label class="c3-field"><span>Benutzername</span><input type="text" name="username" autocomplete="username" required></label>
+          <label class="c3-field"><span>Passwort</span><input type="password" name="password" autocomplete="current-password" required></label>
+          <button type="submit" class="c3-btn c3-btn--ghost c3-login-submit"><svg class="i" aria-hidden="true"><use href="#i-login"/></svg>Anmelden</button>
+        </form>
+      </details>
 
-      <form action="/auth/login" method="post" autocomplete="on">
-        <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token|default('') }}">
-        <input class="field" type="text" name="username" placeholder="Benutzername" autocomplete="username" required>
-        <input class="field" type="password" name="password" placeholder="Passwort" autocomplete="current-password" required>
-        <button type="submit" class="btn btn--primary btn-cont">Anmelden</button>
-      </form>
+      <p class="c3-label c3-login-note">Zugang nur für freigeschaltete Admins</p>
+    </section>
+  </main>
 
-      <div class="login-foot">
-        <a href="/">Start</a><a href="/api/health">Status</a><a href="https://github.com/Marco-Satis/discord-bots-docs" target="_blank" rel="noopener">Docs</a>
-      </div>
-      <div class="copyr">Ostfront HQ · Bot Control · lokal &amp; DSGVO-konform</div>
+  <footer class="c3-lp-foot">
+    <div class="wrap c3-lp-foot-in">
+      <span class="c3-lp-foot-brand"><svg class="c3-mark" viewBox="0 0 32 32" aria-hidden="true"><use href="#mark"/></svg>Ostfront HQ · Dashboard für das Team</span>
+      <a class="c3-p-link" href="/api/health">Systemstatus<svg class="i" aria-hidden="true"><use href="#i-arrow"/></svg></a>
     </div>
-  </div>
+  </footer>
+</div>
+<script src="/static/c3.js?v=c3-20261021d" defer></script>
 </body>
 </html>
