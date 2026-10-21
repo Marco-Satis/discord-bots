@@ -1,0 +1,36 @@
+{% extends "base_v5.html" %}
+{% from "partials/_c3_kopf.html" import kopf %}
+
+{% block title %}Sicherheits-Übersicht{% endblock %}
+
+{% block content %}
+{% set CHIP = {"ok": "c3-chip--on", "pruefen": "c3-chip--check", "info": "c3-chip--off"} %}
+{% set TEXT = {"ok": "In Ordnung", "pruefen": "Prüfen", "info": "Info"} %}
+{% call kopf("Discord-Server", "Sicherheits-Übersicht", "Alle Schutzfunktionen auf einen Blick. Discord-Einstellungen und Rechte kommen aus dem letzten Abgleich von Recon.") %}
+  <span class="c3-chip c3-chip--on">{{ summe.ok }} in Ordnung</span>
+  {% if summe.pruefen %}<span class="c3-chip c3-chip--check">{{ summe.pruefen }} prüfen</span>{% endif %}
+{% endcall %}
+
+<ul class="sich-liste">
+  {% for p in punkte %}
+  <li class="stat-card sich-punkt sich-{{ p.status }}">
+    <div class="sich-kopf">
+      <h2 class="sich-titel">{{ p.titel }}</h2>
+      <span class="c3-chip {{ CHIP[p.status] }}">{{ TEXT[p.status] }}</span>
+    </div>
+    <p class="sich-text">{{ p.text }}</p>
+    {% if p.link %}<a class="c3-go" href="{{ p.link }}">Öffnen<svg class="i" aria-hidden="true"><use href="#i-arrow"/></svg></a>{% endif %}
+  </li>
+  {% endfor %}
+</ul>
+
+<style>
+.sich-liste { list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:14px; }
+.sich-punkt { display:flex; flex-direction:column; gap:8px; margin:0; min-width:0; }
+.sich-kopf { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
+.sich-titel { font-size:16px; margin:0; }
+.sich-text { margin:0; color:var(--text-2); font-size:14px; line-height:1.5; overflow-wrap:anywhere; }
+.sich-punkt .c3-go { margin-top:auto; align-self:flex-start; }
+.sich-pruefen { box-shadow: inset 0 0 0 1px rgba(255,63,164,.55); }
+</style>
+{% endblock %}

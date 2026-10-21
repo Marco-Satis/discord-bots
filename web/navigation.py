@@ -67,6 +67,7 @@ def _bereiche(spielserver: list) -> tuple[Bereich, ...]:
             # Die alten Marshal-Tabs speichern bis auf Embeds nicht mehr (SAVE_LOCKS) und
             # werden deshalb nicht verlinkt; eingestellt wird per Befehl in Discord.
             Gruppe("Sicherheit", (
+                Seite("sicherheit", "Sicherheits-Übersicht", "/sicherheit-uebersicht", "i-shield", "sicherheit ampel status rechte 2fa raid"),
                 Seite("k-verifizierung", "Verifizierung und Raid-Schutz", "/marshal-bot#mod-verifizierung", "i-shield-check", "verifizieren raid sperre beitritte sicherheit"),
                 Seite("moderation", "Automod", "/moderation", "i-filter", "moderation wortfilter anti-spam caps links"),
                 Seite("k-warn", "Verwarnungen", "/marshal-bot#mod-warn", "i-flag", "warn mute kick bann"),
@@ -79,7 +80,7 @@ def _bereiche(spielserver: list) -> tuple[Bereich, ...]:
                 Seite("leveling", "Leveling", "/leveling", "i-award", "xp level rang rangrollen"),
                 Seite("k-counting", "Counting", "/marshal-bot#mod-counting", "i-count", "zaehlen"),
                 Seite("lfg", "Spielersuche", "/lfg", "i-users", "lfg mitspieler ping"),
-                Seite("k-supporter", "HQ-Supporter", "/marshal-bot#mod-supporter", "i-gem", "booster"),
+                Seite("booster", "HQ-Supporter", "/booster", "i-gem", "booster boost danke supporter"),
                 Seite("k-reaction_roles", "Reaction Roles", "/marshal-bot#mod-reaction_roles", "i-smile", "reaktion rollen"),
                 Seite("k-giveaways", "Giveaways", "/marshal-bot#mod-giveaways", "i-gift", "verlosung"),
                 Seite("k-willkommen", "Willkommen", "/marshal-bot#mod-willkommen", "i-door", "welcome begruessung"),
@@ -89,6 +90,7 @@ def _bereiche(spielserver: list) -> tuple[Bereich, ...]:
                 Seite("m-temp_voice", "Temp-Voice", "/marshal-bot?tab=temp_voice", "i-headphones", "voice talk panel hubs"),
                 Seite("k-tickets", "Tickets", "/marshal-bot#mod-tickets", "i-ticket", "support transkript"),
                 Seite("m-embeds", "Embeds", "/marshal-bot?tab=embeds", "i-message", "nachricht senden embedinator"),
+                Seite("geplant", "Geplante Nachrichten", "/geplant", "i-clock", "geplant schedule zeitplan nachricht"),
                 Seite("k-custom_commands", "Custom Commands", "/marshal-bot#mod-custom_commands", "i-terminal", "befehle eigene"),
             )),
         )),

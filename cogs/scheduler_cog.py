@@ -22,10 +22,12 @@ import aiofiles
 
 from utils.logger import get_logger
 from utils.loop_guard import guard
-from utils.config import get_config, get_env, funktion_aktiv, DATA_DIR
+from utils.config import get_config, get_env, funktion_aktiv
 from utils.permissions import is_admin, admin_only
 from modules.notifications.discord_notifier import NotifyLevel
 from modules.database.db_manager import get_db, DBHelper
+from modules import geplante_nachrichten
+from modules.platzhalter import render
 from utils.embeds import (
     info_embed,
     success_embed,
@@ -33,8 +35,6 @@ from utils.embeds import (
 )
 
 BERLIN_TZ = ZoneInfo("Europe/Berlin")
-SCHEDULED_MESSAGES_FILE = DATA_DIR / "scheduled_messages.json"
-MAX_ACTIVE_SCHEDULES = 20
 
 logger = get_logger("scheduler_cog")
 
@@ -200,9 +200,6 @@ class SchedulerCog(commands.Cog):
         self._last_retention_cleanup: Optional[datetime] = None
 
         # Scheduled Messages (Phase 8f)
-        self._scheduled_messages: List[Dict[str, Any]] = []
-        self._next_schedule_id = 1
-        self._schedule_lock = asyncio.Lock()
 
     # ------------------------------------------------------------------
     # Properties for accessing bot-level services
@@ -2651,56 +2648,17 @@ class SchedulerCog(commands.Cog):
     # ------------------------------------------------------------------
 
     async def _load_scheduled_messages(self) -> None:
-        """Scheduled Messages aus JSON laden, vergangene einmalige löschen"""
+        """Beim Start: einmalige Nachrichten verwerfen, deren Termin im Ausfall verstrich.
+
+        Seit 21.10.2026 liegt die Liste nur noch in der Datei (modules/geplante_nachrichten,
+        mit Dateisperre), damit das Dashboard sie mitpflegen kann.
+        """
         try:
-            if SCHEDULED_MESSAGES_FILE.exists():
-                async with aiofiles.open(SCHEDULED_MESSAGES_FILE, "r", encoding="utf-8") as f:
-                    data = json.loads(await f.read())
-                self._scheduled_messages = data.get("messages", [])
-                self._next_schedule_id = data.get("next_id", 1)
-
-                # Vergangene einmalige Messages entfernen
-                now = datetime.now(BERLIN_TZ)
-                before = len(self._scheduled_messages)
-                self._scheduled_messages = [
-                    m for m in self._scheduled_messages
-                    if m.get("repeat", "einmalig") != "einmalig"
-                    or datetime.fromisoformat(m["next_run"]) > now
-                ]
-                removed = before - len(self._scheduled_messages)
-                if removed > 0:
-                    await self._save_scheduled_messages()
-                    logger.info(f"Scheduled Messages: {removed} vergangene einmalige entfernt")
-
-                logger.info(f"Scheduled Messages geladen: {len(self._scheduled_messages)} aktiv")
-            else:
-                self._scheduled_messages = []
-                self._next_schedule_id = 1
+            entfernt = await asyncio.to_thread(geplante_nachrichten.vergangene_einmalige_entfernen)
+            if entfernt:
+                logger.info(f"Scheduled Messages: {entfernt} vergangene einmalige entfernt")
         except Exception as e:
             logger.error(f"Scheduled Messages laden fehlgeschlagen: {e}")
-            self._scheduled_messages = []
-
-    async def _save_scheduled_messages(self) -> None:
-        """Scheduled Messages in JSON speichern.
-
-        Atomic-Write via temp-File + os.replace (verhindert Crash-mid-write
-        Korruption). Per-Instance asyncio.Lock verhindert konkurrierende
-        Writes aus mehreren Tasks (z. B. mehrere Schedule-Adds in <100ms).
-        """
-        async with self._schedule_lock:
-            try:
-                SCHEDULED_MESSAGES_FILE.parent.mkdir(parents=True, exist_ok=True)
-                data = {
-                    "messages": self._scheduled_messages,
-                    "next_id": self._next_schedule_id,
-                }
-                tmp_path = SCHEDULED_MESSAGES_FILE.with_suffix(SCHEDULED_MESSAGES_FILE.suffix + ".tmp")
-                async with aiofiles.open(tmp_path, "w", encoding="utf-8") as f:
-                    await f.write(json.dumps(data, indent=2, ensure_ascii=False))
-                # Atomic rename (POSIX guarantee, Windows os.replace ist auch atomar).
-                await asyncio.to_thread(os.replace, tmp_path, SCHEDULED_MESSAGES_FILE)
-            except Exception as e:
-                logger.error(f"Scheduled Messages speichern fehlgeschlagen: {e}")
 
     def _parse_time(self, zeit: str) -> Optional[datetime]:
         """Parst relative ('2h', '30m') oder absolute ('20:00', '2026-02-21 18:00') Zeitangaben.
@@ -2740,52 +2698,23 @@ class SchedulerCog(commands.Cog):
         return None
 
     async def _check_scheduled_messages(self, now: datetime) -> None:
-        """Prueft ob Scheduled Messages gesendet werden muessen"""
-        if not self._scheduled_messages:
+        """Faellige geplante Nachrichten senden, danach weiterschalten oder entfernen."""
+        faellig = await asyncio.to_thread(geplante_nachrichten.faellige)
+        if not faellig:
             return
-
-        now_tz = datetime.now(BERLIN_TZ)
-        to_remove = []
-        changed = False
-
-        for msg in self._scheduled_messages:
+        for msg in faellig:
             try:
-                next_run = datetime.fromisoformat(msg["next_run"])
-                if next_run > now_tz:
-                    continue
-
-                # Nachricht senden
-                channel = self.bot.get_channel(msg["channel_id"])
+                channel = self.bot.get_channel(int(msg["channel_id"]))
                 if channel:
-                    await channel.send(msg["message"])
+                    text = render(msg["message"], guild=getattr(channel, "guild", None))
+                    await channel.send(text[:2000], allowed_mentions=discord.AllowedMentions(everyone=False, roles=False))
                     logger.info(f"Scheduled Message #{msg['id']} gesendet in #{channel.name}")
                 else:
-                    logger.warning(f"Scheduled Message #{msg['id']}: Channel {msg['channel_id']} nicht gefunden")
-
-                # Wiederholung oder entfernen
-                repeat = msg.get("repeat", "einmalig")
-                if repeat == "taeglich":
-                    next_dt = next_run + timedelta(days=1)
-                    msg["next_run"] = next_dt.isoformat()
-                    changed = True
-                elif repeat == "woechentlich":
-                    next_dt = next_run + timedelta(weeks=1)
-                    msg["next_run"] = next_dt.isoformat()
-                    changed = True
-                else:
-                    to_remove.append(msg["id"])
-
+                    logger.warning(f"Scheduled Message #{msg['id']}: Channel nicht gefunden")
             except Exception as e:
                 logger.error(f"Scheduled Message #{msg.get('id', '?')} Fehler: {e}")
-
-        if to_remove:
-            self._scheduled_messages = [
-                m for m in self._scheduled_messages if m["id"] not in to_remove
-            ]
-            changed = True
-
-        if changed:
-            await self._save_scheduled_messages()
+        # Auch bei Fehlern weiterschalten — sonst kaeme dieselbe Nachricht jede Minute erneut
+        await asyncio.to_thread(geplante_nachrichten.erledigt, [m["id"] for m in faellig])
 
     # ------------------------------------------------------------------
     # Scheduled Messages Commands
@@ -2817,23 +2746,6 @@ class SchedulerCog(commands.Cog):
                            wiederholung: str = "einmalig"):
         await interaction.response.defer(ephemeral=True)
 
-        # Rate-Limit prüfen
-        active_count = len(self._scheduled_messages)
-        if active_count >= MAX_ACTIVE_SCHEDULES:
-            await interaction.followup.send(
-                f"Maximale Anzahl aktiver Schedules erreicht ({MAX_ACTIVE_SCHEDULES}).",
-                ephemeral=True,
-            )
-            return
-
-        # Nachrichtenlaenge validieren (Discord-Limit: 2000 Zeichen)
-        if len(nachricht) > 2000:
-            await interaction.followup.send(
-                "Nachricht darf maximal 2000 Zeichen lang sein.",
-                ephemeral=True,
-            )
-            return
-
         # Zeit parsen
         target_time = self._parse_time(zeit)
         if not target_time:
@@ -2851,23 +2763,18 @@ class SchedulerCog(commands.Cog):
             )
             return
 
-        # Schedule erstellen
-        async with self._schedule_lock:
-            schedule_id = self._next_schedule_id
-            self._next_schedule_id += 1
-
-            entry = {
-                "id": schedule_id,
-                "message": nachricht,
-                "channel_id": target_channel.id,
-                "channel_name": getattr(target_channel, 'name', str(target_channel.id)),
-                "next_run": target_time.isoformat(),
-                "repeat": wiederholung,
-                "created_by": str(interaction.user),
-                "created_at": datetime.now(BERLIN_TZ).isoformat(),
-            }
-            self._scheduled_messages.append(entry)
-            await self._save_scheduled_messages()
+        # Anlegen in der gemeinsamen Ablage. Vorher hielt diese Stelle self._schedule_lock
+        # und rief darin _save_scheduled_messages auf, das denselben Lock nahm — asyncio.Lock
+        # ist nicht reentrant, /schedule add blieb dadurch fuer immer haengen.
+        try:
+            entry = await asyncio.to_thread(
+                geplante_nachrichten.hinzufuegen, nachricht, target_channel.id,
+                getattr(target_channel, "name", "?"), target_time, wiederholung, str(interaction.user),
+            )
+        except ValueError as e:
+            await interaction.followup.send(str(e), ephemeral=True)
+            return
+        schedule_id = entry["id"]
 
         time_str = target_time.strftime("%d.%m.%Y %H:%M")
         repeat_str = {"einmalig": "Einmalig", "taeglich": "Taeglich", "woechentlich": "Woechentlich"}
@@ -2889,14 +2796,15 @@ class SchedulerCog(commands.Cog):
     async def schedule_list(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
 
-        if not self._scheduled_messages:
+        nachrichten = await asyncio.to_thread(geplante_nachrichten.liste)
+        if not nachrichten:
             await interaction.followup.send(
                 "Keine geplanten Nachrichten.", ephemeral=True
             )
             return
 
         lines = []
-        for msg in self._scheduled_messages:
+        for msg in nachrichten:
             try:
                 next_run = datetime.fromisoformat(msg["next_run"])
                 time_str = next_run.strftime("%d.%m. %H:%M")
@@ -2918,7 +2826,7 @@ class SchedulerCog(commands.Cog):
             text = text[:4000] + "\n..."
 
         embed = info_embed(
-            title=f"Geplante Nachrichten ({len(self._scheduled_messages)})",
+            title=f"Geplante Nachrichten ({len(nachrichten)})",
             description=text,
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
@@ -2932,22 +2840,11 @@ class SchedulerCog(commands.Cog):
                               id: int):
         await interaction.response.defer(ephemeral=True)
 
-        async with self._schedule_lock:
-            before = len(self._scheduled_messages)
-            self._scheduled_messages = [
-                m for m in self._scheduled_messages if m["id"] != id
-            ]
-
-            if len(self._scheduled_messages) < before:
-                await self._save_scheduled_messages()
-                await interaction.followup.send(
-                    f"Schedule #{id} gelöscht.", ephemeral=True
-                )
-                logger.info(f"Schedule #{id} gelöscht von {interaction.user}")
-            else:
-                await interaction.followup.send(
-                    f"Schedule #{id} nicht gefunden.", ephemeral=True
-                )
+        if await asyncio.to_thread(geplante_nachrichten.loeschen, id):
+            await interaction.followup.send(f"Schedule #{id} gelöscht.", ephemeral=True)
+            logger.info(f"Schedule #{id} gelöscht von {interaction.user}")
+        else:
+            await interaction.followup.send(f"Schedule #{id} nicht gefunden.", ephemeral=True)
 
     # ------------------------------------------------------------------
     # Error handler

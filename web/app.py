@@ -297,6 +297,7 @@ from web.routes.moderation_route import router as moderation_router    # noqa: E
 from web.routes.lfg_route import router as lfg_router                  # noqa: E402
 from web.routes.logs_route import router as logs_router                # noqa: E402
 from web.routes.mod_akte_route import router as mod_akte_router        # noqa: E402
+from web.routes.discord_werkzeuge_route import router as discord_werkzeuge_router  # noqa: E402
 from web.routes.landing_route import router as landing_router          # noqa: E402  (D9: oeffentliche Landing `/`)
 from web.routes.home_route import router as home_router                # noqa: E402  (D9: Post-Login `/home`)
 from web.routes.rbac_route import router as rbac_router                # noqa: E402  (RBAC: /rbac — war nicht registriert)
@@ -332,6 +333,7 @@ app.include_router(moderation_router)
 app.include_router(lfg_router)
 app.include_router(logs_router)     # Log-Kanäle (/logs, 21.10.2026)
 app.include_router(mod_akte_router)  # Moderations-Akte: /moderation/akte* (moderation:edit)
+app.include_router(discord_werkzeuge_router)  # Sicherheits-Übersicht, HQ-Supporter, Geplant (21.10.2026)
 
 
 # F64: CSRF-Token wird jetzt direkt in der CSRFMiddleware (Pure ASGI) gesetzt.

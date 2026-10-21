@@ -1,0 +1,81 @@
+{% extends "base_v5.html" %}
+{% from "partials/_c3_kopf.html" import kopf %}
+{% from "partials/_channel_select.html" import channel_select %}
+{% from "partials/_platzhalter.html" import platzhalter_liste %}
+
+{% block title %}Geplante Nachrichten{% endblock %}
+
+{% block content %}
+{{ kopf("Discord-Server", "Geplante Nachrichten", "Recon sendet sie zum Termin, einmalig, täglich oder wöchentlich. Dieselbe Liste wie /schedule in Discord.") }}
+
+{% if meldung_ok %}<div class="c3-flash c3-flash--ok" role="status"><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span>{{ meldung_ok }}</span></div>{% endif %}
+{% if meldung_fehler %}<div class="c3-flash c3-flash--bad" role="alert"><svg class="i" aria-hidden="true"><use href="#i-alert"/></svg><span>{{ meldung_fehler }}</span></div>{% endif %}
+
+<section class="stat-card" aria-labelledby="gp-liste">
+  <h2 class="section-title" id="gp-liste">Geplant ({{ zeilen|length }} von {{ max }})</h2>
+  {% if zeilen %}
+  <ul class="gp-liste">
+    {% for z in zeilen %}
+    <li class="gp-zeile">
+      <div class="gp-meta">
+        <span class="gp-wann">{{ z.wann }}</span>
+        <span class="c3-chip {{ 'c3-chip--on' if z.wiederholung != 'einmalig' else 'c3-chip--off' }}">{{ z.wiederholung }}</span>
+        <span class="gp-kanal"># {{ z.kanal }}</span>
+      </div>
+      <p class="gp-text">{{ z.text }}</p>
+      <div class="gp-fuss">
+        <span class="gp-von">{{ z.von }}</span>
+        <form method="post" action="/geplant/{{ z.id }}/loeschen" onsubmit="return confirm('Diese geplante Nachricht löschen?');" data-c3-nodirty>
+          {% if request.state.csrf_token is defined %}<input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">{% endif %}
+          <button type="submit" class="btn btn-sm btn-danger">Löschen</button>
+        </form>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="empty-text">Nichts geplant.</p>
+  {% endif %}
+</section>
+
+<section class="stat-card" aria-labelledby="gp-neu" style="margin-top:16px">
+  <h2 class="section-title" id="gp-neu">Neue Nachricht</h2>
+  {% if formfehler %}<div class="c3-flash c3-flash--bad" role="alert"><svg class="i" aria-hidden="true"><use href="#i-alert"/></svg><span>{{ formfehler }}</span></div>{% endif %}
+  <form method="post" action="/geplant" class="gp-form">
+    {% if request.state.csrf_token is defined %}<input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">{% endif %}
+    <div class="gp-felder">
+      <div class="form-group"><label>Kanal</label>{{ channel_select('kanal', '', kind='text') }}</div>
+      <div class="form-group"><label for="gp-zeit">Zeitpunkt</label><input id="gp-zeit" type="datetime-local" name="zeitpunkt" required></div>
+      <div class="form-group"><label for="gp-wdh">Wiederholung</label>
+        <select id="gp-wdh" name="wiederholung">
+          <option value="einmalig">Einmalig</option>
+          <option value="taeglich">Täglich</option>
+          <option value="woechentlich">Wöchentlich</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-group">
+      <label for="gp-text">Nachricht</label>
+      <textarea id="gp-text" name="text" rows="4" maxlength="2000" required></textarea>
+      {{ platzhalter_liste('gp-text', mitglied=False) }}
+    </div>
+    <div class="actions-bar"><button type="submit" class="btn btn-primary">Planen</button></div>
+  </form>
+</section>
+
+<style>
+.gp-liste { list-style:none; margin:0; padding:0; }
+.gp-zeile { padding:12px 0; border-top:1px solid var(--line); display:flex; flex-direction:column; gap:6px; }
+.gp-zeile:first-child { border-top:0; }
+.gp-meta { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.gp-wann { font-family:var(--mono); font-size:13px; color:var(--text); }
+.gp-kanal { color:var(--cyan); font-size:14px; overflow-wrap:anywhere; }
+.gp-text { margin:0; color:var(--text-2); white-space:pre-wrap; overflow-wrap:anywhere; }
+.gp-fuss { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; }
+.gp-von { font-size:12px; color:var(--text-3); }
+.gp-felder { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px; }
+.gp-form .form-group { margin-top:12px; min-width:0; }
+.gp-form label { display:block; font-size:12px; color:var(--text-2); margin-bottom:6px; }
+.gp-form select, .gp-form input, .gp-form textarea { width:100%; }
+</style>
+{% endblock %}

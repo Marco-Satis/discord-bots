@@ -1,0 +1,9 @@
+{% extends "base_v5.html" %}
+{% from "partials/_c3_kopf.html" import kopf %}
+
+{% block title %}HQ-Supporter{% endblock %}
+
+{% block content %}
+{{ kopf("Discord-Server", "HQ-Supporter", "Booster bekommen automatisch die Supporter-Rolle. Hier stellst du zusätzlich eine Danke-Nachricht beim Boost ein.") }}
+{% include "partials/booster_form.html" %}
+{% endblock %}

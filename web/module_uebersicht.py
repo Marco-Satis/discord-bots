@@ -421,7 +421,7 @@ def baue_karten(q: dict) -> list[dict]:
         "aktiv" if sup and verify_rolle else "offen",
         "Booster bekommen die Rolle, wer nicht mehr boostet, verliert sie."
         if sup and verify_rolle else "Supporter- oder Verifiziert-Rolle fehlt.",
-        ohne_schalter="Aus würde die Rollen einfrieren.", einstellen="/supporter",
+        ohne_schalter="Aus würde die Rollen einfrieren.", einstellen="/supporter", link="/booster",
         rollen=rollen_probleme(q, [sup]),
     ))
 

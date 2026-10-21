@@ -22,6 +22,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from modules.guild_context import GuildConfig
+from modules.platzhalter import render
 from utils.logger import get_logger
 from utils.permissions import admin_only
 
@@ -29,6 +30,9 @@ logger = get_logger("cogs.supporter")
 
 _GRUND_DAZU = "HQ-Supporter: boostet und ist verifiziert"
 _GRUND_WEG = "HQ-Supporter: kein Boost oder nicht verifiziert"
+
+
+DANKE_STANDARD = "💎 Danke {user} für deinen Boost! Du bist jetzt HQ-Supporter."
 
 
 async def _rolle(guild: discord.Guild, key: str) -> Optional[discord.Role]:
@@ -125,6 +129,34 @@ class SupporterCog(commands.Cog):
                 await abgleichen(after, verifiziert, supporter)
         except Exception as e:
             logger.error(f"[{after.guild.id}] HQ-Supporter on_member_update: {e}", exc_info=True)
+
+    @commands.Cog.listener("on_member_update")
+    async def boost_danke(self, before: discord.Member, after: discord.Member) -> None:
+        """
+        Danke-Nachricht beim ersten Boost (21.10.2026). Eingestellt im Dashboard
+        (Seite HQ-Supporter): booster.danke_aktiv, booster.danke_kanal_id, booster.danke_text.
+        Discord meldet weitere Boosts desselben Mitglieds nicht als Aenderung; gedankt
+        wird also einmal je Boost-Beginn.
+        """
+        if before.premium_since is not None or after.premium_since is None or after.bot:
+            return
+        guild = after.guild
+        try:
+            if not await GuildConfig.get(guild.id, "booster.danke_aktiv", False):
+                return
+            kanal_id = await GuildConfig.get(guild.id, "booster.danke_kanal_id")
+            kanal = guild.get_channel(int(kanal_id)) if kanal_id else None
+            if kanal is None:
+                logger.warning(f"[{guild.id}] Boost-Danke: kein gueltiger Kanal")
+                return
+            text = await GuildConfig.get(guild.id, "booster.danke_text", DANKE_STANDARD) or DANKE_STANDARD
+            await kanal.send(
+                render(str(text), member=after, guild=guild)[:2000],
+                allowed_mentions=discord.AllowedMentions(everyone=False, roles=False, users=[after]),
+            )
+            logger.info(f"[{guild.id}] Boost-Danke gesendet")
+        except Exception as e:
+            logger.error(f"[{guild.id}] Boost-Danke fehlgeschlagen: {e}", exc_info=True)
 
     @supporter_grp.command(name="rolle", description="HQ-Supporter-Rolle festlegen (Admin)")
     @app_commands.describe(rolle="Rolle, die echte Booster bekommen")

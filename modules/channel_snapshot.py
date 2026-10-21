@@ -93,10 +93,44 @@ def build_roles(guild: Any) -> list[dict[str, Any]]:
                 bot_member = guild.get_member(int(bot_id))
                 if bot_member is not None:
                     out[-1]["bot_top"] = int(bot_member.top_role.position)
+                    rechte = bot_member.guild_permissions
+                    out[-1]["bot_rechte"] = [n for n in BOT_RECHTE if getattr(rechte, n, False)]
         except Exception as e:  # einzelne kaputte Rolle nicht den ganzen Snapshot kippen lassen
             logger.warning(f"channel_snapshot: Rolle uebersprungen: {e}")
     out.sort(key=lambda x: -x["position"])
     return out
+
+
+# Rechte, die die Sicherheits-Übersicht je Bot auswertet
+BOT_RECHTE = (
+    "administrator", "manage_guild", "manage_roles", "manage_channels", "manage_messages",
+    "kick_members", "ban_members", "moderate_members", "view_audit_log", "manage_webhooks",
+    "manage_nicknames", "move_members",
+)
+
+
+def build_sicherheit(guild: Any) -> dict[str, Any]:
+    """
+    Sicherheitsrelevante Server-Einstellungen fuer die Sicherheits-Übersicht im Dashboard
+    (21.10.2026): Verifizierungsstufe, 2FA-Pflicht, Inhaltsfilter und Rollen mit
+    Administrator-Recht (ohne Bot-Rollen).
+    """
+    def _wert(attr: str) -> int:
+        v = getattr(guild, attr, None)
+        return int(getattr(v, "value", v) or 0)
+
+    admin_rollen = [
+        str(r.name) for r in getattr(guild, "roles", []) or []
+        if not getattr(r, "managed", False)
+        and not getattr(r, "is_default", lambda: False)()
+        and getattr(getattr(r, "permissions", None), "administrator", False)
+    ]
+    return {
+        "verification_level": _wert("verification_level"),
+        "mfa_level": _wert("mfa_level"),
+        "explicit_content_filter": _wert("explicit_content_filter"),
+        "admin_rollen": admin_rollen,
+    }
 
 
 def write_snapshot(guild: Any) -> bool:
@@ -113,6 +147,7 @@ def write_snapshot(guild: Any) -> bool:
             "updated_at": datetime.now(timezone.utc).isoformat(),
             "channels": build_channels(guild),
             "roles": build_roles(guild),
+            "sicherheit": build_sicherheit(guild),
         }
         payload["count"] = len(payload["channels"])
         SNAPSHOT_PATH.parent.mkdir(parents=True, exist_ok=True)
