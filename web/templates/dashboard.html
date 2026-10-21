@@ -2,12 +2,11 @@
 {% from "partials/_c3_kopf.html" import kopf %}
 
 {% block title %}Übersicht und Verlauf{% endblock %}
-{% block crumb %}Übersicht{% endblock %}
-{% block nav_dashboard %}active{% endblock %}
 
 {% block content %}
 {# Control-Panel-Layout (2026-07-14): Status-Leiste (#system-stats) + Game-Server-Karten-Grid (.scard,
-   #server-tiles) + Charts + Bot-Health/Events + System-Updates. Alle funktionalen Hooks (IDs, data-attrs,
+   #server-tiles) + Charts + Ereignisse. Bot-Health und System-Updates leben seit dem C3-Umbau
+   (21.10.2026) unter Bots & System (/system), nicht doppelt hier. Alle funktionalen Hooks (IDs, data-attrs,
    hx-, Chart-Canvases) unveraendert fuer WS-Live-Updates + HTMX + Chart.js. Layout-CSS inline im content-block. #}
 
 <style>
@@ -15,32 +14,36 @@
   .dash-statbar{ display:flex; flex-direction:row; align-items:stretch; flex-wrap:wrap; padding:0; overflow:hidden; margin-bottom:2px }
   .dash-statbar .sb-seg{ flex:1 1 auto; min-width:140px; padding:16px 22px; border-left:1px solid var(--line-soft,rgba(255,255,255,.06)); display:flex; flex-direction:column; gap:5px }
   .dash-statbar .sb-seg:first-child{ border-left:0 }
-  .dash-statbar .sb-cap{ font-size:11px; letter-spacing:.07em; text-transform:uppercase; color:var(--t3); font-family:ui-monospace,Menlo,monospace }
-  .dash-statbar .sb-val{ font-size:22px; font-weight:700; color:var(--t1); font-family:ui-monospace,Menlo,monospace; letter-spacing:-.01em }
-  .dash-statbar .sb-val.acc{ color:var(--acc) }
-  .dash-statbar .sb-sub{ font-size:11px; color:var(--t3); font-family:ui-monospace,Menlo,monospace }
+  .dash-statbar .sb-cap{ font:500 11px/1.3 var(--mono); letter-spacing:.08em; text-transform:uppercase; color:var(--text-3) }
+  .dash-statbar .sb-val{ font:600 24px/1.1 var(--mono); color:var(--text); letter-spacing:-.02em }
+  .dash-statbar .sb-val.acc{ color:var(--cyan); text-shadow:0 0 14px rgba(83,231,242,.4) }
+  .dash-statbar .sb-sub{ font:500 11px/1.3 var(--mono); color:var(--text-3) }
   .dash-statbar .sb-dots{ display:inline-flex; gap:4px; margin-left:6px }
   .dash-statbar .sb-dots .dot{ width:8px;height:8px;border-radius:99px;display:inline-block }
 
   .srv-cards{ display:grid; grid-template-columns:repeat(auto-fit,minmax(330px,1fr)); gap:16px }
   .scard{ padding:22px; display:flex; flex-direction:column; gap:18px; position:relative; overflow:hidden; cursor:pointer }
-  .scard.on{ border-color:rgba(63,142,242,.5); box-shadow:0 0 0 1px rgba(63,142,242,.25), 0 14px 40px rgba(63,142,242,.14) }
-  .scard.on::before{ content:""; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--acc) }
+  .scard{ --hud:rgba(244,241,255,.2); --hi:-3px; --hlen:9px }
+  .scard::after{ content:""; position:absolute; left:-1px; top:14px; bottom:14px; width:2px; border-radius:2px; background:var(--text-3); pointer-events:none }
+  .scard.on::after{ background:var(--cyan); box-shadow:0 0 8px 1px rgba(83,231,242,.75), 0 0 22px 2px rgba(83,231,242,.22) }
+  .scard:not(.on){ border-color:rgba(255,63,164,.55) }
+  .scard:not(.on)::after{ background:var(--magenta); box-shadow:0 0 8px 1px rgba(255,63,164,.7) }
   .scard .sc-top{ display:flex; align-items:center; gap:14px }
-  .scard .sc-ico{ width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0 }
+  .scard .sc-ico{ width:44px;height:44px;border-radius:var(--r);display:flex;align-items:center;justify-content:center;flex-shrink:0;border:1px solid var(--c3-line-2);background:rgba(9,10,20,.6) }
   .scard .sc-ico svg{ width:23px;height:23px }
-  .scard .sc-ico.mc{ background:rgba(52,224,161,.14); color:#34e0a1 }
-  .scard .sc-ico.sat{ background:rgba(245,177,61,.16); color:#f5b13d }
-  .scard .sc-ico.srv{ background:var(--acc-soft); color:var(--acc-2) }
+  .scard .sc-ico.mc{ color:var(--cyan); border-color:rgba(83,231,242,.4) }
+  .scard .sc-ico.sat{ color:var(--violet-text); border-color:rgba(184,77,255,.5) }
+  .scard .sc-ico.srv{ color:var(--text-2) }
   .scard .sc-nm{ font-size:17px; font-weight:600; color:var(--t1) }
-  .scard .sc-ty{ font-size:11px; letter-spacing:.07em; text-transform:uppercase; color:var(--t3); margin-top:2px }
+  .scard .sc-ty{ font:500 10.5px/1.3 var(--mono); letter-spacing:.08em; text-transform:uppercase; color:var(--text-3); margin-top:3px }
   .scard .status-badge{ margin-left:auto; align-self:flex-start }
   .scard .sc-mx{ display:flex; gap:26px }
-  .scard .sc-mx .sb-cap{ font-size:11px; letter-spacing:.07em; text-transform:uppercase; color:var(--t3); font-family:ui-monospace,Menlo,monospace; margin-bottom:5px }
-  .scard .metric-value{ font-size:19px; font-weight:600; color:var(--t1); font-family:ui-monospace,Menlo,monospace }
+  .scard .sc-mx .sb-cap{ font:500 10.5px/1.3 var(--mono); letter-spacing:.08em; text-transform:uppercase; color:var(--text-3); margin-bottom:5px }
+  .scard .metric-value{ font:600 20px/1.1 var(--mono); color:var(--text) }
   .scard .sc-act{ display:flex; gap:8px; margin-top:auto; flex-wrap:wrap }
-  .dash-row{ display:grid; grid-template-columns:2fr 1fr; gap:16px; margin-top:20px }
-  @media(max-width:980px){ .dash-row{ grid-template-columns:1fr } }
+  .dash-row{ display:grid; grid-template-columns:1fr; gap:16px; margin-top:26px }
+  .chart-period-btn{ min-height:40px; padding:0 14px; border-radius:var(--r); border:1px solid var(--c3-line-2); background:rgba(23,21,42,.85); color:var(--text-2); font:500 12px var(--mono); cursor:pointer }
+  .chart-period-btn.active{ color:#090A14; border-color:transparent; background:linear-gradient(100deg,var(--violet),var(--magenta)) }
 </style>
 
 <!-- Page-Header -->
@@ -58,13 +61,12 @@
     <div class="sb-seg"><span class="sb-cap">CPU</span><span class="sb-val" data-countup data-stat="cpu_percent">{{ system.cpu_percent }}%</span><span class="sb-sub">{{ system.cpu_cores|default(0) }} Cores</span></div>
     <div class="sb-seg"><span class="sb-cap">RAM</span><span class="sb-val" data-countup data-stat="ram_percent">{{ system.ram_percent }}%</span><span class="sb-sub" data-stat="ram_text">{{ system.ram_used_gb }} / {{ system.ram_total_gb }} GB</span></div>
     <div class="sb-seg"><span class="sb-cap">Disk</span><span class="sb-val" data-countup data-stat="disk_percent">{{ system.disk_percent }}%</span><span class="sb-sub">Backups + Logs</span></div>
-    <div class="sb-seg"><span class="sb-cap">Bots</span><span class="sb-val">{{ online_bots }}/{{ bots|length }}<span class="sb-dots">{% for bot in bots %}<span class="dot" style="background:{% if bot.status == 'online' %}var(--ok){% else %}var(--t3){% endif %}"></span>{% endfor %}</span></span></div>
 </div>
 
 <!-- 2) Game-Server Steuer-Karten -->
 <section class="section" data-reveal>
     <div class="section-header" style="margin-top:26px">
-        <h2 class="section-title">// Game-Server</h2>
+        <h2 class="section-title">Server</h2>
         <a href="/errors" class="btn btn-sm">Alle Logs</a>
     </div>
     <div class="srv-cards" id="server-tiles">
@@ -72,7 +74,7 @@
         {% for server in servers %}
         {% set son = server.status == 'online' %}
         {% set icoclass = 'sat' if server.type == 'satisfactory' else ('mc' if server.type == 'minecraft' else 'srv') %}
-        <div class="card tile scard{% if son %} on{% endif %}" data-server-id="{{ server.id }}" data-server-url="/server/{{ server.id }}">
+        <div class="card tile scard hud{% if son %} on{% endif %}" data-server-id="{{ server.id }}" data-server-url="/server/{{ server.id }}">
             <div class="sc-top">
                 <span class="sc-ico {{ icoclass }}">{% if server.type == 'satisfactory' %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 20a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8l-7 5V8l-7 5V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2z"/><path d="M7 18h.01M12 18h.01M17 18h.01"/></svg>{% elif server.type == 'minecraft' %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>{% else %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>{% endif %}</span>
                 <div><div class="sc-nm">{{ server.name }}</div><div class="sc-ty">{{ server.type|capitalize }}</div></div>
@@ -103,7 +105,7 @@
 <!-- 3) Verlauf (Charts) -->
 <section class="section" data-reveal>
     <div class="section-header">
-        <h2 class="section-title">// Verlauf</h2>
+        <h2 class="section-title">Verlauf</h2>
         <div class="chart-controls">
             <button class="chart-period-btn active" data-period="24h" onclick="loadCharts('24h', this)">24h</button>
             <button class="chart-period-btn" data-period="7d" onclick="loadCharts('7d', this)">7 Tage</button>
@@ -122,30 +124,8 @@
     </div>
 </section>
 
-<!-- 4) Bot-Health + Ereignisse -->
+<!-- 4) Ereignisse -->
 <div class="dash-row">
-    <!-- Bot-Health -->
-    <div class="card rail-card" data-reveal>
-        <div class="rail-title">
-            <span>Bot-Health</span>
-            <span class="status">
-                <span class="status-dot {% if online_bots == bots|length and bots|length > 0 %}status-dot--online{% elif online_bots > 0 %}status-dot--warning{% else %}status-dot--offline{% endif %}"></span>
-                {{ online_bots }} / {{ bots|length }}
-            </span>
-        </div>
-        <div class="bots-row" id="bot-status">
-            {% for bot in bots %}
-            <div class="card bot-card">
-                <span class="bot-indicator {% if bot.status == 'online' %}indicator-online{% elif bot.status == 'offline' %}indicator-offline{% else %}indicator-unknown{% endif %}"></span>
-                <div class="bot-info">
-                    <span class="bot-name">{{ bot.name }}</span>
-                    <span class="bot-detail">{% if bot.ping != 'N/A' and bot.ping != 0 %}Ping {{ bot.ping }}ms{% elif bot.uptime != 'N/A' %}Uptime {{ bot.uptime }}{% else %}{{ bot.status|capitalize }}{% endif %}</span>
-                </div>
-            </div>
-            {% endfor %}
-        </div>
-    </div>
-
     <!-- Ereignisse -->
     <div class="card rail-card" data-reveal>
         <div class="rail-title">
@@ -173,40 +153,28 @@
     </div>
 </div>
 
-<!-- 5) System-Updates -->
-<section class="section" data-reveal style="margin-top:20px">
-    <div class="section-header">
-        <h2 class="section-title">// System-Updates</h2>
-    </div>
-    <div id="package-update-result" style="margin-bottom:12px"></div>
-    <div style="display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap">
-        <button class="btn btn-sm" hx-post="/api/system/packages/check" hx-target="#package-list-area" hx-swap="innerHTML">Auf Updates prüfen</button>
-        <button class="btn btn-sm btn-primary magnetic" hx-post="/api/system/packages/upgrade" hx-target="#package-update-result" hx-confirm="System-Updates installieren? (kann ~5-10 min dauern)" hx-swap="innerHTML">Updates installieren</button>
-        <button class="btn btn-sm btn-warning" hx-post="/api/system/packages/fix-broken" hx-target="#package-update-result" hx-swap="innerHTML" title="Hilft, wenn ein Update abgebrochen ist und Pakete halb installiert zurueckgeblieben sind." hx-confirm="Paketmanager reparieren? Laeuft dpkg --configure -a, apt --fix-broken install, Reinstall der defekten Pakete und danach ein full-upgrade. Kann mehrere Minuten dauern und Pakete entfernen.">Paketmanager reparieren</button>
-    </div>
-    <div id="package-list-area" hx-get="/api/system/packages/list" hx-trigger="load, packageListChanged from:body" hx-swap="innerHTML"></div>
-</section>
 {% endblock %}
 
 {% block extra_js %}
 <script>
 // ============================================================
-//   Chart.js Setup — Midnight-Navy-Blau (V5)
+//   Chart.js Setup — Design C3
 // ============================================================
-const CHART_COLORS = {
-    cpu: '#3F8EF2',
-    ram: '#6fb0f7',
-    disk: '#FF5FB5',
-    players: ['#3F8EF2', '#6fb0f7', '#FF5FB5', '#22d3ee']
+const CHART_COLORS = {          // C3: Cyan, Violett, Magenta
+    cpu: '#53E7F2',
+    ram: '#B84DFF',
+    disk: '#FF3FA4',
+    players: ['#53E7F2', '#B84DFF', '#FF3FA4', '#D49BFF']
 };
+const CHART_MONO = { family: '"IBM Plex Mono", ui-monospace, monospace', size: 10 };
 const CHART_DEFAULTS = {
     responsive: true,
     maintainAspectRatio: false,
     scales: {
-        x: { ticks: { color: '#8893ab', maxTicksLimit: 12, font: { family: 'ui-monospace, monospace', size: 10 } }, grid: { color: 'rgba(255,255,255,0.04)' } },
-        y: { ticks: { color: '#8893ab', font: { family: 'ui-monospace, monospace', size: 10 } }, grid: { color: 'rgba(255,255,255,0.06)' }, beginAtZero: true }
+        x: { ticks: { color: '#9A95AE', maxTicksLimit: 12, font: CHART_MONO }, grid: { color: 'rgba(244,241,255,0.04)' } },
+        y: { ticks: { color: '#9A95AE', font: CHART_MONO }, grid: { color: 'rgba(244,241,255,0.07)' }, beginAtZero: true }
     },
-    plugins: { legend: { labels: { color: '#c2cde0', font: { family: 'ui-monospace, monospace', size: 11 } } } },
+    plugins: { legend: { labels: { color: '#C3BFD3', boxWidth: 12, boxHeight: 2, font: { family: CHART_MONO.family, size: 11 } } } },
     elements: { point: { radius: 2, hoverRadius: 5 }, line: { tension: 0.3, borderWidth: 2 } }
 };
 let systemChart = null;
@@ -246,9 +214,9 @@ function loadCharts(period, btn) {
             systemChart = new Chart(ctx, {
                 type: 'line',
                 data: { labels: data.labels, datasets: [
-                    { label: 'CPU %', data: data.datasets[0].data, borderColor: CHART_COLORS.cpu, backgroundColor: 'rgba(63,142,242,0.12)', fill: true },
-                    { label: 'RAM %', data: data.datasets[1].data, borderColor: CHART_COLORS.ram, backgroundColor: 'rgba(111,176,247,0.10)', fill: true },
-                    { label: 'Disk %', data: data.datasets[2].data, borderColor: CHART_COLORS.disk, backgroundColor: 'rgba(255,95,181,0.08)', fill: true }
+                    { label: 'CPU %', data: data.datasets[0].data, borderColor: CHART_COLORS.cpu, backgroundColor: 'rgba(83,231,242,0.10)', fill: true },
+                    { label: 'RAM %', data: data.datasets[1].data, borderColor: CHART_COLORS.ram, backgroundColor: 'rgba(184,77,255,0.08)', fill: true },
+                    { label: 'Disk %', data: data.datasets[2].data, borderColor: CHART_COLORS.disk, backgroundColor: 'rgba(255,63,164,0.06)', fill: true }
                 ]},
                 options: Object.assign({}, CHART_DEFAULTS, { scales: Object.assign({}, CHART_DEFAULTS.scales, { y: Object.assign({}, CHART_DEFAULTS.scales.y, { max: 100 }) }) })
             });
