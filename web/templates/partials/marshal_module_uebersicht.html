@@ -1,86 +1,88 @@
-{# Modulübersicht Marshal — Daten aus web/module_uebersicht.py #}
+{# Modulübersicht „Discord-Server“ (Design C3) — Daten aus web/module_uebersicht.py.
+   Wird beim Schalten per HTMX komplett ersetzt (hx-target #modul-uebersicht, outerHTML). #}
+{% set ICON = {
+  "verifizierung": "i-shield-check", "raidschutz": "i-shield-alert", "automod": "i-filter",
+  "warn": "i-flag", "audit": "i-list", "backups": "i-archive", "leveling": "i-award",
+  "counting": "i-count", "lfg": "i-users", "supporter": "i-gem", "reaction_roles": "i-smile",
+  "giveaways": "i-gift", "willkommen": "i-door", "tempvoice": "i-headphones", "tickets": "i-ticket",
+  "embeds": "i-message", "custom_commands": "i-terminal"} %}
+{% set CHIP = {"aktiv": "c3-chip--on", "pruefen": "c3-chip--check", "aus": "c3-chip--off", "offen": "c3-chip--setup"} %}
 <div id="modul-uebersicht">
-<style>
-.mu-kopf { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:2px 0 14px; color:var(--t2); font-size:14px; }
-.mu-kopf strong { color:var(--t1); }
-.mu-gruppe { font-size:11px; text-transform:uppercase; letter-spacing:.12em; color:var(--acc-2); font-weight:700; margin:18px 0 8px; font-family:ui-monospace, monospace; }
-.mu-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(300px, 1fr)); gap:12px; }
-.mu-karte { border:1px solid var(--line); border-radius:var(--radius, 14px); padding:14px 15px 12px; background:rgba(120,180,240,.03); display:flex; flex-direction:column; gap:8px; min-width:0; }
-.mu-karte.st-pruefen { border-color:var(--warn); }
-.mu-oben { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; }
-.mu-name { font-weight:700; color:var(--t1); font-size:15px; }
-.mu-text { color:var(--t3); font-size:13px; line-height:1.4; }
-.mu-info { color:var(--t2); font-size:13px; line-height:1.45; }
-.mu-kanaele { display:flex; flex-wrap:wrap; gap:6px; }
-.mu-kanal { font-size:12px; padding:2px 8px; border-radius:var(--radius-pill, 999px); border:1px solid var(--line); color:var(--t2); overflow-wrap:anywhere; }
-.mu-kanal.fehlt { border-color:var(--bad); color:var(--bad); }
-.mu-unten { display:flex; justify-content:space-between; align-items:center; gap:10px; margin-top:auto; padding-top:4px; flex-wrap:wrap; }
-.mu-hinweis { color:var(--t3); font-size:12px; }
-.mu-einstellen { font-size:13px; color:var(--acc-2); text-decoration:none; background:none; border:0; padding:0; cursor:pointer; font:inherit; }
-.mu-einstellen:hover { text-decoration:underline; }
-.mu-befehl { font-family:ui-monospace, monospace; font-size:12px; color:var(--t2); }
-.mu-schalter { display:flex; align-items:center; gap:8px; }
-.mu-nur { margin-top:16px; color:var(--t3); font-size:13px; }
-</style>
 
-<div class="mu-kopf">
-    <span><strong>{{ summe.gesamt }}</strong> Module</span>
-    <span class="badge badge-success">{{ summe.aktiv }} aktiv</span>
-    {% if summe.aus %}<span class="badge">{{ summe.aus }} aus</span>{% endif %}
-    {% if summe.offen %}<span class="badge badge-info">{{ summe.offen }} nicht eingerichtet</span>{% endif %}
-    {% if summe.pruefen %}<span class="badge badge-warning">{{ summe.pruefen }} prüfen: {{ summe.pruefen_namen|join(', ') }}</span>{% endif %}
-</div>
-{% if fehler %}<div class="alert alert-danger">{{ fehler }}</div>{% endif %}
-{% if meldung %}<div class="alert alert-success">{{ meldung }}</div>{% endif %}
+<section class="c3-panel hud c3-summary" aria-label="Zusammenfassung">
+  <dl class="c3-sum-grid">
+    <div class="c3-sum-item"><dt class="c3-sum-k">Module</dt><dd class="c3-sum-n" style="margin:0">{{ summe.gesamt }}</dd></div>
+    <div class="c3-sum-item c3-sum-item--on"><dt class="c3-sum-k">Aktiv</dt><dd class="c3-sum-n" style="margin:0">{{ summe.aktiv }}</dd></div>
+    {% if summe.pruefen %}
+    <div class="c3-sum-item c3-sum-item--check"><dt class="c3-sum-k">Prüfen: {{ summe.pruefen_namen | join(', ') }}</dt><dd class="c3-sum-n" style="margin:0">{{ summe.pruefen }}</dd></div>
+    {% endif %}
+    {% if summe.aus %}
+    <div class="c3-sum-item c3-sum-item--off"><dt class="c3-sum-k">Aus</dt><dd class="c3-sum-n" style="margin:0">{{ summe.aus }}</dd></div>
+    {% endif %}
+    {% if summe.offen %}
+    <div class="c3-sum-item c3-sum-item--setup"><dt class="c3-sum-k">Nicht eingerichtet</dt><dd class="c3-sum-n" style="margin:0">{{ summe.offen }}</dd></div>
+    {% endif %}
+  </dl>
+</section>
+
+{% if fehler %}<div class="c3-flash c3-flash--bad" role="alert" style="margin-top:18px"><svg class="i" aria-hidden="true"><use href="#i-alert"/></svg><span>{{ fehler }}</span></div>{% endif %}
+{% if meldung %}<div class="c3-flash c3-flash--ok" role="status" style="margin-top:18px"><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span>{{ meldung }}</span></div>{% endif %}
 
 {% for gruppe, karten in gruppen %}
-<div class="mu-gruppe">{{ gruppe }}</div>
-<div class="mu-grid">
+{% set ns = namespace(aktiv=0, pruefen=0, aus=0, offen=0) %}
+{% for k in karten %}{% if k.status == 'aktiv' %}{% set ns.aktiv = ns.aktiv + 1 %}{% elif k.status == 'pruefen' %}{% set ns.pruefen = ns.pruefen + 1 %}{% elif k.status == 'aus' %}{% set ns.aus = ns.aus + 1 %}{% else %}{% set ns.offen = ns.offen + 1 %}{% endif %}{% endfor %}
+<section class="c3-group" aria-labelledby="g-{{ loop.index }}">
+  <div class="c3-group-head">
+    <h2 id="g-{{ loop.index }}">{{ gruppe }}</h2>
+    <p class="c3-label" style="margin:0">{{ karten | length }} Module{% if ns.aktiv %} · {{ ns.aktiv }} aktiv{% endif %}{% if ns.pruefen %} · <span class="c-check">{{ ns.pruefen }} prüfen</span>{% endif %}{% if ns.aus %} · {{ ns.aus }} aus{% endif %}{% if ns.offen %} · {{ ns.offen }} nicht eingerichtet{% endif %}</p>
+  </div>
+  <ul class="c3-mods">
     {% for k in karten %}
-    <div class="mu-karte st-{{ k.status }}">
-        <div class="mu-oben">
-            <div>
-                <div class="mu-name">{{ k.name }}</div>
-                <div class="mu-text">{{ k.text }}</div>
-            </div>
-            <span class="badge {% if k.status == 'aktiv' %}badge-success{% elif k.status == 'pruefen' %}badge-warning{% elif k.status == 'offen' %}badge-info{% endif %}">{{ k.status_text }}</span>
-        </div>
-        <div class="mu-info">{{ k.info }}</div>
-        {% if k.kanaele %}
-        <div class="mu-kanaele">
-            {% for c in k.kanaele %}
-            <span class="mu-kanal {% if c.fehlt %}fehlt{% endif %}" title="ID {{ c.id }}">{{ c.label }}: {% if c.fehlt %}gelöschter Kanal{% elif c.name %}#{{ c.name }}{% else %}ID {{ c.id }}{% endif %}</span>
-            {% endfor %}
-        </div>
+    <li class="c3-mod hud" id="mod-{{ k.key }}" data-status="{{ k.status }}">
+      <div class="c3-mod-head">
+        <span class="c3-mod-ico" aria-hidden="true"><svg class="i"><use href="#{{ ICON.get(k.key, 'i-grid') }}"/></svg></span>
+        <h3>{{ k.name }}</h3>
+        <span class="c3-chip {{ CHIP.get(k.status, '') }}">{{ k.status_text }}</span>
+      </div>
+      <p class="c3-mod-what">{{ k.text }}</p>
+      <p class="c3-mod-state">{% if k.status == 'pruefen' %}<svg class="i" aria-hidden="true"><use href="#i-alert"/></svg>{% endif %}<span>{{ k.info }}</span></p>
+      {% if k.kanaele %}
+      <ul class="c3-chans" aria-label="Zielkanäle">
+        {% for c in k.kanaele %}
+        {% if c.fehlt %}
+        <li class="c3-chan c3-chan--gone"><svg class="i" aria-hidden="true"><use href="#i-hash-off"/></svg><span class="c3-chan-k">{{ c.label }}</span><strong>gelöschter Kanal</strong></li>
+        {% else %}
+        <li class="c3-chan"><svg class="i" aria-hidden="true"><use href="#i-hash"/></svg><span class="c3-chan-k">{{ c.label }}</span>{{ c.name if c.name else 'unbekannter Kanal' }}</li>
         {% endif %}
-        <div class="mu-unten">
-            {% if k.schalter is not none %}
-            <div class="mu-schalter">
-                <label class="toggle">
-                    <input type="checkbox" name="an" value="1" {% if k.schalter %}checked{% endif %}
-                           aria-label="{{ k.name }} ein- oder ausschalten"
-                           hx-post="/marshal-bot/module/{{ k.key }}" hx-trigger="change"
-                           hx-target="#modul-uebersicht" hx-swap="outerHTML">
-                    <span class="slider"></span>
-                </label>
-                <span class="mu-hinweis">{{ 'An' if k.schalter else 'Aus' }}</span>
-            </div>
-            {% else %}
-            <span class="mu-hinweis">{{ k.ohne_schalter }}</span>
-            {% endif %}
-            {% if k.link and k.link.startswith('#') %}
-            <button type="button" class="mu-einstellen" data-tab-ziel="{{ k.link[1:] }}">Einstellen →</button>
-            {% elif k.link %}
-            <a class="mu-einstellen" href="{{ k.link }}">Einstellen →</a>
-            {% elif k.einstellen %}
-            <span class="mu-befehl" title="Befehl in Discord">{{ k.einstellen }}</span>
-            {% endif %}
-        </div>
-    </div>
+        {% endfor %}
+      </ul>
+      {% endif %}
+      <div class="c3-mod-foot">
+        {% if k.schalter is not none %}
+        <label class="c3-switch">
+          <input type="checkbox" role="switch" name="an" value="1" {% if k.schalter %}checked{% endif %}
+                 aria-label="{{ k.name }} ein- oder ausschalten"
+                 hx-post="/marshal-bot/module/{{ k.key }}" hx-trigger="change"
+                 hx-target="#modul-uebersicht" hx-swap="outerHTML">
+          <span class="c3-track" aria-hidden="true"><span class="c3-thumb"></span></span>
+          <span class="c3-sw-state" aria-hidden="true">{{ 'An' if k.schalter else 'Aus' }}</span>
+        </label>
+        {% else %}
+        <p class="c3-mod-note">{{ k.ohne_schalter }}</p>
+        {% endif %}
+        {% if k.link and k.link.startswith('#') %}
+        <button type="button" class="c3-go" data-tab-ziel="{{ k.link[1:] }}">Einstellen<svg class="i" aria-hidden="true"><use href="#i-arrow"/></svg></button>
+        {% elif k.link %}
+        <a class="c3-go" href="{{ k.link }}">Einstellen<svg class="i" aria-hidden="true"><use href="#i-arrow"/></svg></a>
+        {% elif k.einstellen %}
+        <button type="button" class="c3-cmd" data-cmd="{{ k.einstellen }}" title="Befehl kopieren und in Discord einfügen"><span>{{ k.einstellen }}</span><svg class="i i-cp" aria-hidden="true"><use href="#i-copy"/></svg><svg class="i i-ok" aria-hidden="true"><use href="#i-check"/></svg><span class="sr">kopieren</span></button>
+        {% endif %}
+      </div>
+    </li>
     {% endfor %}
-</div>
+  </ul>
+</section>
 {% endfor %}
 
-<div class="mu-nur">Nur Befehle, nichts läuft von selbst: {{ nur_befehle|join(', ') }}.
-Schalter wirken nach spätestens 15 Sekunden.</div>
+<p class="c3-foot-note"><svg class="i" aria-hidden="true"><use href="#i-info"/></svg><span>Nur Befehle, nichts läuft von selbst: {{ nur_befehle | join(', ') }}. Schalter wirken nach spätestens 15 Sekunden.</span></p>
 </div>

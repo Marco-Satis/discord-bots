@@ -1,92 +1,43 @@
 {% extends "base_v5.html" %}
-{% block title %}Marshal Setup{% endblock %}
-{% block crumb %}Marshal{% endblock %}
-{% block nav_marshal_bot %}active{% endblock %}
+{% block title %}Discord-Server{% endblock %}
 
 {% block content %}
 <style>
 /* Reorg-Gruppen — gilt auch fuer die via HTMX in #tab-content injizierten admin_tab_*-Partials */
 .set-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 4px; align-items: start; }
 @media (max-width: 760px) { .set-grid { grid-template-columns: 1fr; } }
-.set-group { border: 1px solid var(--line); border-radius: 14px; padding: 10px 15px 4px; background: rgba(120,180,240,.03); }
-.set-group-title { font-size: 11px; text-transform: uppercase; letter-spacing: .12em; color: var(--acc-2); font-weight: 700; margin: 4px 0 2px; font-family: ui-monospace, monospace; }
+.set-group { border: 1px solid var(--c3-line); border-radius: var(--r); padding: 10px 15px 4px; background: rgba(9,10,20,.35); }
+.set-group-title { font: 600 11px/1.3 var(--mono); text-transform: uppercase; letter-spacing: .1em; color: var(--violet-text); margin: 4px 0 2px; }
 </style>
-<div class="page-header">
-    <h1>Marshal Setup</h1>
-    <p class="page-subtitle">Konfiguration aller Marshal-Module</p>
+
+<div class="c3-page-head">
+  <div class="c3-shards" aria-hidden="true">
+    <i class="c3-shard c-vio" style="--l:40%;--t:-40%;--w:64%;--h:120%;--fa:.2;--ea:.75" data-pts="18 0, 100 0, 100 70, 0 100"></i>
+    <i class="c3-shard c-mag" style="--l:12%;--t:22%;--w:44%;--h:100%;--fa:.12;--ea:.6" data-pts="30 0, 100 30, 70 100, 0 64"></i>
+    <i class="c3-shard c-cyan" style="--l:0%;--t:-12%;--w:34%;--h:70%;--fa:0;--ea:.5" data-pts="0 40, 70 0, 100 100"></i>
+    <i class="c3-shard c3-shard--line c-vio" style="--l:0%;--t:60%;--w:84%;--h:24%" data-line="0 100, 56 0, 100 56" data-t="2"></i>
+  </div>
+  <p class="c3-label c3-crumbs">Discord-Server <span class="sep" aria-hidden="true">/</span> Ostfront HQ</p>
+  <div class="c3-ph-row">
+    <h1>Discord-Server</h1>
+    {% if marshal_bot_status == 'online' %}<span class="c3-chip c3-chip--on">Marshal online</span>{% else %}<span class="c3-chip c3-chip--check">Marshal offline</span>{% endif %}
+  </div>
+  <p class="c3-lead">Alle Module von Marshal mit Status, Zielkanälen und Schaltern. Was du nicht hier schaltest, stellst du per Befehl in Discord ein.</p>
 </div>
 
-<!-- Bot-Status Anzeige -->
-<div class="stats-grid" style="margin-bottom: 1.5rem;">
-    <div class="stat-card">
-        <div class="stat-label">Marshal Status</div>
-        <div style="display: flex; align-items: center; gap: 0.75rem; margin-top: 0.5rem;">
-            <span class="bot-indicator {% if marshal_bot_status == 'online' %}indicator-online{% else %}indicator-offline{% endif %}"></span>
-            <span class="stat-value">{{ 'Online' if marshal_bot_status == 'online' else 'Offline' }}</span>
-        </div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-label">Module aktiv</div>
-        <div class="stat-value" style="margin-top: 0.5rem; font-size: 1.5rem;">{{ summe.aktiv }} von {{ summe.gesamt }}</div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-label">Server</div>
-        <div class="stat-value" style="margin-top: 0.5rem;">{{ guild_name|default('Nicht verbunden') }}</div>
-    </div>
-</div>
-
-<!-- Tab Navigation -->
-<div class="tab-nav">
+<!-- Ansichten: Übersicht, Temp-Voice (Hubs ansehen), Embeds (senden). Die übrigen alten Tabs
+     speichern nicht mehr (SAVE_LOCKS) und sind deshalb nicht verlinkt. -->
+<div class="tab-nav" role="tablist">
     <button class="tab-btn active" data-tab="uebersicht"
             hx-get="/marshal-bot/tab/uebersicht"
             hx-target="#tab-content"
             hx-swap="innerHTML"
-            onclick="switchTab(this)">Übersicht</button>
+            onclick="switchTab(this)">Modulübersicht</button>
     <button class="tab-btn" data-tab="temp_voice"
             hx-get="/marshal-bot/tab/temp_voice"
             hx-target="#tab-content"
             hx-swap="innerHTML"
-            onclick="switchTab(this)">Temp Voice</button>
-    <button class="tab-btn" data-tab="wordfilter"
-            hx-get="/marshal-bot/tab/wordfilter"
-            hx-target="#tab-content"
-            hx-swap="innerHTML"
-            onclick="switchTab(this)">WordFilter</button>
-    <button class="tab-btn" data-tab="antispam"
-            hx-get="/marshal-bot/tab/antispam"
-            hx-target="#tab-content"
-            hx-swap="innerHTML"
-            onclick="switchTab(this)">AntiSpam</button>
-    <button class="tab-btn" data-tab="warn"
-            hx-get="/marshal-bot/tab/warn"
-            hx-target="#tab-content"
-            hx-swap="innerHTML"
-            onclick="switchTab(this)">Warn-System</button>
-    <button class="tab-btn" data-tab="reaction_roles"
-            hx-get="/marshal-bot/tab/reaction_roles"
-            hx-target="#tab-content"
-            hx-swap="innerHTML"
-            onclick="switchTab(this)">Reaction Roles</button>
-    <button class="tab-btn" data-tab="leveling"
-            hx-get="/marshal-bot/tab/leveling"
-            hx-target="#tab-content"
-            hx-swap="innerHTML"
-            onclick="switchTab(this)">Leveling</button>
-    <button class="tab-btn" data-tab="tickets"
-            hx-get="/marshal-bot/tab/tickets"
-            hx-target="#tab-content"
-            hx-swap="innerHTML"
-            onclick="switchTab(this)">Tickets</button>
-    <button class="tab-btn" data-tab="audit"
-            hx-get="/marshal-bot/tab/audit"
-            hx-target="#tab-content"
-            hx-swap="innerHTML"
-            onclick="switchTab(this)">Audit</button>
-    <button class="tab-btn" data-tab="giveaways"
-            hx-get="/marshal-bot/tab/giveaways"
-            hx-target="#tab-content"
-            hx-swap="innerHTML"
-            onclick="switchTab(this)">Giveaways</button>
+            onclick="switchTab(this)">Temp-Voice</button>
     <button class="tab-btn" data-tab="embeds"
             hx-get="/marshal-bot/tab/embeds"
             hx-target="#tab-content"

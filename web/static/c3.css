@@ -319,8 +319,76 @@ body.c3::before,body.c3::after{content:none}
 .c3-ev-txt{font-size:14.5px;line-height:1.4;overflow-wrap:anywhere}
 .c3-ev-from{display:block;margin-top:3px}
 
+/* Discord-Server: Zusammenfassung + Modulkarten */
+.c3-summary{--hud:rgba(244,241,255,.45);margin-bottom:6px}
+.c3-sum-grid{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:1px;background:var(--c3-line);border-radius:var(--r);overflow:hidden;margin:0}
+.c3-sum-item{display:flex;flex-direction:column;justify-content:center;gap:6px;min-height:76px;padding:14px 18px;background:#1A1831;color:inherit;text-decoration:none}
+.c3-sum-n{font:600 30px/1 var(--mono);letter-spacing:-.03em}
+.c3-sum-k{order:2;font:500 11px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--text-2)}
+.c3-sum-item--on .c3-sum-n{color:var(--cyan);text-shadow:0 0 14px rgba(83,231,242,.4)}
+.c3-sum-item--off .c3-sum-n{color:var(--text-3)}
+.c3-sum-item--setup .c3-sum-n{color:var(--violet-text)}
+.c3-sum-item--check{background:linear-gradient(120deg,rgba(255,63,164,.2),#1A1831 80%);box-shadow:inset 0 0 0 1.5px rgba(255,63,164,.75)}
+.c3-sum-item--check .c3-sum-n{color:var(--magenta);text-shadow:0 0 14px rgba(255,63,164,.5)}
+.c3-sum-item--check .c3-sum-k{color:var(--text)}
+.c3-sum-item--check:hover{background:linear-gradient(120deg,rgba(255,63,164,.3),#1F1C38 80%)}
+.c3-group{margin-top:34px}
+.c3-group-head{display:flex;align-items:baseline;flex-wrap:wrap;gap:6px 14px;margin-bottom:16px}
+.c3-group-head h2{margin:0;font-size:23px;font-weight:700;letter-spacing:-.025em}
+.c3-group-head::after{content:"";flex:1 1 40px;align-self:center;height:1px;background:linear-gradient(90deg,var(--c3-line-2),transparent)}
+.c3-group-head .c-check{color:var(--magenta)}
+.c3-mods{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;align-items:start;margin:0;padding:0;list-style:none}
+.c3-mod{--hud:rgba(244,241,255,.2);--hi:-3px;--hlen:9px;position:relative;display:flex;flex-direction:column;gap:10px;padding:16px 16px 4px 18px;background:linear-gradient(180deg,rgba(30,27,54,.94),rgba(23,21,42,.94));border:1px solid var(--c3-line);border-radius:var(--r);scroll-margin-top:96px;transition:border-color .2s}
+.c3-mod:hover{border-color:var(--c3-line-2)}
+.c3-mod:focus{outline:none}
+.c3-mod:focus-visible{outline:2px solid var(--cyan);outline-offset:4px}
+.c3-mod-head{display:flex;align-items:center;gap:10px}
+.c3-mod-ico{display:grid;place-items:center;width:34px;height:34px;flex:none;border-radius:5px;background:rgba(9,10,20,.6);border:1px solid var(--c3-line-2);color:var(--text-2)}
+.c3-mod-ico .i{width:18px;height:18px}
+.c3-mod h3{flex:1;min-width:0;margin:0;font-size:16.5px;font-weight:600;letter-spacing:-.015em;line-height:1.2}
+.c3-mod-what{margin:0;font-size:14px;line-height:1.45;color:var(--text-2)}
+.c3-mod-state{display:flex;gap:8px;align-items:flex-start;margin:0;font-size:14px;line-height:1.45;color:var(--text)}
+.c3-mod-state .i{width:16px;height:16px;margin-top:2px;color:var(--magenta)}
+.c3-chans{display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none}
+.c3-chan{display:inline-flex;align-items:center;flex-wrap:wrap;gap:4px 7px;max-width:100%;min-height:28px;padding:4px 9px 4px 8px;border-radius:4px;border:1px solid var(--c3-line-2);background:rgba(9,10,20,.55);font:500 12.5px/1.25 var(--mono);color:var(--text);overflow-wrap:anywhere}
+.c3-chan .i{width:14px;height:14px;color:var(--text-3)}
+.c3-chan-k{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-3)}
+.c3-chan--gone{border:1.5px dashed var(--magenta);background:rgba(255,63,164,.12);box-shadow:0 0 14px -6px var(--magenta)}
+.c3-chan--gone .i{color:var(--magenta)}
+.c3-chan--gone strong{font-weight:600}
+.c3-mod-foot{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:4px 12px;margin-top:auto;padding-top:6px;border-top:1px solid var(--c3-line)}
+.c3-mod-note{flex:1 1 150px;margin:0;padding:8px 0;font-size:13px;line-height:1.4;color:var(--text-3)}
+.c3-go{display:inline-flex;align-items:center;gap:6px;min-height:44px;margin-left:auto;padding:0 6px 0 10px;border:0;border-radius:var(--r);background:none;color:var(--cyan);font:600 14px/1 var(--font);text-decoration:none;white-space:nowrap;cursor:pointer}
+.c3-go .i{width:16px;height:16px;transition:transform .18s}
+.c3-go:hover{background:rgba(83,231,242,.08)}
+.c3-go:hover .i{transform:translateX(2px)}
+.c3-cmd{position:relative;display:inline-flex;align-items:center;gap:8px;min-height:44px;margin-left:auto;padding:0 12px;border-radius:var(--r);border:1px solid var(--c3-line-2);background:rgba(9,10,20,.55);color:var(--violet-text);font:500 12.5px/1.2 var(--mono);text-align:left;cursor:pointer}
+.c3-cmd .i{width:15px;height:15px;color:var(--text-3)}
+.c3-cmd .i-ok{display:none;color:var(--cyan)}
+.c3-cmd:hover{border-color:rgba(184,77,255,.7)}
+.c3-cmd.is-copied{border-color:var(--cyan)}
+.c3-cmd.is-copied .i-cp{display:none}
+.c3-cmd.is-copied .i-ok{display:block}
+.c3-mod::after{content:"";position:absolute;left:-1px;top:14px;bottom:14px;width:2px;border-radius:2px;pointer-events:none}
+.c3-mod[data-status="aktiv"]::after{background:var(--cyan);box-shadow:0 0 8px 1px rgba(83,231,242,.75),0 0 22px 2px rgba(83,231,242,.22)}
+.c3-mod[data-status="aktiv"] .c3-mod-ico{color:var(--cyan);border-color:rgba(83,231,242,.38)}
+.c3-mod[data-status="aus"] h3{color:var(--text-2)}
+.c3-mod[data-status="aus"] .c3-mod-ico{color:var(--text-3)}
+.c3-mod[data-status="offen"]{--hud:rgba(184,77,255,.65);border-color:rgba(184,77,255,.5)}
+.c3-mod[data-status="offen"] .c3-mod-ico{color:var(--violet-text);border:1px dashed rgba(184,77,255,.7)}
+.c3-mod[data-status="pruefen"]{--hud:var(--magenta);border-color:rgba(255,63,164,.85);background:linear-gradient(165deg,rgba(255,63,164,.17),rgba(30,27,54,.95) 48%);box-shadow:0 0 0 1px rgba(255,63,164,.35),0 0 38px -12px rgba(255,63,164,.9)}
+.c3-mod[data-status="pruefen"]::after{left:auto;right:-8px;top:-8px;bottom:auto;width:20px;height:20px;border-radius:0;background:none;border-top:2px solid var(--magenta);border-right:2px solid var(--magenta);filter:drop-shadow(0 0 5px var(--magenta));animation:c3-corner 1.6s ease-in-out infinite}
+.c3-mod[data-status="pruefen"] .c3-mod-ico{color:var(--magenta);border-color:rgba(255,63,164,.65)}
+.c3-foot-note{display:flex;gap:12px;align-items:flex-start;margin-top:36px;padding:16px 18px;border-radius:var(--r);border:1px dashed var(--c3-line-2);background:rgba(23,21,42,.7);color:var(--text-2);font-size:14px;line-height:1.55}
+.c3-foot-note .i{width:18px;height:18px;margin-top:2px;color:var(--violet-text)}
+.c3-foot-note code{font-size:12.5px;color:var(--violet-text)}
+@container (max-width:900px){.c3-mods{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@container (max-width:640px){.c3-sum-grid{grid-auto-flow:row;grid-template-columns:1fr 1fr}}
+@container (max-width:580px){.c3-mods{grid-template-columns:1fr}}
+
 /* Schalter */
-.c3-switch{position:relative;display:inline-flex;align-items:center;gap:10px;min-height:44px;padding-right:6px;cursor:pointer}
+.c3-track,.c3-thumb{display:block}
+.c3-switch,.c3-content label.c3-switch{position:relative;display:inline-flex;align-items:center;gap:10px;min-height:44px;padding-right:6px;cursor:pointer}
 .c3-switch input{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
 .c3-track{position:relative;width:46px;height:26px;flex:none;border-radius:5px;background:var(--glass-3);border:1px solid var(--text-3);transition:background-color .18s,border-color .18s,box-shadow .18s}
 .c3-thumb{position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:3px;background:var(--text-3);transition:transform .18s,background-color .18s}
@@ -383,7 +451,7 @@ body.c3::before,body.c3::after{content:none}
 .c3-content input[type=checkbox],.c3-content input[type=radio]{accent-color:var(--violet)}
 .c3-content input[type=range]{accent-color:var(--cyan)}
 .c3-content label{text-transform:none!important}
-.c3-content .form-group label,.c3-content label.set-label,.c3-content .form-label{color:var(--text-2);font-size:13px}
+.c3-content .form-group label,.c3-content label.set-label,.c3-content .form-label,.c3-content .config-section label:not(.toggle):not(.c3-switch){color:var(--text-2);font:500 13.5px/1.35 var(--font);letter-spacing:0}
 .c3-content .form-help,.c3-content .hint,.c3-content .config-hint{color:var(--text-3)}
 
 /* Schalter alter Seiten (label.toggle/.slider und .toggle-switch/.toggle-slider) */

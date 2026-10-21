@@ -8,9 +8,51 @@
   var reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
   var drawerMQ = window.matchMedia('(max-width: 1024px)');
 
+  function flash(el) {
+    el.classList.remove('is-flash');
+    void el.offsetWidth;
+    el.classList.add('is-flash');
+    setTimeout(function () { el.classList.remove('is-flash'); }, 1700);
+  }
+  function focusCard(el) {
+    el.scrollIntoView({ behavior: reduce.matches ? 'auto' : 'smooth', block: 'start' });
+    flash(el);
+    if (!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '-1');
+    el.focus({ preventScroll: true });
+  }
+  window.c3FocusCard = focusCard;
+
+  /* ---------- Befehl kopieren (Modulkarten: /backup, /warn, …) ---------- */
+  document.addEventListener('click', function (e) {
+    var btn = e.target instanceof Element ? e.target.closest('.c3-cmd[data-cmd]') : null;
+    if (!btn) return;
+    var text = btn.getAttribute('data-cmd');
+    var done = function () {
+      btn.classList.add('is-copied');
+      setTimeout(function () { btn.classList.remove('is-copied'); }, 1600);
+    };
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(done, function () { window.prompt('Befehl kopieren:', text); });
+    } else {
+      window.prompt('Befehl kopieren:', text);
+    }
+  });
+
   function init() {
+    // Beim Laden mit #mod-…: Karte aufleuchten lassen, Seitenspalte passend markieren
+    if (location.hash.indexOf('#mod-') === 0) {
+      var karte = document.getElementById(location.hash.slice(1));
+      if (karte) window.setTimeout(function () { focusCard(karte); }, 60);
+    }
     var nav = $('#c3-areanav');
     if (!nav) return;
+    if (location.hash) {
+      var passend = $('.c3-nav-item[href="' + location.pathname + location.hash + '"]', nav);
+      if (passend) {
+        $$('.c3-nav-item[aria-current]', nav).forEach(function (x) { x.removeAttribute('aria-current'); });
+        passend.setAttribute('aria-current', 'page');
+      }
+    }
     var backdrop = $('#c3-backdrop');
     var drawerBtn = $('#c3-drawer-btn');
     var current = nav.getAttribute('data-current') || '';
@@ -99,6 +141,19 @@
       if (!a || e.ctrlKey || e.metaKey || e.shiftKey) return;
       var u = new URL(a.getAttribute('href'), location.href);
       if (u.pathname !== location.pathname) return;
+      if (u.hash) {
+        // Sprung zu einer Modulkarte: ist sie sichtbar, scrollen + aufleuchten; sonst Seite neu laden
+        var ziel = document.getElementById(u.hash.slice(1));
+        e.preventDefault();
+        if (!ziel || !ziel.offsetParent) { location.href = u.pathname + u.hash; return; }
+        history.replaceState(history.state, '', u.pathname + u.hash);
+        closeDrawer(false);
+        setArea(current);
+        focusCard(ziel);
+        $$('.c3-nav-item[aria-current]', nav).forEach(function (x) { x.removeAttribute('aria-current'); });
+        a.setAttribute('aria-current', 'page');
+        return;
+      }
       var t = u.searchParams.get('tab');
       var tb = t ? $('.c3-content [data-tab="' + t + '"]') : $('.c3-content .tabs [data-tab], .c3-content .tab-nav [data-tab]');
       if (!tb) return;
