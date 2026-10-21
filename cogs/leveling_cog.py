@@ -45,6 +45,7 @@ from utils.embeds import (
     warning_embed,
 )
 from utils.loop_guard import guard
+from utils.shutdown import register_cleanup
 from utils.ui_kit import subtext, truncate, zahl
 
 logger = get_logger("cogs.leveling")
@@ -240,6 +241,9 @@ class LevelingCog(commands.Cog):
             await self.voice.close_orphans()
         except Exception as e:
             logger.warning(f"close_orphans fehlgeschlagen: {e}")
+        # Beim Herunterfahren offene Sessions noch mit XP schliessen. Laeuft vor
+        # dem DB-Close (Cleanups gehen rueckwaerts, der DB-Close ist zuerst registriert).
+        register_cleanup(self._sessions_abschliessen)
         guard(self.voice_sample_task, name="voice_sample_task")
         self.voice_sample_task.start()
         RESET_QUEUE_DIR.mkdir(parents=True, exist_ok=True)
@@ -543,6 +547,10 @@ class LevelingCog(commands.Cog):
         Robustheit: pro Session in try/except, damit ein Fehler nicht den
         ganzen @tasks.loop killt (discord.py startet ihn nicht automatisch neu).
         """
+        try:
+            await self._uebernehme_voice_mitglieder()
+        except Exception as e:  # noqa: BLE001 — Uebernahme darf den Sampler nicht stoppen
+            logger.warning(f"Voice-Uebernahme fehlgeschlagen: {e}")
         for gid, uid in self.voice.open_keys():
             try:
                 guild = self.bot.get_guild(int(gid))
@@ -561,6 +569,49 @@ class LevelingCog(commands.Cog):
                 self.voice.sample(gid, uid, valid)
             except Exception as e:  # noqa: BLE001 — eine Session darf den Loop nicht stoppen
                 logger.warning(f"Voice-Sample {gid}/{uid} fehlgeschlagen: {e}")
+
+    async def _uebernehme_voice_mitglieder(self) -> None:
+        """
+        Wer im Talk sitzt, aber keine offene Session hat, bekommt eine.
+
+        Sessions leben im Speicher. Nach einem Neustart kommt fuer Leute, die
+        schon im Kanal sitzen, kein on_voice_state_update mehr — ohne diese
+        Uebernahme sammelten sie bis zum naechsten Kanalwechsel keine XP
+        (20./21.10.2026: ein ganzer Abend im Talk ohne eine einzige Session).
+        Laeuft in jedem Sampler-Takt und faengt so auch verpasste Events ab.
+        """
+        for guild in self.bot.guilds:
+            afk = guild.afk_channel
+            for channel in [*guild.voice_channels, *guild.stage_channels]:
+                if afk is not None and channel.id == afk.id:
+                    continue
+                for member in channel.members:
+                    if member.bot or self.voice.is_open(guild.id, member.id):
+                        continue
+                    await self.voice.start(guild.id, member.id, channel.id)
+
+    async def _sessions_abschliessen(self) -> None:
+        """
+        Shutdown-Cleanup: alle offenen Sessions schliessen und die XP gutschreiben.
+
+        Ohne das schloss close_orphans() sie beim naechsten Start mit 0 XP —
+        jeder Neustart kostete die laufende Talk-Zeit. Level-Up-Nachrichten
+        entfallen hier bewusst (der Bot faehrt gerade herunter).
+        """
+        for gid, uid in self.voice.open_keys():
+            try:
+                result = await self.voice.end(gid, uid, min_seconds=60)
+                if (
+                    not result
+                    or result["valid_minutes"] <= 0
+                    or not await self._leveling_enabled(int(gid))
+                ):
+                    continue
+                xp_gained, _ = self.leveling.add_voice_xp(gid, uid, result["valid_minutes"])
+                await self.leveling.persist_user(gid, uid)
+                await self.voice.set_xp(result["db_id"], xp_gained)
+            except Exception as e:  # noqa: BLE001 — Shutdown darf nicht haengen
+                logger.warning(f"Voice-Session {gid}/{uid} beim Shutdown nicht abgeschlossen: {e}")
 
     async def _close_voice_session_silent(
         self, guild_id: str, user_id: str

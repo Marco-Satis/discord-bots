@@ -185,6 +185,15 @@ class LevelingManager:
         """
         schedule_from_sync(coro, name="leveling.fire_and_forget")
 
+    async def persist_user(self, guild_id: int | str, user_id: int | str) -> None:
+        """
+        User-Stand sofort (awaited) in SQLite schreiben.
+
+        Fuer den Shutdown: dort darf der Schreibvorgang nicht als Background-Task
+        hinter dem DB-Close landen.
+        """
+        await self._db_upsert_user(guild_id, user_id, self._ensure_user(guild_id, user_id))
+
     async def _db_upsert_user(
         self, guild_id: int | str, user_id: int | str, user_data: dict[str, Any]
     ) -> None:
