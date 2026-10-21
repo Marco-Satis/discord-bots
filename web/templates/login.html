@@ -53,7 +53,10 @@
       <div class="c3-flash c3-flash--bad" role="status"><svg class="i" aria-hidden="true"><use href="#i-alert"/></svg><span>Der Discord-Login ist nicht eingerichtet. Nutze die Anmeldung mit Benutzername darunter.</span></div>
       {% endif %}
 
-      <details class="c3-login-alt"{% if not oauth_configured or error %} open{% endif %}>
+      {# Nur Discord-Login (Marco 21.10.): Das Passwortformular erscheint nur noch als
+         Notfallweg, wenn OAuth fehlt. Der Server lehnt es ohne WEB_FALLBACK_LOGIN ohnehin ab. #}
+      {% if not oauth_configured %}
+      <details class="c3-login-alt" open>
         <summary>Mit Benutzername und Passwort</summary>
         <form action="/auth/login" method="post" autocomplete="on">
           <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token|default('') }}">
@@ -62,6 +65,7 @@
           <button type="submit" class="c3-btn c3-btn--ghost c3-login-submit"><svg class="i" aria-hidden="true"><use href="#i-login"/></svg>Anmelden</button>
         </form>
       </details>
+      {% endif %}
 
       <p class="c3-label c3-login-note">Zugang nur für freigeschaltete Admins</p>
     </section>
