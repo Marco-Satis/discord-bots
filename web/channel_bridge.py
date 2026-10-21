@@ -40,3 +40,17 @@ def get_channels(kind: Optional[str] = None) -> dict[str, Any]:
         "count": len(channels),
         "channels": channels,
     }
+
+
+def get_roles(auswahl: bool = True) -> dict[str, Any]:
+    """
+    Rollen aus dem Snapshot (hoechste zuerst).
+
+    auswahl=True blendet Bot-/Integrationsrollen aus (die vergibt man nicht von Hand);
+    auswahl=False liefert alle, damit gespeicherte IDs immer einen Namen bekommen.
+    """
+    snap = read_snapshot()
+    roles = snap.get("roles", []) or []
+    if auswahl:
+        roles = [r for r in roles if not r.get("managed")]
+    return {"updated_at": snap.get("updated_at"), "count": len(roles), "roles": roles}

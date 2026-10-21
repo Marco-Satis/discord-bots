@@ -324,6 +324,17 @@ async def save_notifications(request: Request, current_user: dict = Depends(requ
 #  Phase 13g: Login-Verwaltung
 # ==============================================================
 
+@router.get("/zugang", response_class=HTMLResponse)
+async def zugang_page(request: Request, current_user: dict = Depends(require_auth)):
+    """Eigene Seite „Wer sich anmelden darf“ (Inhalt lädt per HTMX aus /config/login)."""
+    if not _is_owner(current_user):
+        raise HTTPException(403, "Nur der Owner darf die Login-Verwaltung anpassen")
+    return templates.TemplateResponse(request, "zugang.html", {
+        "request": request,
+        "user": current_user,
+    })
+
+
 @router.get("/config/login", response_class=HTMLResponse)
 async def login_management(request: Request, current_user: dict = Depends(require_auth)):
     """Dashboard-Login-Verwaltung — Berechtigte Rollen und Benutzer anzeigen."""

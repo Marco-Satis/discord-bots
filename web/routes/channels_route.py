@@ -12,7 +12,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query
 
 from web.auth import require_auth
-from web.channel_bridge import get_channels
+from web.channel_bridge import get_channels, get_roles
 
 router = APIRouter()
 
@@ -23,3 +23,9 @@ async def guild_channels(
 ):
     """Gefilterte Channel-Liste (JSON) fuer die Channel-Select-Komponente."""
     return get_channels(kind)
+
+
+@router.get("/api/guild/roles", dependencies=[Depends(require_auth)])
+async def guild_roles(alle: bool = Query(False)):
+    """Rollenliste (JSON) fuer die Rollen-Auswahl; ?alle=1 auch Bot-Rollen (Namensaufloesung)."""
+    return get_roles(auswahl=not alle)

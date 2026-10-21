@@ -1,169 +1,106 @@
-<!-- Phase 13g: Login-Verwaltung (Partial) -->
+{% from "partials/_channel_select.html" import role_select, role_name %}
+{# Login-Freigabe (Partial, Seite /zugang). Postet wie bisher allowed_role_ids und
+   allowed_user_ids als Komma-Listen an /config/login. Rollen mit Namen aus dem Snapshot;
+   für einzelne Benutzer gibt es keinen Namens-Snapshot, deshalb dort weiter die Discord-ID. #}
 <div id="config-login-content">
 
-    {% if success %}
-    <div class="alert alert-success">{{ success }}</div>
-    {% endif %}
-    {% if error %}
-    <div class="alert alert-danger">{{ error }}</div>
-    {% endif %}
+    {% if success %}<div class="c3-flash c3-flash--ok" role="status"><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span>{{ success }}</span></div>{% endif %}
+    {% if error %}<div class="c3-flash c3-flash--bad" role="alert"><svg class="i" aria-hidden="true"><use href="#i-alert"/></svg><span>{{ error }}</span></div>{% endif %}
 
-    <form hx-post="/config/login" hx-target="#config-tab-content" hx-swap="innerHTML">
+    <form hx-post="/config/login" hx-target="#config-login-content" hx-swap="outerHTML">
 
-        <p class="config-hint">
-            Berechtigte Rollen und Benutzer koennen sich ueber Discord OAuth2 am Dashboard anmelden.
-            Trage Discord-IDs kommasepariert ein.
-        </p>
-
-        <!-- Berechtigte Rollen -->
         <section class="config-section">
-            <h2 class="section-title">Berechtigte Rollen</h2>
-            <p class="config-hint" style="margin-bottom: 1rem;">
-                Discord Rollen-IDs, deren Mitglieder Zugang zum Dashboard erhalten.
-            </p>
+            <h2 class="section-title">Rollen mit Zugang</h2>
+            <p class="config-hint" style="margin-bottom:14px">Wer eine dieser Discord-Rollen hat, kann sich mit Discord am Dashboard anmelden. Was er dann sehen und ändern darf, legst du unter „Rechte je Rolle“ fest.</p>
 
-            <div class="id-list-container" id="role-list">
-                {% if allowed_roles %}
+            <ul class="zg-liste" id="role-list">
                 {% for role_id in allowed_roles %}
-                <div class="id-list-item">
-                    <span class="id-badge">{{ role_id }}</span>
-                    <button type="button" class="btn btn-sm btn-danger id-remove-btn"
-                            onclick="removeIdItem(this)">Entfernen</button>
-                </div>
+                <li class="zg-eintrag" data-id="{{ role_id }}">{{ role_name(role_id) }}
+                    <button type="button" class="btn btn-sm btn-danger" onclick="zgEntfernen(this)">Entfernen</button></li>
                 {% endfor %}
-                {% else %}
-                <p class="empty-text">Keine Rollen konfiguriert.</p>
-                {% endif %}
-            </div>
+                <li class="zg-leer"{% if allowed_roles %} hidden{% endif %}>Noch keine Rolle freigegeben.</li>
+            </ul>
 
-            <div class="id-add-row">
-                <div class="form-group" style="margin-bottom: 0; flex: 1;">
-                    <input type="text" id="new-role-id" placeholder="Rollen-ID eingeben..."
-                           onkeydown="if(event.key==='Enter'){event.preventDefault();addRoleId();}">
-                </div>
-                <button type="button" class="btn btn-secondary" onclick="addRoleId()">Hinzufuegen</button>
+            <div class="zg-neu">
+                {{ role_select('neue_rolle_auswahl', '', placeholder='— Rolle hinzufügen —', id='new-role-id') }}
+                <button type="button" class="btn btn-secondary" onclick="zgRolleHinzu()">Hinzufügen</button>
             </div>
-
-            <!-- Verstecktes Feld mit allen Rollen-IDs (kommasepariert) -->
-            <input type="hidden" name="allowed_role_ids" id="allowed-role-ids-field"
-                   value="{{ allowed_roles | join(',') }}">
+            <input type="hidden" name="allowed_role_ids" id="allowed-role-ids-field" value="{{ allowed_roles | join(',') }}">
         </section>
 
-        <!-- Berechtigte Benutzer -->
         <section class="config-section">
-            <h2 class="section-title">Berechtigte Benutzer</h2>
-            <p class="config-hint" style="margin-bottom: 1rem;">
-                Discord Benutzer-IDs, die individuellen Zugang zum Dashboard erhalten.
-            </p>
+            <h2 class="section-title">Einzelne Benutzer</h2>
+            <p class="config-hint" style="margin-bottom:14px">Für Personen ohne passende Rolle. Discord zeigt die ID per Rechtsklick auf den Namen → „ID kopieren“ (Entwicklermodus).</p>
 
-            <div class="id-list-container" id="user-list">
-                {% if allowed_users %}
+            <ul class="zg-liste" id="user-list">
                 {% for user_id in allowed_users %}
-                <div class="id-list-item">
-                    <span class="id-badge">{{ user_id }}</span>
-                    <button type="button" class="btn btn-sm btn-danger id-remove-btn"
-                            onclick="removeIdItem(this)">Entfernen</button>
-                </div>
+                <li class="zg-eintrag" data-id="{{ user_id }}"><span class="c3-role">Benutzer mit ID …{{ user_id[-4:] }}</span>
+                    <button type="button" class="btn btn-sm btn-danger" onclick="zgEntfernen(this)">Entfernen</button></li>
                 {% endfor %}
-                {% else %}
-                <p class="empty-text">Keine Benutzer konfiguriert.</p>
-                {% endif %}
-            </div>
+                <li class="zg-leer"{% if allowed_users %} hidden{% endif %}>Keine einzelnen Benutzer freigegeben.</li>
+            </ul>
 
-            <div class="id-add-row">
-                <div class="form-group" style="margin-bottom: 0; flex: 1;">
-                    <input type="text" id="new-user-id" placeholder="Benutzer-ID eingeben..."
-                           onkeydown="if(event.key==='Enter'){event.preventDefault();addUserId();}">
-                </div>
-                <button type="button" class="btn btn-secondary" onclick="addUserId()">Hinzufuegen</button>
+            <div class="zg-neu">
+                <input type="text" id="new-user-id" inputmode="numeric" placeholder="Discord-ID des Benutzers"
+                       aria-label="Discord-ID des Benutzers"
+                       onkeydown="if(event.key==='Enter'){event.preventDefault();zgBenutzerHinzu();}">
+                <button type="button" class="btn btn-secondary" onclick="zgBenutzerHinzu()">Hinzufügen</button>
             </div>
-
-            <!-- Verstecktes Feld mit allen Benutzer-IDs (kommasepariert) -->
-            <input type="hidden" name="allowed_user_ids" id="allowed-user-ids-field"
-                   value="{{ allowed_users | join(',') }}">
+            <input type="hidden" name="allowed_user_ids" id="allowed-user-ids-field" value="{{ allowed_users | join(',') }}">
         </section>
 
-        <!-- Speichern-Button -->
         <div class="form-actions">
-            <button type="submit" class="btn btn-primary btn-lg">Login-Einstellungen speichern</button>
+            <button type="submit" class="btn btn-primary">Zugang speichern</button>
         </div>
     </form>
-
 </div>
 
-<!-- JavaScript fuer dynamisches Hinzufuegen/Entfernen von IDs -->
+<style>
+.zg-liste{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px;padding:0;list-style:none}
+.zg-eintrag{display:inline-flex;align-items:center;gap:8px;padding:4px 4px 4px 4px;border:1px solid var(--c3-line);border-radius:var(--r);background:rgba(9,10,20,.35)}
+.zg-leer{color:var(--text-3);font-size:14px}
+.zg-neu{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.zg-neu select,.zg-neu input{flex:1 1 240px;max-width:420px}
+</style>
+
 <script>
-function collectIds(listId) {
-    /** Sammelt alle ID-Werte aus einer ID-Liste. */
-    var items = document.querySelectorAll('#' + listId + ' .id-badge');
-    var ids = [];
-    items.forEach(function(el) { ids.push(el.textContent.trim()); });
-    return ids;
-}
-
-function syncRoleField() {
-    /** Aktualisiert das versteckte Rollen-Feld. */
-    document.getElementById('allowed-role-ids-field').value = collectIds('role-list').join(',');
-}
-
-function syncUserField() {
-    /** Aktualisiert das versteckte Benutzer-Feld. */
-    document.getElementById('allowed-user-ids-field').value = collectIds('user-list').join(',');
-}
-
-function removeIdItem(btn) {
-    /** Entfernt einen Eintrag aus der ID-Liste. */
-    var item = btn.closest('.id-list-item');
-    var listId = item.parentElement.id;
-    item.remove();
-    // Leere-Nachricht anzeigen wenn keine Eintraege mehr
-    var container = document.getElementById(listId);
-    if (container.querySelectorAll('.id-list-item').length === 0) {
-        var emptyP = document.createElement('p');
-        emptyP.className = 'empty-text';
-        emptyP.textContent = 'Keine Eintraege konfiguriert.';
-        container.appendChild(emptyP);
-    }
-    if (listId === 'role-list') syncRoleField();
-    if (listId === 'user-list') syncUserField();
-}
-
-function addIdToList(inputId, listId, syncFn) {
-    /** Fuegt eine neue ID zur Liste hinzu. */
-    var input = document.getElementById(inputId);
-    var val = input.value.trim();
-    if (!val) return;
-    // Nur Zahlen erlauben (Discord IDs)
-    if (!/^\d+$/.test(val)) {
-        alert('Bitte nur numerische Discord-IDs eingeben.');
-        return;
-    }
-    // Duplikat-Pruefung
-    var existing = collectIds(listId);
-    if (existing.indexOf(val) !== -1) {
-        alert('Diese ID ist bereits vorhanden.');
-        input.value = '';
-        return;
-    }
-    var container = document.getElementById(listId);
-    // Leere-Nachricht entfernen
-    var emptyMsg = container.querySelector('.empty-text');
-    if (emptyMsg) emptyMsg.remove();
-    // Neuen Eintrag erstellen
-    var div = document.createElement('div');
-    div.className = 'id-list-item';
-    div.innerHTML = '<span class="id-badge">' + val + '</span>' +
-                    '<button type="button" class="btn btn-sm btn-danger id-remove-btn" onclick="removeIdItem(this)">Entfernen</button>';
-    container.appendChild(div);
-    input.value = '';
-    syncFn();
-}
-
-function addRoleId() {
-    addIdToList('new-role-id', 'role-list', syncRoleField);
-}
-
-function addUserId() {
-    addIdToList('new-user-id', 'user-list', syncUserField);
-}
+(function () {
+  function ids(listId) {
+    return Array.prototype.map.call(document.querySelectorAll('#' + listId + ' .zg-eintrag'), function (li) { return li.getAttribute('data-id'); });
+  }
+  function sync() {
+    document.getElementById('allowed-role-ids-field').value = ids('role-list').join(',');
+    document.getElementById('allowed-user-ids-field').value = ids('user-list').join(',');
+    ['role-list', 'user-list'].forEach(function (l) {
+      var leer = document.querySelector('#' + l + ' .zg-leer');
+      if (leer) leer.hidden = ids(l).length > 0;
+    });
+  }
+  function eintrag(listId, id, label) {
+    var li = document.createElement('li');
+    li.className = 'zg-eintrag'; li.setAttribute('data-id', id);
+    var name = document.createElement('span'); name.className = 'c3-role'; name.textContent = label;
+    var b = document.createElement('button'); b.type = 'button'; b.className = 'btn btn-sm btn-danger'; b.textContent = 'Entfernen';
+    b.addEventListener('click', function () { window.zgEntfernen(b); });
+    li.append(name, ' ', b);
+    var liste = document.getElementById(listId);
+    liste.insertBefore(li, liste.querySelector('.zg-leer'));
+    sync();
+  }
+  window.zgEntfernen = function (btn) { btn.closest('.zg-eintrag').remove(); sync(); };
+  window.zgRolleHinzu = function () {
+    var s = document.getElementById('new-role-id');
+    if (!s || !s.value) return;
+    if (ids('role-list').indexOf(s.value) === -1) eintrag('role-list', s.value, s.options[s.selectedIndex].textContent);
+    s.value = '';
+  };
+  window.zgBenutzerHinzu = function () {
+    var i = document.getElementById('new-user-id');
+    var v = (i.value || '').trim();
+    if (!/^\d{15,22}$/.test(v)) { i.setCustomValidity('Bitte eine Discord-ID aus Ziffern eingeben.'); i.reportValidity(); return; }
+    i.setCustomValidity('');
+    if (ids('user-list').indexOf(v) === -1) eintrag('user-list', v, 'Benutzer mit ID …' + v.slice(-4));
+    i.value = '';
+  };
+})();
 </script>

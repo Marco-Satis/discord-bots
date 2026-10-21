@@ -2,8 +2,6 @@
 {% from "partials/_c3_kopf.html" import kopf %}
 
 {% block title %}Rechte je Rolle{% endblock %}
-{% block crumb %}RBAC{% endblock %}
-{% block nav_rbac %}active{% endblock %}
 
 {% block content %}
 {# V6-Migration 2026-07-14: eigene `.rbac-*`-CSS-Insel entfernt. Nutzt jetzt die
@@ -22,7 +20,15 @@
     // Liegt im NICHT-geswappten Parent, damit es nach HTMX-Swaps verfuegbar bleibt.
     function rbacEditRole(roleId, grantsCsv) {
         var input = document.getElementById('rbac-role-id');
-        if (input) input.value = roleId;
+        if (input) {
+            // Rolle evtl. noch nicht in der Liste (geloescht/Snapshot leer) -> Option ergaenzen
+            if (!Array.prototype.some.call(input.options, function (o) { return o.value === roleId; })) {
+                var o = document.createElement('option');
+                o.value = roleId; o.textContent = 'Gelöschte oder unbekannte Rolle';
+                input.appendChild(o);
+            }
+            input.value = roleId;
+        }
         var grants = (grantsCsv || '').split(',').filter(Boolean);
         document.querySelectorAll('input[name="grant"]').forEach(function (cb) {
             cb.checked = grants.indexOf(cb.value) !== -1;
@@ -35,21 +41,21 @@
 /* Nur Permission-Matrix-Layout (token-only). Farben/Flaechen/Inputs kommen aus v5. */
 .rbac-matrix { width: auto; }
 .rbac-matrix th.rbac-cell, .rbac-matrix td.rbac-cell { text-align: center; }
-.rbac-sensitive { color: var(--warn); }
+.rbac-sensitive { color: var(--text); }
 
-/* V6-Checkbox (ersetzt die nativen weissen Quadrate) — dark, gerundet, Azur-Haken. */
+/* Checkbox im C3-Stil: Mattglas, Cyan-Haken. */
 .rbac-matrix input[type="checkbox"] {
   appearance: none; -webkit-appearance: none; -moz-appearance: none;
   width: 20px; height: 20px; margin: 0; border-radius: 6px; vertical-align: middle;
-  border: 1px solid var(--line-accent); background: var(--s2); cursor: pointer;
+  border: 1px solid var(--text-3); background: var(--glass-3); cursor: pointer;
   position: relative; transition: background var(--fast), border-color var(--fast), box-shadow var(--fast);
 }
-.rbac-matrix input[type="checkbox"]:hover { border-color: var(--acc-2); }
-.rbac-matrix input[type="checkbox"]:checked { background: var(--acc); border-color: var(--acc); }
+.rbac-matrix input[type="checkbox"]:hover { border-color: var(--violet); }
+.rbac-matrix input[type="checkbox"]:checked { background: rgba(83,231,242,.2); border-color: var(--cyan); box-shadow: 0 0 12px -3px rgba(83,231,242,.85); }
 .rbac-matrix input[type="checkbox"]:checked::after {
   content: ""; position: absolute; left: 6px; top: 2px; width: 5px; height: 10px;
-  border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg);
+  border: solid var(--cyan); border-width: 0 2px 2px 0; transform: rotate(45deg);
 }
-.rbac-matrix input[type="checkbox"]:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+.rbac-matrix input[type="checkbox"]:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
 </style>
 {% endblock %}

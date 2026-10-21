@@ -23,6 +23,24 @@
         data-channel-select data-kind="{{ kind }}"
         data-value="{{ value|default('', true) }}">
     {% if allow_empty %}<option value="">{{ placeholder }}</option>{% endif %}
-    {% if value %}<option value="{{ value }}" selected>ID {{ value }}</option>{% endif %}
+    {% if value %}<option value="{{ value }}" selected>Wird geladen …</option>{% endif %}
 </select>
+{%- endmacro %}
+
+
+{#
+  Rollen-Auswahl, gleiche Idee: befuellt aus /api/guild/roles (Rollen-Snapshot von recon),
+  zeigt Rollen-NAMEN, postet die Rollen-ID. Bot-/Integrationsrollen werden nicht angeboten.
+#}
+{% macro role_select(name, value='', placeholder='— Rolle wählen —', allow_empty=true, id='') -%}
+<select class="channel-select" name="{{ name }}"{% if id %} id="{{ id }}"{% endif %}
+        data-role-select data-value="{{ value|default('', true) }}">
+    {% if allow_empty %}<option value="">{{ placeholder }}</option>{% endif %}
+    {% if value %}<option value="{{ value }}" selected>Wird geladen …</option>{% endif %}
+</select>
+{%- endmacro %}
+
+{# Rollenname anzeigen (per JS aus dem Snapshot aufgeloest), ohne die ID zu zeigen. #}
+{% macro role_name(role_id) -%}
+<span class="c3-role" data-role-name="{{ role_id }}">Rolle wird geladen …</span>
 {%- endmacro %}

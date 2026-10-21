@@ -46,8 +46,6 @@
   <button class="tab" data-tab="intervals">Intervalle</button>
   <button class="tab" data-tab="thresholds">Schwellwerte</button>
   <button class="tab" data-tab="channels">Channels</button>
-  <button class="tab" data-tab="login"
-          hx-get="/config/login" hx-target="#tab-login" hx-swap="innerHTML">Login-Verwaltung</button>
   <button class="tab" data-tab="botprofiles"
           hx-get="/config/bot-profiles" hx-target="#tab-botprofiles" hx-swap="innerHTML">Bot-Profile</button>
   <button class="tab" data-tab="notifications"
@@ -303,11 +301,6 @@
     </div>
   </div>
 </form>
-
-<!-- TAB: Login-Verwaltung (HTMX-Lazy-Load) -->
-<div class="tab-panel" id="tab-login">
-  <div class="stat-card"><p class="empty-text">Klicke auf den Tab "Login-Verwaltung" zum Laden...</p></div>
-</div>
 
 <!-- TAB: Bot-Profile (HTMX-Lazy-Load) -->
 <div class="tab-panel" id="tab-botprofiles">

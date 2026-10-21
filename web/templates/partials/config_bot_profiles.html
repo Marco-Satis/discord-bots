@@ -8,7 +8,7 @@
     <div class="alert alert-danger">{{ error }}</div>
     {% endif %}
 
-    <form hx-post="/config/bot-profiles" hx-target="#config-tab-content" hx-swap="innerHTML">
+    <form hx-post="/config/bot-profiles" hx-target="#config-bot-profiles-content" hx-swap="outerHTML">
 
         <p class="config-hint">
             Anzeigenamen, Status-Texte und Avatar-URLs fuer die drei Bots konfigurieren.

@@ -314,7 +314,62 @@
   function shards(root) { $$('.c3-shard', root).forEach(buildShard); }
   window.c3Shards = shards;
 
-  function boot() { init(); shards(); }
+  /* ---------- Rollen: Namen statt IDs (Snapshot von recon, /api/guild/roles) ---------- */
+  var rollenCache = null;
+  function ladeRollen() {
+    if (!rollenCache || Date.now() - rollenCache.ts > 15000) {
+      rollenCache = { ts: Date.now(), p: fetch('/api/guild/roles?alle=1', { credentials: 'same-origin' })
+        .then(function (r) { return r.ok ? r.json() : { roles: [] }; })
+        .then(function (d) { return (d && d.roles) || []; })
+        .catch(function () { rollenCache.ts = 0; return []; }) };
+    }
+    return rollenCache.p;
+  }
+  function rollen(root) {
+    var sel = $$('select[data-role-select]', root).filter(function (s) { return s.dataset.roleReady !== '1'; });
+    var spans = $$('[data-role-name]', root).filter(function (s) { return s.dataset.roleReady !== '1'; });
+    if (!sel.length && !spans.length) return;
+    ladeRollen().then(function (liste) {
+      var nachId = {};
+      liste.forEach(function (r) { nachId[r.id] = r; });
+      sel.forEach(function (s) {
+        s.dataset.roleReady = '1';
+        var aktuell = s.dataset.value || s.value || '';
+        var leer = s.querySelector('option[value=""]');
+        s.textContent = '';
+        if (leer) s.append(leer);
+        liste.forEach(function (r) {
+          if (r.managed && r.id !== aktuell) return;
+          var o = document.createElement('option');
+          o.value = r.id; o.textContent = r.name;
+          if (r.id === aktuell) o.selected = true;
+          s.append(o);
+        });
+        if (aktuell && !nachId[aktuell]) {
+          var o2 = document.createElement('option');
+          o2.value = aktuell; o2.textContent = 'Gelöschte oder unbekannte Rolle'; o2.selected = true;
+          s.append(o2);
+        }
+        if (!liste.length && !aktuell) {
+          var o3 = document.createElement('option');
+          o3.value = ''; o3.disabled = true; o3.textContent = '(noch keine Rollenliste vom Bot)';
+          s.append(o3);
+        }
+        s.dispatchEvent(new Event('c3:rollen', { bubbles: true }));
+      });
+      spans.forEach(function (sp) {
+        sp.dataset.roleReady = '1';
+        var r = nachId[sp.getAttribute('data-role-name')];
+        sp.textContent = r ? r.name : 'Gelöschte oder unbekannte Rolle';
+        if (r && r.color) sp.style.setProperty('--rc', r.color);
+        sp.classList.toggle('is-gone', !r);
+      });
+    });
+  }
+  window.c3Rollen = rollen;
+
+  function boot() { init(); shards(); rollen(); }
+  document.addEventListener('htmx:afterSwap', function (e) { rollen(e.target); });
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
   document.addEventListener('htmx:afterSwap', function (e) { shards(e.target); });
 })();

@@ -1,0 +1,12 @@
+{% extends "base_v5.html" %}
+{% from "partials/_c3_kopf.html" import kopf %}
+
+{% block title %}Wer sich anmelden darf{% endblock %}
+
+{% block content %}
+{{ kopf("Verwaltung", "Wer sich anmelden darf", "Discord-Rollen und einzelne Personen, die sich am Dashboard anmelden können. Der Owner hat immer Zugang.") }}
+
+<div hx-get="/config/login" hx-trigger="load" hx-swap="outerHTML">
+  <div class="stat-card"><p class="empty-text">Wird geladen …</p></div>
+</div>
+{% endblock %}

@@ -1,7 +1,7 @@
 {% extends "base_v5.html" %}
+{% from "partials/_c3_kopf.html" import kopf %}
 
-{% block title %}{{ server.name }} &mdash; Detail{% endblock %}
-{% block crumb %}{{ server.name }}{% endblock %}
+{% block title %}{{ server.name }}{% endblock %}
 
 {% block content %}
 {# Refactor 2026-05-17: .sd-*-Prefix entfernt, style.css v5.0-Klassen direkt.
@@ -43,58 +43,38 @@
 {% set status_class = 'status-online' if server.status == 'online' else ('status-offline' if server.status == 'offline' else 'status-unknown') %}
 {% set dot_class = 'status-dot--online' if server.status == 'online' else ('status-dot--offline' if server.status == 'offline' else 'status-dot--warning') %}
 
-<!-- Breadcrumb -->
-<div class="detail-breadcrumb">
-  <a href="/">Uebersicht</a>
-  <span>&rsaquo;</span>
-  <span>{{ server.name }}</span>
-</div>
-
-<!-- Page-Header mit Server-Icon + Status + Actions -->
-<div class="page-header">
-  <div style="display:flex; align-items:center; gap: var(--s-4);">
-    <div class="detail-server-icon {{ server_icon_class }}">{% if server.type == 'minecraft' %}<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>{% elif server.type == 'satisfactory' %}<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 20a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8l-7 5V8l-7 5V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2z"/><path d="M7 18h.01M12 18h.01M17 18h.01"/></svg>{% else %}<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>{% endif %}</div>
-    <div>
-      <h1>{{ server.name }}</h1>
-      <p class="page-subtitle">
-        <span class="status-badge {{ status_class }}">{{ server.status|capitalize if server.status else 'Unbekannt' }}</span>
-        &ensp;{{ server.type|capitalize }} &middot;
-        Uptime {{ server.uptime }} &middot;
-        {{ server.players_online }}/{{ server.max_players }} Spieler
-        {% if server.address != 'N/A' %} &middot; {{ server.address }}{% if server.port != 'N/A' %}:{{ server.port }}{% endif %}{% endif %}
-      </p>
-    </div>
-  </div>
-  <div class="page-actions">
+{% set typ = {'minecraft': 'Minecraft', 'satisfactory': 'Satisfactory'}.get(server.type, server.type|capitalize) %}
+{% set lead = typ ~ ' · Uptime ' ~ server.uptime ~ ' · ' ~ server.players_online ~ '/' ~ server.max_players ~ ' Spieler' ~ ((' · ' ~ server.address ~ ((':' ~ server.port) if server.port != 'N/A' else '')) if server.address != 'N/A' else '') %}
+{% set chip_art = 'on' if server.status == 'online' else 'check' %}
+{% call kopf("Game-Server", server.name, lead, chip=('Online' if server.status == 'online' else ('Offline' if server.status == 'offline' else 'Unbekannt')), chip_art=chip_art) %}
     {% if server.status == 'offline' %}
-    <button class="btn btn-success"
+    <button class="btn btn-primary"
             hx-post="/api/server/{{ server.server_id }}/action"
             hx-vals='{"action": "start"}'
             hx-target="#action-result"
             hx-swap="innerHTML"
-            hx-confirm="Server {{ server.name }} starten?">&#9654; Start</button>
+            hx-confirm="Server {{ server.name }} starten?">Starten</button>
     {% else %}
     <button class="btn"
             hx-post="/api/server/{{ server.server_id }}/action"
             hx-vals='{"action": "restart"}'
             hx-target="#action-result"
             hx-swap="innerHTML"
-            hx-confirm="Server {{ server.name }} neustarten?">&#8635; Restart</button>
+            hx-confirm="Server {{ server.name }} neustarten?">Neu starten</button>
     <button class="btn btn-danger"
             hx-post="/api/server/{{ server.server_id }}/action"
             hx-vals='{"action": "stop"}'
             hx-target="#action-result"
             hx-swap="innerHTML"
-            hx-confirm="Server {{ server.name }} stoppen? Alle Spieler werden getrennt.">&#9632; Stop</button>
+            hx-confirm="Server {{ server.name }} stoppen? Alle Spieler werden getrennt.">Stoppen</button>
     {% endif %}
     <button class="btn"
             hx-post="/api/server/{{ server.server_id }}/action"
             hx-vals='{"action": "maintenance"}'
             hx-target="#action-result"
             hx-swap="innerHTML"
-            hx-confirm="Wartungsmodus fuer {{ server.name }} aktivieren?">&#9874; Wartung</button>
-  </div>
-</div>
+            hx-confirm="Wartungsmodus für {{ server.name }} aktivieren?">Wartung</button>
+{% endcall %}
 
 <div id="action-result" style="margin-bottom: var(--s-4);"></div>
 
@@ -102,7 +82,7 @@
 <div class="hero-stats">
   <div class="hero-stat">
     <div class="stat-icon stat-icon--green"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
-    <div class="stat-label">Spieler Online</div>
+    <div class="stat-label">Spieler online</div>
     <div class="stat-value">{{ server.players_online }}<span class="metric-sub" style="display:inline; margin-left:4px;">/{{ server.max_players }}</span></div>
   </div>
   <div class="hero-stat">
@@ -130,13 +110,13 @@
 <!-- Tabs -->
 <div class="tabs">
   <button class="tab active" data-tab="players">Spieler</button>
-  {% if server.has_rcon %}<button class="tab" data-tab="rcon">RCON-Konsole</button>{% endif %}
+  {% if server.has_rcon %}<button class="tab" data-tab="rcon">Konsole</button>{% endif %}
   <button class="tab" data-tab="backups">Backups</button>
-  <button class="tab" data-tab="world">Welt-Info</button>
-  <button class="tab" data-tab="config">Server-Config</button>
+  <button class="tab" data-tab="world">Welt</button>
+  <button class="tab" data-tab="config">Einstellungen</button>
   <button class="tab" data-tab="updates">Updates</button>
   <button class="tab" data-tab="mods">Mods</button>
-  <button class="tab" data-tab="blacklist">Blacklist</button>
+  <button class="tab" data-tab="blacklist">Sperrliste</button>
   <button class="tab" data-tab="analyse">Analyse</button>
 </div>
 

@@ -3157,6 +3157,26 @@ async def on_guild_channel_update(before, after):
         asyncio.create_task(_debounced_channel_snapshot())
 
 
+# Rollen stehen seit 2026-10-21 im selben Snapshot (Rollen-Auswahl im Dashboard,
+# Namen statt IDs). Rollen haben wie Kanaele ein .guild — gleiche Pruefung.
+@bot.event
+async def on_guild_role_create(role):
+    if _is_primary_guild_channel(role):
+        asyncio.create_task(_debounced_channel_snapshot())
+
+
+@bot.event
+async def on_guild_role_delete(role):
+    if _is_primary_guild_channel(role):
+        asyncio.create_task(_debounced_channel_snapshot())
+
+
+@bot.event
+async def on_guild_role_update(before, after):
+    if _is_primary_guild_channel(after):
+        asyncio.create_task(_debounced_channel_snapshot())
+
+
 @bot.event
 async def on_app_command_completion(interaction, command):
     """Jeden erfolgreichen Slash-Befehl protokollieren.

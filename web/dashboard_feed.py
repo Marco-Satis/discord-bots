@@ -45,8 +45,19 @@ def collect_server_status() -> list[dict]:
     servers: list[dict] = []
     if not MONITOR_DATA_DIR.exists():
         return servers
+    # Nur Server, die die Registry kennt — wie web/routes/dashboard.py. Ein
+    # stillgelegter Server (mc_vanilla, ersetzt durch Satisfactory 2) hinterlaesst
+    # seine letzte Statusdatei; sie soll nicht als Offline-Alarm auftauchen.
+    try:
+        from modules.server_registry import alle as _alle_server
+        bekannt = {srv.kennung for srv in _alle_server()}
+    except Exception as e:  # noqa: BLE001 — lieber alle zeigen als keine
+        logger.debug(f"Registry nicht lesbar, zeige alle Statusdateien: {e}")
+        bekannt = None
     for json_file in sorted(MONITOR_DATA_DIR.glob("*_status.json")):
         if json_file.name in _NON_SERVER_STATUS:
+            continue
+        if bekannt is not None and json_file.stem.replace("_status", "") not in bekannt:
             continue
         data = _load_json_safe(json_file)
         if data:

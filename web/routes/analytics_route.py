@@ -265,13 +265,21 @@ async def analytics_players(
     # Nicht-Gameserver-IDs aus der Auswertung ausschliessen (ssl-Check, bot-Status etc.)
     EXCLUDE_IDS = {"ssl", "bot", "bot_status"}
 
+    # Anzeigenamen aus der Registry; stillgelegte Server (z. B. mc_vanilla) fallen raus
+    try:
+        from modules.server_registry import alle as _alle_server
+        namen = {srv.kennung: srv.label for srv in _alle_server()}
+    except Exception as e:  # noqa: BLE001 — Diagramm lieber mit Roh-IDs als gar nicht
+        logger.debug(f"Registry nicht lesbar: {e}")
+        namen = {}
+
     labels = []
     # Alle Server-IDs sammeln die in den Eintraegen vorkommen
     server_ids: set[str] = set()
     for entry in entries:
         for srv in entry.get("servers", []):
             sid = srv.get("id", "")
-            if sid and sid not in EXCLUDE_IDS:
+            if sid and sid not in EXCLUDE_IDS and (not namen or sid in namen):
                 server_ids.add(sid)
 
     # Daten pro Server sammeln
@@ -300,7 +308,7 @@ async def analytics_players(
     datasets = []
     for sid in sorted(server_ids):
         datasets.append({
-            "label": sid.capitalize(),
+            "label": namen.get(sid, sid.capitalize()),
             "data": server_data[sid],
         })
 

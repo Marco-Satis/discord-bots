@@ -15,7 +15,9 @@ Format `data/guild_channels.json`:
       "channels": [
         {"id": "111", "name": "allgemein", "type": "text",
          "category_id": "999", "position": 0}, ...
-      ]
+      ],
+      "roles": [{"id": "222", "name": "Moderator", "position": 12,
+                 "color": "#b84dff", "managed": false}, ...]
     }
 
 Kein `import discord` noetig: der Writer greift nur per Attribut-Zugriff (Duck-Typing)
@@ -63,6 +65,33 @@ def build_channels(guild: Any) -> list[dict[str, Any]]:
     return out
 
 
+def build_roles(guild: Any) -> list[dict[str, Any]]:
+    """
+    Discord-Guild -> Rollenliste (hoechste zuerst) fuer die Rollen-Auswahl im Dashboard.
+
+    Ohne @everyone. Bot- und Integrationsrollen (`managed`) bleiben drin, sind aber
+    markiert — das Dashboard blendet sie in Auswahllisten aus, kann ihre Namen aber
+    weiter aufloesen.
+    """
+    out: list[dict[str, Any]] = []
+    for r in getattr(guild, "roles", []) or []:
+        try:
+            if getattr(r, "is_default", lambda: False)():
+                continue
+            farbe = getattr(getattr(r, "color", None), "value", 0) or 0
+            out.append({
+                "id": str(r.id),
+                "name": str(getattr(r, "name", "")),
+                "position": int(getattr(r, "position", 0) or 0),
+                "color": f"#{farbe:06x}" if farbe else "",
+                "managed": bool(getattr(r, "managed", False)),
+            })
+        except Exception as e:  # einzelne kaputte Rolle nicht den ganzen Snapshot kippen lassen
+            logger.warning(f"channel_snapshot: Rolle uebersprungen: {e}")
+    out.sort(key=lambda x: -x["position"])
+    return out
+
+
 def write_snapshot(guild: Any) -> bool:
     """
     Channel-Snapshot der Guild atomar nach SNAPSHOT_PATH schreiben.
@@ -76,6 +105,7 @@ def write_snapshot(guild: Any) -> bool:
             "guild_name": str(getattr(guild, "name", "")),
             "updated_at": datetime.now(timezone.utc).isoformat(),
             "channels": build_channels(guild),
+            "roles": build_roles(guild),
         }
         payload["count"] = len(payload["channels"])
         SNAPSHOT_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -101,10 +131,11 @@ def read_snapshot() -> dict[str, Any]:
         if not isinstance(data, dict):
             raise ValueError("Snapshot ist kein Objekt")
         data.setdefault("channels", [])
+        data.setdefault("roles", [])
         data.setdefault("count", len(data.get("channels", [])))
         return data
     except FileNotFoundError:
-        return {"guild_id": "", "guild_name": "", "updated_at": None, "count": 0, "channels": []}
+        return {"guild_id": "", "guild_name": "", "updated_at": None, "count": 0, "channels": [], "roles": []}
     except Exception as e:
         logger.warning(f"Channel-Snapshot nicht lesbar: {e}")
-        return {"guild_id": "", "guild_name": "", "updated_at": None, "count": 0, "channels": []}
+        return {"guild_id": "", "guild_name": "", "updated_at": None, "count": 0, "channels": [], "roles": []}

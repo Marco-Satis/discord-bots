@@ -114,7 +114,7 @@ def _bereiche(spielserver: list) -> tuple[Bereich, ...]:
         )),
         Bereich("admin", "Verwaltung", "i-key", "Zugang und Protokolle", (
             Gruppe("Dashboard-Zugang", (
-                Seite("config-login", "Wer sich anmelden darf", "/config?tab=login", "i-users", "login zugang erlaubt", nur_owner=True),
+                Seite("config-login", "Wer sich anmelden darf", "/zugang", "i-users", "login zugang erlaubt", nur_owner=True),
                 Seite("rbac", "Rechte je Rolle", "/rbac", "i-key", "rbac rollen rechte", nur_owner=True),
             )),
             Gruppe("Protokolle", (

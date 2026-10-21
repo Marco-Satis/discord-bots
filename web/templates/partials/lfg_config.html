@@ -1,4 +1,4 @@
-{% from "partials/_channel_select.html" import channel_select %}
+{% from "partials/_channel_select.html" import channel_select, role_select %}
 <!-- LFG-Config-Partial (HTMX-Swap-Ziel #lfg-config) -->
 {% if success %}<div class="card" style="padding:12px 16px;margin-bottom:14px;border:1px solid var(--ok);color:var(--ok)">{{ success }}</div>{% endif %}
 {% if error %}<div class="card" style="padding:12px 16px;margin-bottom:14px;border:1px solid var(--bad);color:var(--bad)">{{ error }}</div>{% endif %}
@@ -12,10 +12,8 @@
         <div class="set-group">
             <div class="set-group-title">Rollenzuweisung</div>
             <div class="form-group">
-                <label for="role_id">LFG-Rollen-ID</label>
-                <input type="text" id="role_id" name="role_id" inputmode="numeric"
-                       value="{{ cfg.role_id|default('', true) }}"
-                       placeholder="z.B. 111111111111111111">
+                <label for="role_id">Ping-Rolle</label>
+                {{ role_select('role_id', cfg.role_id|default('', true), placeholder='— keine Rolle —', id='role_id') }}
                 <p class="config-hint">Rolle die bei <code>/lfg ping</code> benachrichtigt wird.
                     Mitglieder geben sie sich per <code>/lfg an</code> oder Panel-Button.</p>
             </div>
@@ -24,13 +22,13 @@
         <div class="set-group">
             <div class="set-group-title">Ping-Konfiguration</div>
             <div class="form-group">
-                <label for="channel_id">Ping-Kanal-ID (optional)</label>
+                <label for="channel_id">Ping-Kanal (optional)</label>
                 {{ channel_select('channel_id', cfg.channel_id|default('', true), kind='text') }}
                 <p class="config-hint">Wenn gesetzt, ist <code>/lfg ping</code> nur in diesem
                     Kanal nutzbar.</p>
             </div>
             <div class="form-group">
-                <label for="cooldown_seconds">Ping-Cooldown (Sekunden)</label>
+                <label for="cooldown_seconds">Abklingzeit zwischen zwei Pings (Sekunden)</label>
                 <input type="number" id="cooldown_seconds" name="cooldown_seconds"
                        min="0" max="3600"
                        value="{{ cfg.cooldown_seconds|default(300, true) }}">
