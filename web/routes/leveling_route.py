@@ -134,6 +134,8 @@ async def leveling_page(request: Request, current_user: dict = Depends(require_a
         "guild_set": guild_id is not None,
         "total": len(entries),
         "cfg": cfg,
+        **({k: v for k, v in _karte_kontext(request, guild_id, await _karte_config(guild_id)).items()
+            if k not in ("request", "success", "error")} if guild_id is not None else {"karte": {}}),
         # Quittung des letzten Resets (leer, solange keiner lief)
         "status": _reset_status(),
         "success": "",
@@ -305,3 +307,166 @@ async def leveling_reset(
         "success": success,
         "error": error,
     })
+
+
+# ----------------------------------------------------------------------
+# Level-Up-Karte gestalten (21.10.2026)
+# ----------------------------------------------------------------------
+# Marshal rendert die Karte (cogs/leveling_cog.py::_karte_png) mit denselben
+# Keys; der Web-Prozess rendert nur die Vorschau. Hintergrundbilder liegen in
+# ADMIN_DATA_DIR/levelup_backgrounds, dort liest sie auch der Bot.
+
+import asyncio  # noqa: E402
+import io  # noqa: E402
+import re  # noqa: E402
+
+from fastapi.responses import Response  # noqa: E402
+
+KARTE_BG_DIR = ADMIN_DATA_DIR / "levelup_backgrounds"
+KARTE_BG_NAME = "bg.png"
+KARTE_MAX_BYTES = 8 * 1024 * 1024
+_HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
+KARTE_STILE = {"neon": "Neon (Violett, Magenta, Cyan)", "akzent": "Eine Farbe (Akzent)"}
+TITEL_MAX, TEXT_MAX = 20, 80
+
+
+async def _karte_config(guild_id: int) -> dict:
+    """Gespeicherte Karten-Gestaltung aus `guild_config` (Defaults wie modules/leveling.py)."""
+    async def g(key, default):
+        return await GuildConfig.get(guild_id, f"leveling.{key}", default)
+
+    bg = await g("levelup_card_bg", None)
+    return {
+        "aktiv": bool(await g("levelup_card_enabled", False)),
+        "stil": await g("levelup_card_stil", "neon") or "neon",
+        "akzent": await g("levelup_card_accent", "#B84DFF") or "#B84DFF",
+        "titel": await g("levelup_card_titel", "LEVEL UP") or "LEVEL UP",
+        "text": await g("levelup_card_text", "") or "",
+        "rolle_zeigen": bool(await g("levelup_card_rolle_zeigen", True)),
+        "bild": bool(bg) and (KARTE_BG_DIR / str(bg)).exists(),
+    }
+
+
+def _karte_pruefen(stil: str, akzent: str, titel: str, text: str) -> tuple[str, str, str, str]:
+    """Formularwerte begrenzen; ValueError mit verstaendlicher Meldung."""
+    stil = stil if stil in KARTE_STILE else "neon"
+    akzent = (akzent or "").strip()
+    if not _HEX.match(akzent):
+        raise ValueError("Die Akzentfarbe muss die Form #RRGGBB haben.")
+    titel = (titel or "").strip() or "LEVEL UP"
+    if len(titel) > TITEL_MAX:
+        raise ValueError(f"Der Titel darf höchstens {TITEL_MAX} Zeichen haben.")
+    text = (text or "").strip()
+    if len(text) > TEXT_MAX:
+        raise ValueError(f"Die Zeile darf höchstens {TEXT_MAX} Zeichen haben.")
+    return stil, akzent, titel, text
+
+
+def _bild_speichern(raw: bytes) -> None:
+    """Upload neu als PNG kodieren (entfernt Metadaten, prueft dass es ein Bild ist)."""
+    from PIL import Image
+
+    im = Image.open(io.BytesIO(raw))
+    im.verify()  # bricht bei kaputten/fremden Dateien ab
+    im = Image.open(io.BytesIO(raw)).convert("RGB")
+    if im.width > 2400:
+        im = im.resize((2400, round(im.height * 2400 / im.width)), Image.LANCZOS)
+    KARTE_BG_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = KARTE_BG_DIR / (KARTE_BG_NAME + ".tmp")
+    im.save(tmp, "PNG")
+    tmp.replace(KARTE_BG_DIR / KARTE_BG_NAME)
+
+
+def _karte_kontext(request: Request, guild_id, cfg: dict, success: str = "", error: str = "") -> dict:
+    return {
+        "request": request, "guild_set": guild_id is not None, "karte": cfg,
+        "stile": KARTE_STILE, "titel_max": TITEL_MAX, "text_max": TEXT_MAX,
+        "stand": int(datetime.now().timestamp()), "success": success, "error": error,
+    }
+
+
+@router.get("/leveling/karte/vorschau.png")
+async def leveling_karte_vorschau(
+    request: Request, current_user: dict = Depends(require_perm("leveling", "edit"))
+):
+    """Vorschau der Karte; Formularwerte kommen als Query, das Bild ist das gespeicherte."""
+    from modules.levelup_card import render_levelup_card
+    from modules.platzhalter import render as platzhalter_render
+    from modules.channel_snapshot import read_snapshot
+
+    guild_id = get_primary_guild_id()
+    cfg = await _karte_config(guild_id) if guild_id is not None else {}
+    q = request.query_params
+    try:
+        stil, akzent, titel, text = _karte_pruefen(
+            q.get("stil", cfg.get("stil", "neon")), q.get("akzent", cfg.get("akzent", "#B84DFF")),
+            q.get("titel", cfg.get("titel", "LEVEL UP")), q.get("text", cfg.get("text", "")),
+        )
+    except ValueError:
+        stil, akzent, titel, text = "neon", "#B84DFF", "LEVEL UP", ""
+    rolle_zeigen = q.get("rolle", "1" if cfg.get("rolle_zeigen", True) else "0") == "1"
+    name = str(current_user.get("username") or "Mitglied")
+    snap = await asyncio.to_thread(read_snapshot)
+    unterzeile = platzhalter_render(text, extra={
+        "user": name, "user.name": name, "level": "5", "server": snap.get("guild_name") or "Server",
+    }) if text else None
+    bg = KARTE_BG_DIR / KARTE_BG_NAME if cfg.get("bild") else None
+    png = await asyncio.to_thread(
+        render_levelup_card, bg, None, name, 5, 62, 155, akzent, titel,
+        stil=stil, unterzeile=unterzeile,
+        rolle="Neuzugang | Level 5" if rolle_zeigen else None,
+    )
+    return Response(png, media_type="image/png", headers={"Cache-Control": "no-store"})
+
+
+@router.post("/leveling/karte", response_class=HTMLResponse)
+async def leveling_karte_speichern(
+    request: Request, current_user: dict = Depends(require_perm("leveling", "edit"))
+):
+    """Karten-Gestaltung speichern (HTMX, multipart wegen Bild-Upload)."""
+    guild_id = get_primary_guild_id()
+    success = error = ""
+    if guild_id is None:
+        return templates.TemplateResponse(request, "partials/leveling_karte.html",
+                                          _karte_kontext(request, None, {}, error="Keine Haupt-Guild gesetzt."))
+    user = current_user.get("username", "dashboard")
+    try:
+        form = await request.form()
+        stil, akzent, titel, text = _karte_pruefen(
+            str(form.get("stil", "neon")), str(form.get("akzent", "")),
+            str(form.get("titel", "")), str(form.get("text", "")),
+        )
+        datei = form.get("bild")
+        bild_neu = None
+        if datei is not None and getattr(datei, "filename", ""):
+            raw = await datei.read(KARTE_MAX_BYTES + 1)
+            if len(raw) > KARTE_MAX_BYTES:
+                raise ValueError("Das Bild ist größer als 8 MB.")
+            try:
+                await asyncio.to_thread(_bild_speichern, raw)
+            except Exception:  # noqa: BLE001 — kein Bild oder kaputt
+                raise ValueError("Die Datei ist kein lesbares Bild (PNG oder JPG).") from None
+            bild_neu = KARTE_BG_NAME
+        werte = {
+            "levelup_card_enabled": "aktiv" in form,
+            "levelup_card_stil": stil,
+            "levelup_card_accent": akzent,
+            "levelup_card_titel": titel,
+            "levelup_card_text": text,
+            "levelup_card_rolle_zeigen": "rolle_zeigen" in form,
+        }
+        if bild_neu:
+            werte["levelup_card_bg"] = bild_neu
+        elif "bild_entfernen" in form:
+            werte["levelup_card_bg"] = None
+        for key, wert in werte.items():
+            await GuildConfig.set(guild_id, f"leveling.{key}", wert, updated_by=user)
+        logger.info(f"Level-Up-Karte gespeichert von {user}: aktiv={werte['levelup_card_enabled']} stil={stil}")
+        success = "Gespeichert. Marshal nutzt die neue Karte ab dem nächsten Level-Up (spätestens nach 15 Sekunden)."
+    except ValueError as e:
+        error = str(e)
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"Level-Up-Karte speichern fehlgeschlagen: {e}")
+        error = "Speichern fehlgeschlagen. Details im Server-Log."
+    return templates.TemplateResponse(request, "partials/leveling_karte.html",
+                                      _karte_kontext(request, guild_id, await _karte_config(guild_id), success, error))

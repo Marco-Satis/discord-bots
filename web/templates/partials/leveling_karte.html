@@ -1,0 +1,104 @@
+{% from "partials/_platzhalter.html" import platzhalter_liste %}
+{# Level-Up-Karte gestalten — HTMX-Partial (Swap-Ziel #lvl-karte).
+   Vorschau: GET /leveling/karte/vorschau.png mit den Formularwerten als Query.
+   Marshal liest dieselben guild_config-Keys (cogs/leveling_cog.py::_karte_png). #}
+<section id="lvl-karte" class="config-section lvl-config-card" aria-labelledby="lvl-karte-titel">
+  <h2 class="lvl-config-title" id="lvl-karte-titel">Level-Up-Karte</h2>
+
+  {% if success %}<div class="c3-flash c3-flash--ok" role="status"><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span>{{ success }}</span></div>{% endif %}
+  {% if error %}<div class="c3-flash c3-flash--bad" role="alert"><svg class="i" aria-hidden="true"><use href="#i-alert"/></svg><span>{{ error }}</span></div>{% endif %}
+
+  {% if not guild_set %}
+    <p>Keine Haupt-Guild gesetzt — Konfiguration nicht verfügbar.</p>
+  {% else %}
+  <div class="lk-vorschau">
+    <img id="lk-bild" src="/leveling/karte/vorschau.png?v={{ stand }}" width="600" height="200"
+         alt="Vorschau der Level-Up-Karte" loading="lazy">
+    <small>Vorschau mit deinem Namen und Level 5. Sie ändert sich beim Tippen, gespeichert wird erst mit „Speichern“.</small>
+  </div>
+
+  <form id="lk-form" hx-post="/leveling/karte" hx-target="#lvl-karte" hx-swap="outerHTML" hx-encoding="multipart/form-data">
+    <div class="toggle-row">
+      <div class="toggle-info">
+        <div class="toggle-info-label">Bild-Karte statt Text-Meldung</div>
+        <div class="toggle-info-desc">Aus: Level-Ups erscheinen als einfache Nachricht.</div>
+      </div>
+      <label class="toggle"><input type="checkbox" name="aktiv" {% if karte.aktiv %}checked{% endif %}><span class="slider"></span></label>
+    </div>
+
+    <div class="lk-felder">
+      <div class="lvl-field">
+        <label for="lk-stil">Farbstil</label>
+        <select id="lk-stil" name="stil">
+          {% for key, text in stile.items() %}<option value="{{ key }}" {% if karte.stil == key %}selected{% endif %}>{{ text }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="lvl-field">
+        <label for="lk-akzent">Akzentfarbe <small>(gilt im Stil „Eine Farbe“)</small></label>
+        <input id="lk-akzent" type="color" name="akzent" value="{{ karte.akzent }}">
+      </div>
+      <div class="lvl-field">
+        <label for="lk-titel">Titel</label>
+        <input id="lk-titel" type="text" name="titel" value="{{ karte.titel }}" maxlength="{{ titel_max }}" placeholder="LEVEL UP">
+      </div>
+    </div>
+
+    <div class="lvl-field">
+      <label for="lk-text">Zeile unter dem Namen <small>(optional, max. {{ text_max }} Zeichen)</small></label>
+      <input id="lk-text" type="text" name="text" value="{{ karte.text }}" maxlength="{{ text_max }}" placeholder="z. B. Weiter so, {user}!">
+      {{ platzhalter_liste('lk-text', extra=[('{level}', 'Erreichtes Level', '12')], hinweis="Auf der Karte steht {user} als Name, nicht als Erwähnung.") }}
+    </div>
+
+    <div class="toggle-row">
+      <div class="toggle-info">
+        <div class="toggle-info-label">Neue Rangrolle auf der Karte nennen</div>
+        <div class="toggle-info-desc">Bei Level 5, 10, 20 … steht die erreichte Rolle statt der eigenen Zeile.</div>
+      </div>
+      <label class="toggle"><input type="checkbox" name="rolle_zeigen" {% if karte.rolle_zeigen %}checked{% endif %}><span class="slider"></span></label>
+    </div>
+
+    <div class="lvl-field">
+      <label for="lk-bild-datei">Eigenes Hintergrundbild <small>(PNG oder JPG, max. 8 MB, ideal 1200 × 400)</small></label>
+      <input id="lk-bild-datei" type="file" name="bild" accept="image/png,image/jpeg">
+      {% if karte.bild %}
+      <label class="lk-check"><input type="checkbox" name="bild_entfernen"> Bild entfernen und wieder den Neon-Hintergrund nutzen</label>
+      {% else %}
+      <small>Ohne Bild zeichnet die Karte den Neon-Hintergrund des Servers.</small>
+      {% endif %}
+    </div>
+
+    <div class="lvl-form-actions">
+      <button type="submit" class="lvl-save-btn">Speichern</button>
+    </div>
+  </form>
+  <script>
+  (function () {
+    var form = document.getElementById('lk-form'), bild = document.getElementById('lk-bild');
+    if (!form || !bild) return;
+    var t = null;
+    function neu() {
+      var q = new URLSearchParams({
+        stil: form.stil.value, akzent: form.akzent.value, titel: form.titel.value,
+        text: form.text.value, rolle: form.rolle_zeigen.checked ? '1' : '0', v: Date.now()
+      });
+      bild.src = '/leveling/karte/vorschau.png?' + q.toString();
+    }
+    form.addEventListener('input', function (e) {
+      if (e.target.type === 'file') return;
+      clearTimeout(t); t = setTimeout(neu, 350);
+    });
+  })();
+  </script>
+  {% endif %}
+</section>
+<style>
+#lvl-karte .lk-vorschau { margin: 4px 0 16px; display: flex; flex-direction: column; gap: 6px; }
+#lvl-karte .lk-vorschau img { width: 100%; max-width: 600px; height: auto; border-radius: 12px; background: var(--bg); }
+#lvl-karte .lk-felder { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-top: 14px; }
+#lvl-karte .lvl-field { margin-top: 12px; min-width: 0; }
+#lvl-karte .lvl-field label { display: block; font-size: 12px; color: var(--text-2); margin-bottom: 6px; }
+#lvl-karte input[type=text], #lvl-karte select { width: 100%; }
+#lvl-karte input[type=color] { width: 64px; height: 36px; padding: 2px; }
+#lvl-karte .lk-check { display: flex; gap: 8px; align-items: center; margin-top: 8px; font-size: 13px; color: var(--text-2); }
+#lvl-karte .toggle-row { margin-top: 12px; }
+</style>

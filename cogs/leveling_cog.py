@@ -48,6 +48,8 @@ from utils.loop_guard import guard
 from utils.shutdown import register_cleanup
 from utils.ui_kit import subtext, truncate, zahl
 
+from modules.platzhalter import render as platzhalter_render
+
 logger = get_logger("cogs.leveling")
 
 # Level-Up-Karte braucht Pillow — bei fehlender Lib auf Embed zurueckfallen,
@@ -707,36 +709,18 @@ class LevelingCog(commands.Cog):
         xp_in_level, xp_for_next = self._xp_progress(user_data, new_level)
 
         # --- Bild-Karte versuchen ---
-        if _CARD_AVAILABLE and self.leveling.is_card_enabled(guild_id):
-            bg_name = self.leveling.get_card_bg(guild_id)
-            if bg_name:
-                bg_path = LEVELUP_BG_DIR / bg_name
-                if bg_path.exists():
-                    try:
-                        avatar_bytes = await member.display_avatar.read()
-                        accent = self.leveling.get_card_accent(guild_id)
-                        png = await asyncio.to_thread(
-                            render_levelup_card,
-                            bg_path,
-                            avatar_bytes,
-                            member.display_name,
-                            new_level,
-                            xp_in_level,
-                            xp_for_next,
-                            accent,
-                        )
-                        file = discord.File(io.BytesIO(png), filename="levelup.png")
-                        try:
-                            color = int(accent.lstrip("#"), 16)
-                        except ValueError:
-                            color = COLOR_WARNING
-                        embed = discord.Embed(color=color)
-                        embed.set_image(url="attachment://levelup.png")
-                        return file, embed
-                    except Exception as e:  # noqa: BLE001 — Fallback auf Embed
-                        logger.warning(
-                            f"Level-Up-Karte fehlgeschlagen, nutze Embed: {e}"
-                        )
+        png = await self._karte_png(
+            guild_id, member, new_level, xp_in_level, xp_for_next, levelup=True,
+        )
+        if png is not None:
+            file = discord.File(io.BytesIO(png), filename="levelup.png")
+            try:
+                color = int(self.leveling.get_card_accent(guild_id).lstrip("#"), 16)
+            except ValueError:
+                color = COLOR_WARNING
+            embed = discord.Embed(color=color)
+            embed.set_image(url="attachment://levelup.png")
+            return file, embed
 
         # --- Fallback: Embed im HUD-Stil (wenn keine Karte gerendert wurde) ---
         suffix = " durch Voice-Aktivitaet" if via_voice else ""
@@ -962,18 +946,56 @@ class LevelingCog(commands.Cog):
         Karte rendern wenn die Bild-Karte der Guild aktiviert ist + ein
         Hintergrund existiert (1-Admin-Template). Sonst None (Embed-Fallback).
         """
+        png = await self._karte_png(
+            guild_id, member, level, xp_in_level, xp_for_next, header=header,
+        )
+        if png is None:
+            return None
+        return discord.File(io.BytesIO(png), filename="card.png")
+
+    async def _karte_png(
+        self,
+        guild_id: int,
+        member: discord.Member | discord.User,
+        level: int,
+        xp_in_level: int,
+        xp_for_next: int,
+        *,
+        header: Optional[str] = None,
+        levelup: bool = False,
+    ) -> Optional[bytes]:
+        """
+        Level-Up- bzw. Rang-Karte nach der Dashboard-Gestaltung rendern.
+
+        None, wenn die Karte aus ist oder das Rendern scheitert (dann Embed).
+        Ein Hintergrundbild ist optional: ohne Bild zeichnet die Karte den
+        C3-Neon-Hintergrund selbst.
+        """
         if not (_CARD_AVAILABLE and self.leveling.is_card_enabled(guild_id)):
             return None
+        k = self.leveling.get_card_settings(guild_id)
+        bg_path = None
         bg_name = self.leveling.get_card_bg(guild_id)
-        if not bg_name:
-            return None
-        bg_path = LEVELUP_BG_DIR / bg_name
-        if not bg_path.exists():
-            return None
+        if bg_name and (LEVELUP_BG_DIR / bg_name).exists():
+            bg_path = LEVELUP_BG_DIR / bg_name
+        rolle = None
+        unterzeile = None
+        if levelup:
+            if k["rolle_zeigen"] and isinstance(member, discord.Member):
+                rid = self.leveling.get_role_rewards(guild_id).get(level)
+                r = member.guild.get_role(rid) if rid else None
+                rolle = r.name if r else None
+            if k["text"]:
+                unterzeile = platzhalter_render(
+                    k["text"], member=member, extra={"level": level, "user": member.display_name},
+                )
         try:
             avatar_bytes = await member.display_avatar.read()
-            accent = self.leveling.get_card_accent(guild_id)
-            png = await asyncio.to_thread(
+        except Exception as e:  # noqa: BLE001 — Karte geht auch ohne Avatar
+            logger.debug(f"Avatar fuer Karte nicht ladbar: {e}")
+            avatar_bytes = None
+        try:
+            return await asyncio.to_thread(
                 render_levelup_card,
                 bg_path,
                 avatar_bytes,
@@ -981,10 +1003,12 @@ class LevelingCog(commands.Cog):
                 level,
                 xp_in_level,
                 xp_for_next,
-                accent,
-                header,
+                k["accent"],
+                header or k["titel"],
+                stil=k["stil"],
+                unterzeile=unterzeile,
+                rolle=rolle,
             )
-            return discord.File(io.BytesIO(png), filename="card.png")
         except Exception as e:  # noqa: BLE001 — Fallback auf Embed
             logger.warning(f"Karten-Render fehlgeschlagen: {e}")
             return None
@@ -1650,43 +1674,20 @@ class LevelingCog(commands.Cog):
         await self.leveling.set_card_enabled(guild_id, aktiv)
         notes.append("aktiv" if aktiv else "deaktiviert")
 
-        # Aktiv aber kein Hintergrund -> Hinweis
-        if aktiv and not self.leveling.get_card_bg(guild_id):
-            await interaction.followup.send(
-                "Karte aktiviert, aber noch kein Hintergrund gesetzt. "
-                "Lade mit der Option `hintergrund:` ein Bild hoch.",
-                ephemeral=True,
+        # Vorschau rendern (falls aktiv; Hintergrundbild ist optional)
+        if aktiv:
+            user_data = self.leveling.get_user(guild_id, interaction.user.id)
+            png = await self._karte_png(
+                guild_id, interaction.user, user_data.get("level", 0), 30, 100, levelup=True,
             )
-            return
-
-        # Vorschau rendern (falls aktiv + Hintergrund vorhanden)
-        bg_name = self.leveling.get_card_bg(guild_id)
-        if aktiv and bg_name:
-            bg_path = LEVELUP_BG_DIR / bg_name
-            if bg_path.exists():
-                try:
-                    user_data = self.leveling.get_user(guild_id, interaction.user.id)
-                    lvl = user_data.get("level", 0)
-                    avatar_bytes = await interaction.user.display_avatar.read()
-                    png = await asyncio.to_thread(
-                        render_levelup_card,
-                        bg_path,
-                        avatar_bytes,
-                        interaction.user.display_name,
-                        lvl,
-                        30,
-                        100,
-                        self.leveling.get_card_accent(guild_id),
-                    )
-                    file = discord.File(io.BytesIO(png), filename="preview.png")
-                    await interaction.followup.send(
-                        content="Vorschau Level-Up-Karte (" + ", ".join(notes) + "):",
-                        file=file,
-                        ephemeral=True,
-                    )
-                    return
-                except Exception as e:  # noqa: BLE001
-                    logger.warning(f"Karten-Vorschau fehlgeschlagen: {e}")
+            if png is not None:
+                file = discord.File(io.BytesIO(png), filename="preview.png")
+                await interaction.followup.send(
+                    content="Vorschau Level-Up-Karte (" + ", ".join(notes) + "):",
+                    file=file,
+                    ephemeral=True,
+                )
+                return
 
         await interaction.followup.send(
             "Level-Up-Karte: " + ", ".join(notes), ephemeral=True

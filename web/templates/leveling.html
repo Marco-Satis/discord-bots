@@ -9,6 +9,7 @@
 {% if guild_set %}{{ kopf("Discord-Server", "Leveling", "Rangliste, Rangrollen und wohin Level-Ups gemeldet werden.") }}{% else %}{{ kopf("Discord-Server", "Leveling", "Rangliste, Rangrollen und wohin Level-Ups gemeldet werden.", chip="Server nicht verbunden", chip_art="check") }}{% endif %}
 
 {% include "partials/leveling_config.html" %}
+{% include "partials/leveling_karte.html" %}
 
 {% include "partials/leveling_reset.html" %}
 

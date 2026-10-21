@@ -77,7 +77,13 @@ def _default_config() -> dict[str, Any]:
         # Level-Up-Karte mit Bild-Hintergrund (statt Standard-Embed)
         "levelup_card_enabled": False,
         "levelup_card_bg": None,
-        "levelup_card_accent": "#f1c40f",
+        "levelup_card_accent": "#B84DFF",
+        # Karten-Gestaltung (Dashboard, 21.10.2026): ohne Hintergrundbild
+        # zeichnet die Karte den C3-Neon-Hintergrund selbst.
+        "levelup_card_stil": "neon",          # "neon" | "akzent"
+        "levelup_card_titel": "LEVEL UP",
+        "levelup_card_text": "",              # Unterzeile mit Platzhaltern
+        "levelup_card_rolle_zeigen": True,    # neue Rangrolle auf der Karte nennen
         # Level-Up-Benachrichtigung: Member anpingen + fester Announce-Channel.
         # announce_channel = None -> im Kanal posten wo das Level-Up ausgeloest
         # wurde (Nachricht) bzw. System-Channel (Voice). Beides Dashboard-editierbar.
@@ -807,6 +813,17 @@ class LevelingManager:
     def get_card_bg(self, guild_id: int | str) -> str | None:
         """Dateiname des aktiven Karten-Hintergrunds (oder None)."""
         return self._gcfg(guild_id).get("levelup_card_bg")
+
+    def get_card_settings(self, guild_id: int | str) -> dict[str, Any]:
+        """Gestaltung der Level-Up-Karte (Stil, Titel, Unterzeile, Rollen-Abzeichen)."""
+        cfg = self._gcfg(guild_id)
+        return {
+            "stil": cfg.get("levelup_card_stil") or "neon",
+            "titel": cfg.get("levelup_card_titel") or "LEVEL UP",
+            "text": cfg.get("levelup_card_text") or "",
+            "rolle_zeigen": bool(cfg.get("levelup_card_rolle_zeigen", True)),
+            "accent": cfg.get("levelup_card_accent") or "#B84DFF",
+        }
 
     def get_card_accent(self, guild_id: int | str) -> str:
         """Hex-Akzentfarbe der Karte zurueckgeben (Standard: Gold)."""
