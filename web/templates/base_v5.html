@@ -16,7 +16,7 @@
     <link rel="stylesheet" href="/static/tailwind/_tokens.css?v=navy20260719c">
     <link rel="stylesheet" href="/static/_preview/v5_components.css?v=navy20260720d">
     <link rel="stylesheet" href="/static/_preview/mobile.css?v=navy20260720f">
-    <link rel="stylesheet" href="/static/c3.css?v=c3-20261021h">
+    <link rel="stylesheet" href="/static/c3.css?v=c3-20261021i">
 
     {# Bibliotheken lokal statt per CDN (DSGVO: keine Besucher-IP an Dritte).
        Dateien in static/vendor/, gegen SRI- bzw. npm-Integrity geprueft 21.10.2026. #}
@@ -75,7 +75,10 @@
   {% include "partials/_c3_icons.html" %}
   <div class="c3-bg" aria-hidden="true"></div>
 
-  <div class="c3-app">
+  {# Bereich mit nur einer Seite (Übersicht): keine Seitenspalte (Marco 21.10.) #}
+  {% set ns = namespace(einzeln=false) %}
+  {% for b in nav.bereiche %}{% if b.key == nav.aktiv_bereich and b.gruppen|length == 1 and b.gruppen[0].seiten|length == 1 %}{% set ns.einzeln = true %}{% endif %}{% endfor %}
+  <div class="c3-app{% if ns.einzeln %} c3-app--ohne-spalte{% endif %}" data-ohne-spalte="{{ 'ja' if ns.einzeln else 'nein' }}">
     <a class="c3-skip" href="#c3-main">Zum Inhalt springen</a>
 
     <!-- Bereichsleiste: 5 Bereiche -->
@@ -166,7 +169,7 @@
   </div>
 
   <script type="application/json" id="c3-suchindex">{{ nav.suchindex|tojson }}</script>
-  <script src="/static/c3.js?v=c3-20261021h" defer></script>
+  <script src="/static/c3.js?v=c3-20261021i" defer></script>
   <!-- Channel-Select-Populator: befuellt <select data-channel-select> aus /api/guild/channels
        (Namen statt IDs). Persistent + HTMX-swap-sicher (re-scan bei afterSwap). -->
   <script>

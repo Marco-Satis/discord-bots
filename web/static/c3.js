@@ -59,8 +59,12 @@
     var lastOpener = null;
 
     /* ---------- Bereiche + Seitenspalte ---------- */
+    var app = nav.closest('.c3-app');
+    var ohneSpalte = app && app.getAttribute('data-ohne-spalte') === 'ja';
     function setArea(area) {
       $$('[data-panel]', nav).forEach(function (p) { p.hidden = p.getAttribute('data-panel') !== area; });
+      // Bereich mit nur einer Seite: Spalte nur zeigen, solange ein anderer Bereich geöffnet ist
+      if (ohneSpalte) app.classList.toggle('c3-app--ohne-spalte', area === current);
       $$('.c3-rail-item').forEach(function (r) {
         var a = r.getAttribute('data-area');
         var browsing = a === area && a !== current;
