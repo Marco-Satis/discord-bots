@@ -386,11 +386,12 @@ def render_levelup_card(
 
 # --- Leaderboard-Karte (C3 Neon-Lobby, 21.10.2026) --------------------------
 
-LB_W = 1200
-LB_HEAD = 190
-LB_ROW = 104
-LB_GAP = 10
-LB_PAD = 48
+# Schmal und hoch statt breit (Marco 21.10.): 10 Zeilen je Seite, Rest blaettern
+LB_W = 800
+LB_HEAD = 160
+LB_ROW = 84
+LB_GAP = 8
+LB_PAD = 36
 
 # Platz 1-3: Gold, Silber, Bronze (Verlauf hell -> satt)
 _MEDAILLE = {
@@ -439,8 +440,8 @@ def render_leaderboard_card(
             card = Image.alpha_composite(card, Image.new("RGBA", (W, H), (0, 0, 0, 175)))
         except Exception as e:  # noqa: BLE001
             logger.warning(f"Leaderboard-BG laden fehlgeschlagen ({bg_path}): {e}")
-    card = Image.alpha_composite(card, _glow((W, H), (int(W * 0.1), 120 * s), 360 * s, glow_a, 90))
-    card = Image.alpha_composite(card, _glow((W, H), (int(W * 0.95), int(H * 0.55)), 420 * s, glow_b, 50))
+    card = Image.alpha_composite(card, _glow((W, H), (int(W * 0.1), 100 * s), 280 * s, glow_a, 90))
+    card = Image.alpha_composite(card, _glow((W, H), (int(W * 0.95), int(H * 0.55)), 320 * s, glow_b, 50))
     raster = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     rd = ImageDraw.Draw(raster)
     for x in range(0, W, 40 * s):
@@ -451,25 +452,25 @@ def render_leaderboard_card(
 
     # --- Kopf ---
     d = ImageDraw.Draw(card, "RGBA")
-    f_title = _grotesk(64 * s, 700)
+    f_title = _grotesk(52 * s, 700)
     titel = _sauber(title).upper() or "LEADERBOARD"
     tw = int(d.textlength(titel, font=f_title))
     maske = Image.new("L", (W, H), 0)
-    ImageDraw.Draw(maske).text((LB_PAD * s, 44 * s), titel, font=f_title, fill=255)
+    ImageDraw.Draw(maske).text((LB_PAD * s, 38 * s), titel, font=f_title, fill=255)
     fuell = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    fuell.paste(_verlauf(tw, 80 * s, farben).convert("RGBA"), (LB_PAD * s, 44 * s))
+    fuell.paste(_verlauf(tw, 66 * s, farben).convert("RGBA"), (LB_PAD * s, 38 * s))
     fuell.putalpha(maske)
     card = Image.alpha_composite(card, fuell)
     d = ImageDraw.Draw(card, "RGBA")
     if subtitle:
-        f_sub = _mono(24 * s)
-        d.text((LB_PAD * s, 124 * s), _passt(d, _sauber(subtitle).upper(), f_sub, W - 2 * LB_PAD * s),
+        f_sub = _mono(20 * s)
+        d.text((LB_PAD * s, 104 * s), _passt(d, _sauber(subtitle).upper(), f_sub, W - 2 * LB_PAD * s),
                font=f_sub, fill=C3_TEXT2 + (255,))
     linie = _verlauf(W - 2 * LB_PAD * s, 2 * s, farben).convert("RGBA")
     card.paste(linie, (LB_PAD * s, (LB_HEAD - 18) * s), linie)
 
     # --- Zeilen ---
-    av = 64 * s
+    av = 52 * s
     for i, row in enumerate(rows):
         y0 = (LB_HEAD + i * (LB_ROW + LB_GAP)) * s
         y1 = y0 + LB_ROW * s
@@ -478,33 +479,42 @@ def render_leaderboard_card(
         medaille = _MEDAILLE.get(rank)
         x0, x1 = LB_PAD * s, W - LB_PAD * s
 
-        def _zeile(od, _y0=y0, _y1=y1, _m=medaille):
-            od.rounded_rectangle([x0, _y0, x1, _y1], radius=22 * s,
-                                 fill=(244, 241, 255, 16 if _m else 10),
-                                 outline=(_m[1] + (150,)) if _m else (244, 241, 255, 26), width=2 * s)
+        # Eigene Zeile (row["du"]) bekommt einen Cyan-Rahmen
+        du = bool(row.get("du"))
+
+        def _zeile(od, _y0=y0, _y1=y1, _m=medaille, _du=du):
+            if _du:
+                rahmen = C3_CYAN + (230,)
+            elif _m:
+                rahmen = _m[1] + (150,)
+            else:
+                rahmen = (244, 241, 255, 26)
+            od.rounded_rectangle([x0, _y0, x1, _y1], radius=18 * s,
+                                 fill=(244, 241, 255, 16 if (_m or _du) else 10),
+                                 outline=rahmen, width=(3 if _du else 2) * s)
         card = _halbtransparent(card, _zeile)
         if rank == 1:
-            card = Image.alpha_composite(card, _glow((W, H), (x0 + 60 * s, cy), 90 * s, medaille[1], 70))
+            card = Image.alpha_composite(card, _glow((W, H), (x0 + 50 * s, cy), 70 * s, medaille[1], 70))
         d = ImageDraw.Draw(card, "RGBA")
 
         # Platz
-        f_rank = _grotesk(44 * s, 700)
+        f_rank = _grotesk(34 * s, 700)
         r_txt = f"#{rank}"
-        rx = x0 + 28 * s
+        rx = x0 + 22 * s
         r_w = int(d.textlength(r_txt, font=f_rank))
         if medaille:
             m = Image.new("L", (W, H), 0)
-            ImageDraw.Draw(m).text((rx, cy - 30 * s), r_txt, font=f_rank, fill=255)
+            ImageDraw.Draw(m).text((rx, cy - 23 * s), r_txt, font=f_rank, fill=255)
             f = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-            f.paste(_verlauf(r_w, 60 * s, medaille).convert("RGBA"), (rx, cy - 30 * s))
+            f.paste(_verlauf(r_w, 48 * s, medaille).convert("RGBA"), (rx, cy - 23 * s))
             f.putalpha(m)
             card = Image.alpha_composite(card, f)
             d = ImageDraw.Draw(card, "RGBA")
         else:
-            d.text((rx, cy - 30 * s), r_txt, font=f_rank, fill=C3_TEXT2 + (255,))
+            d.text((rx, cy - 23 * s), r_txt, font=f_rank, fill=C3_TEXT2 + (255,))
 
         # Avatar mit Ring
-        ax = x0 + 138 * s
+        ax = x0 + 108 * s
         ay = cy - av // 2
         ring_farben = medaille or farben
         ring = _verlauf(av + 8 * s, av + 8 * s, ring_farben).convert("RGBA")
@@ -522,7 +532,7 @@ def render_leaderboard_card(
             av_img = _verlauf(av, av, farben[:2]).convert("RGBA")
             ad = ImageDraw.Draw(av_img)
             ini = (_sauber(str(row.get("name", "?")))[:1] or "?").upper()
-            f_ini = _grotesk(34 * s)
+            f_ini = _grotesk(28 * s)
             ad.text(((av - ad.textlength(ini, font=f_ini)) / 2, av * 0.16), ini, font=f_ini, fill=C3_TEXT)
         am = Image.new("L", (av, av), 0)
         ImageDraw.Draw(am).ellipse([0, 0, av - 1, av - 1], fill=255)
@@ -532,23 +542,23 @@ def render_leaderboard_card(
         # Name + XP
         level = int(row.get("level", 0))
         xp = int(row.get("xp", 0))
-        nx = ax + av + 28 * s
-        f_lvl = _grotesk(40 * s, 700)
+        nx = ax + av + 22 * s
+        f_lvl = _grotesk(34 * s, 700)
         lvl_txt = f"{level}"
         lw = int(d.textlength(lvl_txt, font=f_lvl))
-        f_lbl = _mono(18 * s)
+        f_lbl = _mono(15 * s)
         lbl_w = int(d.textlength("LVL", font=f_lbl))
-        rechts = x1 - 30 * s
-        f_name = _grotesk(34 * s, 700)
+        rechts = x1 - 24 * s
+        f_name = _grotesk(28 * s, 700)
         name = _passt(d, _sauber(str(row.get("name", "?"))) or "Mitglied", f_name,
-                      rechts - lw - lbl_w - 40 * s - nx)
-        d.text((nx, cy - 34 * s), name, font=f_name, fill=C3_TEXT + (255,))
-        d.text((nx, cy + 10 * s), f"{xp:,} XP".replace(",", "."), font=_mono(22 * s),
+                      rechts - lw - lbl_w - 32 * s - nx)
+        d.text((nx, cy - 29 * s), name, font=f_name, fill=C3_TEXT + (255,))
+        d.text((nx, cy + 7 * s), f"{xp:,} XP".replace(",", "."), font=_mono(18 * s),
                fill=C3_TEXT2 + (255,))
 
         # Level rechts
-        d.text((rechts - lw, cy - 28 * s), lvl_txt, font=f_lvl, fill=(medaille[0] if medaille else hl) + (255,))
-        d.text((rechts - lw - lbl_w - 12 * s, cy - 6 * s), "LVL", font=f_lbl, fill=C3_TEXT2 + (220,))
+        d.text((rechts - lw, cy - 23 * s), lvl_txt, font=f_lvl, fill=(medaille[0] if medaille else hl) + (255,))
+        d.text((rechts - lw - lbl_w - 10 * s, cy - 4 * s), "LVL", font=f_lbl, fill=C3_TEXT2 + (220,))
 
     # Rahmen, runde Ecken, verkleinern
     card = _halbtransparent(card, lambda od: od.rounded_rectangle(

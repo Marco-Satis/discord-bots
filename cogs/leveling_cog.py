@@ -205,6 +205,71 @@ class LeaderboardView(discord.ui.View):
                 pass
 
 
+class LeaderboardKarteView(discord.ui.View):
+    """Blaetterbare Leaderboard-Bild-Karte: je Seite ein neues Bild (10 Spieler)."""
+
+    def __init__(
+        self,
+        render_page,
+        requester_id: int,
+        max_page: int,
+        timeout: float = 180.0,
+    ) -> None:
+        super().__init__(timeout=timeout)
+        # render_page(page) -> Optional[discord.File]
+        self.render_page = render_page
+        self.requester_id = requester_id
+        self.max_page = max_page
+        self.page = 0
+        self.message: Optional[discord.Message] = None
+        self._sync_buttons()
+
+    def _sync_buttons(self) -> None:
+        self.prev_button.disabled = self.page <= 0
+        self.next_button.disabled = self.page >= self.max_page
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.requester_id:
+            await interaction.response.send_message(
+                "Das ist nicht deine Ansicht — ruf `/leaderboard` selbst auf.",
+                ephemeral=True,
+            )
+            return False
+        return True
+
+    async def _blaettern(self, interaction: discord.Interaction, page: int) -> None:
+        # Rendern (Avatare laden) dauert laenger als 3 s -> erst bestaetigen
+        await interaction.response.defer()
+        self.page = max(0, min(self.max_page, page))
+        self._sync_buttons()
+        bild = await self.render_page(self.page)
+        if bild is None:
+            return
+        await interaction.edit_original_response(attachments=[bild], view=self)
+
+    @discord.ui.button(emoji="◀️", style=discord.ButtonStyle.secondary)
+    async def prev_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
+        await self._blaettern(interaction, self.page - 1)
+
+    @discord.ui.button(emoji="▶️", style=discord.ButtonStyle.secondary)
+    async def next_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
+        await self._blaettern(interaction, self.page + 1)
+
+    async def on_timeout(self) -> None:
+        for child in self.children:
+            if isinstance(child, discord.ui.Button):
+                child.disabled = True
+        if self.message is not None:
+            try:
+                await self.message.edit(view=self)
+            except discord.HTTPException:
+                pass
+
+
 class LevelingCog(commands.Cog):
     """XP- und Level-System mit Nachrichten- und Voice-Tracking"""
 
@@ -1014,9 +1079,11 @@ class LevelingCog(commands.Cog):
         self,
         guild: discord.Guild,
         entries: list[dict],
+        page: int = 0,
+        own_id: Optional[int] = None,
     ) -> Optional[discord.File]:
         """
-        Leaderboard als Bild-Karte rendern (B3) — Top-N mit Avataren.
+        Eine Seite des Leaderboards als Bild-Karte rendern (B3), 10 Spieler je Seite.
 
         Nur wenn die Leaderboard-Karte aktiviert ist + ein Hintergrund existiert,
         sonst None (Embed-Fallback). Holt die Avatare der Top-N parallel; ein
@@ -1033,7 +1100,10 @@ class LevelingCog(commands.Cog):
         if bg_name and (LEVELUP_BG_DIR / bg_name).exists():
             bg_path = LEVELUP_BG_DIR / bg_name
 
-        top = entries[:LEADERBOARD_CARD_ROWS]
+        seiten = max(1, -(-len(entries) // LEADERBOARD_CARD_ROWS))
+        page = max(0, min(page, seiten - 1))
+        start = page * LEADERBOARD_CARD_ROWS
+        top = entries[start:start + LEADERBOARD_CARD_ROWS]
 
         async def _row(rank: int, entry: dict) -> dict:
             member = guild.get_member(entry["user_id"])
@@ -1050,14 +1120,17 @@ class LevelingCog(commands.Cog):
                 "level": entry.get("level", 0),
                 "xp": entry.get("xp", 0),
                 "avatar": avatar,
+                "du": own_id is not None and entry["user_id"] == own_id,
             }
 
         rows = await asyncio.gather(
-            *[_row(i, e) for i, e in enumerate(top, start=1)]
+            *[_row(i, e) for i, e in enumerate(top, start=start + 1)]
         )
 
         k = self.leveling.get_card_settings(guild.id)
         subtitle = f"{guild.name} · {len(entries)} Spieler mit XP"
+        if seiten > 1:
+            subtitle += f" · Seite {page + 1}/{seiten}"
         try:
             png = await asyncio.to_thread(
                 render_leaderboard_card,
@@ -1157,15 +1230,29 @@ class LevelingCog(commands.Cog):
         own_rank = self.leveling.get_rank(interaction.guild.id, interaction.user.id)
 
         # B3: Bild-Karte bevorzugen (wenn aktiviert + Hintergrund), sonst Embed.
-        image = await self._build_leaderboard_image(interaction.guild, entries)
+        guild = interaction.guild
+        own_id = interaction.user.id
+
+        async def _seite(page: int) -> Optional[discord.File]:
+            return await self._build_leaderboard_image(guild, entries, page, own_id)
+
+        image = await _seite(0)
         if image is not None:
             eigene = (
                 f"Dein Platz: **#{own_rank}** von {len(entries)}"
                 if own_rank and own_rank <= len(entries) else
                 "Du hast noch keine XP. Schreib im Chat oder komm in einen Talk."
             )
-            await interaction.followup.send(content=eigene, file=image,
-                                            allowed_mentions=discord.AllowedMentions.none())
+            max_page = (len(entries) - 1) // LEADERBOARD_CARD_ROWS
+            if max_page == 0:
+                await interaction.followup.send(content=eigene, file=image,
+                                                allowed_mentions=discord.AllowedMentions.none())
+                return
+            karte_view = LeaderboardKarteView(_seite, own_id, max_page)
+            karte_view.message = await interaction.followup.send(
+                content=eigene, file=image, view=karte_view,
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
             return
 
         view = LeaderboardView(
