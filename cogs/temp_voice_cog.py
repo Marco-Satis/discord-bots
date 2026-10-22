@@ -319,6 +319,7 @@ class TempVoiceCog(commands.Cog):
         # anlegen. Check+Add sind synchron (kein await dazwischen) -> im
         # Single-Thread-Event-Loop atomar, kein Lock noetig (Idiom wie _deleting).
         if member.id in self._creating:
+            logger.info(f"Join-to-Create fuer {member.display_name} uebersprungen: Erstellung laeuft noch")
             return
         self._creating.add(member.id)
 
@@ -334,19 +335,22 @@ class TempVoiceCog(commands.Cog):
             logger.info(
                 f"Join-to-Create: {member.display_name} -> #{temp_channel.name}"
             )
-
-            # Control-Embed mit Buttons senden
-            # Versuche es im Text-in-Voice des Channels zu senden
-            await self._send_control_panel(temp_channel, member)
-
         except discord.Forbidden as e:
             logger.error(
                 f"Join-to-Create fehlgeschlagen (keine Berechtigung): {e}"
             )
+            return
         except discord.HTTPException as e:
             logger.error(f"Join-to-Create fehlgeschlagen (HTTP-Fehler): {e}")
+            return
         finally:
+            # Sperre nur fuer Anlegen + Verschieben. Bis 22.10. galt sie auch
+            # waehrend des (langsamen) Panel-Renderns: wer in der Zeit in einen
+            # zweiten Hub wechselte, blieb dort ohne neuen Talk haengen.
             self._creating.discard(member.id)
+
+        # Control-Embed mit Buttons senden (Text-in-Voice des Channels)
+        await self._send_control_panel(temp_channel, member)
 
     async def _send_control_panel(
         self,
