@@ -288,6 +288,14 @@ class TempVoiceCog(commands.Cog):
         if before.channel is not None and before.channel != after.channel:
             await self._handle_channel_leave(member, before.channel)
 
+    @commands.Cog.listener()
+    async def on_guild_channel_delete(self, channel: discord.abc.GuildChannel) -> None:
+        """Von Hand geloeschten Temp-Talk sofort aus den Daten nehmen (22.10.)."""
+        if self.manager.is_temp_channel(channel.id):
+            self._panel_verfolgung_loesen(channel.id)
+            self.manager.delete_channel(channel.id)
+            logger.info(f"Temp-Voice-Channel von Hand geloescht, Eintrag entfernt: {channel.id}")
+
     async def _handle_join_to_create(
         self,
         member: discord.Member,
