@@ -1003,11 +1003,11 @@ class LevelingCog(commands.Cog):
         header: str,
     ) -> Optional[discord.File]:
         """
-        Karte rendern wenn die Bild-Karte der Guild aktiviert ist + ein
-        Hintergrund existiert (1-Admin-Template). Sonst None (Embed-Fallback).
+        /rank-Karte rendern. Ein Dashboard-Schalter gilt fuer Level-Up und /rank
+        gemeinsam (Marco 22.10.); ist er aus, None (Embed-Fallback).
         """
         png = await self._karte_png(
-            guild_id, member, level, xp_in_level, xp_for_next, header=header, immer=True,
+            guild_id, member, level, xp_in_level, xp_for_next, header=header,
         )
         if png is None:
             return None
@@ -1032,7 +1032,7 @@ class LevelingCog(commands.Cog):
         Ein Hintergrundbild ist optional: ohne Bild zeichnet die Karte den
         C3-Neon-Hintergrund selbst.
         """
-        # immer=True: /rank zeigt die Karte auch, wenn sie fuer Level-Ups aus ist
+        # immer=True nur fuer Vorschauen; sonst entscheidet der gemeinsame Schalter
         if not (_CARD_AVAILABLE and (immer or self.leveling.is_card_enabled(guild_id))):
             return None
         k = self.leveling.get_card_settings(guild_id)

@@ -3,7 +3,8 @@
    Vorschau: GET /leveling/karte/vorschau.png mit den Formularwerten als Query.
    Marshal liest dieselben guild_config-Keys (cogs/leveling_cog.py::_karte_png). #}
 <section id="lvl-karte" class="config-section lvl-config-card" aria-labelledby="lvl-karte-titel">
-  <h2 class="lvl-config-title" id="lvl-karte-titel">Level-Up-Karte</h2>
+  <h2 class="lvl-config-title" id="lvl-karte-titel">Level-Karte</h2>
+  <p class="lk-hinweis">Eine Gestaltung für beide Karten: die Meldung beim Level-Up und die Ansicht bei <code>/rank</code>.</p>
 
   {% if success %}<div class="c3-flash c3-flash--ok" role="status"><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span>{{ success }}</span></div>{% endif %}
   {% if error %}<div class="c3-flash c3-flash--bad" role="alert"><svg class="i" aria-hidden="true"><use href="#i-alert"/></svg><span>{{ error }}</span></div>{% endif %}
@@ -20,8 +21,8 @@
   <form id="lk-form" hx-post="/leveling/karte" hx-target="#lvl-karte" hx-swap="outerHTML" hx-encoding="multipart/form-data">
     <div class="toggle-row">
       <div class="toggle-info">
-        <div class="toggle-info-label">Bild-Karte statt Text-Meldung</div>
-        <div class="toggle-info-desc">Aus: Level-Ups erscheinen als einfache Nachricht.</div>
+        <div class="toggle-info-label">Bild-Karte für Level-Up und /rank</div>
+        <div class="toggle-info-desc">Aus: Level-Up und /rank erscheinen beide als Text-Embed.</div>
       </div>
       <label class="toggle"><input type="checkbox" name="aktiv" {% if karte.aktiv %}checked{% endif %}><span class="slider"></span></label>
     </div>
@@ -38,7 +39,7 @@
         <input id="lk-akzent" type="color" name="akzent" value="{{ karte.akzent }}">
       </div>
       <div class="lvl-field">
-        <label for="lk-titel">Titel</label>
+        <label for="lk-titel">Titel beim Level-Up <small>(/rank zeigt „RANG #n“)</small></label>
         <input id="lk-titel" type="text" name="titel" value="{{ karte.titel }}" maxlength="{{ titel_max }}" placeholder="LEVEL UP">
       </div>
     </div>
@@ -92,6 +93,7 @@
   {% endif %}
 </section>
 <style>
+#lvl-karte .lk-hinweis { margin: -4px 0 12px; font-size: 13px; color: var(--text-2); }
 #lvl-karte .lk-vorschau { margin: 4px 0 16px; display: flex; flex-direction: column; gap: 6px; }
 #lvl-karte .lk-vorschau img { width: 100%; max-width: 600px; height: auto; border-radius: 12px; background: var(--bg); }
 #lvl-karte .lk-felder { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-top: 14px; }

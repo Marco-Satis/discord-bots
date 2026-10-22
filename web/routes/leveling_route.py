@@ -462,7 +462,7 @@ async def leveling_karte_speichern(
         for key, wert in werte.items():
             await GuildConfig.set(guild_id, f"leveling.{key}", wert, updated_by=user)
         logger.info(f"Level-Up-Karte gespeichert von {user}: aktiv={werte['levelup_card_enabled']} stil={stil}")
-        success = "Gespeichert. Marshal nutzt die neue Karte ab dem nächsten Level-Up (spätestens nach 15 Sekunden)."
+        success = "Gespeichert. Level-Up und /rank nutzen die neue Gestaltung nach spätestens 15 Sekunden."
     except ValueError as e:
         error = str(e)
     except Exception as e:  # noqa: BLE001

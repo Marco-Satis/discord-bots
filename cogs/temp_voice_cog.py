@@ -24,7 +24,7 @@ Features:
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import discord
@@ -268,6 +268,10 @@ class TempVoiceCog(commands.Cog):
             and self.manager.is_hub(after.channel.id)
         ):
             await self._handle_join_to_create(member, after.channel)
+            # Kommt der User direkt aus einem Temp-Talk, ist der jetzt evtl. leer.
+            # Bis 22.10. stand hier ein return -> der alte Talk blieb stehen.
+            if before.channel is not None and before.channel != after.channel:
+                await self._handle_channel_leave(member, before.channel)
             return
 
         # --- Join in einen bestehenden Temp-Channel: Slot-Liste aktualisieren ---
@@ -359,16 +363,30 @@ class TempVoiceCog(commands.Cog):
 
     @tasks.loop(minutes=PANEL_TAKT_MINUTEN)
     async def _panel_takt(self) -> None:
-        """Panels belegter Temp-Channels neu zeichnen (LIVE-Zeit und Dauer laufen sonst nicht)."""
+        """Panels belegter Temp-Channels neu zeichnen (LIVE-Zeit und Dauer laufen sonst nicht).
+
+        Raeumt nebenbei auf: Temp-Talks ohne Menschen, deren Leave-Event verloren
+        ging, werden geloescht; Eintraege zu nicht mehr existierenden Channels
+        fallen aus den Daten (22.10.: haengender Talk blockierte Deploys).
+        """
         for cid in list(self.manager.get_all_channels()):
             try:
                 channel = self.bot.get_channel(int(cid))
             except (TypeError, ValueError):
                 continue
-            if isinstance(channel, discord.VoiceChannel) and any(
-                not m.bot for m in channel.members
-            ):
+            if channel is None:
+                self._panel_verfolgung_loesen(int(cid))
+                self.manager.delete_channel(int(cid))
+                logger.info(f"Temp-Voice-Eintrag ohne Channel entfernt: {cid}")
+                continue
+            if not isinstance(channel, discord.VoiceChannel):
+                continue
+            if any(not m.bot for m in channel.members):
                 await refresh_panel(channel, self.manager, heilen=True)
+            elif discord.utils.utcnow() - channel.created_at > timedelta(minutes=1):
+                # Junge Channels auslassen: zwischen Anlegen und move_to ist er kurz leer
+                logger.info(f"Temp-Voice-Takt: leerer Talk {cid} wird geloescht")
+                await self._schedule_channel_delete(channel)
 
     @_panel_takt.before_loop
     async def _vor_panel_takt(self) -> None:
