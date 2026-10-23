@@ -1,4 +1,4 @@
-# Lock-File — exakte Server-venv-Stände (pip freeze der Live-venv, 2026-10-21).
+# Lock-File — exakte Server-venv-Stände (pip freeze der Live-venv, Python 3.11.15, 2026-10-23).
 #
 # STARLETTE 0.52.1 -> 1.6.0 (vorbereitet 2026-08-14, siehe docs/STARLETTE_1X.md)
 #   Die frueher hier stehende Begruendung ("fastapi pinnt starlette<1.0") war falsch:
@@ -31,11 +31,16 @@
 #   anyio 4.12.1 -> 4.15.1           CRITICAL (TLS-Hostname-Kodierung)
 #   PyJWT 2.13.0 -> 2.15.1           HIGH
 #   starlette 0.52.1 -> 1.7.0 + fastapi 0.138.0 -> 0.158.0   HIGH (Testsuite alt/neu identisch)
-#   OFFEN: pillow 13.0.0 (CRITICAL JPEG-Decode) braucht Python >= 3.11, venv laeuft auf 3.10.12.
 #   Rueckweg: ~botuser/venv_backup_pre_cve_1792603257 (Kopie der venv vor dem Update).
+#
+# PYTHON 3.11 + CVE-UPDATE 2026-10-23 (cve_watch, Marco-Freigabe, live seit 05:59):
+#   venv neu gebaut mit uv-Python 3.11.15 (uv venv --relocatable), Python 3.10 blieb Systempython.
+#   pillow 12.3.0 -> 13.0.0 (CRITICAL, braucht Python >= 3.11), aiohttp 3.14.3 -> 3.14.4,
+#   multidict 6.7.1 -> 6.9.1, yarl 1.22.0 -> 1.25.1 (von aiohttp verlangt).
+#   Rueckweg: ~botuser/venv_py310_vor_wechsel_1792727911 zurueck nach Discord_Bots/venv + Neustart.
 aiofiles==25.1.0
 aiohappyeyeballs==2.6.1
-aiohttp==3.14.3
+aiohttp==3.14.4
 aiosignal==1.4.0
 aiosqlite==0.22.1
 annotated-doc==0.0.4
@@ -58,11 +63,12 @@ idna==3.15
 itsdangerous==2.2.0
 Jinja2==3.1.6
 MarkupSafe==3.0.3
-multidict==6.7.1
+multidict==6.9.1
 nbtlib==2.0.4
 numpy==2.2.6
 opentelemetry-api==1.45.1
-pillow==12.3.0
+packaging==26.3
+pillow==13.0.0
 playwright==1.61.0
 propcache==0.4.1
 psutil==7.2.2
@@ -79,4 +85,4 @@ typing-inspection==0.4.2
 typing_extensions==4.16.0
 uvicorn==0.41.0
 websockets==16.0
-yarl==1.22.0
+yarl==1.25.1
