@@ -126,10 +126,10 @@ DEFAULT_CONFIGS = {
         "panels": [],
     },
     "leveling": {
-        "xp_per_message_min": 15,
-        "xp_per_message_max": 25,
+        "xp_per_message_min": 20,
+        "xp_per_message_max": 20,
         "xp_cooldown_seconds": 60,
-        "voice_xp_per_minute": 5,
+        "voice_xp_per_minute": 20,
         "channel_multipliers": [],
         "role_rewards": [],
         "no_xp_channels": [],
@@ -365,10 +365,10 @@ def _parse_form_leveling(form) -> dict:
     ]
 
     return {
-        "xp_per_message_min": int(form.get("xp_per_message_min", 15) or 15),
-        "xp_per_message_max": int(form.get("xp_per_message_max", 25) or 25),
+        "xp_per_message_min": int(form.get("xp_per_message_min", 20) or 20),
+        "xp_per_message_max": int(form.get("xp_per_message_max", 20) or 20),
         "xp_cooldown_seconds": int(form.get("xp_cooldown_seconds", 60) or 60),
-        "voice_xp_per_minute": int(form.get("voice_xp_per_minute", 5) or 5),
+        "voice_xp_per_minute": int(form.get("voice_xp_per_minute", 20) or 20),
         "channel_multipliers": channel_multipliers,
         "role_rewards": role_rewards,
         "no_xp_channels": no_xp_channels,

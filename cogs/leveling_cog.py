@@ -449,6 +449,11 @@ class LevelingCog(commands.Cog):
             return
         if not message.guild:
             return
+        # Discord-Systemmeldungen (Beitritt, Boost, Pin ...) laufen unter dem
+        # Namen des Mitglieds, sind aber keine Nachricht von ihm: sie brachten
+        # beim Server-Beitritt sofort XP und ein Level-Up (Marco 01.11.).
+        if message.is_system():
+            return
         # Multi-Tenant: Modul kann pro Guild deaktiviert sein (15s-TTL-Cache).
         if not await self._leveling_enabled(message.guild.id):
             return

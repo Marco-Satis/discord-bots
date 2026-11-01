@@ -65,11 +65,11 @@ _GUILD_CFG_TTL: float = 15.0
 def _default_config() -> dict[str, Any]:
     """Standard-Konfiguration fuer das Leveling-System zurueckgeben."""
     return {
-        "xp_per_message_min": 15,
-        "xp_per_message_max": 15,
+        "xp_per_message_min": 20,
+        "xp_per_message_max": 20,
         "xp_cooldown_seconds": 90,
-        "voice_xp_per_minute": 2,
-        "level_formula": "10 * level^2 (kumulativ)",
+        "voice_xp_per_minute": 20,
+        "level_formula": "320 + 280 * level je Stufe",
         "channel_multipliers": {},
         "role_rewards": {},
         "remove_lower_rewards": False,
@@ -349,25 +349,21 @@ class LevelingManager:
     # Level-Formel
     # ------------------------------------------------------------------
 
-    #: Steilheit der Levelkurve. Bei 2 XP je Sprachminute braucht der aktivste
-    #: Nutzer damit rund 7 Wochen bis Level 20, 9 Monate bis Level 50 und
-    #: 3,5 Jahre bis Level 100 (gerechnet am eigenen Datenbestand, 18.08.2026 —
-    #: Herleitung in docs/recherche/REPORT_community_features_2026-08-18.md).
-    XP_FAKTOR: int = 10
+    #: Levelkurve seit 01.11.2026 (Vorgabe Marco, System des Vergleichsservers):
+    #: von Level n auf n+1 braucht es XP_STUFE_BASIS + XP_STUFE_PLUS * n XP.
+    #: Bei 20 XP je Sprachminute: Level 5 nach 3,7 h, Level 10 nach 13 h,
+    #: Level 50 nach 300 h, Level 100 nach rund 1.180 h.
+    XP_STUFE_BASIS: int = 320
+    XP_STUFE_PLUS: int = 280
 
     @classmethod
     def xp_for_level(cls, level: int) -> int:
         """
         Gesamt-XP, die ein Nutzer haben muss, um `level` erreicht zu haben.
 
-        Formel: 10 * level^2, **kumulativ** — der Rueckgabewert ist die
-        Gesamtsumme, nicht der Aufschlag fuer diese eine Stufe. Level 0 kostet
-        nichts, Level 1 zehn XP, Level 10 tausend.
-
-        Die alte Formel (`5*level^2 + 50*level + 100`) war eine
-        Pro-Stufe-Formel, wurde aber gegen die Gesamt-XP verglichen. Dadurch
-        stieg man mit Gesamt-XP auf, die nur fuer eine einzelne Stufe gereicht
-        haetten — das war der Grund fuer die viel zu schnellen Aufstiege.
+        Der Rueckgabewert ist **kumulativ**, also die Summe aller Stufen bis
+        `level`: Level 0 kostet nichts, Level 1 320 XP, Level 2 920 XP,
+        Level 100 1.418.000 XP.
 
         Args:
             level: Das Ziel-Level
@@ -377,7 +373,8 @@ class LevelingManager:
         """
         if level <= 0:
             return 0
-        return cls.XP_FAKTOR * level * level
+        # Summe von BASIS + PLUS * n fuer n = 0 .. level-1
+        return cls.XP_STUFE_BASIS * level + cls.XP_STUFE_PLUS * level * (level - 1) // 2
 
     @classmethod
     def level_for_xp(cls, xp: int) -> int:
@@ -389,7 +386,10 @@ class LevelingManager:
         """
         if xp <= 0:
             return 0
-        level = int((xp / cls.XP_FAKTOR) ** 0.5)
+        # Quadratische Gleichung PLUS/2 * L^2 + (BASIS - PLUS/2) * L = xp
+        halb = cls.XP_STUFE_PLUS / 2
+        linear = cls.XP_STUFE_BASIS - halb
+        level = int((-linear + (linear * linear + 4 * halb * xp) ** 0.5) / (2 * halb))
         # Gleitkomma-Rundung abfangen: nach oben und unten je eine Stufe pruefen
         while cls.xp_for_level(level + 1) <= xp:
             level += 1
@@ -494,8 +494,8 @@ class LevelingManager:
                 pass  # Ungueltiges Datum ignorieren, XP trotzdem geben
 
         # XP berechnen
-        xp_min = cfg.get("xp_per_message_min", 15)
-        xp_max = cfg.get("xp_per_message_max", 25)
+        xp_min = cfg.get("xp_per_message_min", 20)
+        xp_max = cfg.get("xp_per_message_max", 20)
         xp = _rand.randint(xp_min, xp_max)
 
         # Channel-Multiplikator anwenden
@@ -538,7 +538,7 @@ class LevelingManager:
 
         cfg = self._gcfg(guild_id)
         user = self._ensure_user(guild_id, user_id)
-        xp_per_min = cfg.get("voice_xp_per_minute", 5)
+        xp_per_min = cfg.get("voice_xp_per_minute", 20)
         xp = xp_per_min * minutes
 
         user["xp"] += xp

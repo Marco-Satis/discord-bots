@@ -22,13 +22,13 @@
                     <div class="form-group">
                         <label for="xp_per_message_min">XP pro Nachricht (min)</label>
                         <input type="number" id="xp_per_message_min" name="xp_per_message_min"
-                               value="{{ config.xp_per_message_min|default(15, true) }}"
+                               value="{{ config.xp_per_message_min|default(20, true) }}"
                                min="1" max="100">
                     </div>
                     <div class="form-group">
                         <label for="xp_per_message_max">XP pro Nachricht (max)</label>
                         <input type="number" id="xp_per_message_max" name="xp_per_message_max"
-                               value="{{ config.xp_per_message_max|default(25, true) }}"
+                               value="{{ config.xp_per_message_max|default(20, true) }}"
                                min="1" max="100">
                     </div>
                     <div class="form-group">
@@ -40,7 +40,7 @@
                     <div class="form-group">
                         <label for="voice_xp_per_minute">Voice-XP pro Minute</label>
                         <input type="number" id="voice_xp_per_minute" name="voice_xp_per_minute"
-                               value="{{ config.voice_xp_per_minute|default(5, true) }}"
+                               value="{{ config.voice_xp_per_minute|default(20, true) }}"
                                min="0" max="50">
                     </div>
                     <div class="form-group">
@@ -109,7 +109,7 @@
                     Channels in denen kein XP vergeben wird (eine Channel-ID pro Zeile).
                 </p>
                 <div class="form-group">
-                    <textarea name="no_xp_channels" rows="3" placeholder="111111111111111111"
+                    <textarea name="no_xp_channels" rows="3" placeholder="123456789012345678"
                               style="width: 100%; font-family: monospace;">{% if config.no_xp_channels %}{{ config.no_xp_channels|join('\n') }}{% endif %}</textarea>
                 </div>
             </div>
