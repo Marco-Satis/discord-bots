@@ -510,7 +510,7 @@ def render_levelup_gif(
         bild([(alt, int(-110 * t), 1 - t), (neu, int(110 * (1 - t)), t)], 1.0 - t, blitz=0.3 * (1 - t))
     for i in range(1, 9):  # neuer Stand
         bild([(neu, 0, 1.0)], neu_frac * _sanft(i / 8))
-    bild([(neu, 0, 1.0)], neu_frac, ms=4000)
+    bild([(neu, 0, 1.0)], neu_frac, ms=2500)
 
     # Eine gemeinsame Palette fuer alle Bilder: kein Farbflackern zwischen den Frames
     hoehe = round(CARD_H * breite / CARD_W)
@@ -537,8 +537,8 @@ def render_levelup_gif(
     out = io.BytesIO()
     frames[0].save(
         out, "GIF", save_all=True, append_images=frames[1:],
-        # ohne loop: einmal abspielen, das letzte Bild bleibt stehen
-        duration=[ms for _, ms in bilder], disposal=2, transparency=255, optimize=False,
+        # loop=0: endlos wiederholen, damit die Animation auch beim spaeteren Oeffnen laeuft
+        loop=0, duration=[ms for _, ms in bilder], disposal=2, transparency=255, optimize=False,
     )
     return out.getvalue()
 
