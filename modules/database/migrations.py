@@ -11,7 +11,7 @@ from utils.logger import get_logger
 logger = get_logger("database.migrations")
 
 # Aktuelle Schema-Version
-CURRENT_VERSION = 15
+CURRENT_VERSION = 16
 
 
 # Komplettes Schema (23 Tabellen + Indices + FTS5)
@@ -467,6 +467,13 @@ async def run_migrations(db: aiosqlite.Connection) -> None:
         await set_schema_version(db, 15)
         logger.info("Migration v14 → v15 abgeschlossen")
 
+    # Version 15 → 16: Roadmap (geplant / in Arbeit / fertig / Wuensche)
+    if current < 16:
+        logger.info("Migration v15 → v16: roadmap")
+        await _apply_migration_v16(db)
+        await set_schema_version(db, 16)
+        logger.info("Migration v15 → v16 abgeschlossen")
+
     final = await get_schema_version(db)
     logger.info(f"Alle Migrationen abgeschlossen. Schema-Version: {final}")
 
@@ -501,6 +508,7 @@ async def _apply_schema_v1(db: aiosqlite.Connection) -> None:
     await _apply_migration_v13(db)
     await _apply_migration_v14(db)
     await _apply_migration_v15(db)
+    await _apply_migration_v16(db)
 
     # Diese Liste ist die Stelle, an der eine neue Migration am leichtesten
     # vergessen wird. Vergisst man sie, meldet eine frische Datenbank die volle
@@ -1163,3 +1171,36 @@ async def _apply_migration_v15(db: aiosqlite.Connection) -> None:
     await db.executescript(SCHEMA_V15_MOD_NOTES)
     await db.commit()
     logger.info("Migration v15: mod_notes + Index angelegt")
+
+
+# =====================================================
+# Migration v16: Roadmap
+# =====================================================
+
+SCHEMA_V16_ROADMAP = """
+-- =====================================================
+-- Roadmap-Eintraege fuer das Board im Roadmap-Kanal
+-- status = wunsch | geplant | arbeit | fertig
+-- author_id/author_name = wer den Eintrag (oder Wunsch) angelegt hat
+-- created_at/updated_at = ISO-8601 in UTC
+-- =====================================================
+CREATE TABLE IF NOT EXISTS roadmap (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id    TEXT NOT NULL,
+    status      TEXT NOT NULL,
+    titel       TEXT NOT NULL,
+    author_id   TEXT NOT NULL,
+    author_name TEXT,
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_roadmap_guild_status
+    ON roadmap(guild_id, status);
+"""
+
+
+async def _apply_migration_v16(db: aiosqlite.Connection) -> None:
+    """v16: Tabelle `roadmap`. Rein additiv und idempotent."""
+    await db.executescript(SCHEMA_V16_ROADMAP)
+    await db.commit()
+    logger.info("Migration v16: roadmap + Index angelegt")

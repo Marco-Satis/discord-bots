@@ -79,6 +79,8 @@ INITIAL_COGS: list[str] = [
     "cogs.warn_cog",            # Phase 11c: Warn-System
     "cogs.mod_akte_cog",        # Moderations-Akte (/akte, nach warn_cog: nutzt dessen WarnManager)
     "cogs.reaction_roles_cog",  # Phase 11d: Reaction Roles
+    "cogs.rollen_panel_cog",     # 04.11.2026: Rollen per Button
+    "cogs.roadmap_cog",          # 04.11.2026: Roadmap + /wunsch
     "cogs.leveling_cog",        # Phase 11e: Leveling/XP-System
     "cogs.tickets_cog",         # Phase 11f: Ticket-System
     "cogs.audit_cog",           # Phase 11g: Audit-Logging
