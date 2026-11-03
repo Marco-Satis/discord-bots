@@ -317,6 +317,7 @@ async def leveling_reset(
 # ADMIN_DATA_DIR/levelup_backgrounds, dort liest sie auch der Bot.
 
 import asyncio  # noqa: E402
+from modules.leveling import LEVELUP_NACHRICHT_STANDARD  # noqa: E402
 import io  # noqa: E402
 import re  # noqa: E402
 
@@ -328,6 +329,7 @@ KARTE_MAX_BYTES = 8 * 1024 * 1024
 _HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
 KARTE_STILE = {"neon": "Neon (Violett, Magenta, Cyan)", "akzent": "Eine Farbe (Akzent)"}
 TITEL_MAX, TEXT_MAX = 20, 80
+NACHRICHT_MAX = 200
 
 
 async def _karte_config(guild_id: int) -> dict:
@@ -343,6 +345,8 @@ async def _karte_config(guild_id: int) -> dict:
         "titel": await g("levelup_card_titel", "LEVEL UP") or "LEVEL UP",
         "text": await g("levelup_card_text", "") or "",
         "rolle_zeigen": bool(await g("levelup_card_rolle_zeigen", True)),
+        "animiert": bool(await g("levelup_card_animiert", True)),
+        "nachricht": await g("levelup_nachricht", LEVELUP_NACHRICHT_STANDARD) or "",
         "bild": bool(bg) and (KARTE_BG_DIR / str(bg)).exists(),
     }
 
@@ -381,6 +385,7 @@ def _karte_kontext(request: Request, guild_id, cfg: dict, success: str = "", err
     return {
         "request": request, "guild_set": guild_id is not None, "karte": cfg,
         "stile": KARTE_STILE, "titel_max": TITEL_MAX, "text_max": TEXT_MAX,
+        "nachricht_max": NACHRICHT_MAX,
         "stand": int(datetime.now().timestamp()), "success": success, "error": error,
     }
 
@@ -436,6 +441,9 @@ async def leveling_karte_speichern(
             str(form.get("stil", "neon")), str(form.get("akzent", "")),
             str(form.get("titel", "")), str(form.get("text", "")),
         )
+        nachricht = str(form.get("nachricht", "")).strip()
+        if len(nachricht) > NACHRICHT_MAX:
+            raise ValueError(f"Der Glückwunsch-Text darf höchstens {NACHRICHT_MAX} Zeichen haben.")
         datei = form.get("bild")
         bild_neu = None
         if datei is not None and getattr(datei, "filename", ""):
@@ -454,6 +462,8 @@ async def leveling_karte_speichern(
             "levelup_card_titel": titel,
             "levelup_card_text": text,
             "levelup_card_rolle_zeigen": "rolle_zeigen" in form,
+            "levelup_card_animiert": "animiert" in form,
+            "levelup_nachricht": nachricht,
         }
         if bild_neu:
             werte["levelup_card_bg"] = bild_neu

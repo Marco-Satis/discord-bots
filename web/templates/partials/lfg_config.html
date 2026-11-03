@@ -36,6 +36,32 @@
                     (0–3600s).</p>
             </div>
         </div>
+        {# Gruppe 3: Talk ist offen #}
+        <div class="set-group">
+            <div class="set-group-title">Talk ist offen</div>
+            <label class="toggle-label" style="display:flex;gap:8px;align-items:center">
+                <input type="checkbox" name="talk_aktiv" {% if cfg.talk_aktiv %}checked{% endif %}>
+                Meldung senden, sobald jemand den leeren Voice betritt
+            </label>
+            <p class="config-hint">Bleibt die Person 30 Sekunden drin, pingt der Bot die Rolle.
+                Ist der Voice wieder leer, verschwindet die Meldung.</p>
+            <div class="form-group">
+                <label for="talk_role_id">Rolle für Talk-Pings</label>
+                {{ role_select('talk_role_id', cfg.talk_role_id|default('', true), placeholder='— keine Rolle —', id='talk_role_id') }}
+                <p class="config-hint">Mitglieder geben sie sich über den Button von
+                    <code>/lfg talkpanel</code>.</p>
+            </div>
+            <div class="form-group">
+                <label for="talk_channel_id">Kanal für die Meldung</label>
+                {{ channel_select('talk_channel_id', cfg.talk_channel_id|default('', true), kind='text') }}
+            </div>
+            <div class="form-group">
+                <label for="talk_pause_minuten">Pause zwischen zwei Meldungen (Minuten)</label>
+                <input type="number" id="talk_pause_minuten" name="talk_pause_minuten"
+                       min="0" max="1440" value="{{ cfg.talk_pause_minuten|default(60) }}">
+                <p class="config-hint">Verhindert Ping-Flut, wenn Leute öfter rein und raus gehen.</p>
+            </div>
+        </div>
     </div>
     <div class="actions-bar">
         <button type="submit" class="btn btn-primary">Speichern</button>

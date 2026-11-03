@@ -62,6 +62,10 @@ LEVELING_CONFIG_FILE = ADMIN_DATA_DIR / "leveling_config.json"
 _GUILD_CFG_TTL: float = 15.0
 
 
+# Glueckwunsch ueber der Level-Up-Karte (Marco 03.11.2026), Platzhalter wie im Dashboard
+LEVELUP_NACHRICHT_STANDARD = "🎉 Glückwunsch {user}, du bist jetzt **Level {level}**!"
+
+
 def _default_config() -> dict[str, Any]:
     """Standard-Konfiguration fuer das Leveling-System zurueckgeben."""
     return {
@@ -84,6 +88,8 @@ def _default_config() -> dict[str, Any]:
         "levelup_card_titel": "LEVEL UP",
         "levelup_card_text": "",              # Unterzeile mit Platzhaltern
         "levelup_card_rolle_zeigen": True,    # neue Rangrolle auf der Karte nennen
+        "levelup_card_animiert": True,        # Level-Up-Karte als GIF (alt -> neu)
+        "levelup_nachricht": LEVELUP_NACHRICHT_STANDARD,  # Text ueber der Karte
         # Level-Up-Benachrichtigung: Member anpingen + fester Announce-Channel.
         # announce_channel = None -> im Kanal posten wo das Level-Up ausgeloest
         # wurde (Nachricht) bzw. System-Channel (Voice). Beides Dashboard-editierbar.
@@ -823,6 +829,9 @@ class LevelingManager:
             "text": cfg.get("levelup_card_text") or "",
             "rolle_zeigen": bool(cfg.get("levelup_card_rolle_zeigen", True)),
             "accent": cfg.get("levelup_card_accent") or "#B84DFF",
+            "animiert": bool(cfg.get("levelup_card_animiert", True)),
+            # leerer Text ist erlaubt (dann nur der Ping, wie bis 03.11.)
+            "nachricht": cfg.get("levelup_nachricht", LEVELUP_NACHRICHT_STANDARD) or "",
         }
 
     def get_card_accent(self, guild_id: int | str) -> str:

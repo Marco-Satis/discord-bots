@@ -13,7 +13,7 @@ from __future__ import annotations
 import io
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFont
 
 from utils.logger import get_logger
 
@@ -182,38 +182,30 @@ def _halbtransparent(card: Image.Image, zeichnen) -> Image.Image:
     return Image.alpha_composite(card, ebene)
 
 
-def render_levelup_card(
-    bg_path: str | Path | None,
-    avatar_bytes: bytes | None,
-    username: str,
-    level: int,
-    xp_in_level: int = 0,
-    xp_for_next: int = 100,
-    accent: str = "#B84DFF",
-    header: str = "LEVEL UP",
-    *,
-    stil: str = "neon",
-    unterzeile: str | None = None,
-    rolle: str | None = None,
-) -> bytes:
-    """
-    Level-Up- bzw. Rang-Karte rendern und als PNG-Bytes zurueckgeben.
+def _glow_lokal(card: Image.Image, mitte: tuple[int, int], radius: int,
+                farbe: tuple[int, int, int], staerke: int) -> Image.Image:
+    """Wie _glow, aber nur im Umkreis berechnet (schnell genug fuer Animationsbilder)."""
+    from PIL import ImageFilter
 
-    Ein Template fuer Level-Up UND Rang-Karte; nur die Kopfzeile unterscheidet
-    sich ("LEVEL UP" vs. "RANG #3").
+    r = int(radius * 1.6)
+    x0, y0 = max(0, mitte[0] - r), max(0, mitte[1] - r)
+    x1, y1 = min(card.width, mitte[0] + r), min(card.height, mitte[1] + r)
+    if x1 <= x0 or y1 <= y0:
+        return card
+    ebene = Image.new("RGBA", (x1 - x0, y1 - y0), farbe + (0,))
+    maske = Image.new("L", ebene.size, 0)
+    cx, cy = mitte[0] - x0, mitte[1] - y0
+    ImageDraw.Draw(maske).ellipse([cx - radius, cy - radius, cx + radius, cy + radius], fill=staerke)
+    ebene.putalpha(maske.filter(ImageFilter.GaussianBlur(radius * 0.55)))
+    card.alpha_composite(ebene, (x0, y0))
+    return card
 
-    Args:
-        bg_path: eigenes Hintergrundbild oder None (dann C3-Neon-Hintergrund)
-        avatar_bytes: Avatar als Bytes oder None (dann Initiale)
-        username: Anzeigename
-        level: erreichtes Level
-        xp_in_level / xp_for_next: Fortschritt im Level
-        accent: Akzentfarbe (#RRGGBB), wirkt im Stil "akzent"
-        header: Kopfzeile, z.B. "LEVEL UP"
-        stil: "neon" (Violett-Magenta-Cyan) oder "akzent" (eine Farbe)
-        unterzeile: frei waehlbarer Text unter dem Namen (schon mit Platzhaltern ersetzt)
-        rolle: Name einer neu erreichten Rangrolle (wird als Abzeichen gezeigt)
-    """
+
+def _karte_basis(
+    bg_path, avatar_bytes, username: str, accent: str, header: str, *,
+    stil: str, unterzeile: str | None, rolle: str | None, breiteste_zahl: str,
+) -> tuple[Image.Image, dict]:
+    """Fester Teil der Karte (alles ausser Levelzahl, Balken und XP-Zeile), doppelte Groesse."""
     W, H = CARD_W * _SS, CARD_H * _SS
     s = _SS
     acc = _hex_to_rgb(accent, C3_VIOLET)
@@ -252,8 +244,6 @@ def render_levelup_card(
         rd.line([(0, y), (W, y)], fill=(244, 241, 255, 9), width=s)
     card = Image.alpha_composite(card, raster)
 
-    d = ImageDraw.Draw(card, "RGBA")  # mischt Halbtransparenz statt sie zu ersetzen
-
     # --- Avatar mit Verlaufsring ---
     av = 236 * s
     ax, ay = 64 * s, (H - av) // 2
@@ -287,29 +277,19 @@ def render_levelup_card(
 
     d = ImageDraw.Draw(card, "RGBA")  # mischt Halbtransparenz statt sie zu ersetzen
 
-    # --- Grosse Levelzahl rechts (Verlaufsfuellung) ---
+    # Platz der grossen Levelzahl (breiteste vorkommende Zahl)
     rechts = W - 64 * s
     f_lvl = _grotesk(176 * s, 700)
-    lvl_txt = str(level)
-    lw = int(d.textlength(lvl_txt, font=f_lvl))
-    bbox = d.textbbox((0, 0), lvl_txt, font=f_lvl)
-    lh = bbox[3]
-    lx, ly = rechts - lw, 34 * s
-    maske = Image.new("L", (W, H), 0)
-    ImageDraw.Draw(maske).text((lx, ly), lvl_txt, font=f_lvl, fill=255)
-    fuell = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    fuell.paste(_verlauf(lw, lh, farben).convert("RGBA"), (lx, ly))
-    fuell.putalpha(maske)
-    card = Image.alpha_composite(card, _glow((W, H), (lx + lw // 2, ly + lh // 2), lw // 2 + 60 * s, hl, 70))
-    card = Image.alpha_composite(card, fuell)
-    d = ImageDraw.Draw(card, "RGBA")  # mischt Halbtransparenz statt sie zu ersetzen
+    lw_max = int(d.textlength(breiteste_zahl, font=f_lvl))
+    lh = d.textbbox((0, 0), breiteste_zahl, font=f_lvl)[3]
+    ly = 34 * s
     f_lbl = _mono(26 * s)
     lbl = "LEVEL"
     d.text((rechts - d.textlength(lbl, font=f_lbl), ly + lh + 6 * s), lbl, font=f_lbl, fill=C3_TEXT2 + (255,))
 
     # --- Textblock ---
     tx = ax + av + 56 * s
-    text_max = lx - tx - 36 * s
+    text_max = rechts - lw_max - tx - 36 * s
 
     # Kopf-Chip
     f_head = _mono(26 * s)
@@ -342,30 +322,12 @@ def render_levelup_card(
         d.text((tx, zeile_y), _passt(d, _sauber(unterzeile), f_u, text_max), font=f_u,
                fill=C3_TEXT2 + (255,))
 
-    # Fortschrittsbalken
+    # Leere Balken-Spur
     bar_x, bar_y = tx, H - 104 * s
     bar_w, bar_h = rechts - tx, 26 * s
     card = _halbtransparent(card, lambda od: od.rounded_rectangle(
         [bar_x, bar_y, bar_x + bar_w, bar_y + bar_h], radius=bar_h // 2,
         fill=(244, 241, 255, 26), outline=(244, 241, 255, 46), width=s))
-    d = ImageDraw.Draw(card, "RGBA")
-    frac = max(0.0, min(1.0, xp_in_level / xp_for_next)) if xp_for_next > 0 else 0.0
-    fw = max(bar_h, int(bar_w * frac)) if frac > 0 else 0
-    if fw:
-        balken = _verlauf(fw, bar_h, farben).convert("RGBA")
-        bm = Image.new("L", (fw, bar_h), 0)
-        ImageDraw.Draw(bm).rounded_rectangle([0, 0, fw - 1, bar_h - 1], radius=bar_h // 2, fill=255)
-        balken.putalpha(bm)
-        card = Image.alpha_composite(card, _glow((W, H), (bar_x + fw, bar_y + bar_h // 2), 30 * s, farben[-1], 80))
-        card.paste(balken, (bar_x, bar_y), balken)
-        d = ImageDraw.Draw(card, "RGBA")  # mischt Halbtransparenz statt sie zu ersetzen
-
-    f_xp = _mono(24 * s)
-    xp_txt = f"{xp_in_level:,} / {xp_for_next:,} XP".replace(",", ".")
-    d.text((bar_x, bar_y + bar_h + 12 * s), xp_txt, font=f_xp, fill=C3_TEXT2 + (255,))
-    naechst = f"bis Level {level + 1}"
-    d.text((rechts - d.textlength(naechst, font=f_xp), bar_y + bar_h + 12 * s), naechst,
-           font=f_xp, fill=C3_TEXT2 + (200,))
 
     # Rahmen
     card = _halbtransparent(card, lambda od: od.rounded_rectangle(
@@ -373,14 +335,211 @@ def render_levelup_card(
     oben = _verlauf(W - 72 * s, 3 * s, farben).convert("RGBA")
     card.paste(oben, (36 * s, 0), oben)
 
+    ctx = {
+        "farben": farben, "hl": hl, "rechts": rechts, "ly": ly, "lh": lh, "f_lvl": f_lvl,
+        "bar": (bar_x, bar_y, bar_w, bar_h), "f_xp": _mono(24 * s),
+        # Zahl darf nicht ueber den oberen Kartenrand und nicht in den Textblock laufen
+        "zahl_box": (rechts - lw_max - 20 * s, 0, W, ly + lh + 4 * s),
+    }
+    return card, ctx
+
+
+def _karte_bild(basis: Image.Image, ctx: dict, zahlen: list[tuple[str, int, float]],
+                level: int, xp_in_level: int, xp_for_next: int, frac: float,
+                blitz: float = 0.0) -> Image.Image:
+    """Dynamischen Teil auf eine Kopie der Basis zeichnen und auf Endgroesse bringen.
+
+    zahlen: (Text, senkrechter Versatz in px der Endgroesse, Deckkraft 0..1)
+    blitz:  0..1, laesst den vollen Balken beim Aufstieg aufleuchten
+    """
+    s = _SS
+    card = basis.copy()
+    W, H = card.size
+    farben, hl = ctx["farben"], ctx["hl"]
+    rechts, ly, lh, f_lvl = ctx["rechts"], ctx["ly"], ctx["lh"], ctx["f_lvl"]
+    d = ImageDraw.Draw(card, "RGBA")
+
+    # --- Levelzahl(en), rechtsbuendig, auf die Zahl-Box beschnitten ---
+    bx0, by0, bx1, by1 = ctx["zahl_box"]
+    for i, (txt, dy, alpha) in enumerate(zahlen):
+        if alpha <= 0:
+            continue
+        lw = int(d.textlength(txt, font=f_lvl))
+        lx, y = rechts - lw, ly + dy * s
+        if i == len(zahlen) - 1:
+            card = _glow_lokal(card, (lx + lw // 2, ly + lh // 2), lw // 2 + 60 * s, hl, int(70 * alpha))
+        maske = Image.new("L", (W, H), 0)
+        ImageDraw.Draw(maske).text((lx, y), txt, font=f_lvl, fill=int(255 * alpha))
+        box = Image.new("L", (W, H), 0)
+        ImageDraw.Draw(box).rectangle([bx0, by0, bx1, by1], fill=255)
+        maske = ImageChops.multiply(maske, box)
+        fuell = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        fuell.paste(_verlauf(lw, lh, farben).convert("RGBA"), (lx, y))
+        fuell.putalpha(maske)
+        card = Image.alpha_composite(card, fuell)
+    d = ImageDraw.Draw(card, "RGBA")
+
+    # --- Fortschrittsbalken ---
+    bar_x, bar_y, bar_w, bar_h = ctx["bar"]
+    frac = max(0.0, min(1.0, frac))
+    fw = max(bar_h, int(bar_w * frac)) if frac > 0 else 0
+    if fw:
+        balken = _verlauf(fw, bar_h, farben).convert("RGBA")
+        bm = Image.new("L", (fw, bar_h), 0)
+        ImageDraw.Draw(bm).rounded_rectangle([0, 0, fw - 1, bar_h - 1], radius=bar_h // 2, fill=255)
+        balken.putalpha(bm)
+        card = _glow_lokal(card, (bar_x + fw, bar_y + bar_h // 2), int(30 * s * (1 + 2 * blitz)),
+                           farben[-1], int(80 + 120 * blitz))
+        card.paste(balken, (bar_x, bar_y), balken)
+        if blitz > 0:
+            weiss = Image.new("RGBA", (fw, bar_h), (255, 255, 255, int(150 * blitz)))
+            card.paste(weiss, (bar_x, bar_y), Image.composite(weiss, Image.new("RGBA", weiss.size), bm))
+        d = ImageDraw.Draw(card, "RGBA")
+
+    f_xp = ctx["f_xp"]
+    xp_txt = f"{xp_in_level:,} / {xp_for_next:,} XP".replace(",", ".")
+    d.text((bar_x, bar_y + bar_h + 12 * s), xp_txt, font=f_xp, fill=C3_TEXT2 + (255,))
+    naechst = f"bis Level {level + 1}"
+    d.text((rechts - d.textlength(naechst, font=f_xp), bar_y + bar_h + 12 * s), naechst,
+           font=f_xp, fill=C3_TEXT2 + (200,))
+
     # Runde Ecken + verkleinern
     ecken = Image.new("L", (W, H), 0)
     ImageDraw.Draw(ecken).rounded_rectangle([0, 0, W - 1, H - 1], radius=36 * s, fill=255)
     card.putalpha(ecken)
-    card = card.resize((CARD_W, CARD_H), Image.LANCZOS)
+    return card.resize((CARD_W, CARD_H), Image.LANCZOS)
 
+
+def render_levelup_card(
+    bg_path: str | Path | None,
+    avatar_bytes: bytes | None,
+    username: str,
+    level: int,
+    xp_in_level: int = 0,
+    xp_for_next: int = 100,
+    accent: str = "#B84DFF",
+    header: str = "LEVEL UP",
+    *,
+    stil: str = "neon",
+    unterzeile: str | None = None,
+    rolle: str | None = None,
+) -> bytes:
+    """
+    Level-Up- bzw. Rang-Karte rendern und als PNG-Bytes zurueckgeben.
+
+    Ein Template fuer Level-Up UND Rang-Karte; nur die Kopfzeile unterscheidet
+    sich ("LEVEL UP" vs. "RANG #3").
+
+    Args:
+        bg_path: eigenes Hintergrundbild oder None (dann C3-Neon-Hintergrund)
+        avatar_bytes: Avatar als Bytes oder None (dann Initiale)
+        username: Anzeigename
+        level: erreichtes Level
+        xp_in_level / xp_for_next: Fortschritt im Level
+        accent: Akzentfarbe (#RRGGBB), wirkt im Stil "akzent"
+        header: Kopfzeile, z.B. "LEVEL UP"
+        stil: "neon" (Violett-Magenta-Cyan) oder "akzent" (eine Farbe)
+        unterzeile: frei waehlbarer Text unter dem Namen (schon mit Platzhaltern ersetzt)
+        rolle: Name einer neu erreichten Rangrolle (wird als Abzeichen gezeigt)
+    """
+    basis, ctx = _karte_basis(
+        bg_path, avatar_bytes, username, accent, header,
+        stil=stil, unterzeile=unterzeile, rolle=rolle, breiteste_zahl=str(level),
+    )
+    frac = xp_in_level / xp_for_next if xp_for_next > 0 else 0.0
+    card = _karte_bild(basis, ctx, [(str(level), 0, 1.0)], level, xp_in_level, xp_for_next, frac)
     out = io.BytesIO()
     card.save(out, "PNG")
+    return out.getvalue()
+
+
+def _sanft(t: float) -> float:
+    """Ease-in-out fuer Bewegungen (0..1 -> 0..1)."""
+    t = max(0.0, min(1.0, t))
+    return t * t * (3 - 2 * t)
+
+
+def render_levelup_gif(
+    bg_path: str | Path | None,
+    avatar_bytes: bytes | None,
+    username: str,
+    alt_level: int,
+    alt_xp_in: int,
+    alt_xp_for: int,
+    level: int,
+    xp_in_level: int = 0,
+    xp_for_next: int = 100,
+    accent: str = "#B84DFF",
+    header: str = "LEVEL UP",
+    *,
+    stil: str = "neon",
+    unterzeile: str | None = None,
+    rolle: str | None = None,
+    breite: int = 900,
+) -> bytes:
+    """
+    Animierte Level-Up-Karte als GIF: Balken laeuft voll, leuchtet auf, die alte
+    Levelzahl gleitet nach oben weg, die neue kommt von unten, danach fuellt sich
+    der Balken auf den neuen Stand. Das letzte Bild bleibt stehen.
+    """
+    basis, ctx = _karte_basis(
+        bg_path, avatar_bytes, username, accent, header,
+        stil=stil, unterzeile=unterzeile, rolle=rolle,
+        breiteste_zahl=max(str(alt_level), str(level), key=len),
+    )
+    neu_frac = xp_in_level / xp_for_next if xp_for_next > 0 else 0.0
+    alt_frac = alt_xp_in / alt_xp_for if alt_xp_for > 0 else 0.0
+    alt, neu = str(alt_level), str(level)
+    bilder: list[tuple[Image.Image, int]] = []
+
+    def bild(zahlen, frac, blitz=0.0, ms=50, vorher=False):
+        if vorher:  # alte Stufe: XP-Zeile zaehlt bis zum vollen Balken hoch
+            xp_in = int(alt_xp_in + (alt_xp_for - alt_xp_in) * (frac - alt_frac) / max(1e-9, 1 - alt_frac))
+            werte = (alt_level, min(alt_xp_for, xp_in), alt_xp_for)
+        else:
+            werte = (level, int(xp_in_level * min(1.0, frac / neu_frac)) if neu_frac else 0, xp_for_next)
+        bilder.append((_karte_bild(basis, ctx, zahlen, *werte, frac, blitz), ms))
+
+    bild([(alt, 0, 1.0)], alt_frac, ms=500, vorher=True)
+    for i in range(1, 9):  # Balken laeuft voll
+        bild([(alt, 0, 1.0)], alt_frac + (1 - alt_frac) * _sanft(i / 8), vorher=True)
+    for b in (1.0, 0.6):  # Aufleuchten
+        bild([(alt, 0, 1.0)], 1.0, blitz=b, ms=70, vorher=True)
+    for i in range(1, 11):  # Zahlenwechsel
+        t = _sanft(i / 10)
+        bild([(alt, int(-110 * t), 1 - t), (neu, int(110 * (1 - t)), t)], 1.0 - t, blitz=0.3 * (1 - t))
+    for i in range(1, 9):  # neuer Stand
+        bild([(neu, 0, 1.0)], neu_frac * _sanft(i / 8))
+    bild([(neu, 0, 1.0)], neu_frac, ms=4000)
+
+    # Eine gemeinsame Palette fuer alle Bilder: kein Farbflackern zwischen den Frames
+    hoehe = round(CARD_H * breite / CARD_W)
+    rgba = [b.resize((breite, hoehe), Image.LANCZOS) for b, _ in bilder]
+    hinter = Image.new("RGB", (breite, hoehe), C3_BG)
+    flach = []
+    for b in rgba:
+        f = hinter.copy()
+        f.paste(b, (0, 0), b)
+        flach.append(f)
+    # Palette aus Start-, Leucht-, Wechsel- und Endbild, sonst fehlen die hellen Toene
+    proben = [flach[0], flach[9], flach[len(flach) // 2 + 2], flach[-1]]
+    collage = Image.new("RGB", (breite, hoehe * len(proben)))
+    for i, f in enumerate(proben):
+        collage.paste(f, (0, i * hoehe))
+    palette = collage.quantize(colors=255, method=Image.Quantize.MEDIANCUT)
+    frames = []
+    for f, b in zip(flach, rgba):
+        q = f.quantize(palette=palette, dither=Image.Dither.FLOYDSTEINBERG)
+        # Ecken transparent (Index 255 ist frei, die Palette hat 255 Farben)
+        ecke = b.getchannel("A").point(lambda a: 255 if a < 128 else 0)
+        q.paste(255, (0, 0), ecke)
+        frames.append(q)
+    out = io.BytesIO()
+    frames[0].save(
+        out, "GIF", save_all=True, append_images=frames[1:],
+        # ohne loop: einmal abspielen, das letzte Bild bleibt stehen
+        duration=[ms for _, ms in bilder], disposal=2, transparency=255, optimize=False,
+    )
     return out.getvalue()
 
 

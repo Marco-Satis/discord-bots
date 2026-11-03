@@ -55,11 +55,12 @@ logger = get_logger("cogs.leveling")
 # Level-Up-Karte braucht Pillow — bei fehlender Lib auf Embed zurueckfallen,
 # damit der Admin-Bot nicht crasht (Defense-in-Depth gegen fehlende Dependency).
 try:
-    from modules.levelup_card import render_levelup_card, render_leaderboard_card
+    from modules.levelup_card import render_levelup_card, render_leaderboard_card, render_levelup_gif
     _CARD_AVAILABLE = True
 except Exception as _card_import_err:  # noqa: BLE001
     render_levelup_card = None  # type: ignore[assignment]
     render_leaderboard_card = None  # type: ignore[assignment]
+    render_levelup_gif = None  # type: ignore[assignment]
     _CARD_AVAILABLE = False
     logger.warning(
         f"Level-Up-Karte nicht verfuegbar (Pillow fehlt?): {_card_import_err}"
@@ -476,14 +477,14 @@ class LevelingCog(commands.Cog):
         new_level = user_data["level"]
 
         file, embed = await self._build_levelup_message(
-            message.guild.id, message.author, new_level
+            message.guild.id, message.author, new_level, xp_gained=xp_gained,
         )
 
         # Announce-Channel (Dashboard) bevorzugen, sonst Ausloese-Kanal.
         target = self._resolve_levelup_channel(message.guild, message.channel)
         if target is not None and isinstance(message.author, discord.Member):
             await self._send_levelup(
-                target, message.author, file, embed, message.guild.id
+                target, message.author, file, embed, message.guild.id, new_level
             )
 
         # Rollen-Belohnung vergeben
@@ -608,7 +609,7 @@ class LevelingCog(commands.Cog):
         self._cache_member(member)
 
         if leveled_up:
-            await self._send_voice_level_up(member, guild)
+            await self._send_voice_level_up(member, guild, xp_gained)
 
     @tasks.loop(minutes=1)
     async def voice_sample_task(self) -> None:
@@ -715,6 +716,7 @@ class LevelingCog(commands.Cog):
         self,
         member: discord.Member,
         guild: discord.Guild,
+        xp_gained: int = 0,
     ) -> None:
         """
         Level-Up Nachricht für Voice-XP senden.
@@ -728,12 +730,12 @@ class LevelingCog(commands.Cog):
         new_level = user_data["level"]
 
         file, embed = await self._build_levelup_message(
-            guild.id, member, new_level, via_voice=True
+            guild.id, member, new_level, via_voice=True, xp_gained=xp_gained,
         )
 
         channel = self._resolve_levelup_channel(guild, None)
         if channel:
-            await self._send_levelup(channel, member, file, embed, guild.id)
+            await self._send_levelup(channel, member, file, embed, guild.id, new_level)
 
         # Rollen-Belohnung vergeben
         await self._apply_role_reward(member, new_level, guild)
@@ -760,6 +762,7 @@ class LevelingCog(commands.Cog):
         new_level: int,
         *,
         via_voice: bool = False,
+        xp_gained: int = 0,
     ) -> tuple[Optional[discord.File], discord.Embed]:
         """
         Level-Up-Nachricht bauen.
@@ -779,19 +782,26 @@ class LevelingCog(commands.Cog):
         """
         user_data = self.leveling.get_user(guild_id, member.id)
         xp_in_level, xp_for_next = self._xp_progress(user_data, new_level)
+        vorher = None
+        if xp_gained > 0:
+            alt_xp = max(0, int(user_data.get("xp", 0)) - xp_gained)
+            alt_level = min(self.leveling.level_for_xp(alt_xp), max(0, new_level - 1))
+            alt_in, alt_for = self._xp_progress({"xp": alt_xp}, alt_level)
+            vorher = (alt_level, min(alt_in, alt_for), alt_for)
 
-        # --- Bild-Karte versuchen ---
+        # --- Bild-Karte versuchen (animiert, wenn der Vorher-Stand bekannt ist) ---
         png = await self._karte_png(
-            guild_id, member, new_level, xp_in_level, xp_for_next, levelup=True,
+            guild_id, member, new_level, xp_in_level, xp_for_next, levelup=True, vorher=vorher,
         )
         if png is not None:
-            file = discord.File(io.BytesIO(png), filename="levelup.png")
+            name = "levelup.gif" if png[:4] == b"GIF8" else "levelup.png"
+            file = discord.File(io.BytesIO(png), filename=name)
             try:
                 color = int(self.leveling.get_card_accent(guild_id).lstrip("#"), 16)
             except ValueError:
                 color = COLOR_WARNING
             embed = discord.Embed(color=color)
-            embed.set_image(url="attachment://levelup.png")
+            embed.set_image(url=f"attachment://{name}")
             return file, embed
 
         # --- Fallback: Embed im HUD-Stil (wenn keine Karte gerendert wurde) ---
@@ -847,15 +857,22 @@ class LevelingCog(commands.Cog):
         file: Optional[discord.File],
         embed: discord.Embed,
         guild_id: int,
+        level: Optional[int] = None,
     ) -> None:
         """
-        Level-Up-Nachricht senden — mit optionalem Member-Ping (B1, Dashboard-Toggle).
+        Level-Up-Nachricht senden — Glueckwunsch-Text mit optionalem Member-Ping.
 
+        Der Text kommt aus dem Dashboard ({user} = Ping bzw. Name, {level}).
         allowed_mentions erlaubt gezielt nur den einen User-Ping
         (kein @everyone/@here/Rollen-Ping — Defense-in-Depth).
         """
         ping = self.leveling.is_levelup_ping_enabled(guild_id)
-        content = member.mention if ping else None
+        vorlage = self.leveling.get_card_settings(guild_id)["nachricht"]
+        if vorlage and level is not None:
+            wer = member.mention if ping else discord.utils.escape_markdown(member.display_name)
+            content = platzhalter_render(vorlage, member=member, extra={"level": level, "user": wer})[:1900]
+        else:
+            content = member.mention if ping else None
         mentions = discord.AllowedMentions(
             everyone=False, roles=False, users=[member] if ping else False
         )
@@ -1029,6 +1046,7 @@ class LevelingCog(commands.Cog):
         header: Optional[str] = None,
         levelup: bool = False,
         immer: bool = False,
+        vorher: Optional[tuple[int, int, int]] = None,
     ) -> Optional[bytes]:
         """
         Level-Up- bzw. Rang-Karte nach der Dashboard-Gestaltung rendern.
@@ -1061,6 +1079,17 @@ class LevelingCog(commands.Cog):
         except Exception as e:  # noqa: BLE001 — Karte geht auch ohne Avatar
             logger.debug(f"Avatar fuer Karte nicht ladbar: {e}")
             avatar_bytes = None
+        kopf = header or k["titel"]
+        # vorher = (altes Level, XP im alten Level, Spanne des alten Levels)
+        if levelup and vorher is not None and k["animiert"]:
+            try:
+                return await asyncio.to_thread(
+                    render_levelup_gif, bg_path, avatar_bytes, member.display_name,
+                    *vorher, level, xp_in_level, xp_for_next, k["accent"], kopf,
+                    stil=k["stil"], unterzeile=unterzeile, rolle=rolle,
+                )
+            except Exception as e:  # noqa: BLE001 — dann eben das Standbild
+                logger.warning(f"Level-Up-GIF fehlgeschlagen, sende PNG: {e}")
         try:
             return await asyncio.to_thread(
                 render_levelup_card,
@@ -1071,7 +1100,7 @@ class LevelingCog(commands.Cog):
                 xp_in_level,
                 xp_for_next,
                 k["accent"],
-                header or k["titel"],
+                kopf,
                 stil=k["stil"],
                 unterzeile=unterzeile,
                 rolle=rolle,
@@ -1776,11 +1805,14 @@ class LevelingCog(commands.Cog):
         # Vorschau rendern (falls aktiv; Hintergrundbild ist optional)
         if aktiv:
             user_data = self.leveling.get_user(guild_id, interaction.user.id)
+            lvl = max(1, int(user_data.get("level", 0)))
             png = await self._karte_png(
-                guild_id, interaction.user, user_data.get("level", 0), 30, 100, levelup=True,
+                guild_id, interaction.user, lvl, 30, 100, levelup=True,
+                vorher=(lvl - 1, 70, 100),  # zeigt die Animation von lvl-1 auf lvl
             )
             if png is not None:
-                file = discord.File(io.BytesIO(png), filename="preview.png")
+                name = "preview.gif" if png[:4] == b"GIF8" else "preview.png"
+                file = discord.File(io.BytesIO(png), filename=name)
                 await interaction.followup.send(
                     content="Vorschau Level-Up-Karte (" + ", ".join(notes) + "):",
                     file=file,

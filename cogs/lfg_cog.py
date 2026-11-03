@@ -13,9 +13,15 @@ Mitspieler findet ohne @everyone zu nutzen.
 
 Config je Guild in `guild_config` (Prefix `lfg.`, Dashboard-editierbar):
   lfg.role_id, lfg.channel_id (optional Beschränkung), lfg.cooldown_seconds.
+
+„Talk ist offen" (03.11.2026): betritt jemand den Voice, waehrend sonst
+niemand drin ist, pingt der Bot nach kurzer Wartezeit eine freiwillige Rolle.
+Wird der Voice wieder leer, verschwindet die Meldung. Keys:
+  lfg.talk_aktiv, lfg.talk_role_id, lfg.talk_channel_id, lfg.talk_pause_minuten.
 """
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import Optional
 
@@ -33,6 +39,32 @@ logger = get_logger("cogs.lfg")
 _DEFAULT_COOLDOWN = 300
 # Obergrenze fuer die Ping-Nachricht (vor Escape).
 _MSG_CAP = 200
+# Talk ist offen: so lange muss jemand im Voice bleiben, bevor gepingt wird
+# (kurzes Rein-und-Raus und der Sprung vom Hub in den Temp-Talk pingen nicht).
+_TALK_WARTEN_SEKUNDEN = 30
+# Standard-Pause zwischen zwei Talk-Pings (Minuten).
+_TALK_PAUSE_MINUTEN = 60
+
+
+def menschen_im_voice(guild: discord.Guild, ohne: Optional[int] = None) -> list[discord.Member]:
+    """Menschen in Voice-Channels der Guild (ohne AFK-Kanal und ohne `ohne`)."""
+    afk = guild.afk_channel.id if guild.afk_channel else None
+    return [
+        m
+        for ch in guild.voice_channels
+        if ch.id != afk
+        for m in ch.members
+        if not m.bot and m.id != ohne
+    ]
+
+
+async def _get_talk_role(guild: discord.Guild) -> Optional[discord.Role]:
+    """Konfigurierte Rolle fuer „Talk ist offen" (oder None)."""
+    role_id = await GuildConfig.get(guild.id, "lfg.talk_role_id")
+    try:
+        return guild.get_role(int(role_id)) if role_id else None
+    except (TypeError, ValueError):
+        return None
 
 
 async def _get_role(guild: discord.Guild) -> Optional[discord.Role]:
@@ -98,8 +130,51 @@ class LFGToggleView(discord.ui.View):
             )
 
 
+class TalkToggleView(discord.ui.View):
+    """Persistenter An/Aus-Button für die „Talk ist offen"-Rolle (timeout=None)."""
+
+    def __init__(self) -> None:
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="Talk-Pings an/aus",
+        style=discord.ButtonStyle.primary,
+        custom_id="lfg:talk_toggle",
+        emoji="🔊",
+    )
+    async def toggle_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
+        """Gibt dem Klickenden die Talk-Rolle oder nimmt sie ihm."""
+        if interaction.guild is None or not isinstance(interaction.user, discord.Member):
+            await interaction.response.send_message("Nur auf einem Server nutzbar.", ephemeral=True)
+            return
+        role = await _get_talk_role(interaction.guild)
+        if role is None:
+            await interaction.response.send_message(
+                "„Talk ist offen“ ist nicht eingerichtet — bitte Admin informieren.",
+                ephemeral=True,
+            )
+            return
+        member = interaction.user
+        try:
+            if role in member.roles:
+                await member.remove_roles(role, reason="Talk-Pings abbestellt")
+                text = "Du bekommst **keine** Meldung mehr, wenn der Talk aufgeht."
+            else:
+                await member.add_roles(role, reason="Talk-Pings abonniert")
+                text = "Du bekommst jetzt eine Meldung, sobald jemand im Talk ist."
+            await interaction.response.send_message(text, ephemeral=True)
+        except (discord.Forbidden, discord.HTTPException) as e:
+            logger.warning(f"Talk-Rolle nicht setzbar: {e}")
+            await interaction.response.send_message(
+                "Konnte die Rolle nicht ändern (Bot-Rechte / Rollen-Hierarchie?).",
+                ephemeral=True,
+            )
+
+
 class LFGCog(commands.Cog):
-    """LFG: selbst-zuweisbare Ping-Rolle + Ping-Befehl."""
+    """LFG: selbst-zuweisbare Ping-Rolle + Ping-Befehl + „Talk ist offen"."""
 
     lfg = app_commands.Group(
         name="lfg",
@@ -110,11 +185,138 @@ class LFGCog(commands.Cog):
         self.bot = bot
         # (guild_id, user_id) -> letzter Ping-Zeitpunkt (monotonic) fuer Cooldown
         self._last_ping: dict[tuple[int, int], float] = {}
+        # Talk ist offen, je Guild: letzter Ping (monotonic), gesendete Meldung,
+        # laufende Wartezeit
+        self._talk_zuletzt: dict[int, float] = {}
+        self._talk_meldung: dict[int, discord.Message] = {}
+        self._talk_warten: dict[int, asyncio.Task] = {}
 
     async def cog_load(self) -> None:
-        """Persistente Toggle-View registrieren (überlebt Bot-Restart)."""
+        """Persistente Toggle-Views registrieren (überleben Bot-Restart)."""
         self.bot.add_view(LFGToggleView())
-        logger.info("LFG-Cog geladen, persistente View registriert")
+        self.bot.add_view(TalkToggleView())
+        logger.info("LFG-Cog geladen, persistente Views registriert")
+
+    async def cog_unload(self) -> None:
+        for task in self._talk_warten.values():
+            task.cancel()
+
+    # ==================================================================
+    # Talk ist offen
+    # ==================================================================
+
+    @commands.Cog.listener()
+    async def on_voice_state_update(
+        self,
+        member: discord.Member,
+        before: discord.VoiceState,
+        after: discord.VoiceState,
+    ) -> None:
+        """Erster Mensch im Voice -> nach Wartezeit pingen; Voice leer -> Meldung weg."""
+        if member.bot or before.channel == after.channel:
+            return
+        guild = member.guild
+        if after.channel is not None and not before.channel:
+            if not await GuildConfig.get(guild.id, "lfg.talk_aktiv", False):
+                return
+            if guild.afk_channel and after.channel.id == guild.afk_channel.id:
+                return
+            # Nur wenn vorher niemand im Voice war und keine Wartezeit laeuft
+            if menschen_im_voice(guild, ohne=member.id) or guild.id in self._talk_warten:
+                return
+            self._talk_warten[guild.id] = asyncio.create_task(self._talk_pruefen(guild, member))
+        elif before.channel is not None and not menschen_im_voice(guild):
+            # Letzter Mensch ist raus (oder in den AFK-Kanal gewechselt)
+            await self._talk_aufraeumen(guild)
+
+    async def _talk_pruefen(self, guild: discord.Guild, member: discord.Member) -> None:
+        """Nach der Wartezeit pruefen und ggf. die Meldung senden."""
+        try:
+            await asyncio.sleep(_TALK_WARTEN_SEKUNDEN)
+            await self._talk_melden(guild, member)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001 — Listener darf nicht sterben
+            logger.error(f"[{guild.id}] Talk-ist-offen fehlgeschlagen: {e}", exc_info=True)
+        finally:
+            self._talk_warten.pop(guild.id, None)
+
+    async def _talk_melden(self, guild: discord.Guild, member: discord.Member) -> None:
+        voice = member.voice.channel if member.voice else None
+        if voice is None or (guild.afk_channel and voice.id == guild.afk_channel.id):
+            return
+        try:
+            pause = int(await GuildConfig.get(guild.id, "lfg.talk_pause_minuten", _TALK_PAUSE_MINUTEN))
+        except (TypeError, ValueError):
+            pause = _TALK_PAUSE_MINUTEN
+        zuletzt = self._talk_zuletzt.get(guild.id)
+        if zuletzt is not None and time.monotonic() - zuletzt < max(0, pause) * 60:
+            return
+        role = await _get_talk_role(guild)
+        try:
+            kanal = guild.get_channel(int(await GuildConfig.get(guild.id, "lfg.talk_channel_id", 0) or 0))
+        except (TypeError, ValueError):
+            kanal = None
+        if role is None or not isinstance(kanal, discord.TextChannel):
+            logger.warning(f"[{guild.id}] Talk ist offen: Rolle oder Kanal fehlt")
+            return
+        name = discord.utils.escape_markdown(member.display_name)
+        embed = info_embed(
+            title="🔊 Talk ist offen",
+            description=f"**{name}** ist gerade in {voice.mention}. Komm dazu!",
+        )
+        embed.set_footer(text="Meldung an/aus: Button „Talk-Pings an/aus“")
+        try:
+            msg = await kanal.send(
+                content=role.mention, embed=embed,
+                allowed_mentions=discord.AllowedMentions(everyone=False, users=False, roles=[role]),
+            )
+        except (discord.Forbidden, discord.HTTPException) as e:
+            logger.warning(f"[{guild.id}] Talk-ist-offen nicht sendbar: {e}")
+            return
+        self._talk_zuletzt[guild.id] = time.monotonic()
+        self._talk_meldung[guild.id] = msg
+        logger.info(f"[{guild.id}] Talk ist offen gemeldet ({voice.id})")
+
+    async def _talk_aufraeumen(self, guild: discord.Guild) -> None:
+        """Voice ist leer: Wartezeit abbrechen, Meldung loeschen."""
+        task = self._talk_warten.pop(guild.id, None)
+        if task is not None:
+            task.cancel()
+        msg = self._talk_meldung.pop(guild.id, None)
+        if msg is not None:
+            try:
+                await msg.delete()
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException) as e:
+                logger.debug(f"Talk-Meldung nicht loeschbar: {e}")
+
+    @lfg.command(name="talkpanel", description="(Admin) An/Aus-Button für „Talk ist offen“ posten")
+    @app_commands.describe(channel="Channel für das Panel (leer = hier)")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def lfg_talkpanel(
+        self,
+        interaction: discord.Interaction,
+        channel: Optional[discord.TextChannel] = None,
+    ) -> None:
+        """Postet ein Embed mit persistentem An/Aus-Button für die Talk-Rolle."""
+        await interaction.response.defer(ephemeral=True)
+        target = channel or interaction.channel
+        if not isinstance(target, discord.TextChannel):
+            await interaction.followup.send("Bitte einen Text-Channel angeben.", ephemeral=True)
+            return
+        embed = info_embed(
+            title="🔊 Talk ist offen",
+            description=(
+                "Willst du wissen, wann jemand im Talk sitzt?\n"
+                "Klick den Button, dann pingt dich der Bot, sobald der Talk aufgeht."
+            ),
+        )
+        try:
+            await target.send(embed=embed, view=TalkToggleView())
+        except (discord.Forbidden, discord.HTTPException) as e:
+            await interaction.followup.send(f"Panel konnte nicht gepostet werden: {e}", ephemeral=True)
+            return
+        await interaction.followup.send(f"Talk-Panel in {target.mention} gepostet.", ephemeral=True)
 
     async def _cooldown_left(self, guild_id: int, user_id: int) -> int:
         """Verbleibende Cooldown-Sekunden für /lfg ping (0 = frei)."""

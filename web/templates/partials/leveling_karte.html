@@ -50,6 +50,20 @@
       {{ platzhalter_liste('lk-text', extra=[('{level}', 'Erreichtes Level', '12')], hinweis="Auf der Karte steht {user} als Name, nicht als Erwähnung.") }}
     </div>
 
+    <div class="lvl-field">
+      <label for="lk-nachricht">Glückwunsch-Text über der Karte <small>(nur beim Level-Up, max. {{ nachricht_max }} Zeichen, leer = nur Ping)</small></label>
+      <input id="lk-nachricht" type="text" name="nachricht" value="{{ karte.nachricht }}" maxlength="{{ nachricht_max }}" placeholder="🎉 Glückwunsch {user}, du bist jetzt **Level {level}**!">
+      {{ platzhalter_liste('lk-nachricht', extra=[('{level}', 'Erreichtes Level', '12')], hinweis="{user} ist der Ping, wenn „Member bei Level-Up anpingen“ an ist, sonst der Name.") }}
+    </div>
+
+    <div class="toggle-row">
+      <div class="toggle-info">
+        <div class="toggle-info-label">Animierte Level-Up-Karte</div>
+        <div class="toggle-info-desc">Als GIF: Balken läuft voll, altes Level gleitet weg, neues kommt. /rank bleibt ein Standbild.</div>
+      </div>
+      <label class="toggle"><input type="checkbox" name="animiert" {% if karte.animiert %}checked{% endif %}><span class="slider"></span></label>
+    </div>
+
     <div class="toggle-row">
       <div class="toggle-info">
         <div class="toggle-info-label">Neue Rangrolle auf der Karte nennen</div>
